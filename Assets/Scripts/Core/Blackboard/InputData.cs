@@ -3,8 +3,8 @@ using UnityEngine;
 namespace Project.Core.Blackboard
 {
     /// <summary>
-    /// v0.3 ÅÜ§ó¡G§ï¬° ref struct¡C
-    /// ¥u¯à¦s¬¡©ó Stack¡A¹ı©³®Ú°£¸ó´V«ù¦³ªº°­¼v¸ê®Æ­·ÀI (Aliasing)¡C
+    /// v0.3 è®Šæ›´ï¼šæ”¹ç‚º ref structã€‚
+    /// åªèƒ½å­˜æ´»æ–¼ Stackï¼Œå¾¹åº•æ ¹é™¤è·¨å¹€æŒæœ‰çš„é¬¼å½±è³‡æ–™é¢¨éšª (Aliasing)ã€‚
     /// </summary>
     public ref struct InputData
     {

@@ -3,7 +3,7 @@ using Project.Core.Blackboard;
 namespace Project.Core.Pipeline
 {
     /// <summary>
-    /// v0.3 ÅÜ§ó¡G°t¦X ref struct¡AÃ±¦W§ï¬°¶Ç§}¼g¤J°Ñ¼Æ (ref pass)
+    /// v0.3 è®Šæ›´ï¼šé…åˆ ref structï¼Œç°½åæ”¹ç‚ºå‚³å€å¯«å…¥åƒæ•¸ (ref pass)
     /// </summary>
     public interface IInputSource
     {

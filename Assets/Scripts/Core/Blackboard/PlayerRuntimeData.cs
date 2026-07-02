@@ -1,4 +1,4 @@
-﻿using Project.Core.Arbitration;
+using Project.Core.Arbitration;
 using UnityEngine;
 
 namespace Project.Core.Blackboard
@@ -18,6 +18,10 @@ namespace Project.Core.Blackboard
         // 註：在 C# 中，若 Intent 改為 Property 會因為結構體值複製機制導致無法直接修改內部成員
         // (例如 data.Intent.JumpRequested = true 會編譯失敗)。因此依規格書維持公開欄位。
         public IntentData Intent;
+        // === 仲裁區 ===
+        // 每幀由仲裁管線統一覆寫，表現層下游只讀不寫
+        // 註：同 Intent，維持公開欄位而非 Property，避免 struct 值複製導致無法直接修改內部旗標
+        public ArbiterData Arbitration;
 
         // === 參數區（持續存在，每帧更新，公開屬性採用 PascalCase）===
         public float MoveSpeed { get; set; }
@@ -33,10 +37,6 @@ namespace Project.Core.Blackboard
         public ItemInstance CurrentWeapon { get; internal set; }
         public Transform AimTarget { get; set; }
 
-        // === 仲裁區 ===
-        /// <summary>
-        /// 每幀由仲裁管線統一覆寫，表現層下游只讀不寫
-        /// </summary>
-        public ArbiterData Arbitration;
+
     }
 }

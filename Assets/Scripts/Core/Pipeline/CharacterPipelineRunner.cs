@@ -1,5 +1,6 @@
-﻿using UnityEngine;
+using UnityEngine;
 using Project.Core.Blackboard;
+using Project.Core.StateMachine;
 
 namespace Project.Core.Pipeline
 {
@@ -14,6 +15,27 @@ namespace Project.Core.Pipeline
 
         public PlayerRuntimeData RuntimeData => _runtimeData;
 
+        [Header("StateMachine Setup")]
+        [SerializeField] private StateMachineConfigSO stateMachineConfig;
+
+        private FullBodyStateMachine _stateMachine;
+
+        // === [新增：供 Editor 跨幀讀取的普通結構體快照] ===
+        public struct InputDebugSnapshot
+        {
+            public Vector2 MoveInput;
+            public Vector2 LookInput;
+            public bool JumpButtonDown;
+            public bool RollButtonDown;
+            public bool FireButtonDown;
+        }
+
+        private InputDebugSnapshot _inputDebug;
+        public InputDebugSnapshot InputDebug => _inputDebug;
+
+        // === [新增：向外曝露當前狀態的唯讀屬性] ===
+        public StateType CurrentState => _stateMachine != null ? _stateMachine.CurrentState.Type : StateType.Idle;
+
         private void Awake()
         {
             _inputSource = inputSourceComponent as IInputSource;
@@ -26,6 +48,13 @@ namespace Project.Core.Pipeline
             {
                 CameraTransform = playerCamera != null ? playerCamera : Camera.main?.transform
             };
+
+            if (stateMachineConfig == null)
+            {
+                Debug.LogError($"[{gameObject.name}] 未綁定 StateMachineConfigSO 配置檔！", this);
+            }
+            _stateMachine = new FullBodyStateMachine();
+            _stateMachine.Initialize(stateMachineConfig);
         }
 
         private void Update()
@@ -36,6 +65,12 @@ namespace Project.Core.Pipeline
             // 透過 ref 傳遞，讓輸入源直接改寫此 stack 變數，達成真正零 GC Alloc
             InputData inputData = default;
             _inputSource.FetchRawInput(ref inputData);
+            // === [新增：在此處將 ref struct 的資料複製一份給除錯快照] ===
+            _inputDebug.MoveInput = inputData.MoveInput;
+            _inputDebug.LookInput = inputData.LookInput;
+            _inputDebug.JumpButtonDown = inputData.JumpButtonDown;
+            _inputDebug.RollButtonDown = inputData.RollButtonDown;
+            _inputDebug.FireButtonDown = inputData.FireButtonDown;
 
             // 【順序 2】Intent Processor 
             // 規格書防禦：若黑板仲裁區標記 BlockInput，則跳過意圖寫入
@@ -49,7 +84,7 @@ namespace Project.Core.Pipeline
 
             // 【順序 4】狀態機 Tick (預留位置，後續實作接上)
             // 讀取黑板中的 Intent，讀完即可視為被狀態機消耗
-            // _stateMachine.Tick(_runtimeData, Time.deltaTime);
+            _stateMachine.Tick(_runtimeData, Time.deltaTime);
 
             // 【順序 5】AnimationFacade 同步 (預留位置，後續實作接上)
             // _animationFacade.Sync(_runtimeData);
