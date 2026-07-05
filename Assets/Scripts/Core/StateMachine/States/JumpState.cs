@@ -8,6 +8,8 @@ namespace Project.Core.StateMachine
         public override StateType Type => StateType.Jump;
         private float _airTimer;
         public bool IsLanded { get; private set; }
+        // 複寫鎖定期：只有落地後才允許自然過渡離開
+        public override bool CanTransitionAway => IsLanded;
 
         public override bool CanEnter(PlayerRuntimeData data) => data.Intent.JumpRequested;
 

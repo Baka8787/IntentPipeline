@@ -16,7 +16,7 @@
 
 # 學習階段規劃
 
-## 第一階段：地基建設
+## 第一階段：地基建設 ✅
 
 ### 學習目標
 
@@ -27,11 +27,11 @@
 * 建立專案架構
 * 安裝 Unity New Input System
 * 建立 `PlayerRuntimeData`（黑板）
-* 建立 `InputData`
+* 建立 `InputData`（v0.3 已升版為 `ref struct`）
 * 建立 `InputPipeline`
-
   * 採樣輸入
   * 將玩家意圖寫入黑板
+* 建立 `ArbiterData`（仲裁旗標，預留第四階段接入）
 * 使用 `Debug.Log` 或 `OnGUI` 顯示黑板內容
 * 驗證資料流是否正確
 
@@ -49,58 +49,81 @@
 
 ### 學習目標
 
-完成 Full Body State Layer。
+完成 FullBody State Layer，並同步評估 Animancer Lite v8 的可行性。
 
 ### 實作內容
 
-* 設計 `BaseState`
+#### 狀態機本體
+* 設計 `BaseState` 抽象類別
+* 建立 `FullBodyStateMachine`（狀態機主體，負責切換邏輯）
 * 建立 State Registry（狀態註冊表）
-* 完成以下狀態：
+* 完成以下 FullBody 層狀態：
+  * `IdleState`
+  * `MoveState`
+  * `JumpState`
+  * `RollState`
+* 接入 `CharacterPipelineRunner` 順序 4 預留位置
 
-  * Idle
-  * Move
-  * Jump
-  * Roll
-* 使用 ScriptableObject 配置：
+#### ScriptableObject 狀態規則配置
+* 建立 `StateRuleSO`（進入條件、打斷規則配置）
+* 建立狀態規則配置資產（每個狀態各一份）
+* 完成狀態進入 / 打斷規則表（見 `02-dev-spec.md` 第 4 節）
 
-  * 進入條件
-  * 打斷規則
-* 串接 Unity Animator（暫不使用 Animancer）
+#### Animancer Lite v8 評估（只讀，不實作）
+* 閱讀 Animancer Lite 文件，確認以下項目：
+  * `AnimancerComponent` 基本 API（`Play()`、Layer 管理、transition 回調）
+  * Lite 版的功能限制（層數上限、商業授權限制等）
+  * 確認 `AnimationFacadeBase` 的抽象介面能否直接包住 Animancer Lite
+* 將評估結論記入 `01-design-doc.md` Trade-off 表
 
 ### 本階段亮點
 
 ScriptableObject 配置 State Rule 是整套架構最值得展示的部分，也是作品集的重要特色。
 
+> **注意**：本階段暫不接動畫，狀態切換只靠 `Debug.Log` 或 BlackboardDebugViewer 驗證正確性即可。
+
 ---
 
-## 第三階段：表現層解耦
+## 第三階段：表現層解耦 + Animancer Lite 接入
 
 ### 學習目標
 
-讓遊戲邏輯完全不直接操作動畫。
+讓遊戲邏輯完全不直接操作動畫，並接入 Animancer Lite 作為底層動畫系統。
 
 ### 實作內容
 
-* 建立 `AnimationFacadeBase`
-* 將 Unity Animator 包裝成 Facade
-* 建立 `MotionDriver`
+#### Animation Facade
+* 建立 `AnimationFacadeBase`（抽象介面層）
+* 實作 `AnimancerFacade`（以 Animancer Lite 作為底層，取代原規劃的 Unity Animator 版本）
 
+#### MotionDriver 基礎版本
+* 建立 `MotionDriver`
   * LateUpdate 同步動畫 Root Motion
   * 解決滑步問題
-* 建立上半身 Layer
 
-  * 空手
-  * 持槍
+#### 動畫資料烘焙工具（Editor 端）
+* 建立烘焙工具（Editor Script），將動畫 clip 的根運動逐幀積分，匯出為輕量資料檔
+* 資料格式：逐幀累計位移陣列（`float[]` 或自訂 ScriptableObject）
+* 先以跳躍落地動畫作為第一個烘焙目標進行驗證
+
+#### MotionDriver 接入烘焙資料
+* 讀取烘焙資料，在 Runtime 計算「理論位移」與「實際目標位移」的差值
+* 將補償速度傳入 MotionDriver 進行修正
+* 驗證目標：跳躍落地時角色落點與目標點誤差在可接受範圍內
+
+#### 上半身 Layer
+* 空手
+* 持槍
 
 ### 本階段重點
 
 完成：
 
-> **Gameplay Logic → Animation Facade → Animator**
+> **Gameplay Logic → AnimationFacade（AnimancerFacade） → Animancer Lite**
 
-而不是：
+動畫烘焙資料的職責邊界：
 
-> **Gameplay Logic → Animator**
+> **Editor 工具提取資料 → 輕量資料檔 → MotionDriver 讀取補償**
 
 ---
 
@@ -112,12 +135,16 @@ ScriptableObject 配置 State Rule 是整套架構最值得展示的部分，也
 
 ### 實作內容
 
+* 實作 `ArbiterPipeline`
+  * 接入 `CharacterPipelineRunner` 順序 4.5 預留位置
+  * 依狀態機目前狀態統一寫入 `RuntimeData.Arbitration` 仲裁旗標
+* 建立具體仲裁器實作（實作 `IArbiter`）
+  * 死亡仲裁器（封鎖輸入、IK、音頻）
+  * LOD 仲裁器（視距離降頻）
 * 建立 `InterruptProcessor`
-
   * 全域打斷
   * 上半身打斷
 * 建立簡易 Action Arbiter
-
   * 管理請求優先權
   * 解決技能衝突
 
@@ -133,33 +160,28 @@ ScriptableObject 配置 State Rule 是整套架構最值得展示的部分，也
 
 ---
 
-## 第五階段：裝備系統與物件池
+## 第五階段：裝備系統、物件池與 MotionDriver 進階
 
 ### 學習目標
 
-補足專案完整度。
+補足專案完整度，並實作需要狀態機配合的進階位移修正。
 
 ### 實作內容
 
-建立裝備系統：
-
+#### 裝備系統
 * `ItemDefinition`
 * `EquipmentDriver`
+* 至少兩種武器，展示不同武器邏輯
 
-完成：
-
-* 至少兩種武器
-* 展示不同武器邏輯
-
-建立物件池：
-
+#### 物件池
 * `SimpleObjectPoolSystem`
+* 應用於：投射物、特效、可重複生成物件
 
-應用於：
-
-* 投射物
-* 特效
-* 可重複生成物件
+#### MotionDriver 進階：分段積分位移修正
+* 實作攀爬等需要分段位移補償的動作
+* 利用第三階段烘焙好的分段位移資料，與 Runtime 實際目標位置比較
+* 積分補償速度，實現局部目標修正（例如攀爬分為「起跳抓邊」與「拉身上去」兩個積分區間）
+* 前提：攀爬狀態需在第二階段狀態機中先行建立
 
 ---
 
@@ -214,11 +236,11 @@ ScriptableObject 配置 State Rule 是整套架構最值得展示的部分，也
 
 ---
 
-## 2. Animancer 可以先略過
+## 2. 直接使用 Animancer Lite，不繞路 Unity Animator
 
-先使用 Unity Animator，透過 `AnimationFacade` 包裝動畫系統。
+第二階段完成 Animancer Lite 評估後，第三階段直接以 `AnimancerFacade` 包裝 Animancer Lite。
 
-未來若改用 Animancer，只需修改 Facade 內部即可，大幅降低切換成本。
+未來若升級至 Animancer Pro，只需修改 Facade 內部即可，切換成本極低。
 
 ---
 
@@ -239,7 +261,8 @@ ScriptableObject 配置 State Rule 是整套架構最值得展示的部分，也
 
 * Input Test
 * State Machine Test
-* Animation Test
+* Animation Test（含 Animancer Lite 驗證）
+* Motion Bake Test（烘焙資料驗證）
 * Equipment Test
 * Object Pool Test
 
@@ -251,14 +274,16 @@ ScriptableObject 配置 State Rule 是整套架構最值得展示的部分，也
 
 完成本學習路徑後，應具備以下成果：
 
-* Input Pipeline
-* Runtime Blackboard
+* Input Pipeline（ref struct 零 GC 設計）
+* Runtime Blackboard（意圖 / 參數 / 仲裁三區分離）
 * 分層狀態機（Hierarchical State Machine）
 * ScriptableObject 規則配置
 * Logic / Animation 解耦
-* Animation Facade
-* Motion Driver
+* AnimationFacade（Animancer Lite 接入）
+* MotionDriver（基礎根運動同步 + 烘焙資料補償）
+* 動畫資料烘焙工具（Editor Script）
 * Interrupt System
+* ArbiterPipeline（仲裁管線）
 * Action Arbiter
 * Equipment System
 * Object Pool

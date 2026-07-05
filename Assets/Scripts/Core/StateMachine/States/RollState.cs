@@ -8,6 +8,8 @@ namespace Project.Core.StateMachine
         public override StateType Type => StateType.Roll;
         private float _rollTimer;
         public bool IsRollFinished { get; private set; }
+        // 複寫鎖定期：只有翻滾計時結束才允許自然過渡離開
+        public override bool CanTransitionAway => IsRollFinished;
 
         public override bool CanEnter(PlayerRuntimeData data) => data.Intent.RollRequested;
 

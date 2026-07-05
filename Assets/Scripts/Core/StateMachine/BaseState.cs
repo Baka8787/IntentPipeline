@@ -25,5 +25,10 @@ namespace Project.Core.StateMachine
             if (Config == null) return false;
             return Config.CheckCanInterrupt(this.Type, other.Type);
         }
+        /// <summary>
+        /// 控制目前狀態是否允許被「自然過渡」打斷。
+        /// 預設為 true（如 Idle, Move）；有鎖定期的狀態（Jump, Roll）應複寫為 false 直到動作完成。
+        /// </summary>
+        public virtual bool CanTransitionAway => true;
     }
 }

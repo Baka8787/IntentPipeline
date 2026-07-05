@@ -1,6 +1,6 @@
 # CharacterController 開發規格文件（API / 資料結構）
 
-> 狀態：草稿 v0.3
+> 狀態：草稿 v0.4
 > 最後更新：2026-06-29
 > 用途：實作時的對照表，先定義介面再寫實作
 
@@ -22,7 +22,7 @@ Assets/
       Core/
         Blackboard/        # RuntimeData, InputData
         Pipeline/          # InputPipeline, MainProcessorPipeline
-        StateMachine/      # BaseState, 各層狀態
+        StateMachine/      # BaseState, FullBodyStateMachine, 各層狀態, StateMachineConfigSO
         Interrupt/         # InterruptProcessor, 攔截器
         Arbitration/       # ArbiterPipeline, IArbiter, ArbiterData
       Presentation/
@@ -33,9 +33,10 @@ Assets/
         Definitions/       # ItemDefinition, EquippableItemSO
         Runtime/           # ItemInstance, EquipmentDriver
       Pooling/
-      Editor/              # 編輯器工具
+      Editor/              # 編輯器工具（含動畫烘焙工具）
     Prefabs/
     ScriptableObjects/
+      StateMachine/        # StateMachineConfigSO 配置資產
   Plugins/
 ```
 
@@ -58,6 +59,7 @@ public class PlayerRuntimeData
     public Transform CameraTransform;
 
     // === 仲裁區（由 ArbiterPipeline 每帧寫入，各表現層 Controller 唯讀）===
+    // 註：同 Intent，維持公開欄位而非 Property，避免 struct 值複製導致無法直接修改內部旗標
     public ArbiterData Arbitration;
 
     // === 引用區 ===
@@ -91,7 +93,7 @@ public struct IntentData
 }
 ```
 
-### 1.3 InputData（已升版為 ref struct，v0.2 → v0.3）
+### 1.3 InputData（已升版為 ref struct，v0.3）
 
 > **版本說明**：v0.1 使用可變 class，`Sample()` 回傳同一物件參考，存在鬼影資料風險（詳見 `01-design-doc.md` Trade-off 表）。v0.3 起升版為 `ref struct`，同步修改 `IInputSource` 簽名（見 2.1 節）。
 
@@ -122,7 +124,6 @@ public ref struct InputData
 public struct ArbiterData
 {
     // 輸入封鎖：true 時 InputPipeline 仍採樣，但 Intent Processor 不應寫入意圖
-    // （由 InputSourceBase.IsBlocked 或 CharacterPipelineRunner 判斷）
     public bool BlockInput;
 
     // IK 封鎖：true 時 IK Controller 跳過本帧更新
@@ -168,20 +169,48 @@ InputData inputData = default;
 _inputSource.FetchRawInput(ref inputData);
 ```
 
-### 2.2 BaseState
+### 2.2 BaseState（v0.4 更新，對齊實作）
 
 ```csharp
 public abstract class BaseState
 {
+    // 狀態識別，用於 SO 配置查表與狀態機 Registry
+    public abstract StateType Type { get; }
+
+    // 由狀態機 Initialize 時注入，子類別透過 Config 存取 SO 配置
+    protected StateMachineConfigSO Config;
+
+    public virtual void Initialize(StateMachineConfigSO config)
+    {
+        Config = config;
+    }
+
     public abstract bool CanEnter(PlayerRuntimeData data);
     public abstract void OnEnter(PlayerRuntimeData data);
     public abstract void OnTick(PlayerRuntimeData data, float deltaTime);
     public abstract void OnExit(PlayerRuntimeData data);
-    public abstract bool CanBeInterruptedBy(BaseState other);
+
+    /// <summary>
+    /// 預設由 SO 配置驅動打斷規則；子類別可 override 處理特殊情況（例如無敵幀強制不可打斷）
+    /// </summary>
+    public virtual bool CanBeInterruptedBy(BaseState other)
+    {
+        if (Config == null) return false;
+        return Config.CheckCanInterrupt(this.Type, other.Type);
+    }
+
+    /// <summary>
+    /// 控制狀態是否允許自然過渡到其他狀態。
+    /// 預設 true；有「鎖定期」的狀態（Jump、Roll、攀爬等）應 override 為 false 直到動作完成。
+    /// 狀態機主體只讀此屬性，不直接用 is JumpState 做型別判斷，保持對新狀態的開放封閉性。
+    /// </summary>
+    public virtual bool CanTransitionAway => true;
 }
 ```
-- 職責：定義單一狀態的生命週期與互斥規則。
-- 注意：`OnTick` 內不可直接呼叫動畫播放 API，必須透過 `AnimationFacadeBase`。
+
+- 職責：定義單一狀態的生命週期、互斥規則、鎖定期語意。
+- **注意**：`OnTick` 內不可直接呼叫動畫播放 API，必須透過 `AnimationFacadeBase`。
+- **`OnEnter` 的 data 參數**：狀態機初始化時第一次呼叫 `OnEnter` 必須傳入已初始化的 `PlayerRuntimeData`，不可傳 `null`（見 2.6 節 `FullBodyStateMachine` 說明）。
 
 ### 2.3 AnimationFacadeBase
 
@@ -194,8 +223,8 @@ public abstract class AnimationFacadeBase : MonoBehaviour
     // event/callback 介面視實作需求增補
 }
 ```
-- 職責：隔離底層動畫系統（Animator / Animancer）差異。
-- 實作範例：`AnimatorFacade : AnimationFacadeBase`
+- 職責：隔離底層動畫系統（Animancer Lite / Animancer Pro）差異。
+- 實作：`AnimancerFacade : AnimationFacadeBase`（第三階段實作）
 
 ### 2.4 IArbiter（仲裁器介面，規劃中）
 
@@ -211,7 +240,7 @@ public interface IArbiter
 }
 ```
 - 職責：接收黑板（含當前狀態資訊），統一計算並覆寫 `data.Arbitration` 仲裁旗標。
-- `ArbiterPipeline` 持有 `List<IArbiter>`，每帧逐一呼叫，支援多個仲裁器疊加（例如「死亡仲裁器」和「LOD 仲裁器」各自獨立）。
+- `ArbiterPipeline` 持有 `List<IArbiter>`，每帧逐一呼叫，支援多個仲裁器疊加。
 - 不該做：不該直接呼叫任何 Controller 的方法，只能寫黑板旗標。
 
 ### 2.5 IPlayerIKSource（若範圍內含 IK）
@@ -223,11 +252,78 @@ public interface IPlayerIKSource
 }
 ```
 
+### 2.6 FullBodyStateMachine（核心實作，v0.4 新增）
+
+```csharp
+public class FullBodyStateMachine
+{
+    private readonly Dictionary<StateType, BaseState> _stateRegistry = new();
+    private BaseState _currentState;
+    private StateMachineConfigSO _config;
+
+    public BaseState CurrentState => _currentState;
+
+    /// <summary>
+    /// 由 CharacterPipelineRunner.Start() 呼叫（不是 Awake），
+    /// 確保 _runtimeData 已在 Awake 完成初始化後才傳入，避免第一次 OnEnter(null) 的風險。
+    /// </summary>
+    public void Initialize(StateMachineConfigSO config, PlayerRuntimeData data) { ... }
+
+    public void Tick(PlayerRuntimeData data, float deltaTime)
+    {
+        // 1. 執行當前狀態邏輯
+        // 2. EvaluateInterrupts（意圖打斷，按優先級評估）
+        // 3. EvaluateTransitions（自然過渡，需 CanTransitionAway == true）
+    }
+}
+```
+
+**EvaluateInterrupts 優先級問題（待決）**：
+- `Dictionary` 遍歷順序不保證，同帧多個意圖同時觸發時結果不確定。
+- 解法方向：在 `StateMachineConfigSO` 加入 `Priority` 欄位，`EvaluateInterrupts` 改為按優先級降序評估候選狀態。
+- **目前狀態**：四個基本狀態的意圖不會同帧同時觸發（`WasPressedThisFrame` 各自獨立），暫無實際 bug，但屬於架構層面的不確定性，排入待辦。詳見第 5 節。
+
+**EvaluateTransitions 設計原則**：
+- 先檢查 `_currentState.CanTransitionAway`，為 `false` 時直接 return，不做任何型別判斷。
+- 不使用 `is JumpState` / `is RollState` 等具體型別判斷——新增狀態時只需在該狀態 override `CanTransitionAway`，此方法不需修改（開放封閉原則）。
+
+### 2.7 StateMachineConfigSO（v0.4 新增）
+
+```csharp
+[Serializable]
+public struct StateRule
+{
+    public StateType State;
+    [Tooltip("哪些狀態可以主動打斷當前狀態（意圖觸發時檢查）")]
+    public List<StateType> CanBeInterruptedBy;
+    [Tooltip("當前狀態結束或無意圖時，允許自然過渡到的狀態優先級")]
+    public List<StateType> ValidTransitions;
+    // TODO: 新增 Priority（int）欄位，供 EvaluateInterrupts 排序使用
+}
+
+[CreateAssetMenu(fileName = "StateMachineConfig", menuName = "Project/Core/StateMachineConfig")]
+public class StateMachineConfigSO : ScriptableObject
+{
+    [SerializeField] private List<StateRule> rules;
+
+    // Runtime 快速查表（Initialize 時從 List 建立）
+    private Dictionary<StateType, List<StateType>> _interruptMap;
+    private Dictionary<StateType, List<StateType>> _transitionMap;
+
+    public void Initialize() { /* List → Dictionary */ }
+    public bool CheckCanInterrupt(StateType current, StateType next) { ... }
+    public IReadOnlyList<StateType> GetValidTransitions(StateType state) { ... }
+    // TODO: public int GetPriority(StateType state) { ... }
+}
+```
+
+- 職責：集中管理所有狀態的打斷規則與自然過渡順序，讓狀態機主體不需要寫死任何狀態間的依賴。
+- `Initialize()` 將 `List` 轉成 `Dictionary` 做 Runtime O(1) 查表，避免每帧 O(n) 的 `List.Contains`。
+- **亮點**：新增一個狀態時，只需在 Inspector 的配置資產裡填一筆 `StateRule`，不需要改任何 C# 程式碼。
+
 ---
 
 ## 3. Pipeline 處理順序規格
-
-> 管線化架構最容易出 bug 的地方是「處理順序」，明確寫下來避免日後改順序時忘記為什麼這樣排
 
 | 順序 | 處理器 | 輸入 | 輸出 | 備註 |
 |---|---|---|---|---|
@@ -243,21 +339,20 @@ public interface IPlayerIKSource
 > **⚠️ 順序脆弱點 1**：`IntentData.Reset()` 必須排在狀態機 Tick（順序 4）之後，且在同帧的 LateUpdate 末執行。若不小心提前，意圖會在被讀取前就被清空。
 >
 > **⚠️ 順序脆弱點 2**：`ArbiterPipeline Tick`（順序 4.5）必須在狀態機 Tick（順序 4）**之後**，才能讀到本帧最新的狀態結果；且必須在 AnimationFacade（順序 5）**之前**，確保動畫層能讀到本帧的仲裁旗標。
+>
+> **⚠️ 初始化順序**：`FullBodyStateMachine.Initialize()` 必須在 `CharacterPipelineRunner.Start()` 內呼叫（非 `Awake()`），確保 `_runtimeData` 已在 `Awake()` 完成初始化，第一次 `OnEnter` 能收到有效的黑板資料。
 
 ---
 
 ## 3.1 Pipeline 處理器介面（規劃中／重構候選，尚未實作）
 
-> 目前 Intent/Parameter 處理邏輯以 private method 形式內嵌在 `CharacterPipelineRunner`（`ProcessIntents` / `ProcessParameters`）。地基階段邏輯量小，先求資料流跑通，暫不抽介面。完整 Trade-off 見 `01-design-doc.md` 第 5 節。
-
 **重構訊號**：當 `ProcessIntents` 或 `ProcessParameters` 任一個方法內的 if-else 判斷超過約 10-15 行，視為該執行此重構的時間點。
 
-**規劃草案**：
 ```csharp
 public interface IIntentProcessor
 {
     void Process(ref InputData input, ref IntentData intent);
-    // 注意：InputData 已為 ref struct，這裡必須用 ref 參數，不能用回傳值
+    // 注意：InputData 已為 ref struct，這裡必須用 ref 參數
 }
 
 public interface IParameterProcessor
@@ -266,25 +361,24 @@ public interface IParameterProcessor
 }
 ```
 
-- `CharacterPipelineRunner` 屆時改為持有 `List<IIntentProcessor>` 與 `List<IParameterProcessor>`，在 `Update()` 中逐一呼叫。
-- 目的：新增一個處理器時不需要修改 `CharacterPipelineRunner` 本體。
-- **注意**：`InputData` 已改為 `ref struct`，介面方法簽名必須用 `ref` 參數傳遞，不能用回傳值或一般參數。
-
 ---
 
-## 4. 狀態進入/打斷規則表（範例，待擴充）
+## 4. 狀態規則表（v0.4 更新）
 
-| 狀態 | 所屬層 | 可從哪些狀態進入 | 可被誰打斷 | 備註 |
-|---|---|---|---|---|
-| Idle | FullBody | Move, Land | Move, Jump, Roll | |
-| Move | FullBody | Idle | Jump, Roll | |
-| Jump | FullBody | Idle, Move | （空中不可被地面動作打斷） | |
-| Roll | FullBody | Move | （翻滾中不可打斷，無敵幀） | |
+| 狀態 | 所屬層 | CanTransitionAway 條件 | 可被誰打斷（意圖） | 自然過渡目標（依序） | 備註 |
+|---|---|---|---|---|---|
+| Idle | FullBody | 永遠 true | Move, Jump, Roll | Move | |
+| Move | FullBody | 永遠 true | Jump, Roll | Idle | MoveSpeed < 0.1f 時自然回 Idle |
+| Jump | FullBody | `IsLanded == true` | （空中不可被打斷） | Idle, Move | 落地後依 MoveSpeed 決定回哪個狀態 |
+| Roll | FullBody | `IsRollFinished == true` | （翻滾中不可打斷，無敵幀） | Idle, Move | 翻滾結束後依 MoveSpeed 決定 |
+
+> **優先級待決**：同帧多個意圖同時觸發時的仲裁順序尚未明確定義。目前 `EvaluateInterrupts` 依 Dictionary 遍歷順序評估，不保證一致性。待 `StateMachineConfigSO` 加入 `Priority` 欄位後解決（見第 5 節待辦）。
 
 ---
 
 ## 5. 待補充規格清單
 
+- [ ] `StateMachineConfigSO` 加入 `Priority` 欄位，`EvaluateInterrupts` 改為按優先級降序評估，解決同帧多意圖的不確定性
 - [ ] 仲裁器（Arbiter）優先級表（多個 IArbiter 同時封鎖同一旗標時的合併規則）
 - [ ] 裝備系統 ItemDefinition 欄位規格
 - [ ] 音效事件命名規範
@@ -292,6 +386,7 @@ public interface IParameterProcessor
 - [ ] Pipeline 處理器抽介面執行（見 3.1 節規劃草案）
 - [ ] ArbiterData 旗標粒度最終決策（單一 BlockAll vs 各 Controller 各自一個旗標）
 - [ ] Profiler GC Alloc 量測結果補回 Trade-off 表（InputData ref struct 升版後執行）
+- [ ] Animancer Lite v8 評估結論補入 `01-design-doc.md` Trade-off 表（第二階段完成後）
 
 ---
 
@@ -302,3 +397,4 @@ public interface IParameterProcessor
 | 2026-06-28 | v0.1 | 初版骨架建立 |
 | 2026-06-29 | v0.2 | 補充 InputData ref struct 重構規劃、IInputSource 替代簽名、Pipeline 處理器抽介面規劃草案，並標注黑板與 ref struct 的相容性限制 |
 | 2026-06-29 | v0.3 | InputData 正式升版為 ref struct；IInputSource 簽名改為 void FetchRawInput(ref InputData)；新增 ArbiterData 結構定義（1.4）、IArbiter 介面（2.4）、資料夾結構補 Arbitration/、Pipeline 順序表加入 ArbiterPipeline 步驟（4.5）及兩處順序脆弱點警語；IIntentProcessor 簽名同步改為 ref 參數 |
+| 2026-07-03 | v0.4 | BaseState 更新對齊實作（加入 StateType Type、Initialize、CanTransitionAway）；新增 FullBodyStateMachine 規格（2.6）說明 Initialize 時機與 EvaluateTransitions 開放封閉原則；新增 StateMachineConfigSO 規格（2.7）；狀態規則表（第 4 節）補入 CanTransitionAway 欄位；待辦補入優先級問題與 Animancer Lite 評估項目；Pipeline 順序表加入初始化順序警語 |

@@ -48,13 +48,21 @@ namespace Project.Core.Pipeline
             {
                 CameraTransform = playerCamera != null ? playerCamera : Camera.main?.transform
             };
+        }
 
+        /// <summary>
+        /// 💡 修正：利用 Start 順序解耦，安全傳遞黑板實例，杜絕 Null 合約風險
+        /// </summary>
+        private void Start()
+        {
             if (stateMachineConfig == null)
             {
                 Debug.LogError($"[{gameObject.name}] 未綁定 StateMachineConfigSO 配置檔！", this);
+                return;
             }
+
             _stateMachine = new FullBodyStateMachine();
-            _stateMachine.Initialize(stateMachineConfig);
+            _stateMachine.Initialize(stateMachineConfig, _runtimeData); // 安全送入黑板
         }
 
         private void Update()
