@@ -1,6 +1,8 @@
 using UnityEngine;
 using Project.Core.Blackboard;
 using Project.Core.StateMachine;
+using Project.Presentation.Animation;
+using Project.Presentation.Motion;
 
 namespace Project.Core.Pipeline
 {
@@ -19,6 +21,10 @@ namespace Project.Core.Pipeline
         [SerializeField] private StateMachineConfigSO stateMachineConfig;
 
         private FullBodyStateMachine _stateMachine;
+
+        [Header("Presentation Setup")]
+        [SerializeField] private AnimationFacadeBase animationFacade; // 💡 規格：掛載 AnimancerFacade 的組件
+        [SerializeField] private MotionDriver motionDriver;
 
         // === [新增：供 Editor 跨幀讀取的普通結構體快照] ===
         public struct InputDebugSnapshot

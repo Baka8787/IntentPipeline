@@ -1,7 +1,7 @@
 # CharacterController 架構設計文件
 
-> 狀態：草稿 v0.2
-> 最後更新：2026-06-29
+> 狀態：草稿 v0.5
+> 最後更新：2026-07-06
 > 作者：Baka8787
 
 ---
@@ -137,13 +137,14 @@ flowchart LR
 
 | 決策 | 選擇 | 替代方案 | 為什麼選這個 | 代價 |
 |---|---|---|---|---|
-| 動畫系統 | Unity Animator + 自製 Facade | Animancer | 免授權費，先求架構驗證；未來只需修改 Facade 內部即可切換 | 程式碼控制力較弱（無法直接做 state blending），之後可能要換 |
+| 動畫系統（第三階段決策） | Animancer Lite v8（Editor 驗證）+ Facade 按 Pro 目標設計 | Unity Animator + 自製 Facade / 直接上 Animancer Pro | Facade 介面穩定、內部可替換；Lite 免費驗證架構正確性，不綁定升級時機 | **Lite Runtime Build 限制**：僅支援 Layer 0，Mixer 功能（含程式動態建立）只能在 Editor 使用，發行版需 Pro（約 $95 USD）或退回 Unity Animator。目前以「Editor 驗證優先，升級決策延後」策略推進；`AnimancerFacade` 介面按 Pro 功能設計，確保升級時只改內部實作、外部呼叫端零修改 |
 | 狀態機表示法 | ScriptableObject 配置 | 純程式碼 enum + switch | | |
 | 黑板實作 | 單一 class 集中持有 | ECS / 元件式資料 | | |
 | `InputData` 物件複用策略（v0.1） | `PlayerInputSource` 持有單一 `private readonly InputData` 實例，每帧覆寫後回傳同一參考 | 每帧 `new InputData()` | 避免每帧 GC Alloc | **鬼影資料風險（Aliasing）**：回傳的是參考而非拷貝，若被外部跨帧持有將隨下一帧被覆寫；已規劃以 `ref struct` 重構消除此風險（見 02-dev-spec.md 1.3 節） |
 | `InputData` 型別升版（v0.2 已執行） | 改為 `ref struct`，`IInputSource` 簽名改為 `void FetchRawInput(ref InputData data)` | 維持可變 class | 徹底消除 Aliasing 風險，stack-only 語意保證不會被跨帧持有；對齊原作者零 GC 設計方向 | `ref struct` 不能裝箱、不能用於 async/迭代器、不能被 class 持有為欄位；為破壞性變更，需同步修改 `IInputSource`、`PlayerInputSource`、`CharacterPipelineRunner` 三處。實作後用 Profiler 量測 GC Alloc 差異補入此欄 |
 | Intent/Parameter 處理器內嵌在 Runner | 以 private method 寫死在 `CharacterPipelineRunner` | 抽成 `IIntentProcessor` / `IParameterProcessor` 介面，Runner 持有 List 逐一呼叫 | 地基階段邏輯量小，先求資料流跑通，避免過早抽象 | 與規格文件隱含的可插拔設計不一致；**重構訊號**：任一 method 超過 10-15 行判斷邏輯時執行（見 02-dev-spec.md 3.1 節） |
 | 仲裁層設計 | 獨立 `ArbiterPipeline`，統一寫入黑板仲裁旗標，下游 Controller 只讀旗標 | 各 Controller 自行讀狀態機狀態判斷 / 狀態機直接開關 Controller | 維持單一決策點，新增表現層模組不需要修改狀態機；旗標語意清晰（`BlockIK = true` 比 `currentState == DeadState` 更不依賴具體狀態實作） | 多一層間接（狀態 → 仲裁旗標 → Controller），若旗標粒度設計過細會讓黑板變肥；**實作時機**：第四階段，狀態機完成後再接入 |
+| 根運動資料載體 | 內建雙曲線 (SpeedCurve + RotationCurve) | 逐幀世界座標累計位移陣列 (Vector3[]) | 1. **運行時平滑度極高**：不論玩家電腦是 30 幀還是 144 幀，直接透過 `AnimationCurve.Evaluate(time)` 享受 Unity 底層的貝塞爾插值，根除幀率抖動。. **維度擴充**：同時擷取水平瞬時速度與連續偏航角（Yaw），完美支援原地打轉、急轉彎，並為高階的動態吸附（Motion Warping）提供時間物理基礎。 | 1. 編輯器採樣時需改用**雙階段（Two-Pass）物理提取算法**，代碼複雜度提升。失去直觀的空間絕對座標點，無法直接在 Inspector 看到各幀的落點（需透過圖表看速度/角度趨勢）。 |
 
 [每完成一個重大決策就補一行，越早寫越不會忘記當時的考量]
 
@@ -174,3 +175,5 @@ flowchart LR
 |---|---|---|
 | 2026-06-28 | v0.1 | 初版骨架建立 |
 | 2026-06-29 | v0.2 | 補充仲裁層設計理念（2.5）、更新架構圖加入 ArbiterPipeline、補充 4.5/4.6 模組職責邊界、Trade-off 表補入鬼影資料風險、ref struct 升版、Pipeline 處理器抽介面、仲裁層決策共四筆、開放問題補充仲裁旗標粒度議題 |
+| 2026-07-05 | v0.3 | Trade-off 表更新動畫系統決策：補入 Animancer Lite v8 評估結論（Runtime Build 僅 Layer 0、Mixer 限 Editor）、確認採用「Facade 按 Pro 目標設計、Lite 做 Editor 驗證」策略 |
+| 2026-07-05 | v0.4 | 升級根運動烘焙資料結構為內建雙曲線（速度與連續偏航角），重寫 MotionDriver 驅動與動態補償算法（對齊物理時間軸軸心）。 |

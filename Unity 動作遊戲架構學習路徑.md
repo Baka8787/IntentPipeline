@@ -45,7 +45,7 @@
 
 ---
 
-## 第二階段：分層狀態機（核心）
+## 第二階段：分層狀態機（核心）✅
 
 ### 學習目標
 
@@ -105,6 +105,10 @@ ScriptableObject 配置 State Rule 是整套架構最值得展示的部分，也
 * 建立烘焙工具（Editor Script），將動畫 clip 的根運動逐幀積分，匯出為輕量資料檔
 * 資料格式：逐幀累計位移陣列（`float[]` 或自訂 ScriptableObject）
 * 先以跳躍落地動畫作為第一個烘焙目標進行驗證
+> ⚠️ **架構師提示（嚴防過度工程）**：
+> 在寫第一版 `RootMotionExtractor` 時，**絕對不要**花時間去寫 Pipeline 框架類別、Validator 介面或 Cache 系統。
+> 請在腳本內直接用四個私有方法（Validate/Extract/PostProcess/Write）硬編碼跑通流程。
+> 優先讓 Runtime 的 `MotionDriver` 拿到資料並完成吸附（Warping）除錯。此時的目標是快速通關，而非完美的工具鏈。
 
 #### MotionDriver 接入烘焙資料
 * 讀取烘焙資料，在 Runtime 計算「理論位移」與「實際目標位移」的差值
@@ -115,15 +119,31 @@ ScriptableObject 配置 State Rule 是整套架構最值得展示的部分，也
 * 空手
 * 持槍
 
+### 建議實作順序
+
+1. `AnimationFacadeBase` 抽象介面（先定介面再寫實作）
+2. `AnimancerFacade` 基礎版（只做 `Play()`，能讓 Idle/Move/Jump/Roll 各自播對應動畫）
+3. `MotionDriver` 基礎版（LateUpdate 純根運動同步，先驗證不滑步）
+4. 動畫烘焙 Editor 工具（先以跳躍落地動畫驗證）
+5. `MotionDriver` 接入烘焙補償
+6. 上半身 Layer（`SetLayerWeight`）
+
 ### 本階段重點
 
 完成：
 
-> **Gameplay Logic → AnimationFacade（AnimancerFacade） → Animancer Lite**
+> **Gameplay Logic → AnimationFacadeBase → AnimancerFacade → Animancer Lite**
 
 動畫烘焙資料的職責邊界：
 
-> **Editor 工具提取資料 → 輕量資料檔 → MotionDriver 讀取補償**
+> **Editor 工具提取資料 → MotionBakeData.asset → MotionDriver.SampleAt() → 補償位移**
+
+### Animancer Lite 限制提醒
+
+- Runtime Build 僅支援 Layer 0，上半身 Layer 在 Build 版本無效
+- `AnimancerFacade.SetLayerWeight(index > 0)` 加入 `#if UNITY_EDITOR` 防禦
+- 本階段以 Editor 驗證為主，Build 測試前須先決定是否升級 Pro
+- 詳見 `02-dev-spec.md` 2.8 節升級路徑說明
 
 ---
 
@@ -182,6 +202,13 @@ ScriptableObject 配置 State Rule 是整套架構最值得展示的部分，也
 * 利用第三階段烘焙好的分段位移資料，與 Runtime 實際目標位置比較
 * 積分補償速度，實現局部目標修正（例如攀爬分為「起跳抓邊」與「拉身上去」兩個積分區間）
 * 前提：攀爬狀態需在第二階段狀態機中先行建立
+
+#### Animation Build Pipeline 工業級重構（專案壓軸大招）
+* 將第三、五階段累積的烘焙腳本徹底解耦，重構為可插拔的 `Animation Build Pipeline`
+* 實作 **Source Discovery**：支援選取物右鍵烘焙（Selection）與 ScriptableObject 配置掃描
+* 實作 **Validation**：前置檢查 Avatar Missing 與 Humanoid 設定，防止無效採樣
+* 實作 **Build Cache**：利用 GUID 與檔案雜湊（Hash）建立快取系統，實現**增量編譯**，將重烘焙時間從數十秒壓低至 1 秒內
+* 實作 **Build Report Window**：製作專屬編輯器視窗，優雅展示編譯成果與時間耗時，極大化提升作品集賣相
 
 ---
 
