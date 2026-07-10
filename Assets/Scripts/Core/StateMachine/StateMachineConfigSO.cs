@@ -6,23 +6,19 @@ using Project.Presentation.Motion;
 namespace Project.Core.StateMachine
 {
     [Serializable]
-    public struct StateRule
-    {
-        public StateType State;
-        [Tooltip("數值越高，同帧複數意圖觸發時越優先執行")]
-        public int Priority;
-        [Tooltip("哪些狀態可以主動打斷當前狀態（意圖觸發時檢查）")]
-        public List<StateType> CanBeInterruptedBy;
-        [Tooltip("當前狀態結束或無意圖時，允許自然過渡到的狀態優先級")]
-        public List<StateType> ValidTransitions;
-    }
-
-    [Serializable]
     public struct StateBakeMapping
     {
         public StateType State;
         [Tooltip("該狀態使用的烘焙運動資料，若該狀態不需要則留空")]
         public MotionBakeData BakeData;
+    }
+
+    [Serializable]
+    public struct StateParamsMapping
+    {
+        public StateType State;
+        [Tooltip("該狀態使用的參數資產（如 JumpStateParams），若該狀態不需要則留空")]
+        public StateParamsSO Params;
     }
 
     [CreateAssetMenu(fileName = "StateMachineConfig", menuName = "Project/Core/StateMachineConfig")]
@@ -31,19 +27,24 @@ namespace Project.Core.StateMachine
         [SerializeField] private List<StateRule> rules = new List<StateRule>();
 
         [Header("動作烘焙資料配置")]
-        [SerializeField] private List<StateBakeMapping> bakeMappings = new List<StateBakeMapping>(); 
+        [SerializeField] private List<StateBakeMapping> bakeMappings = new List<StateBakeMapping>();
+
+        [Header("狀態專屬參數配置")]
+        [SerializeField] private List<StateParamsMapping> paramsMappings = new List<StateParamsMapping>();
 
         private readonly Dictionary<StateType, List<StateType>> _interruptMap = new();
         private readonly Dictionary<StateType, List<StateType>> _transitionMap = new();
         private readonly Dictionary<StateType, int> _priorityMap = new();
         private readonly Dictionary<StateType, MotionBakeData> _bakeMap = new();
+        private readonly Dictionary<StateType, StateParamsSO> _paramsMap = new();
 
         public void Initialize()
         {
             _interruptMap.Clear();
             _transitionMap.Clear();
             _priorityMap.Clear();
-            _bakeMap.Clear(); 
+            _bakeMap.Clear();
+            _paramsMap.Clear();
 
             foreach (var rule in rules)
             {
@@ -57,6 +58,14 @@ namespace Project.Core.StateMachine
                 if (mapping.BakeData != null)
                 {
                     _bakeMap[mapping.State] = mapping.BakeData;
+                }
+            }
+
+            foreach (var mapping in paramsMappings)
+            {
+                if (mapping.Params != null)
+                {
+                    _paramsMap[mapping.State] = mapping.Params;
                 }
             }
         }
@@ -79,6 +88,15 @@ namespace Project.Core.StateMachine
         public MotionBakeData GetBakeData(StateType state)
         {
             return _bakeMap.TryGetValue(state, out var data) ? data : null;
+        }
+
+        /// <summary>
+        /// 泛型安全查表：依 StateType 取得綁定的狀態參數資產並轉型為 <typeparamref name="TParams"/>。
+        /// 查無綁定或型別不符時回傳 null，呼叫端應自行 fallback 到程式碼內建預設值。
+        /// </summary>
+        public TParams GetStateParams<TParams>(StateType state) where TParams : StateParamsSO
+        {
+            return _paramsMap.TryGetValue(state, out var stateParams) ? stateParams as TParams : null;
         }
     }
 }
