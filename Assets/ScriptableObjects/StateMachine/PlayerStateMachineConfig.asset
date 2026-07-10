@@ -17,18 +17,30 @@ MonoBehaviour:
     Priority: 0
     CanBeInterruptedBy: 0400000003000000
     ValidTransitions: 02000000
+    JumpImpulseForce: 0
+    JumpTakeoffDelay: 0
+    JumpLaunchDelay: 0
   - State: 2
     Priority: 0
     CanBeInterruptedBy: 0300000004000000
     ValidTransitions: 01000000
+    JumpImpulseForce: 0
+    JumpTakeoffDelay: 0
+    JumpLaunchDelay: 0
   - State: 3
     Priority: 10
     CanBeInterruptedBy: 
     ValidTransitions: 0200000001000000
+    JumpImpulseForce: 0
+    JumpTakeoffDelay: 0.75
+    JumpLaunchDelay: 0
   - State: 4
     Priority: 20
     CanBeInterruptedBy: 
     ValidTransitions: 0200000001000000
+    JumpImpulseForce: 0
+    JumpTakeoffDelay: 0
+    JumpLaunchDelay: 0
   bakeMappings:
   - State: 2
     BakeData: {fileID: 11400000, guid: 47ae0e18f259d044dae3f25b9b8d9aec, type: 2}

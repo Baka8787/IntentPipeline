@@ -63,6 +63,8 @@ namespace Project.Core.Pipeline
             EditorGUILayout.FloatField("Move Speed Magnitude", data.MoveSpeed);
             EditorGUILayout.Slider("Upper Body Weight", data.UpperBodyWeight, 0f, 1f);
             EditorGUILayout.ObjectField("Camera Transform", data.CameraTransform, typeof(Transform), true);
+            // 🆕（v0.7）顯示新增的 IsGrounded 黑板欄位，方便對照 JumpState 的落地判定
+            EditorGUILayout.Toggle("Is Grounded", data.IsGrounded);
 
             EditorGUILayout.Space();
 

@@ -16,7 +16,8 @@ namespace Project.Presentation.Animation
 
         [Header("Setup")]
         [SerializeField] private AnimancerComponent animancer;
-        [SerializeField] private List<ClipMapping> clipMappings;
+        // 🆕（v0.7 Code Review）補上預設初始化，避免非 Editor 流程建立此元件時 Awake() 的 foreach 直接 NRE
+        [SerializeField] private List<ClipMapping> clipMappings = new();
 
         private readonly Dictionary<string, AnimationClip> _clipMap = new();
         private readonly Dictionary<string, AnimancerState> _stateCache = new();
@@ -78,10 +79,15 @@ namespace Project.Presentation.Animation
                 Debug.LogWarning($"[AnimancerFacade] 偵測到嘗試修改 Layer {layerIndex} 的權重。請注意 Animancer Lite 打包發行版後此功能將失效！", this);
             }
 #endif
-            if (layerIndex < animancer.Layers.Count)
+            // 🆕（v0.7 Code Review 修正）原本只檢查 layerIndex < animancer.Layers.Count，
+            // 負數 index 會直接繞過檢查、在下面的索引存取時丟例外。改為雙邊界檢查並安全略過。
+            if (layerIndex < 0 || layerIndex >= animancer.Layers.Count)
             {
-                animancer.Layers[layerIndex].SetWeight(weight); // 註：精準平滑過渡可搭配動態內插，此處提供基礎賦值
+                Debug.LogWarning($"[AnimancerFacade] SetLayerWeight 收到超出範圍的 layerIndex={layerIndex}（合法範圍 0~{animancer.Layers.Count - 1}），已略過此次呼叫。", this);
+                return;
             }
+
+            animancer.Layers[layerIndex].SetWeight(weight); // 註：精準平滑過渡可搭配動態內插，此處提供基礎賦值
         }
 
         public override void SetFloat(string key, float value)

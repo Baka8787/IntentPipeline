@@ -44,19 +44,24 @@ namespace Project.Core.StateMachine
 
         public override void OnExit(PlayerRuntimeData data) => IsRollFinished = false;
 
-        // 🆕 這是「資料流沒問題但無法轉成表現」最可能卡住的地方——
-        // 之前 RollState 完全沒 override OnUpdateMotion，等於一直在用預設的 ExecuteBaseMovement，
-        // 烘焙資料從頭到尾沒有被真正拿去驅動位移
         public override void OnUpdateMotion(MotionDriver motionDriver, AnimationFacadeBase animationFacade, PlayerRuntimeData data)
         {
-            if (_rollBakeData == null)
+            // 在信任 GetNormalizedTime() 之前，先確認動畫實際上真的在播 Roll clip。
+            // 若 AnimancerFacade.Play() 因為 clip mapping 查表失敗而提前 return（只會 LogWarning，不拋例外），
+            // GetNormalizedTime() 仍會回傳「目前 Layer 0 正在播放的舊動畫」進度，
+            // 若不做這層檢查，位移會被一個跟 Roll 完全不相干的進度值驅動，只會在畫面上看到角色亂飄，
+            // 主控台卻只有一句容易被忽略的 warning。
+            bool hasValidBakeData = _rollBakeData != null;
+            bool isActuallyPlayingRoll = animationFacade != null && animationFacade.IsPlaying(AnimationKey);
+
+            if (!hasValidBakeData || !isActuallyPlayingRoll)
             {
-                motionDriver.ExecuteBaseMovement(data); // 防呆：還沒烘焙好就退回一般 Procedural 結算
+                motionDriver.ExecuteBaseMovement(data); // 防呆：退回一般 Procedural 結算
                 return;
             }
 
             float normalizedTime = animationFacade.GetNormalizedTime();
-            motionDriver.ExecuteBakedCurveMovement(_rollBakeData, normalizedTime);
+            motionDriver.ExecuteBakedCurveMovement(_rollBakeData, normalizedTime, data);
         }
     }
 }
