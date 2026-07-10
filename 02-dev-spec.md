@@ -1,7 +1,7 @@
 # CharacterController 開發規格文件（API / 資料結構）
 
-> **狀態**：草稿 v0.5
-> **最後更新**：2026-07-05
+> **狀態**：草稿 v0.6
+> **最後更新**：2026-07-08
 > **用途**：實作時的對照表，採「介面先行，實作隨後」原則。
 
 ---
@@ -329,6 +329,15 @@ public class AnimancerFacade : AnimationFacadeBase
 
 #### MotionDriver（根運動與補償驅動）
 
+> 🛑 **已知風險（2026-07-08 除錯發現）**：下方 `OnAnimatorMove` 路徑正確運作，同時依賴以下外部設定全部對齊，任一項偏離都會表現為「動畫原地不動」或「動作結束瞬移」：
+> 1. `Animator`／`CharacterController`／`MotionDriver` 須在**同一個 GameObject**（`OnAnimatorMove` 不會跨物件傳遞）。
+> 2. `Animator.applyRootMotion` 必須勾選。
+> 3. `Animator.Animate Physics` 必須**不**勾選（勾選會讓回呼落在 FixedUpdate 節奏，與本類別以 `Time.deltaTime` 做每渲染幀積分的假設衝突）。
+> 4. 動畫匯入設定的 `Root Transform Position (XZ) → Bake Into Pose` 必須**不**勾選（勾選會讓水平位移被烤進骨架姿勢，讀不到 `deltaPosition`）。
+> 5. 任何繞過 `ExecuteBaseMovement` 的位移路徑（如 `ExecuteBakedCurveMovement`）都必須自行歸零 `_rootMotionDelta`，否則會累積殘留量並在切回 `ExecuteBaseMovement` 時一次性噴出。
+>
+> 中期正評估改為完全不依賴執行期 `OnAnimatorMove`、統一以「輸入速度 + 烘焙曲線速度」驅動的替代架構，降低上述耦合，尚未定案，見 `01-design-doc.md` §5 Trade-off 表。
+
 ```csharp
 public class MotionDriver : MonoBehaviour
 {
@@ -433,6 +442,8 @@ public class MotionDriver : MonoBehaviour
 
 3. **反射硬碟落地**：利用 C# 反射遞迴遍歷 `PlayerSO` 等序列化入口，自動尋找匹配的資料欄位覆寫。調用 `EditorUtility.SetDirty` 與 `AssetDatabase.ForceReserializeAssets` 強制執行硬碟硬性序列化。
 
+> 🛑 **已知落差（2026-07-08 除錯發現，技術債）**：目前落地的 `MotionBakeEditor.cs` **尚未依照上述第 1 點實作**——它是對一個沒有掛 `Animator`／`Avatar` 的空 `GameObject` 直接呼叫 `AnimationClip.SampleAnimation`，而不是本節要求的「實例化臨時角色 Model、注入 Humanoid Avatar、`applyRootMotion = true`」。Humanoid 的根運動仰賴 Avatar 重定向計算，空物件採不到真實位移，會導致烘焙出的 `SpeedCurve` 趨近全零。**在依此規格重寫 `MotionBakeEditor.cs`、並補上 `avatar.isHuman` 防呆檢查之前，所有既有的 `MotionBakeData` 資產都視為不可信，需要重新烘焙。** 詳見 `專案開發更新日誌.md` v0.5.1。
+
 ### 4.2 高階動態扭曲特徵提取（`WarpedMotionExtractor.cs`）
 
 針對 3D 空間立體位移（如翻牆、側滑）進行**物理模擬與特徵分段技術**。
@@ -474,6 +485,9 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 * [ ] 動畫烘焙 Editor 工具實作（`RootMotionExtractor`）：以跳躍落地動畫進行首波驗證。
 * [ ] `MotionDriver` 進階版：接入 `MotionBakeData`，驗證目標點補償誤差 $< 0.01\text{m}$。
 * [ ] 上半身 Layer 實作（持槍/空手切換），確認 Lite 限制下的 Editor 表現行為。
+* [ ] **（新增，v0.6）** 依 4.1 節規格重寫 `MotionBakeEditor.cs`：改為實例化真實 Humanoid Prefab + 檢查 `avatar.isHuman` + `applyRootMotion = true` 後再採樣，取代目前對空 `GameObject` 採樣的簡化版本；完成後所有既有 `MotionBakeData` 資產須重新烘焙。
+* [ ] **（新增，v0.6）** 補齊 `JumpState` 的垂直位移設計：明確定義起跳上升段是「純動畫根運動」還是「程式碼注入初速度（`ApplyJumpImpulse`）」，避免與 Roll 的水平曲線移動模式混用導致重力失效。
+* [ ] **（新增，v0.6）** 評估是否將 `MotionDriver` 重構為不依賴執行期 `OnAnimatorMove` 的統一速度模型（輸入速度 + 烘焙曲線速度，單一 `CharacterController.Move()` 出口，重力每幀快取一次），降低目前對 Animator 設定/匯入設定/GameObject 階層的多重外部依賴。
 
 ### 後續第四、五階段
 
@@ -500,3 +514,4 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | 2026-06-29 | v0.3 | InputData 正式升版為 ref struct；新增 Arbiter 仲裁結構與管線脆弱點警告 | Core Dev |
 | 2026-07-03 | v0.4 | BaseState 對齊實作更新；加入 StateMachineConfigSO 與動態打斷規則表 | Core Dev |
 | 2026-07-05 | v0.5 | **進入第三階段**；補齊 Animation 完整介面；定義常規與扭曲（Warped）雙提取器離線烘焙規格；重構編排全文件順序 | Architecture 組 |
+| 2026-07-08 | v0.6 | 除錯過程中發現 `MotionBakeEditor.cs` 實作與 §4.1 規格脫鉤（空 GameObject 取樣、無 Humanoid Avatar），標記為技術債；§3.2 `MotionDriver` 範例補上 `OnAnimatorMove` 執行期外部依賴風險警語；§5 待補清單新增三項對應修復任務 | Core Dev |

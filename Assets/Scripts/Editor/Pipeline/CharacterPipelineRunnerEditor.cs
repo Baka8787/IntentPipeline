@@ -10,7 +10,7 @@ namespace Project.Core.Pipeline
     /// 自訂 Inspector，當點擊掛有 CharacterPipelineRunner 的物件時，在 Inspector 顯示即時黑板
     /// </summary>
     [CustomEditor(typeof(CharacterPipelineRunner))]
-    public class CharacterPipelineRunnerEditor : Editor
+    public class CharacterPipelineRunnerEditor : UnityEditor.Editor
     {
         public override void OnInspectorGUI()
         {

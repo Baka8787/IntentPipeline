@@ -39,8 +39,11 @@ namespace Project.Core.Pipeline
         private InputDebugSnapshot _inputDebug;
         public InputDebugSnapshot InputDebug => _inputDebug;
 
-        // === [新增：向外曝露當前狀態的唯讀屬性] ===
-        public StateType CurrentState => _stateMachine != null ? _stateMachine.CurrentState.Type : StateType.Idle;
+        // 🆕 記錄上一次播放的狀態，避免每幀重複 Play
+        private StateType _lastPlayedState = StateType.None;
+
+        // 🆕 改用 None 當哨兵值，不再借用 Idle
+        public StateType CurrentState => _stateMachine?.CurrentState?.Type ?? StateType.None;
 
         private void Awake()
         {
@@ -48,6 +51,26 @@ namespace Project.Core.Pipeline
             if (_inputSource == null)
             {
                 Debug.LogError($"[{gameObject.name}] inputSourceComponent 沒有實作 IInputSource 介面！", this);
+            }
+
+            // === 💡 新增：MotionDriver 記憶體漏拖防禦線 ===
+            if (motionDriver == null)
+            {
+                motionDriver = GetComponent<MotionDriver>(); // 試著在自己身上找組件補洞
+                if (motionDriver == null)
+                {
+                    Debug.LogError($"[{gameObject.name}] Presentation Setup 缺少 MotionDriver，且未在 Inspector 綁定！", this);
+                }
+            }
+
+            // === 💡 新增：AnimationFacade 記憶體漏拖防禦線 ===
+            if (animationFacade == null)
+            {
+                animationFacade = GetComponent<AnimationFacadeBase>();
+                if (animationFacade == null)
+                {
+                    Debug.LogError($"[{gameObject.name}] Presentation Setup 缺少 AnimationFacadeBase，且未在 Inspector 綁定！", this);
+                }
             }
 
             _runtimeData = new PlayerRuntimeData
@@ -73,7 +96,7 @@ namespace Project.Core.Pipeline
 
         private void Update()
         {
-            if (_inputSource == null) return;
+            if (_inputSource == null || _stateMachine == null) return; // 🆕 補上 _stateMachine 的 null 檢查
 
             // 【順序 1】InputPipeline - 在 Stack 上配置預設結構體體
             // 透過 ref 傳遞，讓輸入源直接改寫此 stack 變數，達成真正零 GC Alloc
@@ -101,18 +124,33 @@ namespace Project.Core.Pipeline
             _stateMachine.Tick(_runtimeData, Time.deltaTime);
 
             // 【順序 5】AnimationFacade 同步 (預留位置，後續實作接上)
-            // _animationFacade.Sync(_runtimeData);
+            SyncAnimation();
+        }
+
+        private void SyncAnimation()
+        {
+            if (animationFacade == null || _stateMachine.CurrentState == null) return;
+
+            BaseState current = _stateMachine.CurrentState;
+            if (current.Type != _lastPlayedState)
+            {
+                animationFacade.Play(current.AnimationKey);
+                _lastPlayedState = current.Type;
+            }
         }
 
         private void LateUpdate()
         {
-            // 【順序 6】MotionDriver 位移表現更新 (預留位置，後續實作在 LateUpdate 執行以避免滑步)
-            // _motionDriver.UpdateMovement(_runtimeData);
+            // =================================================================
+            // 【順序 6】MotionDriver 位移表現更新 - 保持單一、乾淨的唯一步行驅動點
+            // =================================================================
+            if (_stateMachine != null && _stateMachine.CurrentState != null && motionDriver != null)
+            {
+                _stateMachine.CurrentState.OnUpdateMotion(motionDriver, animationFacade, _runtimeData);
+            }
 
             // =================================================================
-            // ⚠️ v0.2 順序脆弱點防禦線：
-            // IntentData.Reset() 必須嚴格排在【順序 2 寫入】與【順序 4 讀取】之後。
-            // 目前安置於 LateUpdate 結尾，確保整個 Update 週期內的模組都能讀取到意圖。
+            // ⚠️ v0.2 順序脆弱點防禦線：死守在最後清空意圖
             // =================================================================
             _runtimeData.Intent.Reset();
         }
@@ -137,9 +175,13 @@ namespace Project.Core.Pipeline
         /// </summary>
         private void ProcessParameters(ref InputData input)
         {
-            _runtimeData.MoveDirection = input.MoveInput;
+            _runtimeData.MoveDirection = input.MoveInput; // 保持賦值給黑板，供下游狀態與物理使用
             _runtimeData.MoveSpeed = input.MoveInput.magnitude;
             _runtimeData.UpperBodyWeight = input.MoveInput != Vector2.zero ? 0.5f : 0.0f;
+
+            // ✨ 修正點：將硬編碼的轉向判斷移除！
+            // 身體的轉向將完全收斂至 LateUpdate 內由 CurrentState 呼叫的 OnUpdateMotion 中完成，
+            // 實現「單一決策、單一物理出口」的架構潔淨。
         }
     }
 }

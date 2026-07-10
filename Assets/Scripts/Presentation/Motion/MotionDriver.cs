@@ -1,4 +1,5 @@
 using UnityEngine;
+using Project.Core.Blackboard;
 
 namespace Project.Presentation.Motion
 {
@@ -6,40 +7,78 @@ namespace Project.Presentation.Motion
     {
         [Header("Setup")]
         [SerializeField] private CharacterController characterController;
-        [SerializeField] private Animator animator;
 
-        private Vector3 _rootMotionDelta = Vector3.zero;
+        [Header("Procedural Move Speed")]
+        [SerializeField] private float moveSpeed = 5f; // WASD 移動基礎速度 (m/s)
+
+        [Header("Physics Fallback")]
+        [SerializeField] private float gravity = -9.81f;
+        [SerializeField] private float reboundForce = -2f; // 踩在地面時的固定貼地力
+
+        private float _verticalVelocity;
+
+        // 參考高階架構：單幀重力緩存，避免一幀內被多處呼叫時重複積分垂直重力速度
+        private int _gravityFrame = -1;
+        private Vector3 _cachedGravity;
 
         private void Awake()
         {
             if (characterController == null) characterController = GetComponent<CharacterController>();
-            if (animator == null) animator = GetComponentInChildren<Animator>();
-        }
-
-        private void OnAnimatorMove()
-        {
-            if (animator != null)
-            {
-                _rootMotionDelta += animator.deltaPosition;
-            }
         }
 
         /// <summary>
-        /// 【順序 6a】基礎常規運動（走跑跳繞過原本的RootMotion，由常規邏輯結算）
+        /// 💡 解決高度累積與跳不起來盲區：供 JumpState 在 OnEnter 時點火呼叫，強行注入垂直初速度！
         /// </summary>
-        public void ExecuteBaseMovement()
+        public void ApplyJumpImpulse(float impulseForce)
         {
-            if (_rootMotionDelta != Vector3.zero)
-            {
-                characterController.Move(_rootMotionDelta);
-                _rootMotionDelta = Vector3.zero;
-            }
+            _verticalVelocity = impulseForce;
+            _gravityFrame = -1; // 強制刷新本影格的重力快取
         }
 
         /// <summary>
-        /// 🚀 新增：直接使用烘焙曲線驅動角色 (適用於無目標的空揮、特定技能位移)
+        /// 🚀 【大一統完全體：順序 6a】基礎常規運動
+        /// 融合了相機視角解耦、procedural 水平轉向、以及世界重力結算
         /// </summary>
-        /// <param name="normalizedTime">動畫播放進度 (0~1)</param>
+        public void ExecuteBaseMovement(PlayerRuntimeData data)
+        {
+            Vector3 horizontalVelocity = Vector3.zero;
+
+            // 只有在玩家有推搖桿(WASD)且相機引用存在時，才計算轉向與 procedural 速度
+            if (data.MoveDirection.sqrMagnitude > 0.001f && data.CameraTransform != null)
+            {
+                // 1. 取得相機在水平面上的 forward 與 right 向量（忽略仰角與俯角，防止角色往前跌倒）
+                Vector3 camForward = data.CameraTransform.forward;
+                Vector3 camRight = data.CameraTransform.right;
+                camForward.y = 0f;
+                camRight.y = 0f;
+                camForward.Normalize();
+                camRight.Normalize();
+
+                // 2. 將玩家的輸入方向，投影到相機的世界座標系中，算出「期望的世界移動方向」
+                Vector3 targetDirection = camForward * data.MoveDirection.y + camRight * data.MoveDirection.x;
+
+                if (targetDirection.sqrMagnitude > 0.001f)
+                {
+                    // 3. 讓角色身體平滑地 Slerp 轉向這個期望的世界移動方向
+                    Quaternion targetRotation = Quaternion.LookRotation(targetDirection.normalized);
+                    transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, 12f * Time.deltaTime);
+                }
+
+                // 4. 水平速度採用 transform.forward（角色當前肉體正前方），使轉彎具備流暢的體重弧線感
+                float currentSpeed = data.MoveSpeed * moveSpeed;
+                horizontalVelocity = transform.forward * currentSpeed;
+            }
+
+            // 5. 疊加單幀快取重力（保持原有的自由落體與貼地力優化）
+            Vector3 finalMovement = horizontalVelocity + GetGravityThisFrame();
+
+            // 6. 總出口呼叫
+            characterController.Move(finalMovement * Time.deltaTime);
+        }
+
+        /// <summary>
+        /// 🚀 【順序 6b】特殊動作曲線運動：直接使用離線烘焙曲線驅動角色位移與旋轉（如 Roll）
+        /// </summary>
         public void ExecuteBakedCurveMovement(MotionBakeData bakeData, float normalizedTime)
         {
             if (bakeData == null) return;
@@ -48,27 +87,28 @@ namespace Project.Presentation.Motion
             float currentTime = normalizedTime * bakeData.Duration;
             float previousTime = Mathf.Max(0f, currentTime - Time.deltaTime);
 
-            // 2. 透過曲線評估當前速度，並換算成這一幀的位移量
+            // 2. 透過曲線評估當前瞬時速度，生成水平速度向量
             float currentSpeed = bakeData.GetSpeedAt(currentTime);
-            Vector3 moveDelta = transform.forward * currentSpeed * Time.deltaTime;
+            Vector3 horizontalVelocity = transform.forward * currentSpeed;
 
-            // 3. 計算這一幀與上一幀的「角度差 (Delta Yaw)」並套用旋轉
+            // 3. 計算這一影格與上一影格的「累計角度差 (Delta Yaw)」並套用旋轉
             float currentYaw = bakeData.GetRotationAt(currentTime);
             float previousYaw = bakeData.GetRotationAt(previousTime);
             float deltaYaw = currentYaw - previousYaw;
 
-            transform.Rotate(Vector3.up, deltaYaw);
+            if (Mathf.Abs(deltaYaw) > 0.0001f)
+            {
+                transform.Rotate(Vector3.up, deltaYaw, Space.World);
+            }
 
-            // 4. 最終送入 CharacterController 執行移動
-            characterController.Move(moveDelta);
+            // 4. 曲線特殊狀態同樣疊加世界物理重力結算，打包送出
+            Vector3 finalMovement = horizontalVelocity + GetGravityThisFrame();
+            characterController.Move(finalMovement * Time.deltaTime);
         }
 
         /// <summary>
-        /// 🚀 【順序 6b】工業級實作：進階烘焙補償速度疊加位移（動態吸附/校準）
-        /// 適用場景：刺客處決、格鬥技精準追蹤敵人、飛身攀爬登頂
+        /// 🚀 工業級實作：進階烘焙補償速度疊加位移（動態吸附/校準）
         /// </summary>
-        /// <param name="actualTarget">動態目標的世界座標點</param>
-        /// <param name="normalizedTime">動畫播放進度 (0~1)</param>
         public void ApplyBakedCompensation(MotionBakeData bakeData, Vector3 actualTarget, float normalizedTime)
         {
             if (bakeData == null) return;
@@ -76,42 +116,58 @@ namespace Project.Presentation.Motion
             float currentTime = normalizedTime * bakeData.Duration;
             float remainingTime = bakeData.Duration - currentTime;
 
-            // 防呆：如果動畫快播完了或時間異常，直接退回普通曲線移動
             if (remainingTime <= 0.001f)
             {
                 ExecuteBakedCurveMovement(bakeData, normalizedTime);
                 return;
             }
 
-            // 1. 旋轉修正：強迫角色在剩餘時間內逐漸轉向目標
+            // 1. 旋轉修正
             Vector3 toTarget = actualTarget - transform.position;
-            toTarget.y = 0f; // 忽略高度差
+            toTarget.y = 0f;
             if (toTarget.sqrMagnitude > 0.01f)
             {
                 Quaternion targetRotation = Quaternion.LookRotation(toTarget.normalized);
-                // 使用 SmoothDamp 或 Slerp 讓轉向在動畫結束前完美對齊
                 transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, Time.deltaTime / remainingTime);
             }
 
-            // 2. 位移補償 (Warping)：
-            // 基礎理論速度（來自曲線）
+            // 2. 位移補償 (Warping)
             float curveSpeed = bakeData.GetSpeedAt(currentTime);
             Vector3 baseMoveDelta = transform.forward * curveSpeed * Time.deltaTime;
 
-            // 計算「目前位置」距離「目標落點」還差多少向量
             Vector3 distanceToGo = actualTarget - transform.position;
             distanceToGo.y = 0f;
 
-            // 計算要在剩餘時間內抵達目的地，這一幀額外需要補償的「橫向/縱向速度差」
-            // 公式：剩餘距離 / 剩餘時間 = 理論總速度；再減去動畫給的基礎速度，就是補償速度
-            Vector3 requiredRequiredVelocity = distanceToGo / remainingTime;
-            Vector3 compensationVelocity = requiredRequiredVelocity - (transform.forward * curveSpeed);
-
-            // 將補償速度化為這一幀的位移
+            Vector3 requiredVelocity = distanceToGo / remainingTime;
+            Vector3 compensationVelocity = requiredVelocity - (transform.forward * curveSpeed);
             Vector3 compensationDelta = compensationVelocity * Time.deltaTime;
 
-            // 3. 最終結合：基礎動畫位移 + 動態校準補償
-            characterController.Move(baseMoveDelta + compensationDelta);
+            // 3. 結合重力统一打包
+            Vector3 finalMovement = (baseMoveDelta + compensationDelta) / Time.deltaTime + GetGravityThisFrame();
+            characterController.Move(finalMovement * Time.deltaTime);
+        }
+
+        /// <summary>
+        /// 工業級實作：獲取本影格重力（保證一影格內即使被多處調用，也只做一次垂直速度積分）
+        /// </summary>
+        private Vector3 GetGravityThisFrame()
+        {
+            int currentFrame = Time.frameCount;
+            if (_gravityFrame == currentFrame) return _cachedGravity;
+
+            _gravityFrame = currentFrame;
+
+            if (characterController.isGrounded && _verticalVelocity < 0f)
+            {
+                _verticalVelocity = reboundForce;
+            }
+            else
+            {
+                _verticalVelocity += gravity * Time.deltaTime;
+            }
+
+            _cachedGravity = new Vector3(0f, _verticalVelocity, 0f);
+            return _cachedGravity;
         }
     }
 }

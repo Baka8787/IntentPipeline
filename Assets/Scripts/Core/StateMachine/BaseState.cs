@@ -1,4 +1,6 @@
 using Project.Core.Blackboard;
+using Project.Presentation.Animation;
+using Project.Presentation.Motion;
 
 namespace Project.Core.StateMachine
 {
@@ -6,6 +8,9 @@ namespace Project.Core.StateMachine
     {
         public abstract StateType Type { get; }
         protected StateMachineConfigSO Config;
+
+        // 🆕 預設用 enum 名稱當動畫鍵，對應 AnimancerFacade 的 ClipMapping.StateKey
+        public virtual string AnimationKey => Type.ToString();
 
         public virtual void Initialize(StateMachineConfigSO config)
         {
@@ -16,6 +21,15 @@ namespace Project.Core.StateMachine
         public abstract void OnEnter(PlayerRuntimeData data);
         public abstract void OnTick(PlayerRuntimeData data, float deltaTime);
         public abstract void OnExit(PlayerRuntimeData data);
+
+        /// <summary>
+        /// 💡 新增：由當前狀態決定本影格在 LateUpdate 該如何結算物理位移
+        /// </summary>
+        public virtual void OnUpdateMotion(MotionDriver motionDriver, AnimationFacadeBase animationFacade, PlayerRuntimeData data)
+        {
+            // 預設行為：全面改為傳入黑板資料的純 Procedural 移動結算
+            motionDriver.ExecuteBaseMovement(data);
+        }
 
         /// <summary>
         /// 由 ScriptableObject 的資料驅動判斷，子類別若有特殊極限狀況可 override 擴充

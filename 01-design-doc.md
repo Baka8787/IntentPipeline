@@ -1,7 +1,7 @@
 # CharacterController 架構設計文件
 
-> 狀態：草稿 v0.5
-> 最後更新：2026-07-06
+> 狀態：草稿 v0.6
+> 最後更新：2026-07-08
 > 作者：Baka8787
 
 ---
@@ -145,6 +145,7 @@ flowchart LR
 | Intent/Parameter 處理器內嵌在 Runner | 以 private method 寫死在 `CharacterPipelineRunner` | 抽成 `IIntentProcessor` / `IParameterProcessor` 介面，Runner 持有 List 逐一呼叫 | 地基階段邏輯量小，先求資料流跑通，避免過早抽象 | 與規格文件隱含的可插拔設計不一致；**重構訊號**：任一 method 超過 10-15 行判斷邏輯時執行（見 02-dev-spec.md 3.1 節） |
 | 仲裁層設計 | 獨立 `ArbiterPipeline`，統一寫入黑板仲裁旗標，下游 Controller 只讀旗標 | 各 Controller 自行讀狀態機狀態判斷 / 狀態機直接開關 Controller | 維持單一決策點，新增表現層模組不需要修改狀態機；旗標語意清晰（`BlockIK = true` 比 `currentState == DeadState` 更不依賴具體狀態實作） | 多一層間接（狀態 → 仲裁旗標 → Controller），若旗標粒度設計過細會讓黑板變肥；**實作時機**：第四階段，狀態機完成後再接入 |
 | 根運動資料載體 | 內建雙曲線 (SpeedCurve + RotationCurve) | 逐幀世界座標累計位移陣列 (Vector3[]) | 1. **運行時平滑度極高**：不論玩家電腦是 30 幀還是 144 幀，直接透過 `AnimationCurve.Evaluate(time)` 享受 Unity 底層的貝塞爾插值，根除幀率抖動。. **維度擴充**：同時擷取水平瞬時速度與連續偏航角（Yaw），完美支援原地打轉、急轉彎，並為高階的動態吸附（Motion Warping）提供時間物理基礎。 | 1. 編輯器採樣時需改用**雙階段（Two-Pass）物理提取算法**，代碼複雜度提升。失去直觀的空間絕對座標點，無法直接在 Inspector 看到各幀的落點（需透過圖表看速度/角度趨勢）。 |
+| **（待評估，v0.6 新增）** 執行期位移資料來源 | 目前：即時讀取 `OnAnimatorMove` / `animator.deltaPosition`（Idle/Move/Jump），Roll 另外切換為烘焙曲線 | 全面改為烘焙曲線 + 輸入速度統一驅動，執行期完全不呼叫 `OnAnimatorMove`，所有模式收斂成單一 `Vector3` 速度後單一 `CharacterController.Move()` 出口 | 現行方案優點：Idle/Move 這類無需精確位移控制的狀態，可以直接沿用美術動畫的自然位移，不用額外烘焙每一支 clip。 | 現行方案代價（2026-07-08 除錯實錄）：`OnAnimatorMove` 要正確觸發，同時依賴 GameObject 階層、`Apply Root Motion` 勾選、`Animate Physics` 不勾選、匯入設定 `Bake Into Pose` 不勾選、以及每個繞道路徑（如烘焙曲線移動）都要自行歸零殘留量——任一項偏離都會表現為原地不動或動作結束瞬移，且症狀彼此難以區分，排查成本高。替代方案的代價是**所有**移動狀態都要先烘焙，包含原本不需要精確控制的 Idle/Move，前期資料準備成本較高。**尚未定案**，暫時先在現行架構修補已知缺口，中期視 Roll/Jump 之後新增的動作種類增加速度，再評估是否整體遷移。 |
 
 [每完成一個重大決策就補一行，越早寫越不會忘記當時的考量]
 
@@ -177,3 +178,4 @@ flowchart LR
 | 2026-06-29 | v0.2 | 補充仲裁層設計理念（2.5）、更新架構圖加入 ArbiterPipeline、補充 4.5/4.6 模組職責邊界、Trade-off 表補入鬼影資料風險、ref struct 升版、Pipeline 處理器抽介面、仲裁層決策共四筆、開放問題補充仲裁旗標粒度議題 |
 | 2026-07-05 | v0.3 | Trade-off 表更新動畫系統決策：補入 Animancer Lite v8 評估結論（Runtime Build 僅 Layer 0、Mixer 限 Editor）、確認採用「Facade 按 Pro 目標設計、Lite 做 Editor 驗證」策略 |
 | 2026-07-05 | v0.4 | 升級根運動烘焙資料結構為內建雙曲線（速度與連續偏航角），重寫 MotionDriver 驅動與動態補償算法（對齊物理時間軸軸心）。 |
+| 2026-07-08 | v0.5 | 除錯 Roll/Jump 動畫原地播放與結束瞬移問題，定位出 `OnAnimatorMove` 執行期依賴鏈（GameObject 階層／Apply Root Motion／Animate Physics／Bake Into Pose／殘留量歸零）過於脆弱；同步發現 `MotionBakeEditor.cs` 實作與 `02-dev-spec.md §4.1` 規格脫鉤，未使用真實 Humanoid Avatar 環境取樣。Trade-off 表新增「執行期位移資料來源」決策列，記錄是否遷移至完全烘焙曲線驅動架構的評估，暫未定案。 |

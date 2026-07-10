@@ -7,7 +7,7 @@ namespace Project.Presentation.Motion
     {
         [Header("來源資訊")]
         public AnimationClip SourceClip;
-        public float SampleRate = 30f;
+        public float SampleRate = 60f;
 
         [Header("物理特徵曲線 (X軸為實際時間/秒)")]
         [Tooltip("瞬時速度曲線 (m/s)")]

@@ -1,0 +1,40 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 94c495cc6bed08f46935a4f2a0a4c7d6, type: 3}
+  m_Name: PlayerStateMachineConfig
+  m_EditorClassIdentifier: Assembly-CSharp::Project.Core.StateMachine.StateMachineConfigSO
+  rules:
+  - State: 1
+    Priority: 0
+    CanBeInterruptedBy: 0400000003000000
+    ValidTransitions: 02000000
+  - State: 2
+    Priority: 0
+    CanBeInterruptedBy: 0300000004000000
+    ValidTransitions: 01000000
+  - State: 3
+    Priority: 10
+    CanBeInterruptedBy: 
+    ValidTransitions: 0200000001000000
+  - State: 4
+    Priority: 20
+    CanBeInterruptedBy: 
+    ValidTransitions: 0200000001000000
+  bakeMappings:
+  - State: 2
+    BakeData: {fileID: 11400000, guid: 47ae0e18f259d044dae3f25b9b8d9aec, type: 2}
+  - State: 1
+    BakeData: {fileID: 11400000, guid: 242c2fce7593f4f468e7c10b7f0e6711, type: 2}
+  - State: 3
+    BakeData: {fileID: 11400000, guid: 0694ae1c6141de347bd3988e4f3781dd, type: 2}
+  - State: 4
+    BakeData: {fileID: 11400000, guid: bbdaeb2801028254d8091921c492bbd6, type: 2}

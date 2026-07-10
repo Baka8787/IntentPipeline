@@ -37,7 +37,18 @@ namespace Project.Presentation.Animation
 
         public override void Play(string stateKey, float transitionDuration = 0.15f)
         {
-            if (!_clipMap.TryGetValue(stateKey, out var clip)) return;
+            if (!_clipMap.TryGetValue(stateKey, out var clip))
+            {
+                // 💡 升級防禦線：如果是這裡噴出警告，代表狀態機有叫它播，但 Inspector 的連線斷了！
+                Debug.LogWarning($"<color=red>[AnimancerFacade] 警告：狀態機請求播放 '{stateKey}'，但 Clip Mappings 查表失敗！請檢查 Inspector 是否殘留 Missing 欄位！</color>", this);
+                return;
+            }
+
+            if (clip == null)
+            {
+                Debug.LogWarning($"<color=red>[AnimancerFacade] 警告：狀態機請求播放 '{stateKey}'，但對應的 AnimationClip 實體為 null！</color>", this);
+                return;
+            }
 
             var state = animancer.Play(clip, transitionDuration);
             _stateCache[stateKey] = state;
@@ -51,9 +62,9 @@ namespace Project.Presentation.Animation
             _stateCache[stateKey] = state;
 
             // 💡 規格書優化提示：利用 Animancer 原生事件系統，並在結束後自動移除，防止記憶體殘留與每次 new 的 GC Alloc
-            state.Events.OnEnd = () =>
+            state.Events(this).OnEnd = () =>
             {
-                state.Events.OnEnd = null; // 清空避免重複觸發
+                state.Events(this).OnEnd = null; // ✨ 修正點 1：移除了不必要的括號 ()
                 onComplete?.Invoke();
             };
         }
@@ -91,7 +102,8 @@ namespace Project.Presentation.Animation
 
         public override float GetNormalizedTime()
         {
-            var currentRootState = animancer.States.CurrentState;
+            // ✨ 修正點 2：將 animancer.States.CurrentState 改為 animancer.Layers[0].CurrentState
+            var currentRootState = animancer.Layers[0].CurrentState;
             return currentRootState != null ? currentRootState.NormalizedTime : 0f;
         }
     }

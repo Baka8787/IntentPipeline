@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using Project.Presentation.Motion; 
 
 namespace Project.Core.StateMachine
 {
@@ -16,25 +17,47 @@ namespace Project.Core.StateMachine
         public List<StateType> ValidTransitions;
     }
 
+    [Serializable]
+    public struct StateBakeMapping
+    {
+        public StateType State;
+        [Tooltip("該狀態使用的烘焙運動資料，若該狀態不需要則留空")]
+        public MotionBakeData BakeData;
+    }
+
     [CreateAssetMenu(fileName = "StateMachineConfig", menuName = "Project/Core/StateMachineConfig")]
     public class StateMachineConfigSO : ScriptableObject
     {
         [SerializeField] private List<StateRule> rules = new List<StateRule>();
 
+        [Header("動作烘焙資料配置")]
+        [SerializeField] private List<StateBakeMapping> bakeMappings = new List<StateBakeMapping>(); 
+
         private readonly Dictionary<StateType, List<StateType>> _interruptMap = new();
         private readonly Dictionary<StateType, List<StateType>> _transitionMap = new();
         private readonly Dictionary<StateType, int> _priorityMap = new();
+        private readonly Dictionary<StateType, MotionBakeData> _bakeMap = new();
 
-        // 運行時快速查表優化
         public void Initialize()
         {
             _interruptMap.Clear();
             _transitionMap.Clear();
+            _priorityMap.Clear();
+            _bakeMap.Clear(); 
+
             foreach (var rule in rules)
             {
                 _interruptMap[rule.State] = rule.CanBeInterruptedBy ?? new List<StateType>();
                 _transitionMap[rule.State] = rule.ValidTransitions ?? new List<StateType>();
                 _priorityMap[rule.State] = rule.Priority;
+            }
+
+            foreach (var mapping in bakeMappings)
+            {
+                if (mapping.BakeData != null)
+                {
+                    _bakeMap[mapping.State] = mapping.BakeData;
+                }
             }
         }
 
@@ -47,9 +70,15 @@ namespace Project.Core.StateMachine
         {
             return _transitionMap.TryGetValue(state, out var list) ? list : Array.Empty<StateType>();
         }
+
         public int GetPriority(StateType state)
         {
             return _priorityMap.TryGetValue(state, out var priority) ? priority : 0;
+        }
+
+        public MotionBakeData GetBakeData(StateType state)
+        {
+            return _bakeMap.TryGetValue(state, out var data) ? data : null;
         }
     }
 }
