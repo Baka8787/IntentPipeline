@@ -13,7 +13,7 @@ namespace Project.Core.StateMachine
         [Tooltip("起跳瞬間注入的向上發射初速度 (m/s)")]
         public float ImpulseForce = 7.5f;
 
-        [Tooltip("起跳後鎖定滯空、開始判定落地的延遲時間 (秒)")]
-        public float TakeoffDelay = 1.0f;
+        [Tooltip("注入起跳衝量前的延遲秒數，用於等待動畫預備/下蹲蓄力姿勢播完再真正離地。0 = 進入狀態立即注入")]
+        public float TakeoffDelay = 0f;
     }
 }

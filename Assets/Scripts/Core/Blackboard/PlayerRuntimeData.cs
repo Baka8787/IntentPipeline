@@ -29,10 +29,18 @@ namespace Project.Core.Blackboard
         public float UpperBodyWeight { get; set; }
         public Transform CameraTransform { get; set; }
 
-        // === 物理狀態回寫區（由 MotionDriver 每帧物理結算後寫入，狀態機唯讀）===
         /// <summary>
-        /// 角色是否著地。依規格維持公開欄位，供 MotionDriver 每帧回寫真實 CharacterController.isGrounded，
-        /// 狀態機（Jump/Roll）讀取以判定「起跳資格」與「真實落地」，杜絕無限空中跳與假落地。
+        /// 角色是否觸地。依專案規範採用公開欄位（field，非 property）。
+        /// 寫入者：MotionDriver。收斂進 GetGravityThisFrame() 內部統一寫入——
+        ///         只要本影格 OnUpdateMotion 呼叫過任一個移動方法（ExecuteBaseMovement /
+        ///         ExecuteBakedCurveMovement / ApplyBakedCompensation），IsGrounded 就會被更新，
+        ///         不需要再額外呼叫一次獨立的同步方法。
+        /// 讀取者：狀態機（JumpState / RollState 的起跳資格閘門與 JumpState 的真實落地判定），
+        ///         取代先前用固定計時器模擬落地的做法，並杜絕無限空中跳。
+        /// ⚠️ 時序注意：Unity 的 CharacterController.isGrounded 只在呼叫過 Move() 之後才會更新，
+        /// 而 Move() 發生在本影格 LateUpdate，狀態機 Tick 發生在 Update，順序上更早。
+        /// 因此本影格 Update 讀到的 IsGrounded，實際上是「上一影格」LateUpdate 結算後的結果，
+        /// 這是 CharacterController 架構下的正常延遲，非 Bug，使用端只需知悉即可。
         /// </summary>
         public bool IsGrounded;
 

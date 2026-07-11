@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using Project.Presentation.Motion; 
+using Project.Presentation.Motion;
 
 namespace Project.Core.StateMachine
 {
@@ -93,6 +93,7 @@ namespace Project.Core.StateMachine
         /// <summary>
         /// 泛型安全查表：依 StateType 取得綁定的狀態參數資產並轉型為 <typeparamref name="TParams"/>。
         /// 查無綁定或型別不符時回傳 null，呼叫端應自行 fallback 到程式碼內建預設值。
+        /// 取代先前散落在 StateRule 內的 Jump 物理欄位與具體 float getter，統一由參數資產（SRP）承載。
         /// </summary>
         public TParams GetStateParams<TParams>(StateType state) where TParams : StateParamsSO
         {

@@ -1,7 +1,7 @@
 # CharacterController 開發規格文件（API / 資料結構）
 
-> **對齊專案版本**：v0.7（版本規範見 `專案開發更新日誌.md` 頂端）
-> **文件最後更新**：2026-07-11
+> **狀態**：草稿 v0.11
+> **最後更新**：2026-07-11
 > **用途**：實作時的對照表，採「介面先行，實作隨後」原則。
 
 ---
@@ -50,7 +50,33 @@ Assets/
 
 ---
 
-## 1. 資料結構定義（Data Layer）
+### 0.3 GameObject 階層規範（v0.9 新增，詳見 01-design-doc.md §2.6）
+
+角色物件一律拆成 **Root（Adapter）** 與 **Model（子物件）** 兩層，禁止把 `Animator` 或其他會產生根動作的元件跟 `CharacterController` 掛在同一顆物件上。
+
+```
+CharacterRoot                          <- 邏輯/物理權威層，外部一律引用這一層
+  ├─ CharacterController               <- 物理碰撞體與世界座標的唯一權威
+  ├─ CharacterPipelineRunner
+  ├─ MotionDriver
+  ├─ AnimancerFacade (: AnimationFacadeBase)
+  ├─ AnimancerComponent
+  ├─ PlayerInputSource (: IInputSource)
+  └─ Model                             <- 美術/骨骼層，禁止被遊戲邏輯直接引用
+       ├─ Animator                     <- Humanoid Avatar；applyRootMotion 必須為 false
+       ├─ SkinnedMeshRenderer
+       └─ <骨骼階層>                    <- 供未來手部 IK / 武器對位掛點使用
+```
+
+**規則**：
+1. `CharacterController.center` 的高度基準以 Root 為準，Model 只做視覺呈現，不參與碰撞計算。
+2. `AnimancerFacade`（或任何 `AnimationFacadeBase` 子類）掛在 Root，透過 `GetComponentInChildren<AnimancerComponent>()` 尋找 Model 底下的動畫元件——這與目前 `AnimancerFacade.cs` 既有寫法完全相容，不需要改介面。
+3. `Model` 底下的 `Animator.applyRootMotion` 必須顯式設為 `false`。除了 Inspector 手動關閉外，建議在 `AnimancerFacade.Awake()` 或等效初始化流程中程式碼強制覆寫一次，避免未來換模型/美術誤勾選又忘記關閉。
+4. 任何遊戲邏輯（狀態機、Controller、Driver）一律只能持有 **Root** 的 `Transform` 引用；`ThirdPersonCamera.target` 等外部模組同理只能指向 Root。
+
+---
+
+
 
 ### 1.1 PlayerRuntimeData（全域黑板）
 
@@ -65,6 +91,22 @@ public class PlayerRuntimeData
     public Vector2 MoveDirection;
     public float UpperBodyWeight;
     public Transform CameraTransform;
+
+    // ✅（v0.7 規劃、v0.8 實作完成）由 MotionDriver.GetGravityThisFrame(data) 每帧統一寫入，
+    // 供狀態邏輯讀取地面接觸狀態，取代 JumpState 內部原本固定計時器模擬落地判定的做法
+    public bool IsGrounded;
+
+    // 🆕（v0.10 定案，尚未實作）取代 MotionDriver 內部私有欄位 _verticalVelocity，
+    // 讓非 Jump 狀態（未來的擊退、彈跳台、翻越）也能直接改垂直速度，不必為每個情境各開一個 ApplyXxxImpulse 方法。
+    // 寫入權限比照 CurrentWeapon 用 internal set 限制在 Project.Core 命名空間內（主要是 MotionDriver 與各狀態類別），
+    // 一般表現層 Controller 仍只能讀。
+    public float VerticalVelocity { get; internal set; }
+
+    // 🆕（v0.10 定案，尚未實作）單幀邊沿旗標，由 MotionDriver.GetGravityThisFrame(data) 比較
+    // 本幀與上一幀 IsGrounded 的差異計算得出，僅在觸發那一幀為 true，下一幀自動復位。
+    // 供音效／鏡頭震動／落地特效等表現層 Controller 直接訂閱，不必自己追蹤上一幀的 IsGrounded。
+    public bool JustLanded;
+    public bool JustLeftGround;
 
     // === 仲裁區（由 ArbiterPipeline 每帧寫入，各表現層 Controller 唯讀）===
     // 註：維持公開欄位而非 Property，避免 struct 值複製導致無法直接修改內部旗標
@@ -85,6 +127,9 @@ public class PlayerRuntimeData
 | **MoveSpeed** | `float` | Parameter Processor | AnimationFacade | 控制 BlendTree 混合 |
 | **CurrentWeapon** | `ItemInstance` | EquipmentDriver | 多處 | 唯讀引用，禁止外部修改內容 |
 | **Arbitration** | `ArbiterData` (struct) | ArbiterPipeline | 各表現層 Controller | 每帧統一覆寫，Controller 只讀不寫 |
+| **IsGrounded** | `bool` | MotionDriver（於 `GetGravityThisFrame(data)` 內部統一寫入，所有移動路徑最終都會呼叫此方法，來源 `CharacterController.isGrounded`） | 狀態機（如 `JumpState.IsLanded`） | ✅ v0.7 規劃、v0.8 實作完成；已取代 `JumpState` 內部原本的固定計時器落地判定 |
+| **VerticalVelocity** | `float`（`internal set`） | MotionDriver、`Project.Core` 內的狀態類別 | 各表現層 Controller（唯讀） | 🆕 v0.10 定案，尚未實作；取代 `MotionDriver` 私有欄位 `_verticalVelocity` |
+| **JustLanded / JustLeftGround** | `bool` | MotionDriver（於 `GetGravityThisFrame(data)` 內比較前後兩幀 `IsGrounded`） | 音效／鏡頭／特效等表現層 Controller | 🆕 v0.10 定案，尚未實作；單幀觸發，下一幀自動復位 |
 
 > ⚠️ **`ref struct` 相容性警語**：`InputData` 已升版為 `ref struct`（見 1.3 節），**絕對不能**成為 `PlayerRuntimeData` 的欄位。黑板只能持有處理後轉換的 `IntentData` 或一般參數。違反此邊界將導致編譯直接失敗。
 
@@ -272,96 +317,113 @@ public abstract class AnimationFacadeBase : MonoBehaviour
 
 ### 3.2 狀態機與動畫具體實作（第三階段）
 
-#### StateRule（狀態拓撲規則 · `StateRule.cs`）
-
-> 💡 **SRP 職責分離（v0.10）**：`StateRule` 只承載狀態機的「拓撲結構」——誰能打斷誰、可自然過渡到哪、同帧多意圖的優先級；**不含任何狀態專屬的物理／數值參數**（那些交由下方 `StateParamsSO` 系列資產負責）。此結構已從 `StateMachineConfigSO.cs` 抽離為獨立的 `StateRule.cs` 檔案。
+#### StateMachineConfigSO（設定檔資產）
 
 ```csharp
 [Serializable]
 public struct StateRule
 {
     public StateType State;
-    public int Priority; // 用於 EvaluateInterrupts 當幀多意圖同時觸發時的排序
     [Tooltip("哪些狀態可以主動打斷當前狀態（意圖觸發時檢查）")]
     public List<StateType> CanBeInterruptedBy;
     [Tooltip("當前狀態結束或無意圖時，允許自然過渡到的狀態優先級")]
     public List<StateType> ValidTransitions;
+    public int Priority; // 用於 EvaluateInterrupts 當幀多意圖同時觸發時的排序
 }
-```
-
-#### StateMachineConfigSO（設定檔資產）
-
-> 💡 除了拓撲規則 `rules`，設定檔另以「`StateType` → 資產」的映射清單掛載各狀態專屬資源：`bakeMappings`（烘焙運動資料）與 `paramsMappings`（狀態參數資產）。三類清單一律在 `Initialize()` 內「List → Dictionary」建成 O(1) 執行期查表。
-
-```csharp
-[Serializable] public struct StateBakeMapping   { public StateType State; public MotionBakeData BakeData; }
-[Serializable] public struct StateParamsMapping { public StateType State; public StateParamsSO Params; }
 
 [CreateAssetMenu(fileName = "StateMachineConfig", menuName = "Project/Core/StateMachineConfig")]
 public class StateMachineConfigSO : ScriptableObject
 {
     [SerializeField] private List<StateRule> rules;
-    [SerializeField] private List<StateBakeMapping> bakeMappings;
-    [SerializeField] private List<StateParamsMapping> paramsMappings;
+    private Dictionary<StateType, List<StateType>> _interruptMap;
+    private Dictionary<StateType, List<StateType>> _transitionMap;
 
-    private readonly Dictionary<StateType, List<StateType>> _interruptMap = new();
-    private readonly Dictionary<StateType, List<StateType>> _transitionMap = new();
-    private readonly Dictionary<StateType, int> _priorityMap = new();
-    private readonly Dictionary<StateType, MotionBakeData> _bakeMap = new();
-    private readonly Dictionary<StateType, StateParamsSO> _paramsMap = new();
-
-    public void Initialize() { /* rules / bakeMappings / paramsMappings 各自 List → Dictionary */ }
-
+    public void Initialize() { /* List → Dictionary 建立 O(1) 執行期查表 */ }
     public bool CheckCanInterrupt(StateType current, StateType next) { ... }
     public IReadOnlyList<StateType> GetValidTransitions(StateType state) { ... }
-    public int GetPriority(StateType state) { ... }
-    public MotionBakeData GetBakeData(StateType state) { ... }
-
-    // 泛型安全查表：查無綁定或型別不符時回傳 null，呼叫端自行 fallback 到程式碼內建預設值
-    public TParams GetStateParams<TParams>(StateType state) where TParams : StateParamsSO
-        => _paramsMap.TryGetValue(state, out var p) ? p as TParams : null;
 }
+
 ```
 
-#### StateParamsSO / JumpStateParams（狀態參數資產 · SRP 職責分離）
+> ⚠️ **v0.10 更新**：實際程式碼在 v0.7/v0.8 曾把 `JumpImpulseForce`／`JumpTakeoffDelay` 直接加進 `StateRule`（上面這份介面草稿沒有反映這兩個欄位，兩者是分開演進的）。經盤點確認這違反單一職責原則，且會在多遊戲模式擴充時讓 `StateRule` 線性膨脹。**目標設計**改為下面的 `StateParamsSO` 方案，`StateRule` 維持只有拓撲欄位（`State`／`Priority`／`CanBeInterruptedBy`／`ValidTransitions`），不再新增任何狀態專屬的物理/表現參數。詳見 `01-design-doc.md` §2.7、§5 Trade-off 表 v0.10 決策列。
 
-> 🆕 **v0.10 重構動機**：把各狀態的物理／數值參數（如跳躍初速度、滯空時間）從「狀態拓撲」（`StateRule`）與「狀態邏輯」（`BaseState` 子類別的硬編碼欄位）中抽離，改由可配置的 ScriptableObject 資產承載，統一以 `StateType` 綁定、以 `GetStateParams<T>()` 泛型安全查表。避免數值散落在各 State 類別內、且允許不同角色／設定檔覆寫同一狀態的手感。
+#### StateParamsSO（狀態專屬參數資產，v0.10 新增設計，尚未實作）
+
+**動機**：`StateRule` 的職責是 FSM 拓撲（誰能打斷誰、能過渡到誰、優先級），跟具體狀態要用什麼物理參數表現自己（Jump 的衝量、Roll 的翻滾距離、未來 Slide 的摩擦係數）是兩個完全不同的關注點。混在同一個結構體會導致：
+1. Inspector 上不相關的狀態也會看到不屬於自己的欄位（例如設定 Idle 時也看得到 `Jump Impulse Force`）。
+2. 每個 `StateRule` 元素都攜帶所有狀態的參數欄位，執行期有用不到的記憶體浪費。
+3. 隨著 ARPG／射擊等模式陸續加入 SlideState、ClimbState、AimState，`StateRule` 會線性膨脹成沒人敢動的巨石結構——這正是專案要支援多遊戲模式的目標下，最需要提前避免的坑。
+
+**介面設計**：
 
 ```csharp
-// 抽象基底：所有狀態專屬參數資產的共同型別約束（abstract，不可直接建立資產）
-public abstract class StateParamsSO : ScriptableObject { }
+/// <summary>
+/// 狀態專屬參數資產的抽象基底。只是型別標記，不放任何共用欄位——
+/// 共用欄位屬於 StateRule 的職責，不該在這裡重複。
+/// </summary>
+public abstract class StateParamsSO : ScriptableObject
+{
+}
 
-// Jump 狀態的物理參數資產
-[CreateAssetMenu(fileName = "JumpStateParams", menuName = "Project/Core/StateParams/JumpStateParams")]
+// 範例：Jump 專屬參數，取代原本塞進 StateRule 的 JumpImpulseForce / JumpTakeoffDelay
+[CreateAssetMenu(fileName = "JumpStateParams", menuName = "Project/Core/StateParams/Jump")]
 public class JumpStateParams : StateParamsSO
 {
-    [Tooltip("起跳瞬間注入的向上發射初速度 (m/s)")]
-    public float ImpulseForce = 7.5f;
-    [Tooltip("起跳後鎖定滯空、開始判定落地的延遲時間 (秒)")]
-    public float TakeoffDelay = 1.0f;
+    [Tooltip("起跳發射初速度 (m/s)。0 或未設定時，狀態端會 fallback 到程式碼內建預設值")]
+    public float ImpulseForce;
+
+    [Tooltip("衝量注入前的延遲秒數，用於等待動畫預備/蹲下姿勢播完。0 = 不延遲")]
+    public float TakeoffDelay;
 }
+
+// 未來範例（尚未實作，僅供設計參考）：
+// public class SlideStateParams : StateParamsSO { public float SlideDistance; public AnimationCurve FrictionCurve; }
+// public class ClimbStateParams : StateParamsSO { public float ClimbSpeed; public float StaminaCostPerSecond; }
 ```
 
-**狀態端消費模式（對齊 `RollState.GetBakeData` 的資料驅動）**：在 `Initialize` 查表快取內部物理變數，**查無綁定資產時沿用程式碼內建預設值**，確保零配置也能正常運作、不破壞既有邏輯。
+`StateMachineConfigSO` 擴充：
 
 ```csharp
-public class JumpState : BaseState
+[Serializable]
+public struct StateParamsMapping
 {
-    private float _impulseForce = 7.5f; // 內建預設（fallback）
-    private float _takeoffDelay = 1.0f;
+    public StateType State;
+    [Tooltip("該狀態使用的專屬參數資產，型別需繼承 StateParamsSO；若該狀態不需要調參則留空")]
+    public StateParamsSO Params;
+}
 
-    public override void Initialize(StateMachineConfigSO config)
-    {
-        base.Initialize(config);
-        var p = config.GetStateParams<JumpStateParams>(Type);
-        if (p != null) { _impulseForce = p.ImpulseForce; _takeoffDelay = p.TakeoffDelay; }
-    }
-    // OnEnter:        _airTimer = _takeoffDelay;
-    // OnUpdateMotion: motionDriver.ApplyJumpImpulse(_impulseForce);
+// StateMachineConfigSO 內新增：
+[SerializeField] private List<StateParamsMapping> paramsMappings = new();
+private readonly Dictionary<StateType, StateParamsSO> _paramsMap = new();
+
+// Initialize() 內新增對應的建表邏輯（比照 _bakeMap 的模式）
+
+/// <summary>
+/// 泛型查表，呼叫端指定期望型別；查無資料或型別不符時回傳 null，呼叫端自行 fallback。
+/// </summary>
+public TParams GetStateParams<TParams>(StateType state) where TParams : StateParamsSO
+{
+    return _paramsMap.TryGetValue(state, out var so) ? so as TParams : null;
 }
 ```
 
-> 📐 **擴充準則**：未來新增有專屬參數的狀態（如 `DashStateParams`、`RollStateParams`），一律新建 `XxxStateParams : StateParamsSO` → 在 `StateMachineConfigSO.paramsMappings` 綁定 → 狀態端以 `GetStateParams<XxxStateParams>(Type)` 取用即可，**無需改動狀態機主體或 `StateRule` 拓撲**。
+呼叫端範例（`JumpState.Initialize`）：
+
+```csharp
+public override void Initialize(StateMachineConfigSO config)
+{
+    base.Initialize(config);
+
+    var p = config?.GetStateParams<JumpStateParams>(Type);
+    if (p != null)
+    {
+        if (p.ImpulseForce > 0f) _jumpImpulseForce = p.ImpulseForce;
+        _takeoffDelay = Mathf.Max(0f, p.TakeoffDelay);
+    }
+}
+```
+
+**已知限制**：`GetStateParams<T>` 用 `as` 轉型，型別掛錯（例如 Jump 狀態誤掛了 `RollStateParams`）只會靜默回傳 `null`，不會報錯——目前先靠呼叫端的 fallback 預設值兜底，避免整個管線因為一個掛錯的資產而崩潰；長期可以考慮加一個 Editor 驗證工具，在 `StateMachineConfigSO` 存檔時檢查每筆 `StateParamsMapping` 掛的資產型別是否符合預期。
 
 #### AnimancerFacade（Animancer Lite 封裝）
 
@@ -400,6 +462,8 @@ public class AnimancerFacade : AnimationFacadeBase
 > 5. 任何繞過 `ExecuteBaseMovement` 的位移路徑（如 `ExecuteBakedCurveMovement`）都必須自行歸零 `_rootMotionDelta`，否則會累積殘留量並在切回 `ExecuteBaseMovement` 時一次性噴出。
 >
 > 中期正評估改為完全不依賴執行期 `OnAnimatorMove`、統一以「輸入速度 + 烘焙曲線速度」驅動的替代架構，降低上述耦合，尚未定案，見 `01-design-doc.md` §5 Trade-off 表。
+>
+> ⚠️ **文件落後於實作提醒（v0.9 複查）**：下方 code block 是本節最初的規劃版偽代碼，實際上專案已經在 v0.5～v0.8 期間走完「完全不依賴 `OnAnimatorMove`」這條路線，目前 `MotionDriver.cs` 是純程式碼驅動（`ExecuteBaseMovement` / `ExecuteBakedCurveMovement` / `ApplyBakedCompensation` 都改吃 `PlayerRuntimeData data` 參數、`IsGrounded` 也統一在 `GetGravityThisFrame(data)` 內寫回黑板）。下方 code block 僅供理解「最初評估過的替代方案長相」，**不代表目前實作**，避免直接照抄。
 
 ```csharp
 public class MotionDriver : MonoBehaviour
@@ -505,7 +569,14 @@ public class MotionDriver : MonoBehaviour
 
 3. **反射硬碟落地**：利用 C# 反射遞迴遍歷 `PlayerSO` 等序列化入口，自動尋找匹配的資料欄位覆寫。調用 `EditorUtility.SetDirty` 與 `AssetDatabase.ForceReserializeAssets` 強制執行硬碟硬性序列化。
 
-> 🛑 **已知落差（2026-07-08 除錯發現，技術債）**：目前落地的 `MotionBakeEditor.cs` **尚未依照上述第 1 點實作**——它是對一個沒有掛 `Animator`／`Avatar` 的空 `GameObject` 直接呼叫 `AnimationClip.SampleAnimation`，而不是本節要求的「實例化臨時角色 Model、注入 Humanoid Avatar、`applyRootMotion = true`」。Humanoid 的根運動仰賴 Avatar 重定向計算，空物件採不到真實位移，會導致烘焙出的 `SpeedCurve` 趨近全零。**在依此規格重寫 `MotionBakeEditor.cs`、並補上 `avatar.isHuman` 防呆檢查之前，所有既有的 `MotionBakeData` 資產都視為不可信，需要重新烘焙。** 詳見 `專案開發更新日誌.md` v0.5.1。
+> ✅ **已解決（v0.7 文件盤點更新）**：v0.5.1 曾記錄 `MotionBakeEditor.cs` 對空 `GameObject`（無 `Animator`／`Avatar`）直接呼叫 `AnimationClip.SampleAnimation` 的技術債。經 2026-07-08 複查，目前程式碼**已依本節第 1 點實作**：`ExecuteBakePipeline()` 會 `Instantiate(characterPrefab)`、檢查 `animator.avatar != null && animator.avatar.isHuman`（不合法則中斷並跳錯誤對話框）、設定 `animator.applyRootMotion = true` 後才呼叫 `BakeCoreProcessor` 採樣。**先前「所有既有 MotionBakeData 資產視為不可信」的警語已不再適用於此問題**；若手上仍有 v0.5.1 之前烘焙出來的舊資產，建議重新烘焙一次以確保是用目前這版真人形 Avatar 流程產生的。
+>
+> 🛑 **殘留落差（尚未實作）**：目前的 `BakeCoreProcessor` 仍只做「單一迴圈同時採樣速度與偏航角」的簡化版本，尚未落實本節後段要求的：
+> 1. Pass 1／Pass 2 分離（原始幾何骨骼採樣與速度採樣分兩階段）
+> 2. 骨骼腳相採樣（`LeftFoot`／`RightFoot` 落地腳判定 `FootPhase`）
+> 3. Post Process 階段的逆向容忍度裁剪（`RotationFinishedTime`）與低通濾波
+>
+> 這三項列入 §5 待補清單，屬於功能完整度落差，不影響目前已修復的「取樣來源正確性」問題。
 
 ### 4.2 高階動態扭曲特徵提取（`WarpedMotionExtractor.cs`）
 
@@ -548,9 +619,25 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 * [ ] 動畫烘焙 Editor 工具實作（`RootMotionExtractor`）：以跳躍落地動畫進行首波驗證。
 * [ ] `MotionDriver` 進階版：接入 `MotionBakeData`，驗證目標點補償誤差 $< 0.01\text{m}$。
 * [ ] 上半身 Layer 實作（持槍/空手切換），確認 Lite 限制下的 Editor 表現行為。
-* [ ] **（新增，v0.6）** 依 4.1 節規格重寫 `MotionBakeEditor.cs`：改為實例化真實 Humanoid Prefab + 檢查 `avatar.isHuman` + `applyRootMotion = true` 後再採樣，取代目前對空 `GameObject` 採樣的簡化版本；完成後所有既有 `MotionBakeData` 資產須重新烘焙。
-* [ ] **（新增，v0.6）** 補齊 `JumpState` 的垂直位移設計：明確定義起跳上升段是「純動畫根運動」還是「程式碼注入初速度（`ApplyJumpImpulse`）」，避免與 Roll 的水平曲線移動模式混用導致重力失效。
+* [x] **（v0.6，複查後確認已完成）** 依 4.1 節規格重寫 `MotionBakeEditor.cs`：改為實例化真實 Humanoid Prefab + 檢查 `avatar.isHuman` + `applyRootMotion = true` 後再採樣。**2026-07-08 複查確認此項已在程式碼中落地**，詳見上方 §4.1 已解決說明；仍缺 Pass 1/2 分離與腳相/濾波後處理，已拆成下方新項目追蹤。
+* [x] **（新增，v0.6）** 補齊 `JumpState` 的垂直位移設計：明確定義起跳上升段是「純動畫根運動」還是「程式碼注入初速度（`ApplyJumpImpulse`）」，避免與 Roll 的水平曲線移動模式混用導致重力失效。**已實作**：`JumpState.OnUpdateMotion` 第一幀呼叫 `MotionDriver.ApplyJumpImpulse`，採用「程式碼注入初速度＋重力每幀積分」路線。
 * [ ] **（新增，v0.6）** 評估是否將 `MotionDriver` 重構為不依賴執行期 `OnAnimatorMove` 的統一速度模型（輸入速度 + 烘焙曲線速度，單一 `CharacterController.Move()` 出口，重力每幀快取一次），降低目前對 Animator 設定/匯入設定/GameObject 階層的多重外部依賴。
+* [ ] **（新增，v0.7，Code Review 發現）** `RootMotionExtractor` 補齊 Pass 1/Pass 2 分離、`LeftFoot`／`RightFoot` 骨骼腳相採樣（`FootPhase`）、Post Process 階段的逆向容忍度裁剪與低通濾波，目前 `MotionBakeEditor.cs` 只做到單一迴圈的速度＋偏航角採樣。
+* [x] **（v0.7 提出，v0.7 當輪實作完成）** `PlayerRuntimeData` 補上 `IsGrounded` 欄位；`JumpState.IsLanded` 改讀黑板旗標，取代固定計時器判定。**v0.8 再優化**：同步時機從「`CharacterPipelineRunner.LateUpdate` 額外呼叫 `SyncGroundedState`」收斂進「`MotionDriver.GetGravityThisFrame(data)` 內部統一寫入」，見下方 v0.8 項目。
+* [x] **（v0.7 提出，v0.7 當輪實作完成）** `JumpState.jumpImpulseForce` 改為從 `StateMachineConfigSO.GetJumpImpulseForce(Type)` 查表取得，不再依賴失效的 `[SerializeField]`。
+* [x] **（v0.7 提出，v0.7 當輪實作完成）** `MotionDriver.Awake()` 補上 `characterController` 缺失時的 `Debug.LogError` 防呆。
+* [x] **（v0.7 提出，v0.7 當輪實作完成）** `RollState.OnUpdateMotion` 加入 `animationFacade.IsPlaying(AnimationKey)` 檢查，失敗時退回 `ExecuteBaseMovement`。
+* [x] **（v0.7 提出，v0.7 當輪實作完成）** `CharacterPipelineRunner.ProcessIntents` 的富文本 `Debug.Log` 包進 `#if UNITY_EDITOR`。
+* [x] **（v0.7 提出，v0.7 當輪實作完成）** `AnimancerFacade.SetLayerWeight` 補上 `layerIndex < 0` 邊界檢查；`clipMappings` 補 `= new()` 保底。
+* [x] **（新增，v0.8，實測發現）** Jump「先蹲下再往上」問題：新增可設定的 `StateRule.JumpTakeoffDelay`，`JumpState` 延遲期間維持一般貼地移動，時間到才呼叫 `ApplyJumpImpulse`，讓物理起飛時機與動畫預備蹲下姿勢的時間軸對齊。**已實作，並於 v0.10 經手動調整數值、實機測試確認表現正常**（延遲秒數需依實際動畫預備動作長度手動填入，非自動偵測）。
+* [x] **（新增，v0.8）** `IsGrounded` 黑板同步收斂進 `MotionDriver.GetGravityThisFrame(data)` 內部，`ExecuteBakedCurveMovement`／`ApplyBakedCompensation` 簽名同步補上 `PlayerRuntimeData data` 參數，移除額外的 `SyncGroundedState` 呼叫點。**已實作**。
+* [ ] **（v0.9 提出，v0.10 已定案，尚未實作）** `VerticalVelocity` 從 `MotionDriver` 私有欄位移入 `PlayerRuntimeData` 黑板（`internal set`），讓未來二段跳/擊退/彈跳台等需求可直接讀寫，不必為每個情境各開一個 `ApplyXxxImpulse` 方法。介面設計見 §1.1。
+* [ ] **（v0.9 提出，v0.10 已定案，尚未實作）** 新增 `JustLanded`／`JustLeftGround` 單幀邊沿旗標供音效/鏡頭震動等表現層 Controller 訂閱。v0.9 當時因無下游消費者暫緩，v0.10 基於多遊戲模式落地音效/鏡頭震動是標配表現的判斷，改為提前採用。介面設計見 §1.1。
+* [ ] **（新增，v0.9）** 角色 GameObject 階層遷移為 Root（Adapter）＋ Model 子物件兩層結構（詳見 §0.3、`01-design-doc.md` §2.6）：既有場景/預製體需要一次性搬遷，並確認 `AnimancerFacade`、`ThirdPersonCamera` 等模組的 Inspector 引用在搬遷後仍正確指向 Root。
+* [ ] **（新增，v0.9）** 在 `Model` 子物件的 `Animator` 上，除了 Inspector 手動關閉 `applyRootMotion` 外，於 `AnimancerFacade.Awake()`（或等效初始化流程）加一道程式碼防線，強制覆寫 `applyRootMotion = false`，避免未來換模型時又被誤勾選。
+* [ ] **（新增，v0.10，最高優先）** `StateRule` 職責分離重構：新增抽象基底 `StateParamsSO` 與範例子類別 `JumpStateParams`（介面設計見 §3.2 新增小節），`StateMachineConfigSO` 補上 `paramsMappings` 與泛型查表方法 `GetStateParams<T>`；`JumpState.Initialize` 改為呼叫 `config.GetStateParams<JumpStateParams>(Type)`；完成後從 `StateRule` 移除 `JumpImpulseForce`／`JumpTakeoffDelay` 兩個欄位，`StateRule` 恢復只有純拓撲欄位。這是目前最高優先的重構項，因為後續任何新狀態（`SlideState`／`ClimbState`／`AimState`）的調參需求都應該走新機制，不該再繼續往 `StateRule` 加欄位。
+* [ ] **（新增，v0.10）** 評估是否需要 `StateParamsSO` 掛載型別驗證的 Editor 工具：在 `StateMachineConfigSO` 存檔時檢查每筆 `StateParamsMapping.Params` 的實際型別是否符合該 `StateType` 預期，避免 `GetStateParams<T>` 轉型失敗被靜默吞掉。
+* [ ] **（新增，v0.10）** `CharacterPipelineRunner.ProcessIntents` 已摸到 v0.1 決策訂下的「10-15 行重構訊號」門檻，且專案目標轉向支援多遊戲模式（不同模式的意圖處理邏輯會分岔），評估是否該啟動抽介面（`IIntentProcessor`／`IParameterProcessor`）。
 
 ### 後續第四、五階段
 
@@ -577,6 +664,9 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | 2026-06-29 | v0.3 | InputData 正式升版為 ref struct；新增 Arbiter 仲裁結構與管線脆弱點警告 | Core Dev |
 | 2026-07-03 | v0.4 | BaseState 對齊實作更新；加入 StateMachineConfigSO 與動態打斷規則表 | Core Dev |
 | 2026-07-05 | v0.5 | **進入第三階段**；補齊 Animation 完整介面；定義常規與扭曲（Warped）雙提取器離線烘焙規格；重構編排全文件順序 | Architecture 組 |
-| 2026-07-08 | v0.5.1 | 除錯過程中發現 `MotionBakeEditor.cs` 實作與 §4.1 規格脫鉤（空 GameObject 取樣、無 Humanoid Avatar），標記為技術債；§3.2 `MotionDriver` 範例補上 `OnAnimatorMove` 執行期外部依賴風險警語；§5 待補清單新增三項對應修復任務 | Core Dev |
-| 2026-07-11 | v0.6 | **職責分離重構（SRP）**：§3.2 補上 `StateParamsSO`（抽象基底）／`JumpStateParams` 狀態參數資產架構；`StateRule` 抽離為獨立檔案並釐清「僅承載拓撲」職責；`StateMachineConfigSO` 補上 `StateParamsMapping` 與泛型安全查表 `GetStateParams<TParams>()`；`JumpState` 物理參數改為資產驅動（null 則 fallback 內建預設） | Core Dev |
-| 2026-07-11 | v0.7 | 著地資料流修正（Critical #1）：黑板新增 `IsGrounded`、`MotionDriver` 回寫、`Jump`/`Roll` 著地閘門與真實落地判定（§1.1／§3.3 內文待補）；導入 asmdef 與 EditMode 測試；**導入統一版本方案**：header 改為「對齊專案版本」，收斂原 v0.6→v0.10 跳號，並將 2026-07-08 列對齊 SSOT 之 v0.5.1 | Core Dev |
+| 2026-07-08 | v0.6 | 除錯過程中發現 `MotionBakeEditor.cs` 實作與 §4.1 規格脫鉤（空 GameObject 取樣、無 Humanoid Avatar），標記為技術債；§3.2 `MotionDriver` 範例補上 `OnAnimatorMove` 執行期外部依賴風險警語；§5 待補清單新增三項對應修復任務 | Core Dev |
+| 2026-07-08 | v0.7 | **全面 Code Review 與文件同步**：複查確認 `MotionBakeEditor.cs` 的 Humanoid Avatar 採樣技術債（v0.6 記錄）**已在程式碼中修復**，更正 §4.1 說明並拆出殘留的 Pass 分離／腳相／濾波待辦；§1.1 `PlayerRuntimeData` 新增規劃中的 `IsGrounded` 欄位；§5 待補清單新增 7 項 Code Review 發現（Jump 落地判定資料流、`jumpImpulseForce` 序列化死碼、`MotionDriver` null 防禦、`RollState` 動畫播放防呆、熱路徑 log GC、`AnimancerFacade` 邊界檢查） | Core Dev |
+| 2026-07-08 | v0.8 | **補齊修訂紀錄**：實作 Jump「先蹲下再往上」修正（`StateRule.JumpTakeoffDelay`）；`IsGrounded` 黑板同步收斂進 `MotionDriver.GetGravityThisFrame(data)` 內部統一寫入，取代額外呼叫 `SyncGroundedState`；§1.1／§5 同步更新 | Core Dev |
+| 2026-07-08 | v0.9 | **補齊修訂紀錄**：新增 §0.3 GameObject 階層規範（Root Adapter + Model Child），呼應 `01-design-doc.md` §2.6；§5 新增對應遷移任務；評估參考碼（BBBNexus）`VerticalVelocity`／`JustLanded`／`JustLeftGround` 兩項設計，當時暫緩（見 v0.10 更新為已定案） | Core Dev |
+| 2026-07-08 | v0.10 | **StateRule 職責分離重構規劃**：新增 §3.2 `StateParamsSO` 抽象基底 + `JumpStateParams` 範例的完整介面設計，取代 v0.7/v0.8 把 `JumpImpulseForce`／`JumpTakeoffDelay` 直接塞進 `StateRule` 的做法；§1.1 黑板新增 `VerticalVelocity`／`JustLanded`／`JustLeftGround` 三個 v0.9 暫緩、v0.10 改為已定案的欄位設計；§5 待補清單新增 `StateRule` 重構任務（列為最高優先）與 `StateParamsSO` 型別驗證工具評估；確認 `JumpTakeoffDelay` 已透過手動調整實機驗證表現正常 | Core Dev |
+| 2026-07-11 | v0.11 | **分支整併 + StateParamsSO 落地**：§3.2 規劃的 `StateParamsSO`／`JumpStateParams` 由「設計」轉為「已實作」（泛型 `GetStateParams<TParams>()` 取代過渡期 float-getter）；`StateRule` 移除 Jump 物理欄位、抽為獨立檔（純拓撲）；黑板 `IsGrounded` 採公開欄位；`JumpState`／`RollState` 加著地閘門；新增 asmdef（Project.Runtime／Editor／Tests.EditMode）與 `StateMachineTests` EditMode 測試 | Core Dev |

@@ -24,10 +24,17 @@ namespace Project.Presentation.Motion
         private void Awake()
         {
             if (characterController == null) characterController = GetComponent<CharacterController>();
+
+            // 🆕（v0.7 Code Review 補上）與 CharacterPipelineRunner 對 motionDriver/animationFacade
+            // 的防禦線保持一致：缺元件時明確報錯，而不是留到第一次 Move() 呼叫時才 NullReferenceException。
+            if (characterController == null)
+            {
+                Debug.LogError($"[{gameObject.name}] MotionDriver 缺少 CharacterController，且未在 Inspector 綁定！", this);
+            }
         }
 
         /// <summary>
-        /// 💡 解決高度累積與跳不起來盲區：供 JumpState 在 OnEnter 時點火呼叫，強行注入垂直初速度！
+        /// 💡 解決高度累積與跳不起來盲區：供 JumpState 在 OnUpdateMotion 點火呼叫，強行注入垂直初速度！
         /// </summary>
         public void ApplyJumpImpulse(float impulseForce)
         {
@@ -69,21 +76,17 @@ namespace Project.Presentation.Motion
                 horizontalVelocity = transform.forward * currentSpeed;
             }
 
-            // 5. 疊加單幀快取重力（保持原有的自由落體與貼地力優化）
-            Vector3 finalMovement = horizontalVelocity + GetGravityThisFrame();
+            // 5. 疊加單幀快取重力（保持原有的自由落體與貼地力優化），同時同步觸地狀態回黑板
+            Vector3 finalMovement = horizontalVelocity + GetGravityThisFrame(data);
 
             // 6. 總出口呼叫
             characterController.Move(finalMovement * Time.deltaTime);
-
-            // 7. 🆕 物理位移結算後，即時回寫真實著地狀態至黑板。
-            //    Move() 之後讀取的 isGrounded 才是本帧最新的碰撞結果，供狀態機（Jump/Roll）判定起跳與落地。
-            data.IsGrounded = characterController.isGrounded;
         }
 
         /// <summary>
         /// 🚀 【順序 6b】特殊動作曲線運動：直接使用離線烘焙曲線驅動角色位移與旋轉（如 Roll）
         /// </summary>
-        public void ExecuteBakedCurveMovement(MotionBakeData bakeData, float normalizedTime)
+        public void ExecuteBakedCurveMovement(MotionBakeData bakeData, float normalizedTime, PlayerRuntimeData data)
         {
             if (bakeData == null) return;
 
@@ -105,15 +108,15 @@ namespace Project.Presentation.Motion
                 transform.Rotate(Vector3.up, deltaYaw, Space.World);
             }
 
-            // 4. 曲線特殊狀態同樣疊加世界物理重力結算，打包送出
-            Vector3 finalMovement = horizontalVelocity + GetGravityThisFrame();
+            // 4. 曲線特殊狀態同樣疊加世界物理重力結算，打包送出（同時同步觸地狀態回黑板）
+            Vector3 finalMovement = horizontalVelocity + GetGravityThisFrame(data);
             characterController.Move(finalMovement * Time.deltaTime);
         }
 
         /// <summary>
         /// 🚀 工業級實作：進階烘焙補償速度疊加位移（動態吸附/校準）
         /// </summary>
-        public void ApplyBakedCompensation(MotionBakeData bakeData, Vector3 actualTarget, float normalizedTime)
+        public void ApplyBakedCompensation(MotionBakeData bakeData, Vector3 actualTarget, float normalizedTime, PlayerRuntimeData data)
         {
             if (bakeData == null) return;
 
@@ -122,7 +125,7 @@ namespace Project.Presentation.Motion
 
             if (remainingTime <= 0.001f)
             {
-                ExecuteBakedCurveMovement(bakeData, normalizedTime);
+                ExecuteBakedCurveMovement(bakeData, normalizedTime, data);
                 return;
             }
 
@@ -146,22 +149,29 @@ namespace Project.Presentation.Motion
             Vector3 compensationVelocity = requiredVelocity - (transform.forward * curveSpeed);
             Vector3 compensationDelta = compensationVelocity * Time.deltaTime;
 
-            // 3. 結合重力统一打包
-            Vector3 finalMovement = (baseMoveDelta + compensationDelta) / Time.deltaTime + GetGravityThisFrame();
+            // 3. 結合重力统一打包（同時同步觸地狀態回黑板）
+            Vector3 finalMovement = (baseMoveDelta + compensationDelta) / Time.deltaTime + GetGravityThisFrame(data);
             characterController.Move(finalMovement * Time.deltaTime);
         }
 
         /// <summary>
         /// 工業級實作：獲取本影格重力（保證一影格內即使被多處調用，也只做一次垂直速度積分）
+        /// 把 IsGrounded 同步回黑板收斂進這裡，
+        /// 因為所有移動路徑（ExecuteBaseMovement / ExecuteBakedCurveMovement / ApplyBakedCompensation）
+        /// 最終都會呼叫這個方法，等於「只要角色這幀有移動，IsGrounded 就保證是新的」，
+        /// 不再需要額外從 CharacterPipelineRunner 顯式呼叫一次 SyncGroundedState，
+        /// 也不用擔心未來新增移動路徑時忘記同步。
         /// </summary>
-        private Vector3 GetGravityThisFrame()
+        private Vector3 GetGravityThisFrame(PlayerRuntimeData data)
         {
             int currentFrame = Time.frameCount;
             if (_gravityFrame == currentFrame) return _cachedGravity;
 
             _gravityFrame = currentFrame;
 
-            if (characterController.isGrounded && _verticalVelocity < 0f)
+            data.IsGrounded = characterController.isGrounded;
+
+            if (data.IsGrounded && _verticalVelocity < 0f)
             {
                 _verticalVelocity = reboundForce;
             }

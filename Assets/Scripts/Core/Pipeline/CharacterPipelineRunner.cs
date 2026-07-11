@@ -147,6 +147,11 @@ namespace Project.Core.Pipeline
             if (_stateMachine != null && _stateMachine.CurrentState != null && motionDriver != null)
             {
                 _stateMachine.CurrentState.OnUpdateMotion(motionDriver, animationFacade, _runtimeData);
+
+                // 🆕（v0.8）IsGrounded 的黑板同步已收斂進 MotionDriver.GetGravityThisFrame，
+                // 只要上面這行 OnUpdateMotion 實際呼叫了任一個移動方法（ExecuteBaseMovement /
+                // ExecuteBakedCurveMovement / ApplyBakedCompensation）就會自動更新，
+                // 不再需要像 v0.7 那樣額外呼叫一次 SyncGroundedState。
             }
 
             // =================================================================
@@ -164,10 +169,13 @@ namespace Project.Core.Pipeline
             if (input.RollButtonDown) _runtimeData.Intent.RollRequested = true;
             if (input.FireButtonDown) _runtimeData.Intent.FireRequested = true;
 
-            // 除錯 log 保持不變
+            // 字串（尤其帶 richtext tag）每次觸發都會產生 GC Alloc，與專案零 GC 目標矛盾。
+            // 包進 UNITY_EDITOR 後，Release 建置會被編譯器直接移除，Editor 內除錯體驗不變。
+#if UNITY_EDITOR
             if (input.JumpButtonDown) Debug.Log("<color=lime>[Intent] 跳躍意圖已被黑板捕獲！</color>");
             if (input.RollButtonDown) Debug.Log("<color=cyan>[Intent] 翻滾意圖已被黑板捕獲！</color>");
             if (input.FireButtonDown) Debug.Log("<color=orange>[Intent] 開火意圖已被黑板捕獲！</color>");
+#endif
         }
 
         /// <summary>

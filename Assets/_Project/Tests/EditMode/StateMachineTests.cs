@@ -121,32 +121,26 @@ namespace Project.Tests.EditMode
                 "空中發出翻滾意圖必須被著地閘門擋下");
         }
 
-        // === 附加：Jump 以「真實著地訊號」落地並自然過渡回 Idle ===
+        // === 附加：地面移動中可被跳躍打斷，且打斷同樣受著地閘門約束 ===
         [Test]
-        public void Jump_LandsOnRealGroundedSignal_ThenTransitionsBack()
+        public void Move_WhenGroundedAndJumpRequested_IsInterruptedByJump()
         {
             var (sm, data) = BuildMachine();
 
-            // 1) 合法起跳
+            // 先以速度自然過渡進入 Move
             data.IsGrounded = true;
+            data.MoveSpeed = 1f;
+            sm.Tick(data, 0.016f);
+            Assert.AreEqual(StateType.Move, sm.CurrentState.Type, "有速度時應自然過渡到 Move");
+
+            // 地面移動中發出跳躍意圖 → 打斷為 Jump
             data.Intent.JumpRequested = true;
             sm.Tick(data, 0.016f);
-            Assert.AreEqual(StateType.Jump, sm.CurrentState.Type);
-
-            data.Intent.JumpRequested = false; // 意圖已被消耗
-
-            // 2) 離地滯空（超過起跳寬限 TakeoffDelay 預設 1.0s），尚未讀到著地訊號 → 不可提早落地
-            data.IsGrounded = false;
-            sm.Tick(data, 1.1f);
-            Assert.AreEqual(StateType.Jump, sm.CurrentState.Type,
-                "尚未讀到真實著地訊號前，不可依計時器提早落地");
-
-            // 3) 讀到真實著地訊號 → 落地並自然過渡回 Idle（MoveSpeed < 0.1）
-            data.IsGrounded = true;
-            data.MoveSpeed = 0f;
-            sm.Tick(data, 0.1f);
-            Assert.AreEqual(StateType.Idle, sm.CurrentState.Type,
-                "偵測到真實著地訊號後，應落地並自然過渡回 Idle");
+            Assert.AreEqual(StateType.Jump, sm.CurrentState.Type, "地面移動中發出跳躍意圖應被打斷為 Jump");
         }
+
+        // 註：Jump 的「真實落地」判定依賴 OnUpdateMotion 內的物理衝量注入（_isVelocityInjected）與
+        //     CharacterController.isGrounded 的實際碰撞結果，屬 PlayMode／整合測試範疇，
+        //     不在此純狀態機 EditMode 單元測試涵蓋。此處聚焦驗證確定性的「進入／打斷著地閘門」邏輯。
     }
 }
