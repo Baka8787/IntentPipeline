@@ -74,6 +74,10 @@ namespace Project.Presentation.Motion
 
             // 6. 總出口呼叫
             characterController.Move(finalMovement * Time.deltaTime);
+
+            // 7. 🆕 物理位移結算後，即時回寫真實著地狀態至黑板。
+            //    Move() 之後讀取的 isGrounded 才是本帧最新的碰撞結果，供狀態機（Jump/Roll）判定起跳與落地。
+            data.IsGrounded = characterController.isGrounded;
         }
 
         /// <summary>

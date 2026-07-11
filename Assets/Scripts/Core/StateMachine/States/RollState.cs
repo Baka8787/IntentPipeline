@@ -21,7 +21,8 @@ namespace Project.Core.StateMachine
             _rollBakeData = config.GetBakeData(Type);
         }
 
-        public override bool CanEnter(PlayerRuntimeData data) => data.Intent.RollRequested;
+        // 🆕 翻滾同樣需著地才能發動，確保無法在空中翻滾
+        public override bool CanEnter(PlayerRuntimeData data) => data.Intent.RollRequested && data.IsGrounded;
 
         public override void OnEnter(PlayerRuntimeData data)
         {

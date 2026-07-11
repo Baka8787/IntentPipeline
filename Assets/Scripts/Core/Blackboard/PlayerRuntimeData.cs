@@ -29,6 +29,13 @@ namespace Project.Core.Blackboard
         public float UpperBodyWeight { get; set; }
         public Transform CameraTransform { get; set; }
 
+        // === 物理狀態回寫區（由 MotionDriver 每帧物理結算後寫入，狀態機唯讀）===
+        /// <summary>
+        /// 角色是否著地。依規格維持公開欄位，供 MotionDriver 每帧回寫真實 CharacterController.isGrounded，
+        /// 狀態機（Jump/Roll）讀取以判定「起跳資格」與「真實落地」，杜絕無限空中跳與假落地。
+        /// </summary>
+        public bool IsGrounded;
+
         // === 引用區 ===
         /// <summary>
         /// 當前裝備的武器。規格書規範：唯讀引用，禁止外部修改內容。

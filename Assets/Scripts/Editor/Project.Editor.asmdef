@@ -1,0 +1,20 @@
+{
+    "name": "Project.Editor",
+    "rootNamespace": "",
+    "references": [
+        "Project.Runtime",
+        "Kybernetik.Animancer",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

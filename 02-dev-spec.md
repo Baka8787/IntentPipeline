@@ -1,7 +1,7 @@
 # CharacterController 開發規格文件（API / 資料結構）
 
-> **狀態**：草稿 v0.6
-> **最後更新**：2026-07-08
+> **對齊專案版本**：v0.7（版本規範見 `專案開發更新日誌.md` 頂端）
+> **文件最後更新**：2026-07-11
 > **用途**：實作時的對照表，採「介面先行，實作隨後」原則。
 
 ---
@@ -272,33 +272,96 @@ public abstract class AnimationFacadeBase : MonoBehaviour
 
 ### 3.2 狀態機與動畫具體實作（第三階段）
 
-#### StateMachineConfigSO（設定檔資產）
+#### StateRule（狀態拓撲規則 · `StateRule.cs`）
+
+> 💡 **SRP 職責分離（v0.10）**：`StateRule` 只承載狀態機的「拓撲結構」——誰能打斷誰、可自然過渡到哪、同帧多意圖的優先級；**不含任何狀態專屬的物理／數值參數**（那些交由下方 `StateParamsSO` 系列資產負責）。此結構已從 `StateMachineConfigSO.cs` 抽離為獨立的 `StateRule.cs` 檔案。
 
 ```csharp
 [Serializable]
 public struct StateRule
 {
     public StateType State;
+    public int Priority; // 用於 EvaluateInterrupts 當幀多意圖同時觸發時的排序
     [Tooltip("哪些狀態可以主動打斷當前狀態（意圖觸發時檢查）")]
     public List<StateType> CanBeInterruptedBy;
     [Tooltip("當前狀態結束或無意圖時，允許自然過渡到的狀態優先級")]
     public List<StateType> ValidTransitions;
-    public int Priority; // 用於 EvaluateInterrupts 當幀多意圖同時觸發時的排序
 }
+```
+
+#### StateMachineConfigSO（設定檔資產）
+
+> 💡 除了拓撲規則 `rules`，設定檔另以「`StateType` → 資產」的映射清單掛載各狀態專屬資源：`bakeMappings`（烘焙運動資料）與 `paramsMappings`（狀態參數資產）。三類清單一律在 `Initialize()` 內「List → Dictionary」建成 O(1) 執行期查表。
+
+```csharp
+[Serializable] public struct StateBakeMapping   { public StateType State; public MotionBakeData BakeData; }
+[Serializable] public struct StateParamsMapping { public StateType State; public StateParamsSO Params; }
 
 [CreateAssetMenu(fileName = "StateMachineConfig", menuName = "Project/Core/StateMachineConfig")]
 public class StateMachineConfigSO : ScriptableObject
 {
     [SerializeField] private List<StateRule> rules;
-    private Dictionary<StateType, List<StateType>> _interruptMap;
-    private Dictionary<StateType, List<StateType>> _transitionMap;
+    [SerializeField] private List<StateBakeMapping> bakeMappings;
+    [SerializeField] private List<StateParamsMapping> paramsMappings;
 
-    public void Initialize() { /* List → Dictionary 建立 O(1) 執行期查表 */ }
+    private readonly Dictionary<StateType, List<StateType>> _interruptMap = new();
+    private readonly Dictionary<StateType, List<StateType>> _transitionMap = new();
+    private readonly Dictionary<StateType, int> _priorityMap = new();
+    private readonly Dictionary<StateType, MotionBakeData> _bakeMap = new();
+    private readonly Dictionary<StateType, StateParamsSO> _paramsMap = new();
+
+    public void Initialize() { /* rules / bakeMappings / paramsMappings 各自 List → Dictionary */ }
+
     public bool CheckCanInterrupt(StateType current, StateType next) { ... }
     public IReadOnlyList<StateType> GetValidTransitions(StateType state) { ... }
-}
+    public int GetPriority(StateType state) { ... }
+    public MotionBakeData GetBakeData(StateType state) { ... }
 
+    // 泛型安全查表：查無綁定或型別不符時回傳 null，呼叫端自行 fallback 到程式碼內建預設值
+    public TParams GetStateParams<TParams>(StateType state) where TParams : StateParamsSO
+        => _paramsMap.TryGetValue(state, out var p) ? p as TParams : null;
+}
 ```
+
+#### StateParamsSO / JumpStateParams（狀態參數資產 · SRP 職責分離）
+
+> 🆕 **v0.10 重構動機**：把各狀態的物理／數值參數（如跳躍初速度、滯空時間）從「狀態拓撲」（`StateRule`）與「狀態邏輯」（`BaseState` 子類別的硬編碼欄位）中抽離，改由可配置的 ScriptableObject 資產承載，統一以 `StateType` 綁定、以 `GetStateParams<T>()` 泛型安全查表。避免數值散落在各 State 類別內、且允許不同角色／設定檔覆寫同一狀態的手感。
+
+```csharp
+// 抽象基底：所有狀態專屬參數資產的共同型別約束（abstract，不可直接建立資產）
+public abstract class StateParamsSO : ScriptableObject { }
+
+// Jump 狀態的物理參數資產
+[CreateAssetMenu(fileName = "JumpStateParams", menuName = "Project/Core/StateParams/JumpStateParams")]
+public class JumpStateParams : StateParamsSO
+{
+    [Tooltip("起跳瞬間注入的向上發射初速度 (m/s)")]
+    public float ImpulseForce = 7.5f;
+    [Tooltip("起跳後鎖定滯空、開始判定落地的延遲時間 (秒)")]
+    public float TakeoffDelay = 1.0f;
+}
+```
+
+**狀態端消費模式（對齊 `RollState.GetBakeData` 的資料驅動）**：在 `Initialize` 查表快取內部物理變數，**查無綁定資產時沿用程式碼內建預設值**，確保零配置也能正常運作、不破壞既有邏輯。
+
+```csharp
+public class JumpState : BaseState
+{
+    private float _impulseForce = 7.5f; // 內建預設（fallback）
+    private float _takeoffDelay = 1.0f;
+
+    public override void Initialize(StateMachineConfigSO config)
+    {
+        base.Initialize(config);
+        var p = config.GetStateParams<JumpStateParams>(Type);
+        if (p != null) { _impulseForce = p.ImpulseForce; _takeoffDelay = p.TakeoffDelay; }
+    }
+    // OnEnter:        _airTimer = _takeoffDelay;
+    // OnUpdateMotion: motionDriver.ApplyJumpImpulse(_impulseForce);
+}
+```
+
+> 📐 **擴充準則**：未來新增有專屬參數的狀態（如 `DashStateParams`、`RollStateParams`），一律新建 `XxxStateParams : StateParamsSO` → 在 `StateMachineConfigSO.paramsMappings` 綁定 → 狀態端以 `GetStateParams<XxxStateParams>(Type)` 取用即可，**無需改動狀態機主體或 `StateRule` 拓撲**。
 
 #### AnimancerFacade（Animancer Lite 封裝）
 
@@ -514,4 +577,6 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | 2026-06-29 | v0.3 | InputData 正式升版為 ref struct；新增 Arbiter 仲裁結構與管線脆弱點警告 | Core Dev |
 | 2026-07-03 | v0.4 | BaseState 對齊實作更新；加入 StateMachineConfigSO 與動態打斷規則表 | Core Dev |
 | 2026-07-05 | v0.5 | **進入第三階段**；補齊 Animation 完整介面；定義常規與扭曲（Warped）雙提取器離線烘焙規格；重構編排全文件順序 | Architecture 組 |
-| 2026-07-08 | v0.6 | 除錯過程中發現 `MotionBakeEditor.cs` 實作與 §4.1 規格脫鉤（空 GameObject 取樣、無 Humanoid Avatar），標記為技術債；§3.2 `MotionDriver` 範例補上 `OnAnimatorMove` 執行期外部依賴風險警語；§5 待補清單新增三項對應修復任務 | Core Dev |
+| 2026-07-08 | v0.5.1 | 除錯過程中發現 `MotionBakeEditor.cs` 實作與 §4.1 規格脫鉤（空 GameObject 取樣、無 Humanoid Avatar），標記為技術債；§3.2 `MotionDriver` 範例補上 `OnAnimatorMove` 執行期外部依賴風險警語；§5 待補清單新增三項對應修復任務 | Core Dev |
+| 2026-07-11 | v0.6 | **職責分離重構（SRP）**：§3.2 補上 `StateParamsSO`（抽象基底）／`JumpStateParams` 狀態參數資產架構；`StateRule` 抽離為獨立檔案並釐清「僅承載拓撲」職責；`StateMachineConfigSO` 補上 `StateParamsMapping` 與泛型安全查表 `GetStateParams<TParams>()`；`JumpState` 物理參數改為資產驅動（null 則 fallback 內建預設） | Core Dev |
+| 2026-07-11 | v0.7 | 著地資料流修正（Critical #1）：黑板新增 `IsGrounded`、`MotionDriver` 回寫、`Jump`/`Roll` 著地閘門與真實落地判定（§1.1／§3.3 內文待補）；導入 asmdef 與 EditMode 測試；**導入統一版本方案**：header 改為「對齊專案版本」，收斂原 v0.6→v0.10 跳號，並將 2026-07-08 列對齊 SSOT 之 v0.5.1 | Core Dev |

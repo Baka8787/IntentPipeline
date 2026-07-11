@@ -1,7 +1,7 @@
 # CharacterController 架構設計文件
 
-> 狀態：草稿 v0.6
-> 最後更新：2026-07-08
+> 對齊專案版本：v0.7（版本規範見 `專案開發更新日誌.md` 頂端）
+> 文件最後更新：2026-07-11
 > 作者：Baka8787
 
 ---
@@ -179,3 +179,4 @@ flowchart LR
 | 2026-07-05 | v0.3 | Trade-off 表更新動畫系統決策：補入 Animancer Lite v8 評估結論（Runtime Build 僅 Layer 0、Mixer 限 Editor）、確認採用「Facade 按 Pro 目標設計、Lite 做 Editor 驗證」策略 |
 | 2026-07-05 | v0.4 | 升級根運動烘焙資料結構為內建雙曲線（速度與連續偏航角），重寫 MotionDriver 驅動與動態補償算法（對齊物理時間軸軸心）。 |
 | 2026-07-08 | v0.5 | 除錯 Roll/Jump 動畫原地播放與結束瞬移問題，定位出 `OnAnimatorMove` 執行期依賴鏈（GameObject 階層／Apply Root Motion／Animate Physics／Bake Into Pose／殘留量歸零）過於脆弱；同步發現 `MotionBakeEditor.cs` 實作與 `02-dev-spec.md §4.1` 規格脫鉤，未使用真實 Humanoid Avatar 環境取樣。Trade-off 表新增「執行期位移資料來源」決策列，記錄是否遷移至完全烘焙曲線驅動架構的評估，暫未定案。 |
+| 2026-07-11 | v0.7 | 導入全專案統一版本方案：header 改為「對齊專案版本」、版本 SSOT 收斂至 `專案開發更新日誌.md`；修正原 header v0.6 與修訂表 v0.5 不一致。（v0.6 SRP 重構未變動本文件內文，故本表跳過該版） |
