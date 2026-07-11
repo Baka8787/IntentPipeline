@@ -2,6 +2,7 @@
 using UnityEditor;
 using UnityEngine;
 using System.IO;
+using System.Collections.Generic;
 using Project.Presentation.Motion;
 
 namespace Project.Editor
@@ -22,6 +23,9 @@ namespace Project.Editor
         private bool bakeTargetLocalDirection = true;
         private float localDirFilterAngleDeg = 12f;
         private float localDirMinDistance = 0.02f;
+
+        // 🆕（自動化特徵分析）雙腳相對根節點的本地 Y 同時超過此高度，視為起跳離地的瞬間
+        private float takeoffFootLiftThreshold = 0.02f;
 
         // 內部姿態採樣單元，僅用於腳相判定
         private struct PoseInfo { public Vector3 LeftLocal; public Vector3 RightLocal; }
@@ -69,6 +73,12 @@ namespace Project.Editor
                     localDirFilterAngleDeg = Mathf.Clamp(EditorGUILayout.FloatField("方向過濾角度閾值 (度)", localDirFilterAngleDeg), 0f, 90f);
                     localDirMinDistance = Mathf.Max(0f, EditorGUILayout.FloatField("最小有效位移距離 (m)", localDirMinDistance));
                 }
+
+                GUILayout.Space(6);
+                takeoffFootLiftThreshold = Mathf.Max(0f, EditorGUILayout.FloatField(
+                    new GUIContent("起跳離地門檻 (m)", "自動特徵分析用：雙腳相對根節點的本地 Y 同時超過此值，判定為起跳離地的瞬間"),
+                    takeoffFootLiftThreshold));
+
                 EditorGUILayout.HelpBox(
                     "旋轉收斂容忍度：判定旋轉曲線在第幾秒就已經穩定在終值附近，之後的角度變化視為抖動雜訊。\n" +
                     "本地方向過濾：位移量小於門檻，或方向已經很接近正前方時，視為原地動作 (Vector3.zero)。",
@@ -110,6 +120,10 @@ namespace Project.Editor
             AnimationCurve speedCurve = new AnimationCurve();
             AnimationCurve rotationCurve = new AnimationCurve();
 
+            // 🆕 Feature Analysis：在同一趟採樣迴圈蒐集逐影格原始特徵（根 Y + 雙腳本地高度），
+            //    不額外重跑 SampleAnimation，也不影響下方既有的 Root Motion 曲線計算。
+            List<MotionFeatureSample> featureSamples = new List<MotionFeatureSample>(totalFrames);
+
             GameObject bakeAgent = Instantiate(characterPrefab);
             bakeAgent.hideFlags = HideFlags.HideAndDontSave;
 
@@ -143,6 +157,15 @@ namespace Project.Editor
 
                     Vector3 currentPos = rootTransform.position;
                     Quaternion currentRot = rootTransform.rotation;
+
+                    // 🆕 蒐集特徵採樣：讀取雙腳相對根節點的本地 Y（供起跳偵測），以及根節點世界 Y（供最高點推算）。
+                    // InverseTransformPoint 只取相對姿態，不受累計根位移干擾，也不重置 transform，故不影響曲線計算。
+                    float leftFootLocalY = 0f, rightFootLocalY = 0f;
+                    Transform leftFootT = animator.GetBoneTransform(leftFootBone);
+                    Transform rightFootT = animator.GetBoneTransform(rightFootBone);
+                    if (leftFootT != null) leftFootLocalY = rootTransform.InverseTransformPoint(leftFootT.position).y;
+                    if (rightFootT != null) rightFootLocalY = rootTransform.InverseTransformPoint(rightFootT.position).y;
+                    featureSamples.Add(new MotionFeatureSample(time, currentPos.y, leftFootLocalY, rightFootLocalY));
 
                     if (i == 0)
                     {
@@ -188,7 +211,10 @@ namespace Project.Editor
                     targetLocalDirection = CalculateTargetLocalDirection(startPos, lastPos, startRootYaw);
                 }
 
-                SaveAsset(speedCurve, rotationCurve, rotationFinishedTime, endPhase, targetLocalDirection);
+                // 🆕 Feature Analysis Stage：以蒐集到的採樣建立分析上下文（門檻由 Inspector 提供）
+                MotionFeatureContext featureContext = new MotionFeatureContext(featureSamples, duration, takeoffFootLiftThreshold);
+
+                SaveAsset(speedCurve, rotationCurve, rotationFinishedTime, endPhase, targetLocalDirection, featureContext);
             }
             finally
             {
@@ -267,7 +293,11 @@ namespace Project.Editor
             return localDir;
         }
 
-        private void SaveAsset(AnimationCurve speedCurve, AnimationCurve rotationCurve, float rotationFinishedTime, FootPhase endPhase, Vector3 targetLocalDirection)
+        /// <summary>
+        /// 建立／更新 <see cref="MotionBakeData"/> 資產：先寫入既有的 Root Motion 曲線與進階特徵，
+        /// 接著執行 Feature Analysis Stage 自動提取跳躍物理特徵，最後存檔並彈出結果對話框。
+        /// </summary>
+        private void SaveAsset(AnimationCurve speedCurve, AnimationCurve rotationCurve, float rotationFinishedTime, FootPhase endPhase, Vector3 targetLocalDirection, MotionFeatureContext featureContext)
         {
             string dirPath = "Assets/ScriptableObjects/Motion/";
             if (!Directory.Exists(dirPath)) Directory.CreateDirectory(dirPath);
@@ -294,6 +324,11 @@ namespace Project.Editor
             asset.EndPhase = endPhase;
             asset.TargetLocalDirection = targetLocalDirection;
 
+            // 🆕 Feature Analysis Stage：自動提取跳躍物理特徵並寫入資產。
+            // 位置刻意放在既有 Root Motion 曲線／旋轉收斂／腳相欄位「之後」，完全不干涉上方邏輯；
+            // 內部自帶安全退化（非跳躍動畫重力回退 9.81），不會拋例外中斷存檔。
+            new MotionFeatureAnalysisStage().Run(featureContext, asset);
+
             if (isNewAsset) AssetDatabase.CreateAsset(asset, path);
 
             EditorUtility.SetDirty(asset);
@@ -305,7 +340,12 @@ namespace Project.Editor
                 $"曲線與進階特徵已匯出至：\n{path}\n\n" +
                 $"末尾腳相：{endPhase}\n" +
                 $"旋轉收斂時間：{rotationFinishedTime:F2}s\n" +
-                $"混合樹本地方向：{targetLocalDirection}",
+                $"混合樹本地方向：{targetLocalDirection}\n\n" +
+                $"── 自動化特徵分析 ──\n" +
+                $"起跳前搖 (Takeoff Delay)：{asset.AutoTakeoffDelay:F3}s\n" +
+                $"最高點高度 (Apex Height)：{asset.AutoApexHeight:F3}m\n" +
+                $"滯空時間 (Air Time)：{asset.AutoAirTime:F3}s\n" +
+                $"逆推重力 (Gravity)：{asset.AutoCalculatedGravity:F3} m/s²",
                 "確定");
         }
     }

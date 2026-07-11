@@ -38,6 +38,35 @@ namespace Project.Presentation.Motion
                  "可直接餵給 Blend Tree 的 X/Z 方向參數；若位移量太小或方向太接近正前方（死區內），視為 Vector3.zero（原地動作）。")]
         public Vector3 TargetLocalDirection;
 
+        [Header("自動化特徵分析（Feature Analysis Stage 自動提取，跳躍動畫適用）")]
+
+        /// <summary>
+        /// 起跳前搖時間（秒）。偵測到「雙腳同時離開根節點參考高度」的瞬間即為真正離地時刻；
+        /// 此時間點之前屬於預備/蓄力姿勢。非跳躍動畫（偵測不到離地）安全退化為 0。
+        /// </summary>
+        [Tooltip("起跳前搖（秒）：雙腳同時離地的瞬間；之前屬預備/蓄力。非跳躍動畫為 0。")]
+        public float AutoTakeoffDelay;
+
+        /// <summary>
+        /// 最高點高度 h_max（公尺）。起跳後根節點世界空間 Y 相對起跳基準的最大上升量。
+        /// </summary>
+        [Tooltip("最高點高度 h_max（公尺）：起跳後根節點 Y 相對起跳基準的最大上升量。")]
+        public float AutoApexHeight;
+
+        /// <summary>
+        /// 滯空時間 t_air（秒）。目前採 Duration - AutoTakeoffDelay 的簡化估計；
+        /// 更精確的落地時刻屬於未來的 Landing Time 特徵。
+        /// </summary>
+        [Tooltip("滯空時間 t_air（秒）：Duration - AutoTakeoffDelay 的簡化估計。")]
+        public float AutoAirTime;
+
+        /// <summary>
+        /// 逆向推導的完美重力常數（正值，公尺/秒²）。由拋體運動 g = 8·h_max / t_air² 反推。
+        /// 非跳躍動畫、滯空過短或最高點過低時安全退化為標準重力 9.81。
+        /// </summary>
+        [Tooltip("逆推重力：g = 8·h_max / t_air²。非跳躍/滯空過短/高度過低時退化為 9.81。")]
+        public float AutoCalculatedGravity = 9.81f;
+
         // 便利擴充：取得動畫總長度
         public float Duration => SourceClip != null ? SourceClip.length : 0f;
 
