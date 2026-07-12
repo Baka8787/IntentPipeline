@@ -50,7 +50,7 @@ Assets/
 
 ---
 
-### 0.3 GameObject 階層規範（v0.9 新增，v0.12 定調；詳見 01-design-doc.md §2.6 與 `docs/ADR/001-root-model-hierarchy.md`）
+### 0.3 GameObject 階層規範（v0.9 新增，v0.12 定調；詳見 docs/01-design-doc.md §2.6 與 `docs/ADR/001-root-model-hierarchy.md`）
 
 角色物件一律拆成 **Root（Adapter）** 與 **Model（子物件）** 兩層，禁止把 `Animator` 或其他會產生根動作的元件跟 `CharacterController` 掛在同一顆物件上。
 
@@ -164,7 +164,7 @@ public ref struct InputData
 > 🛑 **使用限制（執行盲區）**：
 > * 只能存活在 Stack 上，**不能**被任何 `class` 持有為欄位。
 > * 不能裝箱（Boxing）、不能用於 `async/await` 方法或 `yield return` 迭代器。
-> * **後續動作**：用 Unity Profiler 量測升版前後的 GC Alloc 差異，截圖存入 `/docs/profiler/` 並更新 `01-design-doc.md`。
+> * **後續動作**：用 Unity Profiler 量測升版前後的 GC Alloc 差異，截圖存入 `/docs/profiler/` 並更新 `docs/01-design-doc.md`。
 > 
 > 
 
@@ -346,9 +346,11 @@ public class StateMachineConfigSO : ScriptableObject
 
 ```
 
-> ⚠️ **v0.10 更新**：實際程式碼在 v0.7/v0.8 曾把 `JumpImpulseForce`／`JumpTakeoffDelay` 直接加進 `StateRule`（上面這份介面草稿沒有反映這兩個欄位，兩者是分開演進的）。經盤點確認這違反單一職責原則，且會在多遊戲模式擴充時讓 `StateRule` 線性膨脹。**目標設計**改為下面的 `StateParamsSO` 方案，`StateRule` 維持只有拓撲欄位（`State`／`Priority`／`CanBeInterruptedBy`／`ValidTransitions`），不再新增任何狀態專屬的物理/表現參數。詳見 `01-design-doc.md` §2.7、§5 Trade-off 表 v0.10 決策列。
+> ⚠️ **v0.10 更新**：實際程式碼在 v0.7/v0.8 曾把 `JumpImpulseForce`／`JumpTakeoffDelay` 直接加進 `StateRule`（上面這份介面草稿沒有反映這兩個欄位，兩者是分開演進的）。經盤點確認這違反單一職責原則，且會在多遊戲模式擴充時讓 `StateRule` 線性膨脹。**目標設計**改為下面的 `StateParamsSO` 方案，`StateRule` 維持只有拓撲欄位（`State`／`Priority`／`CanBeInterruptedBy`／`ValidTransitions`），不再新增任何狀態專屬的物理/表現參數。詳見 `docs/01-design-doc.md` §2.7、§5 Trade-off 表 v0.10 決策列。
 
 #### StateParamsSO（狀態專屬參數資產，v0.10 新增設計，尚未實作）
+
+> ⚠️ **v0.11／v0.13 更新**：本小節為 v0.10 設計草案，保留作歷史脈絡。`StateParamsSO` 機制已於 v0.11 實作；其中 `JumpStateParams` 的內容已由 **ADR-002** 重新定義（拔除下方範例的 `ImpulseForce`／`TakeoffDelay`，改為 `Stages` ＋ Designer Tuning 倍率）。**現行跳躍規格以下方「JumpStateParams／JumpLaunchData／MotionDriver 跳躍注入 API」小節與 `docs/ADR/002-data-driven-jump.md` 為準。**
 
 **動機**：`StateRule` 的職責是 FSM 拓撲（誰能打斷誰、能過渡到誰、優先級），跟具體狀態要用什麼物理參數表現自己（Jump 的衝量、Roll 的翻滾距離、未來 Slide 的摩擦係數）是兩個完全不同的關注點。混在同一個結構體會導致：
 1. Inspector 上不相關的狀態也會看到不屬於自己的欄位（例如設定 Idle 時也看得到 `Jump Impulse Force`）。
@@ -426,6 +428,42 @@ public override void Initialize(StateMachineConfigSO config)
 
 **已知限制**：`GetStateParams<T>` 用 `as` 轉型，型別掛錯（例如 Jump 狀態誤掛了 `RollStateParams`）只會靜默回傳 `null`，不會報錯——目前先靠呼叫端的 fallback 預設值兜底，避免整個管線因為一個掛錯的資產而崩潰；長期可以考慮加一個 Editor 驗證工具，在 `StateMachineConfigSO` 存檔時檢查每筆 `StateParamsMapping` 掛的資產型別是否符合預期。
 
+#### JumpStateParams／JumpLaunchData／MotionDriver 跳躍注入 API（ADR-002 落地，取代上方 v0.10 草案）
+
+> [歷史決策脈絡詳見 `docs/ADR/002-data-driven-jump.md`]
+
+```csharp
+// 單一跳躍段：每段引用一份 MotionBakeData（提供 AutoTakeoffDelay / AutoApexHeight / AutoCalculatedGravity）
+[System.Serializable]
+public struct JumpStage
+{
+    public MotionBakeData Bake;
+}
+
+// 跳躍參數資產：內容（Stages）＋ 設計師微調倍率（預設 1）。
+// 不含 Coyote / Jump Buffer / Variable Jump（屬 ADR-002 §6 Deferred，未定案）。
+[CreateAssetMenu(fileName = "JumpStateParams", menuName = "Project/Core/StateParams/JumpStateParams")]
+public class JumpStateParams : StateParamsSO
+{
+    public List<JumpStage> Stages;          // 第 0 段 = 地面跳；可跳段數上限 = Stages.Count
+    public float HeightMultiplier;          // 乘在 AutoApexHeight
+    public float GravityMultiplier;         // 乘在 AutoCalculatedGravity
+    public float LaunchVelocityMultiplier;  // 乘在逆推出的 v
+}
+
+// 跳躍發射資料契約（readonly struct，傳值零 GC）：由 JumpState 逆推、傳給 MotionDriver
+public readonly struct JumpLaunchData
+{
+    public readonly float InitialVerticalVelocity; // 起跳初速（向上為正）
+    public readonly float Gravity;                 // 該次採用的重力大小（正值）
+    public JumpLaunchData(float initialVerticalVelocity, float gravity);
+}
+```
+
+**MotionDriver 注入 API**：`ApplyJumpImpulse(float)` 已由 `public void ApplyJumpLaunch(in JumpLaunchData launch)` 取代。`MotionDriver` 新增 `_activeGravity`：注入時覆寫為該段重力、落地（`IsGrounded`）時於 `GetGravityThisFrame` 內部回復預設；`_verticalVelocity` / `_activeGravity` 的唯一寫入者仍為 `MotionDriver`。
+
+**逆推時機**：`JumpState.Initialize()` 逐段以 `v = √(2gh)`（g = `AutoCalculatedGravity` × `GravityMultiplier`、h = `AutoApexHeight` × `HeightMultiplier`，再乘 `LaunchVelocityMultiplier`）預算並快取 `JumpLaunchData`；`OnUpdateMotion` 於當前段 `AutoTakeoffDelay` 過後點火注入。查無 `Stages` 或該段無可信烘焙資料時安全退化為程式碼內建預設值。
+
 #### AnimancerFacade（Animancer Lite 封裝）
 
 ```csharp
@@ -462,7 +500,7 @@ public class AnimancerFacade : AnimationFacadeBase
 > 4. 動畫匯入設定的 `Root Transform Position (XZ) → Bake Into Pose` 必須**不**勾選（勾選會讓水平位移被烤進骨架姿勢，讀不到 `deltaPosition`）。
 > 5. 任何繞過 `ExecuteBaseMovement` 的位移路徑（如 `ExecuteBakedCurveMovement`）都必須自行歸零 `_rootMotionDelta`，否則會累積殘留量並在切回 `ExecuteBaseMovement` 時一次性噴出。
 >
-> 中期正評估改為完全不依賴執行期 `OnAnimatorMove`、統一以「輸入速度 + 烘焙曲線速度」驅動的替代架構，降低上述耦合，尚未定案，見 `01-design-doc.md` §5 Trade-off 表。
+> 中期正評估改為完全不依賴執行期 `OnAnimatorMove`、統一以「輸入速度 + 烘焙曲線速度」驅動的替代架構，降低上述耦合，尚未定案，見 `docs/01-design-doc.md` §5 Trade-off 表。
 >
 > ⚠️ **文件落後於實作提醒（v0.9 複查）**：下方 code block 是本節最初的規劃版偽代碼，實際上專案已經在 v0.5～v0.8 期間走完「完全不依賴 `OnAnimatorMove`」這條路線，目前 `MotionDriver.cs` 是純程式碼驅動（`ExecuteBaseMovement` / `ExecuteBakedCurveMovement` / `ApplyBakedCompensation` 都改吃 `PlayerRuntimeData data` 參數、`IsGrounded` 也統一在 `GetGravityThisFrame(data)` 內寫回黑板）。下方 code block 僅供理解「最初評估過的替代方案長相」，**不代表目前實作**，避免直接照抄。
 
@@ -610,7 +648,7 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 ### 第二階段進度（已完成）
 
 * [x] `StateMachineConfigSO` 加入 `Priority` 欄位，`EvaluateInterrupts` 改為手動迴圈比大小，確保零 GC 確定性仲裁。
-* [x] Animancer Lite v8 評估結論補入 `01-design-doc.md` Trade-off 表。
+* [x] Animancer Lite v8 評估結論補入 `docs/01-design-doc.md` Trade-off 表。
 
 ### 第三階段（目前衝刺中）
 
@@ -634,7 +672,7 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 * [x] **（新增，v0.8）** `IsGrounded` 黑板同步收斂進 `MotionDriver.GetGravityThisFrame(data)` 內部，`ExecuteBakedCurveMovement`／`ApplyBakedCompensation` 簽名同步補上 `PlayerRuntimeData data` 參數，移除額外的 `SyncGroundedState` 呼叫點。**已實作**。
 * [ ] **（v0.9 提出，v0.10 已定案，尚未實作）** `VerticalVelocity` 從 `MotionDriver` 私有欄位移入 `PlayerRuntimeData` 黑板（`internal set`），讓未來二段跳/擊退/彈跳台等需求可直接讀寫，不必為每個情境各開一個 `ApplyXxxImpulse` 方法。介面設計見 §1.1。
 * [ ] **（v0.9 提出，v0.10 已定案，尚未實作）** 新增 `JustLanded`／`JustLeftGround` 單幀邊沿旗標供音效/鏡頭震動等表現層 Controller 訂閱。v0.9 當時因無下游消費者暫緩，v0.10 基於多遊戲模式落地音效/鏡頭震動是標配表現的判斷，改為提前採用。介面設計見 §1.1。
-* [ ] **（新增，v0.9）** 角色 GameObject 階層遷移為 Root（Adapter）＋ Model 子物件兩層結構（詳見 §0.3、`01-design-doc.md` §2.6）：既有場景/預製體需要一次性搬遷，並確認 `AnimancerFacade`、`ThirdPersonCamera` 等模組的 Inspector 引用在搬遷後仍正確指向 Root。
+* [ ] **（新增，v0.9）** 角色 GameObject 階層遷移為 Root（Adapter）＋ Model 子物件兩層結構（詳見 §0.3、`docs/01-design-doc.md` §2.6）：既有場景/預製體需要一次性搬遷，並確認 `AnimancerFacade`、`ThirdPersonCamera` 等模組的 Inspector 引用在搬遷後仍正確指向 Root。
 * [ ] **（新增，v0.9）** 在 `Model` 子物件的 `Animator` 上，除了 Inspector 手動關閉 `applyRootMotion` 外，於 `AnimancerFacade.Awake()`（或等效初始化流程）加一道程式碼防線，強制覆寫 `applyRootMotion = false`，避免未來換模型時又被誤勾選。
 * [ ] **（新增，v0.10，最高優先）** `StateRule` 職責分離重構：新增抽象基底 `StateParamsSO` 與範例子類別 `JumpStateParams`（介面設計見 §3.2 新增小節），`StateMachineConfigSO` 補上 `paramsMappings` 與泛型查表方法 `GetStateParams<T>`；`JumpState.Initialize` 改為呼叫 `config.GetStateParams<JumpStateParams>(Type)`；完成後從 `StateRule` 移除 `JumpImpulseForce`／`JumpTakeoffDelay` 兩個欄位，`StateRule` 恢復只有純拓撲欄位。這是目前最高優先的重構項，因為後續任何新狀態（`SlideState`／`ClimbState`／`AimState`）的調參需求都應該走新機制，不該再繼續往 `StateRule` 加欄位。
 * [ ] **（新增，v0.10）** 評估是否需要 `StateParamsSO` 掛載型別驗證的 Editor 工具：在 `StateMachineConfigSO` 存檔時檢查每筆 `StateParamsMapping.Params` 的實際型別是否符合該 `StateType` 預期，避免 `GetStateParams<T>` 轉型失敗被靜默吞掉。
@@ -668,6 +706,6 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | 2026-07-08 | v0.6 | 除錯過程中發現 `MotionBakeEditor.cs` 實作與 §4.1 規格脫鉤（空 GameObject 取樣、無 Humanoid Avatar），標記為技術債；§3.2 `MotionDriver` 範例補上 `OnAnimatorMove` 執行期外部依賴風險警語；§5 待補清單新增三項對應修復任務 | Core Dev |
 | 2026-07-08 | v0.7 | **全面 Code Review 與文件同步**：複查確認 `MotionBakeEditor.cs` 的 Humanoid Avatar 採樣技術債（v0.6 記錄）**已在程式碼中修復**，更正 §4.1 說明並拆出殘留的 Pass 分離／腳相／濾波待辦；§1.1 `PlayerRuntimeData` 新增規劃中的 `IsGrounded` 欄位；§5 待補清單新增 7 項 Code Review 發現（Jump 落地判定資料流、`jumpImpulseForce` 序列化死碼、`MotionDriver` null 防禦、`RollState` 動畫播放防呆、熱路徑 log GC、`AnimancerFacade` 邊界檢查） | Core Dev |
 | 2026-07-08 | v0.8 | **補齊修訂紀錄**：實作 Jump「先蹲下再往上」修正（`StateRule.JumpTakeoffDelay`）；`IsGrounded` 黑板同步收斂進 `MotionDriver.GetGravityThisFrame(data)` 內部統一寫入，取代額外呼叫 `SyncGroundedState`；§1.1／§5 同步更新 | Core Dev |
-| 2026-07-08 | v0.9 | **補齊修訂紀錄**：新增 §0.3 GameObject 階層規範（Root Adapter + Model Child），呼應 `01-design-doc.md` §2.6；§5 新增對應遷移任務；評估參考碼（BBBNexus）`VerticalVelocity`／`JustLanded`／`JustLeftGround` 兩項設計，當時暫緩（見 v0.10 更新為已定案） | Core Dev |
+| 2026-07-08 | v0.9 | **補齊修訂紀錄**：新增 §0.3 GameObject 階層規範（Root Adapter + Model Child），呼應 `docs/01-design-doc.md` §2.6；§5 新增對應遷移任務；評估參考碼（BBBNexus）`VerticalVelocity`／`JustLanded`／`JustLeftGround` 兩項設計，當時暫緩（見 v0.10 更新為已定案） | Core Dev |
 | 2026-07-08 | v0.10 | **StateRule 職責分離重構規劃**：新增 §3.2 `StateParamsSO` 抽象基底 + `JumpStateParams` 範例的完整介面設計，取代 v0.7/v0.8 把 `JumpImpulseForce`／`JumpTakeoffDelay` 直接塞進 `StateRule` 的做法；§1.1 黑板新增 `VerticalVelocity`／`JustLanded`／`JustLeftGround` 三個 v0.9 暫緩、v0.10 改為已定案的欄位設計；§5 待補清單新增 `StateRule` 重構任務（列為最高優先）與 `StateParamsSO` 型別驗證工具評估；確認 `JumpTakeoffDelay` 已透過手動調整實機驗證表現正常 | Core Dev |
 | 2026-07-11 | v0.11 | **分支整併 + StateParamsSO 落地**：§3.2 規劃的 `StateParamsSO`／`JumpStateParams` 由「設計」轉為「已實作」（泛型 `GetStateParams<TParams>()` 取代過渡期 float-getter）；`StateRule` 移除 Jump 物理欄位、抽為獨立檔（純拓撲）；黑板 `IsGrounded` 採公開欄位；`JumpState`／`RollState` 加著地閘門；新增 asmdef（Project.Runtime／Editor／Tests.EditMode）與 `StateMachineTests` EditMode 測試 | Core Dev |

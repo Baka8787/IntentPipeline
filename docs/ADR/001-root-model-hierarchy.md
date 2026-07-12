@@ -4,7 +4,7 @@
 |---|---|
 | 狀態 | **Accepted** |
 | 日期 | 2026-07-12 |
-| 關聯文件 | `01-design-doc.md` §2.6 / §4.4 / §4.7、`02-dev-spec.md` §0.3 |
+| 關聯文件 | `docs/01-design-doc.md` §2.6 / §4.4 / §4.7、`docs/02-dev-spec.md` §0.3 |
 | 影響模組 | `AnimancerFacade`、角色 Prefab（`Assets/Prefabs/X Bot.prefab`）、設計文件 |
 | 釐清事項 | 定調 `AnimancerComponent` 的掛載位置，消除 §2.6 與 §0.3 的既有矛盾（見「決策」） |
 
@@ -20,8 +20,8 @@
 
 本 ADR 定調前，兩份文件對 `AnimancerComponent` 的掛載位置**互相矛盾**：
 
-- `01-design-doc.md` §2.6 的階層圖把 `AnimancerComponent` 放在 **Model 子物件**，並以此為由主張 `AnimancerFacade` 繼續用 `GetComponentInChildren<AnimancerComponent>()`。
-- `02-dev-spec.md` §0.3 的階層圖把 `AnimancerComponent` 放在 **Root**。
+- `docs/01-design-doc.md` §2.6 的階層圖把 `AnimancerComponent` 放在 **Model 子物件**，並以此為由主張 `AnimancerFacade` 繼續用 `GetComponentInChildren<AnimancerComponent>()`。
+- `docs/02-dev-spec.md` §0.3 的階層圖把 `AnimancerComponent` 放在 **Root**。
 
 程式碼（`AnimancerFacade.Awake()`）當時沿用 `GetComponentInChildren`，等於預設「元件可能在子物件」，兩種擺法都能跑，矛盾因此長期潛伏。本 ADR 一次定調。
 
@@ -47,7 +47,7 @@ CharacterRoot                          ← 邏輯/物理權威層，外部一律
 
 ### 2.1 釐清矛盾：`AnimancerComponent` 定調在 Root
 
-以 `02-dev-spec.md` §0.3 為準，`AnimancerComponent` 掛在 **Root**，`Animator` 掛在 **Model**。理由：
+以 `docs/02-dev-spec.md` §0.3 為準，`AnimancerComponent` 掛在 **Root**，`Animator` 掛在 **Model**。理由：
 
 1. **職責歸屬**：`AnimancerComponent` 是「動畫邏輯」元件（播放狀態、管理 Graph），`AnimancerFacade` 直接依賴它；兩者同在 Root，`Facade` 可用 `GetComponent<>()`（同物件）取得，比 `GetComponentInChildren<>()`（跨層搜尋）更嚴格、意圖更清楚。真正屬於「美術」的只有 `Animator`＋網格＋骨骼，這些才下放到 Model。
 2. **Animancer 原生支援跨物件**：`AnimancerComponent` 內部以序列化欄位 `_Animator` 引用 `Animator`（見 `AnimancerComponent.cs` 的 `Animator` 屬性與 `Reset()` 的 `GetComponentInParentOrChildren`）。官方文件亦說明 `AnimancerComponent` 可位於 `Animator` 的**父物件或子物件**，因此「`AnimancerComponent` 在 Root、`Animator` 在 Model 子物件」是原生支援且受官方推薦的配置。

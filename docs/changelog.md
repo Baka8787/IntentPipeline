@@ -2,6 +2,22 @@
 
 ---
 
+## [文件架構重構] - docs/ 目錄收攏與 ADR 同步（2026-07-12）
+
+> 本條目為文件維護紀錄，置於最上方；下方 v0.1～v0.13 版本條目維持原始時序不動。
+
+### 1. 變更內容
+* **目錄收攏**：`01-design-doc.md`／`02-dev-spec.md` 移入 `docs/`；本日誌移入並更名為 `docs/changelog.md`；ADR 續留 `docs/ADR/`（`001-root-model-hierarchy.md`、`002-data-driven-jump.md`）。
+* **交叉引用修正**：全文件改採 repo-root 相對路徑慣例（`docs/01-design-doc.md`、`docs/02-dev-spec.md`、`docs/changelog.md`、`docs/ADR/00X-...`）；ADR 僅做機械性路徑更新，決策內容未動。
+* **Living Document 同步**：`docs/01-design-doc.md` 新增 §2.8、`docs/02-dev-spec.md` 新增跳躍注入 API 小節，將 ADR-001／ADR-002 已 **Accepted** 的決策與 API 契約同步入主文件（僅同步定案內容；`Coyote`／`Jump Buffer`／`Variable Jump`／能力系統等 Deferred 項目未納入）。
+* **CLAUDE.md**：加入「主文件為 Living Document、ADR 為 Immutable Log」的維護守則，並修正 Source of Truth 路徑。
+
+### 2. 文件版本狀態
+* 主文件（Design Doc / Dev Spec）版本狀態追平至架構現狀 **v0.13**（ADR-001 + ADR-002 已同步入 Living Docs）。
+* 本次為純文件重構：未修改任何程式碼（`.cs`）、未延伸任何未定案設計。
+
+---
+
 ## [v0.1] - 地基建設與基礎資料流驗證
 
 ### 1. 變更內容
@@ -158,13 +174,13 @@ graph TD
 * **排查 `OnAnimatorMove` 收不到呼叫的階層問題**：確認 `CharacterController`、`Animator`、`MotionDriver`、`AnimancerComponent` 皆掛在同一個 GameObject（X Bot）上，排除訊息無法跨物件傳遞的假設。
 * **清除 `Controller` 欄位 Missing 參照**：`Animator.Controller` 指到一個已遺失的 Runtime Animator Controller 資產，雖不影響 Animancer 運作，但已清空以排除干擾變因。
 * **發現重力系統設計前提被誤用**：`MotionDriver` 的重力邏輯（`_verticalVelocity`）從設計上只有「貼地保底」與「持續下墜」兩態，從未有任何程式碼賦予其正值，代表原設計是「起跳的上升段完全交給動畫根運動的 Y 軸」，而非程式碼發射角色。若 `JumpState` 改走 `ExecuteBakedCurveMovement`（該方法完全不處理 Y 軸），會導致重力與跳躍衝量邏輯整段失效，這是「跳不起來」的根因，需另外設計 `ApplyJumpImpulse` 之類的垂直初速度注入口，而非直接套用 Roll 的曲線移動模式。
-* **確認 `MotionBakeEditor.cs` 與 `02-dev-spec.md §4.1` 規格脫鉤（技術債，需標記）**：規格書 4.1 節明確要求烘焙工具「實例化臨時角色 Model，注入 Humanoid Avatar，設 `applyRootMotion = true`」後再採樣，但目前 `MotionBakeEditor.cs` 的實作是對一個空的 `new GameObject("BakeDummy")`（沒有 `Animator`、沒有 `Avatar`）直接呼叫 `AnimationClip.SampleAnimation`。Humanoid 根運動仰賴 Avatar 重定向計算，空物件採樣不出真實水平位移，這正是 `SpeedCurve` 曲線趨近全零、Roll 视觉上完全靠殘留 `_rootMotionDelta` 硬撐的根本原因。**目前程式碼並未落實既有規格**，非新發現的規格缺口，列為優先技術債。
-* **評估中期重構方向（尚未定案，見 `01-design-doc.md` Trade-off 表新增列）**：對照另一份參考架構（`MotionDriver` 完全不依賴執行期 `OnAnimatorMove`，改用「輸入驅動速度 + 烘焙曲線速度」統一收斂成單一 `CharacterController.Move()` 呼叫，重力每幀快取一次、任何模式都會疊加），評估是否要把「即時根運動」整個從執行期拔除，改成單一由烘焙資料 + 程式碼算速度的模型。
+* **確認 `MotionBakeEditor.cs` 與 `docs/02-dev-spec.md §4.1` 規格脫鉤（技術債，需標記）**：規格書 4.1 節明確要求烘焙工具「實例化臨時角色 Model，注入 Humanoid Avatar，設 `applyRootMotion = true`」後再採樣，但目前 `MotionBakeEditor.cs` 的實作是對一個空的 `new GameObject("BakeDummy")`（沒有 `Animator`、沒有 `Avatar`）直接呼叫 `AnimationClip.SampleAnimation`。Humanoid 根運動仰賴 Avatar 重定向計算，空物件採樣不出真實水平位移，這正是 `SpeedCurve` 曲線趨近全零、Roll 视觉上完全靠殘留 `_rootMotionDelta` 硬撐的根本原因。**目前程式碼並未落實既有規格**，非新發現的規格缺口，列為優先技術債。
+* **評估中期重構方向（尚未定案，見 `docs/01-design-doc.md` Trade-off 表新增列）**：對照另一份參考架構（`MotionDriver` 完全不依賴執行期 `OnAnimatorMove`，改用「輸入驅動速度 + 烘焙曲線速度」統一收斂成單一 `CharacterController.Move()` 呼叫，重力每幀快取一次、任何模式都會疊加），評估是否要把「即時根運動」整個從執行期拔除，改成單一由烘焙資料 + 程式碼算速度的模型。
 
 ### 2. 架構設計理由與反思（Why & Refactoring Rationale）
 
 * **`OnAnimatorMove` 依賴鏈過於脆弱**：今天一路排查下來，`_rootMotionDelta` 要能正確運作，必須同時滿足：GameObject 階層正確、`Apply Root Motion` 勾選、`Animate Physics` 不勾選、匯入設定 `Bake Into Pose` 沒勾、且所有消耗它的路徑（`ExecuteBaseMovement` / `ExecuteBakedCurveMovement`）都要在正確時機歸零——任何一環斷掉，症狀都是「原地動作／瞬移／跳不起來」這幾種表面現象的排列組合，難以從單一症狀直接反推根因，只能逐層排除。這暴露出「執行期即時根運動」作為位移唯一真相來源，隱含了太多外部設定耦合，與規格書 2.2 節「資料中心黑板」想要的單一決策點精神有落差。
-* **規格書寫對了，實作沒跟上**：`02-dev-spec.md` 4.1 節其實已經預先設計了正確的 Humanoid 取樣流程，但 `MotionBakeEditor.cs` 目前是一份更早期、更簡化的版本，兩者從未對齊過。這次順帶排查才發現這個落差，之後任何工具鏈檔案完工時，應該回頭對照規格書章節打勾，避免文件與程式碼各自漂移。
+* **規格書寫對了，實作沒跟上**：`docs/02-dev-spec.md` 4.1 節其實已經預先設計了正確的 Humanoid 取樣流程，但 `MotionBakeEditor.cs` 目前是一份更早期、更簡化的版本，兩者從未對齊過。這次順帶排查才發現這個落差，之後任何工具鏈檔案完工時，應該回頭對照規格書章節打勾，避免文件與程式碼各自漂移。
 * **修 bug 與規格對齊分開處理**：本輪僅先修復立即影響體驗的部分（歸零缺失、Animator 設定錯誤），`MotionBakeEditor.cs` 改用真實 Humanoid Avatar 環境取樣、以及是否要移除執行期 `OnAnimatorMove` 依賴，列入下一輪重構排期，不在本次一次到位，避免除錯範圍失控。
 
 ---
@@ -173,10 +189,10 @@ graph TD
 
 ### 1. 變更內容
 
-* **重新複查 `MotionBakeEditor.cs` 技術債狀態**：v0.5.1 記錄的「對空 `GameObject`（無 `Animator`／`Avatar`）直接 `SampleAnimation`」問題，經複查**已在程式碼中解決**——目前 `ExecuteBakePipeline()` 會 `Instantiate(characterPrefab)`、驗證 `animator.avatar.isHuman`、設定 `applyRootMotion = true` 後才進入 `BakeCoreProcessor` 採樣。`02-dev-spec.md` §4.1 的落差警告與本檔 v0.5.1 的「所有既有資產視為不可信」結論已更新為「取樣來源問題已解決，Pass 分離／腳相／濾波仍待補」。
+* **重新複查 `MotionBakeEditor.cs` 技術債狀態**：v0.5.1 記錄的「對空 `GameObject`（無 `Animator`／`Avatar`）直接 `SampleAnimation`」問題，經複查**已在程式碼中解決**——目前 `ExecuteBakePipeline()` 會 `Instantiate(characterPrefab)`、驗證 `animator.avatar.isHuman`、設定 `applyRootMotion = true` 後才進入 `BakeCoreProcessor` 採樣。`docs/02-dev-spec.md` §4.1 的落差警告與本檔 v0.5.1 的「所有既有資產視為不可信」結論已更新為「取樣來源問題已解決，Pass 分離／腳相／濾波仍待補」。
 * **盤點 `JumpState` 落地判定的資料流缺口**：目前 `IsLanded` 由寫死的 `_airTimer = 1.0f` 倒數決定，與角色實際物理滯空時間（受 `jumpImpulseForce`、重力影響）脫鉤；黑板 `PlayerRuntimeData` 也還沒有 `IsGrounded` 欄位可讀。列為 v0.7 規劃項目：由 `MotionDriver` 寫入黑板 `IsGrounded`，`JumpState` 改讀黑板而非自行計時。
 * **發現 `JumpState.jumpImpulseForce` 的 `[SerializeField]` 是死碼**：`BaseState` 為純 C# 類別、非 `MonoBehaviour`／`ScriptableObject`，此欄位不會被 Unity 序列化，Inspector 無法調整，永遠吃預設值 `7.5f`。規劃比照 `RollState` 改走 Config SO 查表。
-* **盤點其餘小型防禦性缺口**：`MotionDriver.Awake()` 對 `characterController` 缺 null 防禦線；`RollState.OnUpdateMotion` 無條件信任 `AnimationFacade.GetNormalizedTime()`，若 `Play()` 失敗（clip mapping 查表 miss）會拿舊動畫的進度值驅動位移；`CharacterPipelineRunner` 熱路徑上的富文本 `Debug.Log` 有 GC Alloc 疑慮；`AnimancerFacade.SetLayerWeight` 缺負數 index 防呆。全數列入 `02-dev-spec.md` §5 待補清單追蹤。
+* **盤點其餘小型防禦性缺口**：`MotionDriver.Awake()` 對 `characterController` 缺 null 防禦線；`RollState.OnUpdateMotion` 無條件信任 `AnimationFacade.GetNormalizedTime()`，若 `Play()` 失敗（clip mapping 查表 miss）會拿舊動畫的進度值驅動位移；`CharacterPipelineRunner` 熱路徑上的富文本 `Debug.Log` 有 GC Alloc 疑慮；`AnimancerFacade.SetLayerWeight` 缺負數 index 防呆。全數列入 `docs/02-dev-spec.md` §5 待補清單追蹤。
 
 ### 2. 架構設計理由與反思（Why & Refactoring Rationale）
 
@@ -188,7 +204,7 @@ graph TD
 
 ## [v0.7~v0.9] - 文件追平程式碼進度（補記錄，2026-07-08）
 
-> 這三個版本的程式碼修正在前幾輪對話中已經完成，但開發日誌沒有同步跟上（跟 v0.6 談到的「文件會腐化」是同一種問題，這次是日誌本身腐化）。這裡一次補記錄，細節見 `01-design-doc.md` 修訂紀錄 v0.7～v0.9 與 `02-dev-spec.md` v0.7～v0.9。
+> 這三個版本的程式碼修正在前幾輪對話中已經完成，但開發日誌沒有同步跟上（跟 v0.6 談到的「文件會腐化」是同一種問題，這次是日誌本身腐化）。這裡一次補記錄，細節見 `docs/01-design-doc.md` 修訂紀錄 v0.7～v0.9 與 `docs/02-dev-spec.md` v0.7～v0.9。
 
 * **v0.7**：全面 Code Review，修正 Jump 落地判定資料流缺口（黑板新增 `IsGrounded`）、`JumpState.jumpImpulseForce` 序列化死碼、`MotionDriver` null 防禦、`RollState` 動畫播放防呆、熱路徑 log 的 GC 疑慮、`AnimancerFacade` 邊界檢查。
 * **v0.8**：除錯 Jump「先蹲下再往上」問題，新增 `JumpTakeoffDelay` 讓物理起飛時機對齊動畫預備動作；`IsGrounded` 黑板同步收斂進 `MotionDriver.GetGravityThisFrame`，移除額外的 `SyncGroundedState` 呼叫點。
@@ -205,9 +221,9 @@ graph TD
   1. **職責混亂**：`StateRule` 該管的是 FSM 拓撲（誰能打斷誰、能過渡到誰、優先級），跟「Jump 這個特定狀態的物理表現參數」是完全不同的關注點。
   2. **Inspector／記憶體污染**：設定 Idle、Move、Roll 的規則時，Inspector 也會強行冒出跟這些狀態無關的 `Jump Impulse Force` 欄位；每個 `StateRule` 元素都攜帶用不到的欄位，浪費執行期記憶體。
   3. **擴充性災難**：這是最致命的一點，直接關係到專案「同一套控制器要撐起 ARPG、射擊遊戲及其他各種遊戲模式」的終極目標——未來 `SlideState`（滑行距離/摩擦係數）、`ClimbState`（爬牆速度/體力消耗）、`AimState`（瞄準靈敏度）陸續加入時，若繼續往 `StateRule` 塞欄位，會讓它線性膨脹成沒人敢動的巨石類別。
-* **設計 `StateParamsSO` 取代方案**：`StateRule` 恢復只留拓撲欄位；狀態專屬參數改用獨立的 `StateParamsSO` 子類別資產（一狀態一資產，如 `JumpStateParams`），`StateMachineConfigSO` 用泛型 `GetStateParams<T>(state)` 查表取得。完整介面設計見 `02-dev-spec.md` §3.2 新增小節、`01-design-doc.md` §2.7。**設計已定案，程式碼尚未遷移**——這次刻意只更新文件、不動程式碼，理由見下方「Why」。
+* **設計 `StateParamsSO` 取代方案**：`StateRule` 恢復只留拓撲欄位；狀態專屬參數改用獨立的 `StateParamsSO` 子類別資產（一狀態一資產，如 `JumpStateParams`），`StateMachineConfigSO` 用泛型 `GetStateParams<T>(state)` 查表取得。完整介面設計見 `docs/02-dev-spec.md` §3.2 新增小節、`docs/01-design-doc.md` §2.7。**設計已定案，程式碼尚未遷移**——這次刻意只更新文件、不動程式碼，理由見下方「Why」。
 * **重新評估並採用兩個參考碼設計**：v0.9 曾評估 BBBNexus 專案的 `VerticalVelocity` 黑板欄位、`JustLanded`／`JustLeftGround` 單幀旗標，但以「目前沒有下游消費者」為由暫緩。這次基於多遊戲模式重用的目標重新評估，改為已定案採用（理由見下方）。
-* **新增「跨遊戲模式重用策略」章節**（`01-design-doc.md` §8）：系統性盤點哪些既有設計天生模式無關（黑板、仲裁層、Facade、Adapter/Model 分層）、哪些是這輪才補上的（`StateParamsSO`、提前開放的黑板欄位）、哪些還沒有答案（Intent/Parameter 處理器抽介面時機、`StateType` 是否分層、仲裁旗標粒度）。
+* **新增「跨遊戲模式重用策略」章節**（`docs/01-design-doc.md` §8）：系統性盤點哪些既有設計天生模式無關（黑板、仲裁層、Facade、Adapter/Model 分層）、哪些是這輪才補上的（`StateParamsSO`、提前開放的黑板欄位）、哪些還沒有答案（Intent/Parameter 處理器抽介面時機、`StateType` 是否分層、仲裁旗標粒度）。
 
 ### 2. 架構設計理由與反思（Why & Refactoring Rationale）
 
@@ -236,7 +252,7 @@ graph TD
 
 ### 1. 變更內容
 * **新增 ADR**：`docs/ADR/001-root-model-hierarchy.md` 正式記錄「Root（邏輯/物理）＋ Model（美術/骨骼）」分層決策、元件獲取規範、Fail-Fast 校驗規範、Prefab 遷移步驟與未來擴充彈性。
-* **釐清文件矛盾**：`01-design-doc.md` §2.6 原把 `AnimancerComponent` 畫在 Model 子物件，與 `02-dev-spec.md` §0.3 的 Root 擺法互相矛盾。ADR-001 定調 `AnimancerComponent` 掛在 **Root**（僅 `Animator`＋網格＋骨骼下放 Model），同步更新 §2.6／§4.4／§4.7 與 §0.3 規則。
+* **釐清文件矛盾**：`docs/01-design-doc.md` §2.6 原把 `AnimancerComponent` 畫在 Model 子物件，與 `docs/02-dev-spec.md` §0.3 的 Root 擺法互相矛盾。ADR-001 定調 `AnimancerComponent` 掛在 **Root**（僅 `Animator`＋網格＋骨骼下放 Model），同步更新 §2.6／§4.4／§4.7 與 §0.3 規則。
 * **`AnimancerFacade` 重構**：
   * 取得 `AnimancerComponent` 由 `GetComponentInChildren<AnimancerComponent>()` 改為 `GetComponent<AnimancerComponent>()`（Root/自身），杜絕誤抓子物件。
   * 新增 `ValidateHierarchy(bool runtimeThrow)`：Root 恰好 1 個 `AnimancerComponent` 且 0 個 `Animator`；Model 子物件恰好 1 個 `Animator`；`Animator` 綁 Humanoid Avatar；`AnimancerComponent.Animator` 指向該 Model `Animator`；並**強制關閉** `Animator.applyRootMotion`。
@@ -248,6 +264,29 @@ graph TD
 * **`AnimancerComponent` 屬「邏輯」故留 Root**：它是 Facade 直接依賴的動畫邏輯元件，與 Facade 同物件用 `GetComponent` 語意最嚴格；Animancer 原生以序列化 `_Animator` 支援跨物件引用，此配置受官方支援。
 * **Fail-Fast 勝於靜默降級**：階層或綁定錯誤在開場（Awake/OnValidate）就爆出清楚訊息，取代過往「動畫原地不動／結束瞬移」這類難以定位的表徵。
 * **`MotionDriver` 刻意不動**：它只依賴 `CharacterController`、完全不感知 `Animator`，本就符合新架構，無需調整（另見 Architecture Notes 對「MotionDriver 是否該感知 Animator」的評估）。
+
+---
+
+## [v0.13] - ADR-002：數據驅動跳躍與多段跳架構（2026-07-12）
+
+### 1. 變更內容
+* **新增 ADR**：`docs/ADR/002-data-driven-jump.md` 記錄「跳躍物理單一真相來源 + 多段跳資產閉環 + 逆推初速（選項 A）」決策、`JumpStateParams` 完整手感旋鈕分類、落地範圍與 Deferred 清單。
+* **跳躍物理改為數據驅動（拔除硬編碼）**：
+  * `JumpStateParams` 拔除 `TakeoffDelay` / `ImpulseForce`；改承載 `Content — Multi Jump`（有序 `List<JumpStage>`，每段引用一份 `MotionBakeData`）與 `Designer Tuning` 三個倍率（`HeightMultiplier` / `GravityMultiplier` / `LaunchVelocityMultiplier`，預設 1）。
+  * `JumpState` 於 `Initialize()` 逐段逆推發射初速 `v = √(2gh)`（g=`AutoCalculatedGravity`、h=`AutoApexHeight`，套用倍率後），並快取每段 `JumpLaunchData` 與起跳前搖（`AutoTakeoffDelay`）；查無 Stages / 該段無可信烘焙資料時安全退化。
+* **多段跳（資產閉環）**：`JumpState` 以「已跳次數 `< Stages.Count`」為閘門，空中再按跳在狀態內部消化（`Intent.JumpRequested` 邊沿，不走狀態轉移，因 interrupt 系統不自我重入）。新增一段跳躍＝資產加一個 `JumpStage`，邏輯層零改。
+* **重力接縫（選項 A）**：新增 `readonly struct JumpLaunchData { InitialVerticalVelocity; Gravity }`；`MotionDriver.ApplyJumpImpulse(float)` 改為 `ApplyJumpLaunch(in JumpLaunchData)`，新增 `_activeGravity`（起跳時覆寫為該段烘焙重力、落地自動回復預設）。`_verticalVelocity` / `_activeGravity` 寫入者仍只有 `MotionDriver`。
+
+### 2. 架構設計理由（Why）
+* **單一真相來源**：同一物理量（前搖/初速/重力）過去在烘焙資產與手填參數各存一份、靠人肉對齊；改由各段 `MotionBakeData` 為唯一來源，改動畫重烘焙即自動生效。
+* **物理自洽**：上升與下落用同一顆 `AutoCalculatedGravity`，倍率皆 1 時 apex 精準命中 `AutoApexHeight`（分析器以 `g=8h/t²` 逆推，`v=√(2gh)` 恰為其對稱解）。
+* **段數＝內容**：`Stages` 是跳躍內容唯一來源，本輪不設「可用段數」欄位；未來 RPG/解鎖/Buff 動態限制段數交能力系統另立 ADR。
+* **封裝不外流**：選項 A 讓初速+重力經方法注入，`MotionDriver` 仍是唯一垂直速度寫入者，暫不打開 `VerticalVelocity` 入黑板（等第二消費者）。
+* **範圍紀律**：`Coyote Time` / `Jump Buffer` / `Variable Jump` 的行為需要跨幀計時擁有權與按住/放開輸入（目前 `InputData` 僅按下邊沿），未定義故不落地，另立 ADR（見 ADR-002 §6-4）。
+
+### 3. 需手動配置（Unity Editor）
+* `JumpStateParams.asset`：舊的 `TakeoffDelay` / `ImpulseForce` 欄位已不存在，需在 Inspector 設定 `Stages`（第 0 段 = 地面跳，指向 `Bake_Jump.asset`）；三個倍率預設 1 即依烘焙值。
+* 確認跳躍 clip 匯入設定的 `Root Transform Position (Y) → Bake Into Pose` **未勾選**，否則 `AutoApexHeight≈0`、初速逆推退化為 fallback。
 
 ---
 

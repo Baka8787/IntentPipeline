@@ -2600,3 +2600,10 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
+  RotationFinishedTime: 2.1166668
+  EndPhase: 1
+  TargetLocalDirection: {x: -0.44234058, y: 0, z: 0.8968471}
+  AutoTakeoffDelay: 0
+  AutoApexHeight: 0.01656748
+  AutoAirTime: 2.3666668
+  AutoCalculatedGravity: 0.023663132

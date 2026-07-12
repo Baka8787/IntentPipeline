@@ -17,12 +17,19 @@ namespace Project.Presentation.Motion
 
         private float _verticalVelocity;
 
+        // 🆕（ADR-002）本次垂直運動採用的重力（負值＝向下）。
+        // 預設等於序列化的 gravity；起跳時由 ApplyJumpLaunch 覆寫為「該段烘焙逆推重力」，
+        // 落地（IsGrounded）時於 GetGravityThisFrame 內部自動回復預設。寫入者僅本類別，守住單一寫入者。
+        private float _activeGravity;
+
         // 參考高階架構：單幀重力緩存，避免一幀內被多處呼叫時重複積分垂直重力速度
         private int _gravityFrame = -1;
         private Vector3 _cachedGravity;
 
         private void Awake()
         {
+            _activeGravity = gravity; // 預設重力，之後可被單次跳躍發射覆寫
+
             if (characterController == null) characterController = GetComponent<CharacterController>();
 
             // 🆕（v0.7 Code Review 補上）與 CharacterPipelineRunner 對 motionDriver/animationFacade
@@ -34,12 +41,15 @@ namespace Project.Presentation.Motion
         }
 
         /// <summary>
-        /// 💡 解決高度累積與跳不起來盲區：供 JumpState 在 OnUpdateMotion 點火呼叫，強行注入垂直初速度！
+        /// 🆕（ADR-002 選項 A）供 JumpState 在 OnUpdateMotion 點火呼叫：一次注入「起跳初速 + 該次重力」。
+        /// 初速與重力皆由 JumpState 依烘焙資料逆推（v = √(2gh)）後傳入，本類別僅負責積分執行，
+        /// 不感知跳躍/動畫細節；_verticalVelocity 與 _activeGravity 的寫入者仍只有本類別。
         /// </summary>
-        public void ApplyJumpImpulse(float impulseForce)
+        public void ApplyJumpLaunch(in JumpLaunchData launch)
         {
-            _verticalVelocity = impulseForce;
-            _gravityFrame = -1; // 強制刷新本影格的重力快取
+            _verticalVelocity = launch.InitialVerticalVelocity; // 向上為正
+            _activeGravity = -Mathf.Abs(launch.Gravity);        // 契約傳正值大小，於此轉為向下（負）
+            _gravityFrame = -1;                                 // 強制刷新本影格的重力快取
         }
 
         /// <summary>
@@ -174,10 +184,11 @@ namespace Project.Presentation.Motion
             if (data.IsGrounded && _verticalVelocity < 0f)
             {
                 _verticalVelocity = reboundForce;
+                _activeGravity = gravity; // 🆕（ADR-002）落地即回復預設重力，讓下一次一般移動/起跳前用預設值積分
             }
             else
             {
-                _verticalVelocity += gravity * Time.deltaTime;
+                _verticalVelocity += _activeGravity * Time.deltaTime; // 🆕 改用單次跳躍發射帶入的重力（預設等於 gravity）
             }
 
             _cachedGravity = new Vector3(0f, _verticalVelocity, 0f);

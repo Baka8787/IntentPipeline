@@ -2,20 +2,16 @@
 
 # Unity Character Framework
 
-This repository is a learning-oriented Unity character framework focused on
-clean architecture, data-driven design, and zero-GC runtime.
+This repository is a learning-oriented Unity character framework focused on clean architecture, data-driven design, and zero-GC runtime.
 
 The goal is NOT to ship a game.
-
-The goal is to build a maintainable gameplay framework while documenting every
-major architectural decision.
+The goal is to build a maintainable gameplay framework while documenting every major architectural decision.
 
 ---
 
 # Project Philosophy
 
 Priority:
-
 1. Architecture
 2. Readability
 3. Maintainability
@@ -30,347 +26,158 @@ Never sacrifice architecture simply to make something work.
 
 Read these documents before making changes.
 
-1. docs/01-design-doc.md
+1. `docs/01-design-doc.md`
+   - Purpose: Architecture decisions, Trade-offs, Why the system is designed this way.
 
-Purpose
+2. `docs/02-dev-spec.md`
+   - Purpose: Technical specifications, API contracts, Pipeline order, Data structures, Runtime rules.
 
-Architecture decisions
-Trade-offs
-Why the system is designed this way
+3. `docs/ADR/`
+   - Purpose: Architecture Decision Records. Always follow accepted ADRs.
 
----
-
-2. docs/02-dev-spec/
-
-Purpose
-
-Technical specifications
-API contracts
-Pipeline order
-Data structures
-Runtime rules
-
----
-
-3. docs/ADR/
-
-Purpose
-
-Architecture Decision Records.
-
-Always follow accepted ADRs.
-
----
-
-4. CHANGELOG.md
-
-Purpose
-
-Development history
-Refactoring rationale
-Lessons learned
+4. `docs/changelog.md`
+   - Purpose: Development history, Refactoring rationale, Lessons learned.
 
 ---
 
 # Core Principles
 
 ## Data Driven
-
-Gameplay reads data.
-
-Gameplay does not query other gameplay systems directly.
-
----
+Gameplay reads data. Gameplay does not query other gameplay systems directly.
 
 ## Single Responsibility
-
-Each module owns exactly one responsibility.
-
-Avoid "God Classes".
-
----
+Each module owns exactly one responsibility. Avoid "God Classes".
 
 ## Dependency Direction
+Allowed:
+Input → Pipeline → RuntimeData → StateMachine → Animation → Motion
 
-Allowed
-
-Input
-    ↓
-
-Pipeline
-    ↓
-
-RuntimeData
-    ↓
-
-StateMachine
-    ↓
-
-Animation
-    ↓
-
-Motion
-
-Forbidden
-
-Animation -> StateMachine
-
-Motion -> Input
-
-State -> Controller
-
-Controller -> Animation API
-
----
+Forbidden:
+- Animation -> StateMachine
+- Motion -> Input
+- State -> Controller
+- Controller -> Animation API
 
 ## Zero GC Runtime
-
 Runtime gameplay should avoid heap allocations.
-
-Prefer:
-
-struct
-
-readonly struct
-
-ref struct
-
-Span
-
-Avoid
-
-new
-
-LINQ
-
-boxing
-
-string interpolation inside Update
-
-unless explicitly approved.
-
----
+Prefer: `struct`, `readonly struct`, `ref struct`, `Span`
+Avoid: `new`, `LINQ`, `boxing`, string interpolation inside `Update` (unless explicitly approved).
 
 ## Respect Ownership
-
-Each RuntimeData field has
-
-Owner
-
-Writer
-
-Readers
-
-Do NOT introduce additional writers.
+Each RuntimeData field has an Owner, Writer, and Readers. Do NOT introduce additional writers.
 
 ---
 
 # AI Coding Rules
 
 Before changing code:
-
-1.
-
-Understand existing architecture.
-
-Do not rewrite systems because another design looks cleaner.
-
----
-
-2.
-
-Search for existing implementation first.
-
-Avoid duplicate utilities.
-
----
-
-3.
-
-Preserve module boundaries.
-
-Never bypass AnimationFacade.
-
-Never bypass Pipeline.
-
-Never access RuntimeData arbitrarily.
-
----
-
-4.
-
-Follow existing naming conventions.
-
-Private fields
-
-_camelCase
-
-Public members
-
-PascalCase
-
----
-
-5.
-
-If changing architecture,
-
-explain
-
-Problem
-
-Trade-off
-
-Reason
-
-Impact
-
-before modifying.
+1. Understand existing architecture. Do not rewrite systems because another design looks cleaner.
+2. Search for existing implementation first. Avoid duplicate utilities.
+3. Preserve module boundaries. Never bypass `AnimationFacade`, `Pipeline`, or access `RuntimeData` arbitrarily.
+4. Follow existing naming conventions:
+   - Private fields: `_camelCase`
+   - Public members: `PascalCase`
+5. If changing architecture, explain the **Problem**, **Trade-off**, **Reason**, and **Impact** before modifying.
 
 ---
 
 # When Implementing Features
 
-Always think in this order.
-
-1.
-
+Always think in this order:
 Does the design document already define this?
-
-↓
-
-If yes
-
-Follow it.
-
-↓
-
-If no
-
-Propose an ADR.
-
-Do NOT invent architecture.
+- ↓ If yes: Follow it.
+- ↓ If no: Propose an ADR. Do NOT invent architecture.
 
 ---
 
 # Documentation Responsibilities
 
-Whenever architecture changes,
-
-update
-
-Design Doc
-
-Spec
-
-ADR
-
-Changelog
-
-if necessary.
+Whenever architecture changes, update:
+- Design Doc
+- Spec
+- ADR
+- Changelog (if necessary)
 
 Code and documentation should never diverge.
+
+## Living Documents vs Immutable Log
+
+- **Design Doc (`docs/01-design-doc.md`) and Dev Spec (`docs/02-dev-spec.md`) are Living Documents**: they describe the CURRENT architecture and API, and must be refactored in sync with the code. When code changes, update them so they never diverge.
+- **ADRs (`docs/ADR/`) are an Immutable Log**: once an ADR is Accepted, its decision content is frozen — do NOT rewrite it. To change a decision, open a NEW ADR that supersedes the old one (cross-link Supersedes / Superseded-by). (Purely mechanical maintenance, e.g. fixing a cross-reference path after a file move, is not a decision change and is allowed.)
+- **Where a change goes (routing rule)**:
+  - *Non-architectural new feature / new state* (does not change the architecture) → write it directly into the Living Documents (`docs/01-design-doc.md` / `docs/02-dev-spec.md`). Do **NOT** open a new ADR, and do **NOT** modify any existing (frozen) ADR.
+  - *Truly disruptive architectural change* (ownership shifts, hierarchy changes, cross-cutting breaks) → open a **NEW** ADR following the Supersede principle; the old ADR file stays frozen.
+- **Documentation truth flows one way**: ADR (historical decision snapshot) → Design Doc (current architecture) → Dev Spec (implementation API).
 
 ---
 
 # Things AI Should Never Do
 
-Do not
-
-Introduce singleton managers.
-
-Do not
-
-Access Unity API from data classes.
-
-Do not
-
-Put gameplay logic inside Animation.
-
-Do not
-
-Store frame-local data across frames.
-
-Do not
-
-Add public setters to RuntimeData without justification.
-
-Do not
-
-Break module ownership.
+- Do NOT introduce singleton managers.
+- Do NOT access Unity API from data classes.
+- Do NOT put gameplay logic inside Animation.
+- Do NOT store frame-local data across frames.
+- Do NOT add public setters to RuntimeData without justification.
+- Do NOT break module ownership.
 
 ---
 
 # Preferred Workflow
 
-Read
-
+Read Docs & Code
 ↓
-
-Understand
-
+Discuss Architecture & Specs (Mandatory before making any file changes)
 ↓
-
-Discuss architecture (if needed)
-
+Modify Files (Write changes directly to the local working tree)
 ↓
+Stop (Do NOT perform any Git operations)
 
-Implement
+---
 
-↓
+# Git Policy & Permissions (Solo Developer Mode)
 
-Verify
+Claude is NOT allowed to execute any Git mutation commands. The human developer owns 100% of the Git lifecycle.
 
-↓
+## Strictly Forbidden Commands:
+- `git checkout` / `git switch`
+- `git branch`
+- `git commit`
+- `git merge` / `git rebase`
+- `git push` / `git pull`
+- `git stash`
 
-Update documentation
+## Working Rules:
+- **Local Only**: Assume the current checked-out branch is correct and the local working tree is the only target.
+- **File Changes Only**: Only edit, create, or delete physical files using file-system tools (e.g., `write_file`, `edit_file_multi`).
+- **No PRs**: Never attempt to interact with the GitHub API to create Pull Requests or remote branches.
+- **Stop After Edit**: Once files are modified, stop immediately. Leave verification, compilation checks, and Git commits to the human developer in the Unity Editor / Terminal.
 
 ---
 
 # Expected Output Style
 
 When proposing changes:
-
-Explain
-
-Why
-
-Trade-offs
-
-Alternatives
-
-Risks
-
-Avoid giving only code.
-
-Architecture reasoning is more important than implementation.
+Explain: Why, Trade-offs, Alternatives, Risks.
+Avoid giving only code. Architecture reasoning is more important than implementation.
 
 ---
 
 # If Unsure
 
-Do not guess.
-
-Ask for clarification.
-
-Architecture consistency is preferred over implementation speed.
+Do not guess. Ask for clarification. Architecture consistency is preferred over implementation speed.
 
 ---
 
 # AI Working Mode
 
-Unless explicitly requested,
+## Document Consolidation Policy (Preventing ADR Explosion)
+- **Do NOT create a new ADR for every feature.** Keep the total number of ADR files minimal.
+- **Route non-architectural work to Living Docs (not ADRs)**: If a new feature or state shares an existing architectural pattern (e.g., dynamic movement states expanding on ADR-002) and does not change the architecture, write it into the Living Documents (`docs/01-design-doc.md` / `docs/02-dev-spec.md`). Do NOT generate a new ADR, and do NOT modify the existing (frozen) ADR.
+- **Distinguish ADR from Spec**: Only propose a new ADR for systemic, cross-cutting breaking changes (e.g., ownership shifts, hierarchy changes). For incremental API or data layout changes, update `docs/02-dev-spec.md` or `docs/01-design-doc.md` directly.
 
-prefer
+Unless explicitly requested, prefer:
+- Minimal changes
+- Incremental refactoring
+- Preserve existing architecture
 
-- minimal changes
-- incremental refactoring
-- preserve existing architecture
-
-Avoid large rewrites.
-
-Always explain why a change is necessary.
-
-If a proposal would affect multiple modules,
-
-stop and discuss first.
+Avoid large rewrites. Always explain why a change is necessary. If a proposal would affect multiple modules, stop and discuss first.
