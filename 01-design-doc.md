@@ -74,7 +74,7 @@
 
 **實作時機**：第四階段（仲裁器與打斷系統），狀態機完成後再接入。
 
-### 2.6 表現層物件階層：Adapter Root + Model Child（v0.9 新增）
+### 2.6 表現層物件階層：Adapter Root + Model Child（v0.9 新增，v0.12 定調，詳見 `docs/ADR/001-root-model-hierarchy.md`）
 
 除錯 v0.8 的「Jump 先蹲下再往上」問題時，根因追到 `Animator.applyRootMotion` 若沒關乾淨，Unity 會自動把根動作套用到掛著 `Animator` 的那顆 Transform；如果這顆 Transform 跟 `CharacterController` 是同一顆物件，就會跟我們手動呼叫的 `CharacterController.Move()` 互搶同一份世界座標，產生位置衝突、抖動或瞬移。這是 2.4 節「表現層解耦」的精神在**物件階層**這個維度上還沒落實——邏輯上做了 Facade 隔離，但實體階層上邏輯根跟美術根還疊在同一顆物件。
 
@@ -86,21 +86,23 @@ CharacterRoot（空物件，Adapter）
 ├── CharacterPipelineRunner
 ├── MotionDriver
 ├── AnimancerFacade（掛 AnimationFacadeBase 子類）  ← 邏輯玩法只認得到這一層
+├── AnimancerComponent（動畫「邏輯」元件，定調在 Root）
 ├── PlayerInputSource
 └── Model（子物件，僅美術/骨骼相關）
     ├── Animator（Humanoid Avatar，applyRootMotion 強制關閉）
-    ├── AnimancerComponent
     ├── SkinnedMeshRenderer
     └── 骨骼階層（供未來 IK / 手部持武器對位使用）
 ```
 
+> ⚠️ **v0.12 定調**：本節初版（v0.9）曾把 `AnimancerComponent` 畫在 Model 子物件，與 `02-dev-spec.md` §0.3 的 Root 擺法矛盾。ADR-001 已定調 `AnimancerComponent` 掛在 **Root**（只有真正屬於美術的 `Animator`＋網格＋骨骼下放 Model），此處已更正。理由詳見 `docs/ADR/001-root-model-hierarchy.md`。
+
 **為什麼要分開？**
 - **物理權威單一化**：`CharacterController` 只存在於 Root，Root 的世界座標只能被 `MotionDriver.ExecuteBaseMovement()` 等程式碼路徑改動。即使 Model 子物件上的 `Animator.applyRootMotion` 哪天不小心被勾選，Unity 自動套用的根動作也只會影響 Model 的**local transform**，不會波及 Root 的世界座標，兩者物理上不可能打架——這比「靠 Inspector 記得關勾選框」更根本地杜絕了這類 bug。
-- **呼應既有 Facade 精神**：`AnimancerFacade` 本來就是透過 `GetComponentInChildren<AnimancerComponent>()` 找底層動畫元件（見 `AnimancerFacade.cs`），拆成子物件後這個查找方式完全相容，不需要改介面。
+- **呼應既有 Facade 精神**：`AnimancerComponent` 與 `AnimancerFacade` 同在 Root，`Facade` 以 `GetComponent<AnimancerComponent>()`（同物件）取得動畫邏輯元件，比跨層 `GetComponentInChildren` 更嚴格；`Animator` 則以 `GetComponentInChildren<Animator>()` 由 Model 子物件取得。Animancer 原生支援 `AnimancerComponent` 與 `Animator` 跨物件（`AnimancerComponent._Animator` 為序列化欄位），此配置受官方支援，不需要改 Facade 介面。
 - **美術資產可替換**：換裝、換模型只需要替換 Model 子物件，Root 上的邏輯元件、Collider 尺寸、Inspector 綁定關係完全不受影響。
 - **未來 IK 擴充的自然掛點**：手部 IK、武器對位、頭部 LookAt 這類需要直接操作骨骼的功能，天然應該掛在 Model 這一層或引用 Model 底下的 Transform，跟「只讀黑板仲裁旗標」的表現層 Controller（4.6 節）分開放，職責邊界更清楚。
 
-**代價**：現有專案若已經是單層結構，需要一次性搬遷（拆出 Model 子物件、把 Animator/AnimancerComponent 移過去、確認 Inspector 引用沒斷掉）；`ThirdPersonCamera` 等外部引用角色 Transform 的模組要重新確認引用的是 Root 還是 Model（規範上一律引用 **Root**，Model 只服務於動畫播放，任何遊戲邏輯都不該直接參考它）。列入 `02-dev-spec.md` §5 待補清單。
+**代價**：現有專案若已經是單層結構，需要一次性搬遷（拆出 Model 子物件、把 `Animator`＋網格＋骨骼移過去，`AnimancerComponent` 留在 Root 並把其 `Animator` 欄位重新指向 Model 子物件的 `Animator`、確認 Inspector 引用沒斷掉）；`ThirdPersonCamera` 等外部引用角色 Transform 的模組要重新確認引用的是 Root 還是 Model（規範上一律引用 **Root**，Model 只服務於動畫播放，任何遊戲邏輯都不該直接參考它）。列入 `02-dev-spec.md` §5 待補清單。
 
 ---
 
@@ -196,7 +198,7 @@ flowchart LR
 ### 4.4 AnimationFacade
 - 該做：統一動畫播放介面，隔離底層動畫系統差異
 - 不該做：不該包含遊戲邏輯判斷
-- **物件階層（v0.9 新增）**：Facade 元件本身掛在 Root（Adapter），透過 `GetComponentInChildren` 找 Model 子物件上的 `AnimancerComponent`；不該把底層動畫元件（`Animator`／`AnimancerComponent`）也掛在 Root，理由見 2.6 節。
+- **物件階層（v0.9 新增，v0.12 定調）**：Facade 與 `AnimancerComponent` 同掛在 Root（Adapter），以 `GetComponent<AnimancerComponent>()` 取得動畫邏輯元件；`Animator` 掛在 Model 子物件，以 `GetComponentInChildren<Animator>()` 取得。不該把 `Animator` 掛在 Root（會與 `CharacterController` 世界座標互搶），理由見 2.6 節與 `docs/ADR/001-root-model-hierarchy.md`。
 
 ### 4.5 ArbiterPipeline（仲裁管線）
 - 該做：接收狀態機目前狀態，統一計算並寫入 `RuntimeData.Arbitration` 仲裁旗標（如 `BlockInput`、`BlockIK`、`BlockAudio`）
@@ -206,8 +208,8 @@ flowchart LR
 - 該做：每帧讀取 `RuntimeData.Arbitration` 對應旗標，決定自己要不要執行本帧的更新
 - 不該做：不該直接詢問狀態機目前在哪個狀態、不該自己包含「死亡時停止」這類判斷邏輯（那是仲裁層的職責）
 
-### 4.7 GameObject 物件階層（v0.9 新增，詳見 2.6 節）
-- 該做：邏輯／物理權威元件（`CharacterController`、`CharacterPipelineRunner`、`MotionDriver`、`AnimationFacade` 子類、`IInputSource` 實作）掛在 Root（Adapter）；美術／骨骼相關元件（`Animator`、`AnimancerComponent`、`SkinnedMeshRenderer`、骨骼階層）掛在子物件 Model；外部模組（如 `ThirdPersonCamera`）一律引用 Root Transform
+### 4.7 GameObject 物件階層（v0.9 新增，v0.12 定調，詳見 2.6 節與 `docs/ADR/001-root-model-hierarchy.md`）
+- 該做：邏輯／物理權威元件（`CharacterController`、`CharacterPipelineRunner`、`MotionDriver`、`AnimationFacade` 子類、`AnimancerComponent`、`IInputSource` 實作）掛在 Root（Adapter）；美術／骨骼相關元件（`Animator`、`SkinnedMeshRenderer`、骨骼階層）掛在子物件 Model；外部模組（如 `ThirdPersonCamera`）一律引用 Root Transform
 - 不該做：不該把 `Animator` 或任何會產生根動作的元件跟 `CharacterController` 掛在同一顆物件上；不該讓遊戲邏輯持有 Model 子物件的 Transform 引用（該子物件只服務動畫播放）
 
 ---
@@ -299,4 +301,5 @@ flowchart LR
 | 2026-07-08 | v0.8 | **補記錄**：除錯 Jump「先蹲下再往上」問題，定位出物理起飛時機（進入狀態當幀立刻注入衝量）跟動畫預備蹲下姿勢的時間軸沒對齊；新增可設定的 `JumpTakeoffDelay`，延遲期間維持貼地移動等預備動畫播完再離地。同時借鑑參考碼做法，把 `IsGrounded` 黑板同步收斂進 `MotionDriver.GetGravityThisFrame()` 內部，取代 v0.7 額外顯式呼叫 `SyncGroundedState` 的做法。Trade-off 表補上這兩筆決策。 |
 | 2026-07-08 | v0.9 | **參考設計評估 + 物件階層決策**：①新增 2.6／4.7 節，決定角色 GameObject 拆成 Root（Adapter，放邏輯/物理元件）與 Model 子物件（放 Animator/AnimancerComponent/骨骼），杜絕 Animator 根動作與 CharacterController 世界座標互搶的整類問題；②評估參考碼（BBBNexus）兩個設計但暫不採用：`VerticalVelocity` 移入黑板（增加靈活性但犧牲封裝）、`JustLanded`/`JustLeftGround` 單幀邊沿旗標（目前無下游消費者，先不加），列入 Trade-off 表與 §5 待評估清單。 |
 | 2026-07-08 | v0.10 | **StateRule 職責分離 + 跨模式重用策略**：①`JumpTakeoffDelay` 經手動調整實測確認表現正常，落地判定與動畫預備動作時間軸已對齊；②新增 2.7 節，診斷出 `StateRule` 身兼 FSM 拓撲與狀態專屬物理參數是 SRP 違反，會在多遊戲模式擴充時造成 Inspector／記憶體污染與擴充性災難，設計拆分為 `StateRule`（純拓撲）＋ `StateParamsSO`（狀態專屬參數資產，一狀態一子類別），Trade-off 表標記 v0.7/v0.8 舊決策為已取代並保留歷史紀錄；③重新評估 v0.9 暫緩的兩個參考設計（`VerticalVelocity` 移入黑板、`JustLanded`/`JustLeftGround`），基於多模式重用目標改為已採用（設計定案，實作待補）；④新增 §8 跨遊戲模式重用策略，盤點哪些既有設計天生模式無關（黑板／仲裁層／Facade／Adapter-Model）、哪些是這輪才補上、哪些留待下一輪決策（Intent/Parameter 處理器抽介面時機、StateType 是否分層、仲裁旗標粒度）。 |
+| 2026-07-12 | v0.12 | **ADR-001 定調 GameObject 階層 Root/Model 分離**：①新增 `docs/ADR/001-root-model-hierarchy.md`；②釐清並修正 §2.6 與 `02-dev-spec.md` §0.3 對 `AnimancerComponent` 掛載位置的既有矛盾——定調 `AnimancerComponent` 掛在 **Root**（只有 `Animator`＋網格＋骨骼下放 Model），同步更新 §2.6／§4.4／§4.7；③`AnimancerFacade` 由 `GetComponentInChildren<AnimancerComponent>()` 改為 `GetComponent<AnimancerComponent>()`（Root），並新增 `ValidateHierarchy()` Fail-Fast 防線（Root/Model 職責、Humanoid Avatar、連線正確性校驗）＋ 強制關閉 Model `Animator.applyRootMotion`，Editor／Runtime 皆生效。 |
 | 2026-07-11 | v0.11 | **分支整併（feature ↔ main），並將 v0.10「設計定案、實作待補」的 StateParamsSO 正式落地**：以 main 為結構基準，採泛型 `StateParamsSO`／`JumpStateParams` + `StateMachineConfigSO.GetStateParams<T>()`，取代過渡期把 Jump 物理欄位塞進 `StateRule`／用 Config float-getter 的做法；跳躍延遲注入沿用 main（`TakeoffDelay` 秒後注入）；`IsGrounded` 統一為公開欄位；`JumpState`／`RollState` 補上著地資格閘門（杜絕空中跳／空中翻滾）；新增 EditMode 測試 + asmdef 化。（`VerticalVelocity`／`JustLanded`／`JustLeftGround` 仍為設計定案、實作待補，不在本輪）|

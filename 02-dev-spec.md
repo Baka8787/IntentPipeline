@@ -50,7 +50,7 @@ Assets/
 
 ---
 
-### 0.3 GameObject 階層規範（v0.9 新增，詳見 01-design-doc.md §2.6）
+### 0.3 GameObject 階層規範（v0.9 新增，v0.12 定調；詳見 01-design-doc.md §2.6 與 `docs/ADR/001-root-model-hierarchy.md`）
 
 角色物件一律拆成 **Root（Adapter）** 與 **Model（子物件）** 兩層，禁止把 `Animator` 或其他會產生根動作的元件跟 `CharacterController` 掛在同一顆物件上。
 
@@ -70,9 +70,10 @@ CharacterRoot                          <- 邏輯/物理權威層，外部一律�
 
 **規則**：
 1. `CharacterController.center` 的高度基準以 Root 為準，Model 只做視覺呈現，不參與碰撞計算。
-2. `AnimancerFacade`（或任何 `AnimationFacadeBase` 子類）掛在 Root，透過 `GetComponentInChildren<AnimancerComponent>()` 尋找 Model 底下的動畫元件——這與目前 `AnimancerFacade.cs` 既有寫法完全相容，不需要改介面。
-3. `Model` 底下的 `Animator.applyRootMotion` 必須顯式設為 `false`。除了 Inspector 手動關閉外，建議在 `AnimancerFacade.Awake()` 或等效初始化流程中程式碼強制覆寫一次，避免未來換模型/美術誤勾選又忘記關閉。
-4. 任何遊戲邏輯（狀態機、Controller、Driver）一律只能持有 **Root** 的 `Transform` 引用；`ThirdPersonCamera.target` 等外部模組同理只能指向 Root。
+2. `AnimancerFacade`（或任何 `AnimationFacadeBase` 子類）與 `AnimancerComponent` **同掛在 Root**：Facade 以 `GetComponent<AnimancerComponent>()`（同物件）取得動畫邏輯元件（禁止 `GetComponentInChildren`，會誤抓子物件）；`Animator` 位於 Model 子物件，以 `GetComponentInChildren<Animator>()` 排除 Root 自身後取得（**禁止 `transform.Find("Model")` 等名稱硬編碼**）。`AnimancerComponent.Animator` 序列化欄位須在 Prefab 指向 Model 的 `Animator`。
+3. `Model` 底下的 `Animator.applyRootMotion` 必須為 `false`。除了 Inspector 手動關閉外，`AnimancerFacade.ValidateHierarchy()` 會在 `Awake()`（Runtime）與 `OnValidate()`（Editor）強制覆寫一次並記錄警告，避免未來換模型/美術誤勾選又忘記關閉。
+4. `AnimancerFacade.ValidateHierarchy()` 另做 Fail-Fast 校驗（Runtime 拋例外／Editor 報錯）：Root 恰好 1 個 `AnimancerComponent` 且 0 個 `Animator`；Model 子物件恰好 1 個 `Animator`；`Animator` 須綁 Humanoid Avatar；`AnimancerComponent.Animator` 須指向該 Model `Animator`。詳見 ADR-001。
+5. 任何遊戲邏輯（狀態機、Controller、Driver）一律只能持有 **Root** 的 `Transform` 引用；`ThirdPersonCamera.target` 等外部模組同理只能指向 Root。
 
 ---
 
