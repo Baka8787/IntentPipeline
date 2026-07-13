@@ -172,7 +172,9 @@ namespace Project.Presentation.Animation
             var state = animancer.Play(clip, transitionDuration);
             _stateCache[stateKey] = state;
 
-            // 💡 規格書優化提示：利用 Animancer 原生事件系統，並在結束後自動移除，防止記憶體殘留與每次 new 的 GC Alloc
+            // 💡 利用 Animancer 原生事件系統，並在結束後自動移除，防止事件掛載殘留污染下一次播放。
+            // ⚠️ 誠實揭露：下方 lambda 捕獲 state / onComplete，每次呼叫仍會產生一次閉包 GC Alloc——
+            // 規格書 §5 既有待辦（回調 ObjectPool 分配器）尚未實作，目前也無執行期呼叫端，維持追蹤。
             state.Events(this).OnEnd = () =>
             {
                 state.Events(this).OnEnd = null; // ✨ 修正點 1：移除了不必要的括號 ()

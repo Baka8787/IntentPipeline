@@ -1,7 +1,7 @@
 # CharacterController 開發規格文件（API / 資料結構）
 
-> **狀態**：草稿 v0.11
-> **最後更新**：2026-07-11
+> **狀態**：草稿 v0.15
+> **最後更新**：2026-07-14
 > **用途**：實作時的對照表，採「介面先行，實作隨後」原則。
 
 ---
@@ -14,36 +14,41 @@
 * **抽象基底類別**：`Base` 後綴，例如 `BaseState`
 * **ScriptableObject 設定檔**：`SO` 後綴，例如 `StateMachineConfigSO`
 * **私有欄位**：`_camelCase`
+* **序列化私有欄位（`[SerializeField]`）**：**豁免底線規範，統一採用 `camelCase`（無底線）**。（2026-07-14 定調：全案既有序列化欄位自 v0.1 起一致如此；Unity 依欄位名稱序列化，事後改名會破壞 Inspector 既有綁定、被迫引入 `FormerlySerializedAs` 冗餘，故明文豁免而非遷移）
 * **公開屬性 / 欄位**：`PascalCase`
 
 ### 0.2 資料夾結構
 
+> ✅ **正式定調（2026-07-14）**：下方磁碟佈局為**最終正式結構**。本節最初（v0.5）規劃把所有專案內容收攏在 `Assets/_Project/` 底下，該規劃已**廢止**——為避免 GUID／`.meta` 搬移風險，不進行 Asset 遷移；`Assets/Scripts/`／`Assets/ScriptableObjects/` 直掛 `Assets/` 即為定案形，僅測試維持於 `Assets/_Project/Tests/`。（同步記載於 `CLAUDE.md` Project Structure 章節。）`Interrupt`／`Equipment`／`Pooling`／`Audio` 等目錄屬未來階段，建立時依本節骨架就地新增，不另起收攏層。
+
 ```
 Assets/
+  Scripts/
+    Project.Runtime.asmdef   # Runtime 組件（引用 Animancer、InputSystem）
+    Core/
+      Blackboard/        # PlayerRuntimeData, IntentData, InputData (黑板資料層)
+      Pipeline/          # IInputSource, PlayerInputSource, CharacterPipelineRunner (管線層)
+      StateMachine/      # BaseState, FullBodyStateMachine, StateMachineConfigSO,
+                         # StateRule, StateType, StateParamsSO, JumpStateParams
+        States/          # IdleState, MoveState, JumpState, RollState
+      Arbitration/       # ArbiterData (仲裁層；ArbiterPipeline 屬第四階段，尚未建立)
+    Presentation/
+      Animation/         # AnimationFacadeBase, AnimancerFacade
+      Motion/            # MotionDriver, MotionBakeData, JumpLaunchData
+      Camera/            # ThirdPersonCamera
+    Editor/
+      Project.Editor.asmdef  # Editor 組件（引用 Project.Runtime）
+      Pipeline/          # CharacterPipelineRunnerEditor（Inspector 除錯擴充）
+      Stages/            # MotionBakeEditor（烘焙工具）, MotionFeatureAnalysis（特徵分析階段）
+      Tools/             # CharacterCapsuleFitter（膠囊一鍵匹配）, MotionClipImportSOP（匯入設定 SOP 套用）
+  ScriptableObjects/
+    Motion/              # Bake_*.asset（MotionBakeData 烘焙資產）
+    StateMachine/        # PlayerStateMachineConfig.asset, JumpStateParams.asset
+  Scenes/
+  Prefabs/
   _Project/
-    Scripts/
-      Core/
-        Blackboard/        # RuntimeData, IntentData (黑板資料層)
-        Pipeline/          # InputPipeline, MainProcessorPipeline (管線層)
-        StateMachine/      # BaseState, FullBodyStateMachine, StateMachineConfigSO
-        Interrupt/         # InterruptProcessor, 攔截器
-        Arbitration/       # ArbiterPipeline, IArbiter, ArbiterData (仲裁層)
-      Presentation/
-        Animation/         # AnimationFacadeBase 及其實作
-        Motion/            # MotionDriver (根運動與物理結算)
-        Audio/             # AudioDriver
-      Equipment/
-        Definitions/       # ItemDefinition, EquippableItemSO
-        Runtime/           # ItemInstance, EquipmentDriver
-      Pooling/
-      Editor/              # 編輯器工具鏈
-        Pipeline/          # AnimationBuildPipeline 核心框架、BuildProfile
-        Stages/            # 可插拔管線節點 (Discovery, Validation, Extraction, PostProcess, AssetGen, Dependency, Report)
-        Cache/             # BuildCache 雜湊與快取控制邏輯
-        Window/            # AnimationBuildReport 可視化視窗
-    Prefabs/
-    ScriptableObjects/
-      StateMachine/        # StateMachineConfigSO 配置資產
+    Tests/
+      EditMode/          # Project.Tests.EditMode.asmdef, EditMode 單元測試
   Plugins/
 
 ```
@@ -74,6 +79,7 @@ CharacterRoot                          <- 邏輯/物理權威層，外部一律�
 3. `Model` 底下的 `Animator.applyRootMotion` 必須為 `false`。除了 Inspector 手動關閉外，`AnimancerFacade.ValidateHierarchy()` 會在 `Awake()`（Runtime）與 `OnValidate()`（Editor）強制覆寫一次並記錄警告，避免未來換模型/美術誤勾選又忘記關閉。
 4. `AnimancerFacade.ValidateHierarchy()` 另做 Fail-Fast 校驗（Runtime 拋例外／Editor 報錯）：Root 恰好 1 個 `AnimancerComponent` 且 0 個 `Animator`；Model 子物件恰好 1 個 `Animator`；`Animator` 須綁 Humanoid Avatar；`AnimancerComponent.Animator` 須指向該 Model `Animator`。詳見 ADR-001。
 5. 任何遊戲邏輯（狀態機、Controller、Driver）一律只能持有 **Root** 的 `Transform` 引用；`ThirdPersonCamera.target` 等外部模組同理只能指向 Root。
+6. **Capsule 對齊規範（v0.15 新增，同日修正 Center 公式）**：`CharacterController` 膠囊以 **Root 原點＝腳底** 為錨定——`center = (0, height/2 + skinWidth, 0)`。膠囊須上抬 `skinWidth`：CharacterController 落地時膠囊表面與地面恆保持約 `skinWidth` 的緩衝間隙（引擎防穿插設計），若膠囊底直接對齊 Root 原點，角色會整體懸浮該距離（實測 skin 0.08 → 懸浮 8cm）；上抬後落地時 Root 原點（＝腳底）恰好貼地。**Model 子物件的 local transform 必須為 identity**，禁止用 Model 偏移遷就未校準的膠囊（v0.15 前 Prefab 曾以 `localPosition.y = -0.996` 補償預設膠囊，該做法廢止）。更換/新增 Humanoid 模型後，以 Editor 選單 `Tools/Project/角色 Capsule 自動對齊 (CapsuleFitter v1)` 一鍵匹配：Height＝rest pose 網格 bounds 高度、Radius＝基準 0.3 × `Animator.humanScale`（gameplay 統一半徑，不隨模型胖瘦跳動）、Center 依上式、Model 歸零，含 Undo 與量測合理性警告。Editor-time 一次性執行，零 Runtime 成本；工具讀取 Model 屬離線配置（比照烘焙工具先例），不違反本節第 5 條的 Runtime 引用禁令。v2 待補（骨骼推估身高、髖寬下限、bounds 條件精化、skinWidth/stepOffset 自動化）見 `WORKLOG.md` Backlog。
 
 ---
 
@@ -85,37 +91,41 @@ CharacterRoot                          <- 邏輯/物理權威層，外部一律�
 public class PlayerRuntimeData
 {
     // === 意圖區（每帧處理完即復位）===
+    // 註：維持公開欄位而非 Property，避免 struct 值複製導致無法直接修改內部旗標
     public IntentData Intent;
 
-    // === 參數區（持續存在，每帧更新）===
-    public float MoveSpeed;
-    public Vector2 MoveDirection;
-    public float UpperBodyWeight;
-    public Transform CameraTransform;
+    // === 仲裁區（由 ArbiterPipeline 每帧寫入，各表現層 Controller 唯讀）===
+    // 註：同 Intent，維持公開欄位
+    public ArbiterData Arbitration;
 
-    // ✅（v0.7 規劃、v0.8 實作完成）由 MotionDriver.GetGravityThisFrame(data) 每帧統一寫入，
-    // 供狀態邏輯讀取地面接觸狀態，取代 JumpState 內部原本固定計時器模擬落地判定的做法
+    // === 參數區（持續存在，每帧更新；實碼採自動屬性）===
+    public float MoveSpeed { get; set; }
+    public Vector2 MoveDirection { get; set; }
+    public float UpperBodyWeight { get; set; }
+    public Transform CameraTransform { get; set; }
+
+    // ✅（v0.7 規劃、v0.8 實作完成，v0.11 定調公開欄位）由 MotionDriver.GetGravityThisFrame(data)
+    // 每帧統一寫入，供狀態邏輯讀取地面接觸狀態，取代 JumpState 內部原本固定計時器模擬落地判定的做法
     public bool IsGrounded;
 
-    // 🆕（v0.10 定案，尚未實作）取代 MotionDriver 內部私有欄位 _verticalVelocity，
-    // 讓非 Jump 狀態（未來的擊退、彈跳台、翻越）也能直接改垂直速度，不必為每個情境各開一個 ApplyXxxImpulse 方法。
-    // 寫入權限比照 CurrentWeapon 用 internal set 限制在 Project.Core 命名空間內（主要是 MotionDriver 與各狀態類別），
-    // 一般表現層 Controller 仍只能讀。
+    // ⏸（v0.10 定案 → ADR-002 §6-1 延後，尚未實作）取代 MotionDriver 內部私有欄位 _verticalVelocity，
+    // 讓非 Jump 狀態（未來的擊退、彈跳台、翻越）也能直接改垂直速度。
+    // ADR-002 已定調：等出現「第二個垂直速度消費者」（wall-slide／擊飛／電梯）再落地，
+    // 屆時重新界定 Owner/Writer/Readers；目前垂直速度仍封裝於 MotionDriver（選項 A，跳躍經
+    // ApplyJumpLaunch 注入）。寫入權限規劃比照 CurrentWeapon 用 internal set。
     public float VerticalVelocity { get; internal set; }
 
-    // 🆕（v0.10 定案，尚未實作）單幀邊沿旗標，由 MotionDriver.GetGravityThisFrame(data) 比較
-    // 本幀與上一幀 IsGrounded 的差異計算得出，僅在觸發那一幀為 true，下一幀自動復位。
+    // ⏸（v0.10 定案 → 2026-07-14 定調延後，尚未實作）單幀邊沿旗標，由 MotionDriver.GetGravityThisFrame(data)
+    // 比較本幀與上一幀 IsGrounded 的差異計算得出，僅在觸發那一幀為 true，下一幀自動復位。
     // 供音效／鏡頭震動／落地特效等表現層 Controller 直接訂閱，不必自己追蹤上一幀的 IsGrounded。
+    // 延後理由（YAGNI，比照 VerticalVelocity 的 ADR-002 §6-1 紀律）：等「第一個」下游消費者
+    // （音效／鏡頭／特效 Controller）真正出現再引入，避免黑板承載無消費者的欄位（Speculative Design）。
     public bool JustLanded;
     public bool JustLeftGround;
 
-    // === 仲裁區（由 ArbiterPipeline 每帧寫入，各表現層 Controller 唯讀）===
-    // 註：維持公開欄位而非 Property，避免 struct 值複製導致無法直接修改內部旗標
-    public ArbiterData Arbitration;
-
     // === 引用區 ===
-    public ItemInstance CurrentWeapon;
-    public Transform AimTarget;
+    public ItemInstance CurrentWeapon { get; internal set; }
+    public Transform AimTarget { get; set; }
 }
 
 ```
@@ -129,8 +139,8 @@ public class PlayerRuntimeData
 | **CurrentWeapon** | `ItemInstance` | EquipmentDriver | 多處 | 唯讀引用，禁止外部修改內容 |
 | **Arbitration** | `ArbiterData` (struct) | ArbiterPipeline | 各表現層 Controller | 每帧統一覆寫，Controller 只讀不寫 |
 | **IsGrounded** | `bool` | MotionDriver（於 `GetGravityThisFrame(data)` 內部統一寫入，所有移動路徑最終都會呼叫此方法，來源 `CharacterController.isGrounded`） | 狀態機（如 `JumpState.IsLanded`） | ✅ v0.7 規劃、v0.8 實作完成；已取代 `JumpState` 內部原本的固定計時器落地判定 |
-| **VerticalVelocity** | `float`（`internal set`） | MotionDriver、`Project.Core` 內的狀態類別 | 各表現層 Controller（唯讀） | 🆕 v0.10 定案，尚未實作；取代 `MotionDriver` 私有欄位 `_verticalVelocity` |
-| **JustLanded / JustLeftGround** | `bool` | MotionDriver（於 `GetGravityThisFrame(data)` 內比較前後兩幀 `IsGrounded`） | 音效／鏡頭／特效等表現層 Controller | 🆕 v0.10 定案，尚未實作；單幀觸發，下一幀自動復位 |
+| **VerticalVelocity** | `float`（`internal set`） | MotionDriver、`Project.Core` 內的狀態類別 | 各表現層 Controller（唯讀） | ⏸ v0.10 定案 → **ADR-002 §6-1 延後**：等第二個垂直速度消費者（wall-slide／擊飛／電梯）再落地；目前垂直速度仍封裝於 `MotionDriver` |
+| **JustLanded / JustLeftGround** | `bool` | MotionDriver（於 `GetGravityThisFrame(data)` 內比較前後兩幀 `IsGrounded`） | 音效／鏡頭／特效等表現層 Controller | ⏸ v0.10 定案 → **2026-07-14 定調延後**：等第一個下游消費者出現再實作（YAGNI）；單幀觸發，下一幀自動復位 |
 
 > ⚠️ **`ref struct` 相容性警語**：`InputData` 已升版為 `ref struct`（見 1.3 節），**絕對不能**成為 `PlayerRuntimeData` 的欄位。黑板只能持有處理後轉換的 `IntentData` 或一般參數。違反此邊界將導致編譯直接失敗。
 
@@ -204,8 +214,8 @@ public struct ArbiterData
 | **4** | 狀態機 Tick | `RuntimeData` | 狀態切換與邏輯驅動 | 讀取 Intent。讀完當幀即視為消耗完畢。 |
 | **4.5** | ArbiterPipeline Tick | `RuntimeData` (含新狀態) | `RuntimeData.Arbitration` | **第四階段接入**，緊跟狀態機之後評估最新旗標。 |
 | **5** | AnimationFacade 同步 | `RuntimeData` / 當前狀態 | 動畫播放指令 | 向 Animancer 提交當幀播放請求。 |
-| **6a** | MotionDriver 基礎運動 | Animancer 根運動增量 | `CharacterController.Move` | **必須在 LateUpdate**，確保動畫已結算。 |
-| **6b** | MotionDriver 烘焙補償 | `MotionBakeData` + 目標點 | 附加補償位移 | **與 6a 同幀 LateUpdate 執行**，進行動態吸附。 |
+| **6a** | MotionDriver 基礎運動 | `RuntimeData`（輸入方向/速度）＋單幀快取重力積分 | `CharacterController.Move` | **必須在 LateUpdate**，由當前狀態的 `OnUpdateMotion` 選擇移動路徑。v0.9 起全程式碼驅動，**不再讀取 `OnAnimatorMove` 根運動增量**（見 §3.2 風險註記）。 |
+| **6b** | MotionDriver 烘焙曲線/補償 | `MotionBakeData`（＋補償目標點） | `CharacterController.Move` | **與 6a 同幀 LateUpdate 執行**。現行 Roll 走 `ExecuteBakedCurveMovement`（純曲線）；`ApplyBakedCompensation`（動態吸附）屬 Warping 階段，尚無呼叫端。 |
 | **7** | IntentData.Reset() | — | `RuntimeData.Intent` 清空 | **LateUpdate 末尾**執行，確保所有讀取方已消耗。 |
 
 > ⚠️ **生命週期脆弱點警告**：
@@ -256,12 +266,23 @@ public abstract class BaseState
     public abstract StateType Type { get; }
     protected StateMachineConfigSO Config;
 
+    // 動畫鍵：預設以 enum 名稱對應 AnimancerFacade 的 ClipMapping.StateKey，子類別可覆寫
+    public virtual string AnimationKey => Type.ToString();
+
     public virtual void Initialize(StateMachineConfigSO config) => Config = config;
     
     public abstract bool CanEnter(PlayerRuntimeData data);
     public abstract void OnEnter(PlayerRuntimeData data);
     public abstract void OnTick(PlayerRuntimeData data, float deltaTime);
     public abstract void OnExit(PlayerRuntimeData data);
+
+    // 【管線順序 6】由當前狀態決定本影格 LateUpdate 的物理位移結算路徑；
+    // 預設走 MotionDriver.ExecuteBaseMovement(data)（純 Procedural），
+    // Roll 覆寫為烘焙曲線驅動、Jump 覆寫為「前搖後注入 JumpLaunchData ＋ 常規結算」。
+    public virtual void OnUpdateMotion(MotionDriver motionDriver, AnimationFacadeBase animationFacade, PlayerRuntimeData data)
+    {
+        motionDriver.ExecuteBaseMovement(data);
+    }
 
     // 預設由 SO 配置驅動打斷規則；子類別可 override 處理特殊情況（如無敵幀不可打斷）
     public virtual bool CanBeInterruptedBy(BaseState other)
@@ -469,7 +490,7 @@ public readonly struct JumpLaunchData
 ```csharp
 public class AnimancerFacade : AnimationFacadeBase
 {
-    [SerializeField] private AnimancerComponent _animancer;
+    [SerializeField] private AnimancerComponent animancer; // 序列化欄位依 §0.1 豁免條款採 camelCase
     // TODO: 建立 stateKey → AnimationClip 的映射資產機制
 
     public override void Play(string stateKey, float transitionDuration = 0.15f) { ... }
@@ -703,8 +724,8 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 * [x] **（v0.7 提出，v0.7 當輪實作完成）** `AnimancerFacade.SetLayerWeight` 補上 `layerIndex < 0` 邊界檢查；`clipMappings` 補 `= new()` 保底。
 * [x] **（新增，v0.8，實測發現）** Jump「先蹲下再往上」問題：新增可設定的 `StateRule.JumpTakeoffDelay`，`JumpState` 延遲期間維持一般貼地移動，時間到才呼叫 `ApplyJumpImpulse`，讓物理起飛時機與動畫預備蹲下姿勢的時間軸對齊。**已實作，並於 v0.10 經手動調整數值、實機測試確認表現正常**（延遲秒數需依實際動畫預備動作長度手動填入，非自動偵測）。
 * [x] **（新增，v0.8）** `IsGrounded` 黑板同步收斂進 `MotionDriver.GetGravityThisFrame(data)` 內部，`ExecuteBakedCurveMovement`／`ApplyBakedCompensation` 簽名同步補上 `PlayerRuntimeData data` 參數，移除額外的 `SyncGroundedState` 呼叫點。**已實作**。
-* [ ] **（v0.9 提出，v0.10 已定案，尚未實作）** `VerticalVelocity` 從 `MotionDriver` 私有欄位移入 `PlayerRuntimeData` 黑板（`internal set`），讓未來二段跳/擊退/彈跳台等需求可直接讀寫，不必為每個情境各開一個 `ApplyXxxImpulse` 方法。介面設計見 §1.1。
-* [ ] **（v0.9 提出，v0.10 已定案，尚未實作）** 新增 `JustLanded`／`JustLeftGround` 單幀邊沿旗標供音效/鏡頭震動等表現層 Controller 訂閱。v0.9 當時因無下游消費者暫緩，v0.10 基於多遊戲模式落地音效/鏡頭震動是標配表現的判斷，改為提前採用。介面設計見 §1.1。
+* [ ] **（v0.9 提出，v0.10 已定案，⏸ ADR-002 §6-1 延後）** `VerticalVelocity` 從 `MotionDriver` 私有欄位移入 `PlayerRuntimeData` 黑板（`internal set`）。ADR-002 已定調實作時機：**等出現第二個垂直速度消費者**（wall-slide／擊飛／電梯）再做，屆時重新界定 Owner/Writer/Readers；在那之前垂直速度維持 `MotionDriver` 封裝（跳躍經 `ApplyJumpLaunch` 注入，選項 A）。介面設計見 §1.1。
+* [ ] **（v0.9 提出，v0.10 已定案，⏸ 2026-07-14 定調延後）** 新增 `JustLanded`／`JustLeftGround` 單幀邊沿旗標供音效/鏡頭震動等表現層 Controller 訂閱。v0.9 因無下游消費者暫緩、v0.10 曾改為提前採用；2026-07-14 定調**回歸 YAGNI**（比照 `VerticalVelocity` 的 ADR-002 §6-1 紀律）：介面設計保留於 §1.1，**等第一個下游消費者真正出現再實作**，避免黑板承載無消費者的欄位。
 * [ ] **（新增，v0.9）** 角色 GameObject 階層遷移為 Root（Adapter）＋ Model 子物件兩層結構（詳見 §0.3、`docs/01-design-doc.md` §2.6）：既有場景/預製體需要一次性搬遷，並確認 `AnimancerFacade`、`ThirdPersonCamera` 等模組的 Inspector 引用在搬遷後仍正確指向 Root。
 * [ ] **（新增，v0.9）** 在 `Model` 子物件的 `Animator` 上，除了 Inspector 手動關閉 `applyRootMotion` 外，於 `AnimancerFacade.Awake()`（或等效初始化流程）加一道程式碼防線，強制覆寫 `applyRootMotion = false`，避免未來換模型時又被誤勾選。
 * [ ] **（新增，v0.10，最高優先）** `StateRule` 職責分離重構：新增抽象基底 `StateParamsSO` 與範例子類別 `JumpStateParams`（介面設計見 §3.2 新增小節），`StateMachineConfigSO` 補上 `paramsMappings` 與泛型查表方法 `GetStateParams<T>`；`JumpState.Initialize` 改為呼叫 `config.GetStateParams<JumpStateParams>(Type)`；完成後從 `StateRule` 移除 `JumpImpulseForce`／`JumpTakeoffDelay` 兩個欄位，`StateRule` 恢復只有純拓撲欄位。這是目前最高優先的重構項，因為後續任何新狀態（`SlideState`／`ClimbState`／`AimState`）的調參需求都應該走新機制，不該再繼續往 `StateRule` 加欄位。
@@ -744,3 +765,6 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | 2026-07-08 | v0.10 | **StateRule 職責分離重構規劃**：新增 §3.2 `StateParamsSO` 抽象基底 + `JumpStateParams` 範例的完整介面設計，取代 v0.7/v0.8 把 `JumpImpulseForce`／`JumpTakeoffDelay` 直接塞進 `StateRule` 的做法；§1.1 黑板新增 `VerticalVelocity`／`JustLanded`／`JustLeftGround` 三個 v0.9 暫緩、v0.10 改為已定案的欄位設計；§5 待補清單新增 `StateRule` 重構任務（列為最高優先）與 `StateParamsSO` 型別驗證工具評估；確認 `JumpTakeoffDelay` 已透過手動調整實機驗證表現正常 | Core Dev |
 | 2026-07-11 | v0.11 | **分支整併 + StateParamsSO 落地**：§3.2 規劃的 `StateParamsSO`／`JumpStateParams` 由「設計」轉為「已實作」（泛型 `GetStateParams<TParams>()` 取代過渡期 float-getter）；`StateRule` 移除 Jump 物理欄位、抽為獨立檔（純拓撲）；黑板 `IsGrounded` 採公開欄位；`JumpState`／`RollState` 加著地閘門；新增 asmdef（Project.Runtime／Editor／Tests.EditMode）與 `StateMachineTests` EditMode 測試 | Core Dev |
 | 2026-07-13 | v0.14 | **Jump Feature Analysis 演算法修復（世界空間相對足跡）**：新增 §4.3 特徵分析階段規格（Rest Pose 基線、雙 Pass 事件偵測與精算閉環、安全退化矩陣、已知限制）；`MotionFeatureSample` 雙腳欄位語意改為世界 Y、`MotionFeatureContext` 新增雙腳基線；滯空時間「簡化估計」技術債清除（§5 對應項標記完成）。Runtime 零改動，僅 `MotionBakeData` 註解同步 | Core Dev |
+| 2026-07-13 | v0.14.1 | **文件—程式碼一致性修正（純文件，零程式行為變更）**：§0.2 資料夾結構改為記載實際磁碟佈局並標註「原 `_Project/` 收攏規劃」為待決事項；§1.1 黑板 code block 對齊實碼簽名（參數區自動屬性、`CurrentWeapon` internal set），`VerticalVelocity` 補 **ADR-002 §6-1 延後**註記（讀寫表與 §5 待補清單同步）；§2.1 順序 6a 輸入欄修正過時的「Animancer 根運動增量」描述（v0.9 起全程式碼驅動）；§3.1 `BaseState` 補上實碼既有的 `AnimationKey` 與 `OnUpdateMotion`（管線順序 6 入口）；文件頭部版本狀態追平修訂紀錄 | Core Dev |
+| 2026-07-14 | v0.14.2 | **決策收錄（純文件，零程式碼變更）**：①§0.2 資料夾結構由「待決」改為**正式定調現狀**（`Assets/Scripts/` 直掛為最終形，`_Project/` 收攏規劃廢止，CLAUDE.md 同步新增 Project Structure 章節）；②§0.1 新增**序列化私有欄位豁免條款**（`[SerializeField]` 統一 `camelCase`，CLAUDE.md 同步）；③`JustLanded`／`JustLeftGround` 定調**延後實作**（比照 `VerticalVelocity` 的 YAGNI 紀律，等第一個下游消費者；§1.1 code block／讀寫表／§5 待補清單同步標註） | Core Dev |
+| 2026-07-14 | v0.15 | **兩支 Editor 工具＋Capsule 對齊規範（零 Runtime 變更）**：①§0.3 新增規則 6「Capsule 對齊規範」（Root 原點＝腳底＝膠囊底、Model 必為 identity、廢止 -0.996 偏移補償），配套 `CharacterCapsuleFitter` v1（Height=bounds／Radius=0.3×humanScale／Center=h/2／Model 歸零／Undo／合理性警告；骨骼推估等 v2 項留 Backlog）；②新增 `MotionClipImportSOP` 匯入設定套用工具（Locomotion／Jump／BakedCurve 三 preset，經 `defaultClipAnimations` 覆寫保引用不斷鏈），供 Jump 腳滑 Step 1 驗證使用——**Root Transform 匯入矩陣本身待實測通過後才寫入本文件定調**；③§0.2 目錄補 `Editor/Tools/` | Core Dev |

@@ -40,6 +40,19 @@ Read these documents before making changes.
 
 ---
 
+# Project Structure (Canonical — decided 2026-07-14)
+
+The flat layout directly under `Assets/` is the FINAL, canonical structure:
+
+- Runtime code: `Assets/Scripts/Core/`, `Assets/Scripts/Presentation/` (asmdef: `Project.Runtime`)
+- Editor tooling: `Assets/Scripts/Editor/` (asmdef: `Project.Editor`)
+- Tests: `Assets/_Project/Tests/EditMode/` (asmdef: `Project.Tests.EditMode`)
+- Config assets: `Assets/ScriptableObjects/` (Motion / StateMachine)
+
+Do NOT migrate scripts or assets into `Assets/_Project/`. The early plan to consolidate everything under `_Project/` is retired (migration risks GUID/.meta breakage for zero architectural gain). Full directory skeleton: `docs/02-dev-spec.md` §0.2.
+
+---
+
 # Core Principles
 
 ## Data Driven
@@ -76,6 +89,7 @@ Before changing code:
 3. Preserve module boundaries. Never bypass `AnimationFacade`, `Pipeline`, or access `RuntimeData` arbitrarily.
 4. Follow existing naming conventions:
    - Private fields: `_camelCase`
+   - `[SerializeField]` private fields: `camelCase` — explicitly EXEMPT from the underscore rule (decided 2026-07-14; renaming would break Inspector serialization and force `FormerlySerializedAs` clutter)
    - Public members: `PascalCase`
 5. If changing architecture, explain the **Problem**, **Trade-off**, **Reason**, and **Impact** before modifying.
 

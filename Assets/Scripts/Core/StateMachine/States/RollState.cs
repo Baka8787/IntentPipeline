@@ -26,7 +26,11 @@ namespace Project.Core.StateMachine
 
         public override void OnEnter(PlayerRuntimeData data)
         {
+            // 富文本字串會產生 GC Alloc，比照 JumpState / CharacterPipelineRunner 慣例（ADR-002 §3）
+            // 包進 UNITY_EDITOR，Release 建置由編譯器直接移除。
+#if UNITY_EDITOR
             Debug.Log("<color=cyan>[State] 進入 ROLL 翻滾（無敵幀開始）</color>");
+#endif
             _rollTimer = _rollBakeData != null ? _rollBakeData.Duration : 0.5f;
             IsRollFinished = false;
         }
@@ -39,7 +43,9 @@ namespace Project.Core.StateMachine
             if (_rollTimer <= 0)
             {
                 IsRollFinished = true;
+#if UNITY_EDITOR
                 Debug.Log("<color=blue>[State] ROLL 翻滾結束</color>");
+#endif
             }
         }
 

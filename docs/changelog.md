@@ -2,6 +2,65 @@
 
 ---
 
+## [v0.15] - Jump 腳滑修正工具鏈與 Capsule 對齊規範（2026-07-14）
+
+### 1. 變更內容（僅 Editor 層，零 Runtime 程式碼變更）
+* **問題背景**：整合 Mixamo 動畫後出現「Jump 前搖腳掌滑移、不像從地面起跳」與「換模型都要手調 CharacterController」。根因盤查證據：四支動畫 FBX `clipAnimations: []`（全預設匯入——XZ Based Upon＝Center of Mass、Bake Into Pose 全關、Loop Time 全關），在 ADR-001 的 `applyRootMotion = false` 之下，未 Bake 的 XZ／旋轉 root motion 被引擎抽出丟棄 → hips 錨定、雙腳反向滑動；Prefab 膠囊為出廠預設（H2/R0.5/C0）且以 Model `localPosition.y = -0.996` 手動補償 → Root 原點懸在胸口。
+* **新增 `MotionClipImportSOP`**（`Editor/Tools/`）：三個 Project 視窗右鍵 preset（Locomotion＝XZ·Y·Rot 全 Bake＋Loop；Jump＝XZ·Rot Bake、Y 不 Bake 供烘焙採 apex；BakedCurve＝XZ·Rot 不 Bake 供採樣、Y Bake；Based Upon 一律 Original）。經 `ModelImporter.defaultClipAnimations` 覆寫、不手改 .meta，take 名稱與影格範圍由 Unity 填入，既有 clip 引用（`MotionBakeData.SourceClip`／`ClipMappings`）不斷鏈。**依「先驗證、再定調」紀律：匯入矩陣需 Step 1 實測通過後才寫入 dev-spec 成為正式 SOP**；若實測仍有殘留滑移，啟動 Step 2（MotionDriver／JumpState／Input 共因分析，決策樹已備於 WORKLOG）。
+* **新增 `CharacterCapsuleFitter` v1**（`Editor/Tools/`）＋ **dev-spec §0.3 規則 6「Capsule 對齊規範」**：Root 原點＝腳底＝膠囊底（`center=(0,h/2,0)`）、Model 必為 identity、廢止 -0.996 偏移補償。一鍵匹配 Height（rest pose 網格 bounds）／Radius（基準 0.3 × `Animator.humanScale`，gameplay 統一半徑）／Center／Model 歸零，含 Undo 與必要警告（腳底不在原點、bounds 與 humanScale 推估身高差異過大、skinWidth 建議值）。v1 依範圍紀律**排除**：Head/Neck 骨骼推估、髖寬下限驗證、bounds 條件精化、skinWidth/stepOffset 自動化——列 WORKLOG Backlog 為 v2。
+
+### 2. 架構設計理由（Why）
+* **匯入層是 v0.9「位移權威＝MotionDriver」決策的最後一塊拼圖**：程式端已做到 root motion 不進位移管線，但匯入端從未同步規範，未 Bake 的成分不是「消失」而是「被反向補償」——腳滑正是架構決策沒有貫穿到資產配置層的症狀。工具化（而非手改 .meta）是因為 clipAnimations 覆寫牽涉 take 影格範圍與 fileID 映射，手寫 YAML 有斷引用風險。
+* **膠囊錨定腳底不是美觀問題**：Root 原點是全專案的邏輯錨點（相機瞄點、未來 IK、落點計算都以它推理），懸在胸口的錨點會讓每個下游模組各自補償。Editor-time 一次性工具符合「零 Runtime 成本」與 ADR-001（Editor 工具讀 Model 屬離線配置，比照烘焙工具先例）。
+* **半徑用 humanScale 而非 bounds**：碰撞半徑是 gameplay 一致性參數（通道寬、命中判定），bounds 會被 T-pose 臂展與披風/武器污染；身高的 bounds 量測在 v1 可接受（Mixamo 無配件），配件防污染的骨骼權威方案留 v2。
+
+### 3. 需手動操作（Unity Editor，Step 1 驗證流程）
+1. Project 視窗選 `X Bot@Idle.fbx` → 右鍵 `Project 動畫匯入 SOP → 套用 Locomotion 設定`；選 `X Bot@Jump.fbx` → `套用 Jump 設定`（變因隔離：Run/Roll 等驗證通過後再套）。
+2. 重烘焙 Jump（`Bake_Anim_Jump.asset`）——Y 設定未動，特徵值理論上不變，一致即反向驗證演算法穩定。
+3. 依驗證協議實測：零輸入跳（前搖腳應釘住、Model 世界 XZ 漂移 <1cm）、切換瞬間無水平彈跳、持 W 跳（預期仍滑，屬 Step 2 範疇的既有設計現狀）。
+4. 選場景中角色 Root → `Tools/Project/角色 Capsule 自動對齊 (CapsuleFitter v1)` → Apply 到 Prefab；套用後 Root 錨點改為腳底，場景角色會浮空約 1m，下移貼地（或進 Play 落地）。
+
+### 4. 同日修正補記（Step 1 兩次迭代，2026-07-14）
+* **迭代 1 — 蹲下被抹平（垂直軸）**：首輪套用後水平滑移消除，但殘留「蹲下階段身體向腰/骨盆收攏」。根因可自證：Y 的 Based Upon＝Original 時，整段垂直運動（含前搖下沉）被歸入 root motion Y——證據即烘焙器能從 root 世界 Y 量到 apex；執行期 `applyRootMotion = false` 丟棄整條 → 下沉被抹平、雙腿向骨盆折疊。**修正：Jump preset 的 Y Based Upon 改為 Feet**（Y 的 Based Upon 是全程連續追蹤而非僅起始對齊：貼地段 root Y 持平、下沉保留在姿勢；滯空段腳升高才進 root Y，烘焙可量、執行期由物理接管；apex 語意升級為「腳底淨空高度」，與 `g=8h/t²`／`v=√(2gh)` 的自洽性不受影響）。**實測確認：蹲下正常、腳底穩定。**
+* **迭代 2 — 全狀態均勻懸浮（CapsuleFitter Center 公式缺陷）**：Capsule 對齊後所有狀態懸浮約 8cm，但 Model 底與膠囊底彼此貼合（空中放下驗證）。根因：CharacterController 落地時膠囊表面與地面恆保持約 `skinWidth`（0.08）的緩衝間隙（引擎防穿插設計），「膠囊底＝腳底」的對齊法必然整體懸浮該距離（舊配置其實也有這個懸浮，僅因對位混亂而不明顯）。**修正：`center = (0, height/2 + skinWidth, 0)`**（膠囊上抬 skinWidth，落地時 Root 原點＝腳底恰好貼地），工具與 dev-spec §0.3 規則 6 同步更新；skinWidth 欄位依 v1 範圍約定仍不自動修改，建議手動調為 radius×10%（≈0.03）後重跑工具。
+
+---
+
+## [v0.14.2 決策收錄] - 結構定調／命名豁免／黑板欄位排程（2026-07-14）
+
+> 純文件輪：收錄專案負責人對 v0.14.1 維護輪四項待決事項（Q1~Q4）的裁決，**零程式碼變更**。
+
+### 1. 決策內容
+* **Q1 資料夾結構正式定調現狀**：`Assets/Scripts/`／`Assets/ScriptableObjects/` 直掛 `Assets/` 為最終形，早期 `_Project/` 統一收攏規劃**廢止**，不做 Asset 遷移（避免 GUID／`.meta` 搬移風險，零架構收益）。`CLAUDE.md` 新增 Project Structure 章節、dev-spec §0.2 由「待決」改為「定調」。
+* **Q2 `JustLanded`／`JustLeftGround` 延後實作**：比照 `VerticalVelocity`（ADR-002 §6-1）的 YAGNI 紀律，等**第一個**下游消費者（落地音效／鏡頭震動／特效 Controller）真正出現再引入，避免黑板承載無消費者的欄位（Speculative Design）。介面設計保留於 dev-spec §1.1；design-doc §4.2／§5／§8.2 與 dev-spec §1.1／§5 同步標註。
+* **Q3 命名規範明文豁免序列化欄位**：`[SerializeField]` 私有欄位豁免 `_camelCase` 底線規範，統一 `camelCase`——全案自 v0.1 起既有程式碼一致如此，事後改名會破壞 Inspector 序列化並被迫引入 `FormerlySerializedAs` 冗餘。`CLAUDE.md` AI Coding Rules 與 dev-spec §0.1 已加條款。
+* **Q4 Backlog B1（`CalculateRotationFinishedTime` 的 DeltaAngle 收斂疑慮）暫不修正**：僅影響 Roll 類短旋轉動畫、實害機率低、修正需重烘焙資產成本過高，維持 `WORKLOG.md` Backlog 紀錄。
+
+### 2. 反思（Why）
+* **「定調現狀」勝過「懸置理想」**：v0.5 的 `_Project/` 收攏規劃懸置了九個版本，期間每次盤點都要重新解釋一次「文件與磁碟為何不同」。正式廢止後，結構問題從「永遠的待辦」變成「明文規範」，後續 AI／人類協作不再各自猜測哪邊是對的。
+* **黑板欄位引入紀律收斂成一句話**：v0.10「提前開放」與 ADR-002／本輪「延後」看似立場反覆，實際是把**設計定案**（介面長什麼樣，寫進 §1.1）與**落地時機**（欄位何時真正進黑板）分離——設計可以先想清楚，欄位永遠跟著第一個真實消費者一起進場。
+* **規範與現實衝突時，優先讓文件誠實**：命名豁免不是降低標準，而是承認「Unity 依欄位名序列化」這個工程現實的約束成本高於底線一致性的美觀收益；把豁免寫成明文條款，比讓每個讀者自行發現「文件說一套、全案寫另一套」健康得多。
+
+---
+
+## [v0.14.1 維護輪] - 文件一致性修正與測試補強（2026-07-13）
+
+> 本條目為維護紀錄（純文件同步＋測試＋log 清理，**零架構變更、零 Runtime 行為變更**），置於最上方；版本條目維持原始時序不動。
+
+### 1. 變更內容
+* **Living Docs 追平 ADR-002**：`VerticalVelocity` 在 dev-spec §1.1（code block＋讀寫權限表）、§5 待補清單與 design-doc §4.2、§5 Trade-off 表中仍寫「v0.10 定案、尚未實作」，未反映 ADR-002 §6-1 已把實作時機延後至「出現第二個垂直速度消費者」。已全數補上延後註記，消除 Living Docs 與 ADR 的表述矛盾。
+* **dev-spec 對齊實碼**：§0.2 資料夾結構改記載實際磁碟佈局（`Assets/Scripts/` 等直掛，原 `_Project/` 收攏規劃標註為待決）；§1.1 黑板 code block 對齊實碼簽名；§2.1 順序 6a 輸入欄修正過時的「Animancer 根運動增量」（v0.9 起全程式碼驅動）；§3.1 `BaseState` 補上實碼既有的 `AnimationKey` 與 `OnUpdateMotion`。
+* **文件版本狀態修復**：design-doc／dev-spec 頭部版本號（停在 v0.11）追平自身修訂紀錄；design-doc 修訂紀錄 v0.11～v0.13 三行排序錯置修正。
+* **測試補強（v0.14 演算法原本零覆蓋）**：新增 `MotionFeatureAnalysisTests`（9 條）——完整閉環子影格精度、g=8h/t² 自洽、走路循環退化、jump-loop 誠實退化、短騰空過濾、單幀擦地／單幀騰空雜訊、片尾落地邊界、Stage 例外隔離與 null 安全；新增 `StateMachineConfigTests`（3 條）驗證 `GetStateParams<T>` 正取／型別不符回 null／未綁定回 null。`Project.Tests.EditMode.asmdef` 補 `Project.Editor` 引用。
+* **Log 與註解清理**：`IdleState`／`MoveState`／`RollState` 的富文本 `Debug.Log` 依 ADR-002 §3 慣例包進 `#if UNITY_EDITOR`（Jump／Runner 早已如此）；`AnimancerFacade.PlayWithCallback` 註解原宣稱「防止每次 new 的 GC Alloc」與事實不符（lambda 閉包仍配置），改為誠實描述並指向 §5 既有 ObjectPool 待辦。
+* **資產狀態確認（未改動資產）**：`Bake_Anim_Jump.asset` 已由開發者以 v0.14 新演算法重烘焙（AutoAirTime=0.677s、g=10.277 m/s²，與 8h/t² 自洽）；`JumpStateParams.Stages[0]` 與 Config `paramsMappings` 接線正確。v0.14 條目的「需手動重烘焙」待辦已完成。
+
+### 2. 反思（Why）
+* **ADR 定案後，Living Docs 的同段落要當場回寫**：ADR-002 §7 列了文件責任清單且 changelog 有跟上，但 design-doc／dev-spec 裡「同一顆欄位」的舊敘述沒有逐處掃過，留下「§1.1 說定案待做、ADR 說延後」的矛盾。教訓與 v0.6「文件也會腐化」相同，但這次腐化的形態是「兩份文件對同一決策的表述分岔」，比單純過時更危險——讀者依哪一份行動會得出不同結論。
+* **演算法修復當輪就該附測試**：v0.14 的分析器是純數學、無 Unity 場景依賴，本就是最容易單元測試的形態，卻在修復當輪未附測試。這輪補上的 9 條測試以合成採樣緩衝直接驗證規格 §4.3 的每一格退化矩陣，之後任何人動這顆演算法都有安全網。
+
+---
+
 ## [文件架構重構] - docs/ 目錄收攏與 ADR 同步（2026-07-12）
 
 > 本條目為文件維護紀錄，置於最上方；下方 v0.1～v0.13 版本條目維持原始時序不動。
