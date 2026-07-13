@@ -12,5 +12,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b9e2da4801d648f459ef434ff6520b78, type: 3}
   m_Name: JumpStateParams
   m_EditorClassIdentifier: Project.Runtime::Project.Core.StateMachine.JumpStateParams
-  ImpulseForce: 7.5
-  TakeoffDelay: 0
+  Stages:
+  - Bake: {fileID: 11400000, guid: 0694ae1c6141de347bd3988e4f3781dd, type: 2}
+  HeightMultiplier: 1
+  GravityMultiplier: 1
+  LaunchVelocityMultiplier: 1

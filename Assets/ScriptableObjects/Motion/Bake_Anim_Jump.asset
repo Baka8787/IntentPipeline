@@ -11,7 +11,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5780b1706ecdbf749bcbcf9343242cd3, type: 3}
   m_Name: Bake_Anim_Jump
-  m_EditorClassIdentifier: Assembly-CSharp::Project.Presentation.Motion.MotionBakeData
+  m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Motion.MotionBakeData
   SourceClip: {fileID: 7400000, guid: e10666fb2d517314f9ede282862cef17, type: 2}
   SampleRate: 60
   SpeedCurve:
@@ -2837,7 +2837,7 @@ MonoBehaviour:
   RotationFinishedTime: 2.1666667
   EndPhase: 1
   TargetLocalDirection: {x: 0, y: 0, z: 0}
-  AutoTakeoffDelay: 0
-  AutoApexHeight: 0.5080007
-  AutoAirTime: 2.5833335
-  AutoCalculatedGravity: 0.6089664
+  AutoTakeoffDelay: 0.71562755
+  AutoApexHeight: 0.58804005
+  AutoAirTime: 0.6765636
+  AutoCalculatedGravity: 10.277313
