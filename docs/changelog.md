@@ -290,6 +290,30 @@ graph TD
 
 ---
 
+## [v0.14] - Jump 特徵分析演算法修復：世界空間相對足跡（2026-07-13）
+
+### 1. 變更內容
+* **修復兩個烘焙端物理演算法 Bug**（`MotionFeatureAnalysis.cs`／`MotionBakeEditor.cs`）：
+  * **起跳前搖誤判**：舊演算法以「腳踝相對根節點本地 Y > 絕對門檻 0.02」判離地——零點隨匯入設定漂移（踝骨站立時本就離地約 0.1m），且前搖蹲伏時根節點下沉會被 `InverseTransformPoint` 反相混疊成「腳抬起」，導致物理在動畫還在蹲的時候點火（v0.8 手填 delay 修過的「先蹲下再往上」問題，在 ADR-002 改吃自動值後以「自動值本身有病」的形式回歸）。
+  * **落地未偵測 → 重力失真（發飄）**：舊 `AutoAirTime = Duration − takeoffTime` 把落地後收勢尾段全算進滯空，而 `g = 8h/t²` 對 t 平方反比 → 重力被系統性低估、跳躍發飄。
+* **新演算法：世界空間相對足跡（World-Relative Footprint）雙 Pass**（規格詳見 `docs/02-dev-spec.md` §4.3）：
+  * **基線**：實例化採樣替身後、首次 `SampleAnimation` 前快取雙腳 Rest Pose 世界 Y（rig-intrinsic，與 clip 內容解耦）。
+  * **Pass 1 事件偵測**：`雙腳世界 Y > 各自基線＋容忍度（預設 0.03m）` 且連續 ≥2 幀 → 起跳候選；候選須通過「持續騰空 ≥ MinAirTime」驗證（過濾跑步雙腳騰空相）；單幀觸地視為擦地忽略、連續觸地＝真實落地。
+  * **Pass 2 精算閉環**：起跳/落地皆做子影格線性插值（起跳取後離地的腳、落地取先觸地的腳）；最高點只在 [起跳, 落地] 窗內掃描、基準取插值後起跳時刻的根高度；`AutoAirTime = 落地 − 起跳`，`g = 8h/t²` 重新自洽。
+  * **安全退化**：非跳躍 clip 全欄位維持預設；找不到落地（jump-loop／跳上高台）→ `AutoAirTime = 0`（明示未量測）、重力退回標準值，前搖與最高點仍寫入量測值。
+* **契約調整（僅編輯器端）**：`MotionFeatureSample` 雙腳欄位語意由「相對根節點本地 Y」改為「世界 Y」（`LeftFootWorldY`／`RightFootWorldY`）；`MotionFeatureContext` 新增 `LeftFootBaselineY`／`RightFootBaselineY`；烘焙工具離地容忍度預設 0.02 → 0.03。**Runtime 零改動**（`MotionBakeData` 僅註解/Tooltip 同步，無欄位、無 API、無行為變更；`JumpState`／`MotionDriver` 未觸碰）。
+
+### 2. 架構設計理由（Why）
+* **量測參考系正確化**：世界空間絕對高度＋rig 自身基線，天然免疫根節點自身位移；即使 `Bake Into Pose (Y)` 誤勾，起跳/落地時刻仍量得準（僅最高點退化）。
+* **自洽性首次真正成立**：ADR-002 §2.3「倍率皆 1 時 apex 精準命中 `AutoApexHeight`」依賴 g 來自真實滯空時間；本次把 ADR-002 前置事實的量測品質修到位，其決策內容原封不動——無新 ADR、無凍結 ADR 修改，屬 Living Docs 路由。
+* **誠實退化優於錯誤數值**：找不到落地時寧可明示 `AutoAirTime = 0` 並退回標準重力，也不寫入會被平方放大的錯誤估計。
+* **零 GC 紀律**：分析器新邏輯全為 stack 上的值型別掃描比較，未新增任何 heap 配置；零 GC 規範的適用範圍是 Runtime 熱路徑，本次 Runtime 零觸碰。
+
+### 3. 需手動操作（Unity Editor）
+* ⚠️ **注意：本更動完成後需手動重烘焙 `Bake_Jump.asset` 才能生效**——新演算法只影響烘焙產出值，既有資產仍是舊數值。重烘焙後 `AutoTakeoffDelay` 會變長（前搖完整入帳、不再提早點火）、`AutoCalculatedGravity` 會變大（滯空不再高估、不再發飄），跳感回歸動畫本意；若手上其他 clip 的烘焙資產也依賴自動特徵，建議一併重烘焙。
+
+---
+
 ## 5. 未來的重構訊號（Refactoring Triggers）
 
 

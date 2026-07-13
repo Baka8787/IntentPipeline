@@ -24,8 +24,9 @@ namespace Project.Editor
         private float localDirFilterAngleDeg = 12f;
         private float localDirMinDistance = 0.02f;
 
-        // 🆕（自動化特徵分析）雙腳相對根節點的本地 Y 同時超過此高度，視為起跳離地的瞬間
-        private float takeoffFootLiftThreshold = 0.02f;
+        // 🆕（自動化特徵分析）腳的世界高度超過「自身 Rest Pose 基線 + 此容忍度」視為該腳騰空；
+        // 雙腳同時騰空判定為離地，落地偵測沿用同一容忍度（預設 0.03 以吸收蹬伸期踝骨抬升雜訊）
+        private float takeoffFootLiftThreshold = 0.03f;
 
         // 內部姿態採樣單元，僅用於腳相判定
         private struct PoseInfo { public Vector3 LeftLocal; public Vector3 RightLocal; }
@@ -76,7 +77,7 @@ namespace Project.Editor
 
                 GUILayout.Space(6);
                 takeoffFootLiftThreshold = Mathf.Max(0f, EditorGUILayout.FloatField(
-                    new GUIContent("起跳離地門檻 (m)", "自動特徵分析用：雙腳相對根節點的本地 Y 同時超過此值，判定為起跳離地的瞬間"),
+                    new GUIContent("起跳離地容忍度 (m)", "自動特徵分析用：腳的世界高度超過『自身 Rest Pose 基線 + 此值』視為該腳騰空；雙腳同時騰空判定為離地，落地偵測沿用同一容忍度"),
                     takeoffFootLiftThreshold));
 
                 EditorGUILayout.HelpBox(
@@ -120,7 +121,7 @@ namespace Project.Editor
             AnimationCurve speedCurve = new AnimationCurve();
             AnimationCurve rotationCurve = new AnimationCurve();
 
-            // 🆕 Feature Analysis：在同一趟採樣迴圈蒐集逐影格原始特徵（根 Y + 雙腳本地高度），
+            // 🆕 Feature Analysis：在同一趟採樣迴圈蒐集逐影格原始特徵（根 Y + 雙腳世界高度），
             //    不額外重跑 SampleAnimation，也不影響下方既有的 Root Motion 曲線計算。
             List<MotionFeatureSample> featureSamples = new List<MotionFeatureSample>(totalFrames);
 
@@ -145,6 +146,14 @@ namespace Project.Editor
             {
                 rootTransform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
 
+                // 🆕 世界空間相對足跡基線：在第一次 SampleAnimation「之前」快取替身雙腳的 Rest Pose 世界高度。
+                // 基線屬於 rig 本身（踝骨自然離地高度），與 clip 內容完全解耦——這是起跳/落地偵測
+                // 免疫「根節點蹲伏下沉被反相混疊成腳抬起」誤判的關鍵。骨骼引用一併快取，供迴圈內重複讀取。
+                Transform leftFootT = animator.GetBoneTransform(leftFootBone);
+                Transform rightFootT = animator.GetBoneTransform(rightFootBone);
+                float leftFootBaselineY = leftFootT != null ? leftFootT.position.y : 0f;
+                float rightFootBaselineY = rightFootT != null ? rightFootT.position.y : 0f;
+
                 for (int i = 0; i < totalFrames; i++)
                 {
                     float time = i * interval;
@@ -158,14 +167,11 @@ namespace Project.Editor
                     Vector3 currentPos = rootTransform.position;
                     Quaternion currentRot = rootTransform.rotation;
 
-                    // 🆕 蒐集特徵採樣：讀取雙腳相對根節點的本地 Y（供起跳偵測），以及根節點世界 Y（供最高點推算）。
-                    // InverseTransformPoint 只取相對姿態，不受累計根位移干擾，也不重置 transform，故不影響曲線計算。
-                    float leftFootLocalY = 0f, rightFootLocalY = 0f;
-                    Transform leftFootT = animator.GetBoneTransform(leftFootBone);
-                    Transform rightFootT = animator.GetBoneTransform(rightFootBone);
-                    if (leftFootT != null) leftFootLocalY = rootTransform.InverseTransformPoint(leftFootT.position).y;
-                    if (rightFootT != null) rightFootLocalY = rootTransform.InverseTransformPoint(rightFootT.position).y;
-                    featureSamples.Add(new MotionFeatureSample(time, currentPos.y, leftFootLocalY, rightFootLocalY));
+                    // 🆕 蒐集特徵採樣：讀取雙腳「世界空間」高度（供起跳/落地偵測，與 Rest Pose 基線比較），
+                    // 以及根節點世界 Y（供最高點推算）。純讀取、不重置 transform，故不影響下方既有的曲線計算。
+                    float leftFootWorldY = leftFootT != null ? leftFootT.position.y : 0f;
+                    float rightFootWorldY = rightFootT != null ? rightFootT.position.y : 0f;
+                    featureSamples.Add(new MotionFeatureSample(time, currentPos.y, leftFootWorldY, rightFootWorldY));
 
                     if (i == 0)
                     {
@@ -211,8 +217,9 @@ namespace Project.Editor
                     targetLocalDirection = CalculateTargetLocalDirection(startPos, lastPos, startRootYaw);
                 }
 
-                // 🆕 Feature Analysis Stage：以蒐集到的採樣建立分析上下文（門檻由 Inspector 提供）
-                MotionFeatureContext featureContext = new MotionFeatureContext(featureSamples, duration, takeoffFootLiftThreshold);
+                // 🆕 Feature Analysis Stage：以蒐集到的採樣建立分析上下文（容忍度由 Inspector 提供，基線來自 Rest Pose）
+                MotionFeatureContext featureContext = new MotionFeatureContext(
+                    featureSamples, duration, takeoffFootLiftThreshold, leftFootBaselineY, rightFootBaselineY);
 
                 SaveAsset(speedCurve, rotationCurve, rotationFinishedTime, endPhase, targetLocalDirection, featureContext);
             }

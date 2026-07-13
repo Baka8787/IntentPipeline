@@ -641,6 +641,39 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 
 將特徵點坐標換算為「相對於上一個特徵點的相對位移」。將整個動作切成數個獨立的物理線段（例如：起跳 $\rightarrow$ 最高點 $\rightarrow$ 落地）。運行時 Motion Warping 系統便能獨立對齊、縮放其中某一段，而不會破壞其他分段的完美表現。
 
+### 4.3 特徵分析階段（`MotionFeatureAnalysis.cs`：跳躍物理特徵自動提取）
+
+> 位置：Bake Pipeline 中 Root Motion 曲線提取「之後」、資產存檔「之前」（`MotionBakeEditor.SaveAsset` 內呼叫 `MotionFeatureAnalysisStage.Run`），完全不干涉既有曲線／旋轉收斂／腳相邏輯。
+> 契約：`IMotionFeatureAnalyzer` 讀取 `MotionFeatureContext`（整段動畫的逐影格採樣緩衝）並將結果寫入 `MotionBakeData`；實作必須自帶安全退化，不可拋例外中斷管線。新增特徵（Stride Length、Trajectory…）＝實作介面並註冊到 `MotionFeatureAnalysisStage`，無需改動採樣迴圈或既有分析器。
+
+#### 世界空間相對足跡演算法（World-Relative Footprint，v0.14 落地）
+
+**基線（Rest Pose Baseline）**：烘焙器在實例化採樣替身後、第一次 `SampleAnimation` **之前**，快取雙腳骨骼的世界 Y（`MotionFeatureContext.LeftFootBaselineY` / `RightFootBaselineY`）。基線屬於 rig 本身（踝骨自然離地高度），與 clip 內容完全解耦，天然免疫「根節點蹲伏下沉被反相混疊成腳抬起」的舊誤判（v0.14 前的舊演算法以「腳踝相對根節點本地 Y > 絕對門檻」判離地，零點隨匯入設定漂移且被根節點自身位移污染，導致前搖誤判與滯空高估）。
+
+**逐影格分類**：`腳騰空 ≡ 腳世界 Y > 自身基線 + FootLiftThreshold`（容忍度，Inspector 可調，預設 0.03m 以吸收蹬伸期踝骨抬升雜訊）；`騰空 ≡ 雙腳同時騰空`。
+
+**Pass 1 — 事件偵測狀態機**：
+1. 起跳候選：`前一幀觸地 → 本幀起連續 ≥2 幀騰空`（單幀騰空視為採樣雜訊）。
+2. 持續騰空驗證：候選起的騰空段必須延續 `≥ MinAirTime`（0.1s），否則整段丟棄、續掃下一個候選——過濾跑步循環的雙腳騰空相與小碎跳。
+3. 騰空段行進中，「單幀觸地、下一幀又騰空」視為擦地雜訊忽略；連續 ≥2 幀觸地（或片尾觸地幀）即為真實接觸，該接觸 run 的第一幀＝落地影格。
+4. 第一段通過驗證的飛行即為本 clip 的跳躍（多段小跳只取第一弧）。
+
+**Pass 2 — 精算閉環**：
+1. 子影格線性插值：在跨越門檻線的相鄰兩採樣間解出精確交點——起跳取雙腳交點的 **max**（後離地的腳）、落地取 **min**（先觸地的腳）。
+2. 最高點：只在 `[起跳, 落地]` 窗內掃描根節點世界 Y 最大值；基準為插值後起跳時刻的根節點高度（拋體弧線真正起點）。頂點本身不需插值（頂點速度趨近 0，30fps 量化誤差約 1.4mm）。
+3. `AutoAirTime = 落地時刻 − 起跳時刻`；`AutoCalculatedGravity = 8·h / t_air²`（與執行期 `v = √(2gh)` 對稱自洽，見 ADR-002 §2.3）。
+
+**安全退化矩陣**：
+
+| 情境 | AutoTakeoffDelay | AutoApexHeight | AutoAirTime | AutoCalculatedGravity |
+|---|---|---|---|---|
+| 偵測不到起跳（Idle／Walk／Run／非跳躍） | 0 | 0 | 0 | 標準值 9.81 |
+| 有起跳、無落地（jump-loop／跳上高台的不對稱拋物線） | 量測值 | 量測值（窗至片尾） | 0（明示未量測） | 標準值 9.81 |
+| 落地找到但 t_air ≤ MinAirTime 或 h ≤ MinApexHeight（如 Bake Into Pose Y 採不到上升量） | 量測值 | 量測值 | 量測值 | 標準值 9.81 |
+| 完整閉環 | 量測值 | 量測值 | 量測值 | 8h/t² |
+
+**已知限制**：(1) 蹬伸期腳跟先離地會讓踝骨提早上升，深蹲推蹬類動畫的起跳時刻可能提早約 1 影格（容忍度 0.03m 已吸收大部分；未來可選配腳趾骨骼精化）。(2) 跳上高台類不對稱拋物線不符 `g = 8h/t²` 的對稱假設，一律誠實退化（廣義解 `g = 2(√h_up + √h_down)²/t²` 需另偵測落地面高度，暫不落地）。(3) 演算法全程為絕對值逐幀比較，無積分項、無累積誤差；量測精度受採樣率限制的部分已由子影格插值消除主要量化誤差。(4) 即使 `Root Transform Position (Y) → Bake Into Pose` 被誤勾，腳的世界 Y 仍隨姿勢升降，起跳／落地時刻照樣可量測，僅最高點（root 基準）退化、重力安全退回標準值。
+
 ---
 
 ## 5. 待補充規格清單（Project Management）
@@ -677,6 +710,7 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 * [ ] **（新增，v0.10，最高優先）** `StateRule` 職責分離重構：新增抽象基底 `StateParamsSO` 與範例子類別 `JumpStateParams`（介面設計見 §3.2 新增小節），`StateMachineConfigSO` 補上 `paramsMappings` 與泛型查表方法 `GetStateParams<T>`；`JumpState.Initialize` 改為呼叫 `config.GetStateParams<JumpStateParams>(Type)`；完成後從 `StateRule` 移除 `JumpImpulseForce`／`JumpTakeoffDelay` 兩個欄位，`StateRule` 恢復只有純拓撲欄位。這是目前最高優先的重構項，因為後續任何新狀態（`SlideState`／`ClimbState`／`AimState`）的調參需求都應該走新機制，不該再繼續往 `StateRule` 加欄位。
 * [ ] **（新增，v0.10）** 評估是否需要 `StateParamsSO` 掛載型別驗證的 Editor 工具：在 `StateMachineConfigSO` 存檔時檢查每筆 `StateParamsMapping.Params` 的實際型別是否符合該 `StateType` 預期，避免 `GetStateParams<T>` 轉型失敗被靜默吞掉。
 * [ ] **（新增，v0.10）** `CharacterPipelineRunner.ProcessIntents` 已摸到 v0.1 決策訂下的「10-15 行重構訊號」門檻，且專案目標轉向支援多遊戲模式（不同模式的意圖處理邏輯會分岔），評估是否該啟動抽介面（`IIntentProcessor`／`IParameterProcessor`）。
+* [x] **（新增，v0.14，當輪完成）** Jump Feature Analysis 演算法修復：起跳偵測改為「世界空間相對足跡」（Rest Pose 基線＋持續騰空驗證），根治「腳踝相對根節點＋絕對門檻」造成的前搖誤判；滯空時間由「`Duration − 起跳`」簡化估計改為「起跳 → 首次落地」雙 Pass 精確量測（含子影格線性插值與頂點窗格裁剪），根治逆推重力被系統性低估的發飄問題。規格見 §4.3；⚠️ 需手動重烘焙 `Bake_Jump.asset` 才生效。
 
 ### 後續第四、五階段
 
@@ -709,3 +743,4 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | 2026-07-08 | v0.9 | **補齊修訂紀錄**：新增 §0.3 GameObject 階層規範（Root Adapter + Model Child），呼應 `docs/01-design-doc.md` §2.6；§5 新增對應遷移任務；評估參考碼（BBBNexus）`VerticalVelocity`／`JustLanded`／`JustLeftGround` 兩項設計，當時暫緩（見 v0.10 更新為已定案） | Core Dev |
 | 2026-07-08 | v0.10 | **StateRule 職責分離重構規劃**：新增 §3.2 `StateParamsSO` 抽象基底 + `JumpStateParams` 範例的完整介面設計，取代 v0.7/v0.8 把 `JumpImpulseForce`／`JumpTakeoffDelay` 直接塞進 `StateRule` 的做法；§1.1 黑板新增 `VerticalVelocity`／`JustLanded`／`JustLeftGround` 三個 v0.9 暫緩、v0.10 改為已定案的欄位設計；§5 待補清單新增 `StateRule` 重構任務（列為最高優先）與 `StateParamsSO` 型別驗證工具評估；確認 `JumpTakeoffDelay` 已透過手動調整實機驗證表現正常 | Core Dev |
 | 2026-07-11 | v0.11 | **分支整併 + StateParamsSO 落地**：§3.2 規劃的 `StateParamsSO`／`JumpStateParams` 由「設計」轉為「已實作」（泛型 `GetStateParams<TParams>()` 取代過渡期 float-getter）；`StateRule` 移除 Jump 物理欄位、抽為獨立檔（純拓撲）；黑板 `IsGrounded` 採公開欄位；`JumpState`／`RollState` 加著地閘門；新增 asmdef（Project.Runtime／Editor／Tests.EditMode）與 `StateMachineTests` EditMode 測試 | Core Dev |
+| 2026-07-13 | v0.14 | **Jump Feature Analysis 演算法修復（世界空間相對足跡）**：新增 §4.3 特徵分析階段規格（Rest Pose 基線、雙 Pass 事件偵測與精算閉環、安全退化矩陣、已知限制）；`MotionFeatureSample` 雙腳欄位語意改為世界 Y、`MotionFeatureContext` 新增雙腳基線；滯空時間「簡化估計」技術債清除（§5 對應項標記完成）。Runtime 零改動，僅 `MotionBakeData` 註解同步 | Core Dev |

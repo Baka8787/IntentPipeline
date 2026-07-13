@@ -41,30 +41,31 @@ namespace Project.Presentation.Motion
         [Header("自動化特徵分析（Feature Analysis Stage 自動提取，跳躍動畫適用）")]
 
         /// <summary>
-        /// 起跳前搖時間（秒）。偵測到「雙腳同時離開根節點參考高度」的瞬間即為真正離地時刻；
-        /// 此時間點之前屬於預備/蓄力姿勢。非跳躍動畫（偵測不到離地）安全退化為 0。
+        /// 起跳前搖時間（秒）。以「世界空間相對足跡」偵測：雙腳世界高度同時超過「自身 Rest Pose 基線＋容忍度」
+        /// 且通過持續騰空驗證，經子影格線性插值後的精確離地時刻；此時間點之前屬於預備/蓄力姿勢。
+        /// 非跳躍動畫（偵測不到離地）安全退化為 0。
         /// </summary>
-        [Tooltip("起跳前搖（秒）：雙腳同時離地的瞬間；之前屬預備/蓄力。非跳躍動畫為 0。")]
+        [Tooltip("起跳前搖（秒）：雙腳同時離地（相對各自 Rest Pose 基線）的精確時刻；之前屬預備/蓄力。非跳躍動畫為 0。")]
         public float AutoTakeoffDelay;
 
         /// <summary>
-        /// 最高點高度 h_max（公尺）。起跳後根節點世界空間 Y 相對起跳基準的最大上升量。
+        /// 最高點高度 h_max（公尺）。根節點世界空間 Y 相對「起跳時刻」基準的最大上升量（於起跳→落地窗內掃描）。
         /// </summary>
-        [Tooltip("最高點高度 h_max（公尺）：起跳後根節點 Y 相對起跳基準的最大上升量。")]
+        [Tooltip("最高點高度 h_max（公尺）：起跳→落地窗內，根節點 Y 相對起跳時刻的最大上升量。")]
         public float AutoApexHeight;
 
         /// <summary>
-        /// 滯空時間 t_air（秒）。目前採 Duration - AutoTakeoffDelay 的簡化估計；
-        /// 更精確的落地時刻屬於未來的 Landing Time 特徵。
+        /// 滯空時間 t_air（秒）。雙 Pass 精確量測：起跳離地 → 首次真實落地，雙端皆經子影格線性插值。
+        /// 找不到落地（jump-loop／跳上高台等不對稱拋物線）時為 0，明示未量測。
         /// </summary>
-        [Tooltip("滯空時間 t_air（秒）：Duration - AutoTakeoffDelay 的簡化估計。")]
+        [Tooltip("滯空時間 t_air（秒）：起跳→首次落地的精確量測（子影格插值）。找不到落地時為 0。")]
         public float AutoAirTime;
 
         /// <summary>
         /// 逆向推導的完美重力常數（正值，公尺/秒²）。由拋體運動 g = 8·h_max / t_air² 反推。
-        /// 非跳躍動畫、滯空過短或最高點過低時安全退化為標準重力 9.81。
+        /// 非跳躍動畫、找不到落地、滯空過短或最高點過低時安全退化為標準重力 9.81。
         /// </summary>
-        [Tooltip("逆推重力：g = 8·h_max / t_air²。非跳躍/滯空過短/高度過低時退化為 9.81。")]
+        [Tooltip("逆推重力：g = 8·h_max / t_air²。非跳躍/無落地/滯空過短/高度過低時退化為 9.81。")]
         public float AutoCalculatedGravity = 9.81f;
 
         // 便利擴充：取得動畫總長度
