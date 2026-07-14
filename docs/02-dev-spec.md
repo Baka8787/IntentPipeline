@@ -1,6 +1,6 @@
 # CharacterController 開發規格文件（API / 資料結構）
 
-> **狀態**：草稿 v0.15
+> **狀態**：草稿 v0.15.1
 > **最後更新**：2026-07-14
 > **用途**：實作時的對照表，採「介面先行，實作隨後」原則。
 
@@ -79,7 +79,26 @@ CharacterRoot                          <- 邏輯/物理權威層，外部一律�
 3. `Model` 底下的 `Animator.applyRootMotion` 必須為 `false`。除了 Inspector 手動關閉外，`AnimancerFacade.ValidateHierarchy()` 會在 `Awake()`（Runtime）與 `OnValidate()`（Editor）強制覆寫一次並記錄警告，避免未來換模型/美術誤勾選又忘記關閉。
 4. `AnimancerFacade.ValidateHierarchy()` 另做 Fail-Fast 校驗（Runtime 拋例外／Editor 報錯）：Root 恰好 1 個 `AnimancerComponent` 且 0 個 `Animator`；Model 子物件恰好 1 個 `Animator`；`Animator` 須綁 Humanoid Avatar；`AnimancerComponent.Animator` 須指向該 Model `Animator`。詳見 ADR-001。
 5. 任何遊戲邏輯（狀態機、Controller、Driver）一律只能持有 **Root** 的 `Transform` 引用；`ThirdPersonCamera.target` 等外部模組同理只能指向 Root。
-6. **Capsule 對齊規範（v0.15 新增，同日修正 Center 公式）**：`CharacterController` 膠囊以 **Root 原點＝腳底** 為錨定——`center = (0, height/2 + skinWidth, 0)`。膠囊須上抬 `skinWidth`：CharacterController 落地時膠囊表面與地面恆保持約 `skinWidth` 的緩衝間隙（引擎防穿插設計），若膠囊底直接對齊 Root 原點，角色會整體懸浮該距離（實測 skin 0.08 → 懸浮 8cm）；上抬後落地時 Root 原點（＝腳底）恰好貼地。**Model 子物件的 local transform 必須為 identity**，禁止用 Model 偏移遷就未校準的膠囊（v0.15 前 Prefab 曾以 `localPosition.y = -0.996` 補償預設膠囊，該做法廢止）。更換/新增 Humanoid 模型後，以 Editor 選單 `Tools/Project/角色 Capsule 自動對齊 (CapsuleFitter v1)` 一鍵匹配：Height＝rest pose 網格 bounds 高度、Radius＝基準 0.3 × `Animator.humanScale`（gameplay 統一半徑，不隨模型胖瘦跳動）、Center 依上式、Model 歸零，含 Undo 與量測合理性警告。Editor-time 一次性執行，零 Runtime 成本；工具讀取 Model 屬離線配置（比照烘焙工具先例），不違反本節第 5 條的 Runtime 引用禁令。v2 待補（骨骼推估身高、髖寬下限、bounds 條件精化、skinWidth/stepOffset 自動化）見 `WORKLOG.md` Backlog。
+6. **Capsule 對齊規範（v0.15 新增，v0.15.1 定稿）**：`CharacterController` 膠囊以 **Root 原點＝腳底** 為錨定——`center = (0, height/2 + skinWidth, 0)`。幾何依據：CharacterController（PhysX CCT）落地時膠囊表面與地面恆保持 `skinWidth`（contactOffset）的掃掠停距，若膠囊底直接對齊 Root 原點，角色會整體懸浮該距離（實測 skin 0/0.03/0.08 → 貼地/浮 3cm/浮 8cm，斜率 1）；上抬 `skinWidth` 後落地時 Root 原點（＝腳底）恰好貼地。**Model 子物件的 local transform 必須為 identity**，禁止用 Model 偏移遷就未校準的膠囊（v0.15 前 Prefab 曾以 `localPosition.y = -0.996` 補償預設膠囊，該做法廢止）。更換/新增 Humanoid 模型後，以 Editor 選單 `Tools/Project/角色 Capsule 自動對齊 (CapsuleFitter)` 一鍵匹配：Height＝rest pose 網格 bounds 高度、Radius＝基準 0.3 × `Animator.humanScale`（gameplay 統一半徑，不隨模型胖瘦跳動）、**SkinWidth＝radius×10%（v1.1 起由工具寫入，與 Center 原子綁定——禁止事後單獨手調 skinWidth，會造成 center 內嵌 skin 項與活欄位脫鉤、腳底偏移＝兩者差值）**、Model 歸零，含 Undo 與量測合理性警告。⚠️ 對場景實例執行後**務必 Apply 到 Prefab**（場景改動不會回寫 Prefab 依賴）。Editor-time 一次性執行，零 Runtime 成本；工具讀取 Model 屬離線配置（比照烘焙工具先例），不違反本節第 5 條的 Runtime 引用禁令。v2 待補（骨骼推估身高、髖寬下限、bounds 條件精化、stepOffset）見 `WORKLOG.md` Backlog。
+
+---
+
+### 0.4 Humanoid 動畫匯入規範（Root Transform 矩陣，v0.15.1 定調）
+
+> 驗證歷程見 `docs/changelog.md` v0.15～v0.15.1。核心機制：本專案 `applyRootMotion` 恆為 false（ADR-001），**未 Bake Into Pose 的 root motion 成分會被引擎「抽出後丟棄」**——輕則水平滑步（hips 被錨定、雙腳反向滑動），重則垂直位移被抹平（跳躍前搖「雙腿向骨盆收攏」、翻滾「在髖部高度空中翻」）。原則：**執行期用不到的成分一律 Bake Into Pose；烘焙器要採樣的成分維持不 Bake。**
+
+| Clip 類型 | 執行期驅動 | XZ Bake | Y Bake | Y Based Upon | Rot Bake | Loop Time | 現有 clip |
+|---|---|---|---|---|---|---|---|
+| **Locomotion** | procedural（MotionDriver） | ✅ | ✅ | Original | ✅ | ✅ | Idle、Fast Run |
+| **Jump 家族** | 物理 launch（ADR-002）；烘焙採 Y 特徵 | ✅ | ❌ | **Feet** | ✅ | ❌ | Jump |
+| **烘焙曲線驅動** | SpeedCurve＋RotationCurve | ❌（採速度） | ✅ | Original | ❌（採 yaw） | ❌ | Stand To Roll |
+
+（XZ／Rotation 的 Based Upon 一律 **Original**——所有 clip 共用 armature 原點參考系，杜絕切換瞬間的水平跳移。）
+
+**規則**：
+1. 新增動畫後，一律以 Project 視窗右鍵 `Project 動畫匯入 SOP` 套用對應 preset（工具經 `ModelImporter.defaultClipAnimations` 覆寫，take 名稱/影格範圍由 Unity 填入，clip 引用不斷鏈；禁止手改 `.meta`）。該 clip 若有烘焙資產，套用後**必須重烘焙**。
+2. **Jump 家族的 Y Based Upon＝Feet 是關鍵設定**：Y 的 Based Upon 是「全程連續追蹤」（非 XZ/Rotation 的僅起始對齊）——貼地段（前搖/收勢）root Y 持平、下沉保留在姿勢（執行期腳踩得住）；滯空段腳升高才進 root Y（烘焙器量測 `AutoApexHeight` 用、執行期丟棄改由 `ApplyJumpLaunch` 物理接管，無二重上升）。若誤用 Original，前搖下沉會被歸入 root motion Y 而被抹平。`AutoApexHeight` 語意＝**腳底淨空高度**，與 `g=8h/t²`／`v=√(2gh)` 自洽（ADR-002 §2.3）。
+3. Mixamo 下載慣例：同一角色（X Bot）下載保 retarget 一致；第一支 with skin、其餘 without skin；FBX for Unity、30fps；有 In Place 選項一律勾選（無此選項者由 XZ Bake 等效達成）；命名沿用 `X Bot@<動作名>`。
 
 ---
 
@@ -768,3 +787,4 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | 2026-07-13 | v0.14.1 | **文件—程式碼一致性修正（純文件，零程式行為變更）**：§0.2 資料夾結構改為記載實際磁碟佈局並標註「原 `_Project/` 收攏規劃」為待決事項；§1.1 黑板 code block 對齊實碼簽名（參數區自動屬性、`CurrentWeapon` internal set），`VerticalVelocity` 補 **ADR-002 §6-1 延後**註記（讀寫表與 §5 待補清單同步）；§2.1 順序 6a 輸入欄修正過時的「Animancer 根運動增量」描述（v0.9 起全程式碼驅動）；§3.1 `BaseState` 補上實碼既有的 `AnimationKey` 與 `OnUpdateMotion`（管線順序 6 入口）；文件頭部版本狀態追平修訂紀錄 | Core Dev |
 | 2026-07-14 | v0.14.2 | **決策收錄（純文件，零程式碼變更）**：①§0.2 資料夾結構由「待決」改為**正式定調現狀**（`Assets/Scripts/` 直掛為最終形，`_Project/` 收攏規劃廢止，CLAUDE.md 同步新增 Project Structure 章節）；②§0.1 新增**序列化私有欄位豁免條款**（`[SerializeField]` 統一 `camelCase`，CLAUDE.md 同步）；③`JustLanded`／`JustLeftGround` 定調**延後實作**（比照 `VerticalVelocity` 的 YAGNI 紀律，等第一個下游消費者；§1.1 code block／讀寫表／§5 待補清單同步標註） | Core Dev |
 | 2026-07-14 | v0.15 | **兩支 Editor 工具＋Capsule 對齊規範（零 Runtime 變更）**：①§0.3 新增規則 6「Capsule 對齊規範」（Root 原點＝腳底＝膠囊底、Model 必為 identity、廢止 -0.996 偏移補償），配套 `CharacterCapsuleFitter` v1（Height=bounds／Radius=0.3×humanScale／Center=h/2／Model 歸零／Undo／合理性警告；骨骼推估等 v2 項留 Backlog）；②新增 `MotionClipImportSOP` 匯入設定套用工具（Locomotion／Jump／BakedCurve 三 preset，經 `defaultClipAnimations` 覆寫保引用不斷鏈），供 Jump 腳滑 Step 1 驗證使用——**Root Transform 匯入矩陣本身待實測通過後才寫入本文件定調**；③§0.2 目錄補 `Editor/Tools/` | Core Dev |
+| 2026-07-14 | v0.15.1 | **Step 1 全數驗證通過，匯入矩陣正式定調＋CapsuleFitter v1.1**：①新增 **§0.4 Humanoid 動畫匯入規範**（Root Transform 矩陣＋Jump 家族 Y Based Upon=Feet 關鍵設定＋Mixamo 下載慣例），Step 1 三次迭代實測全過（跳躍前搖蹲下正常/腳底穩定、翻滾貼地、跑步無滑步、腳底貼地）後依「先驗證後定調」閘門入文；②§0.3 規則 6 定稿：`CapsuleFitter` v1.1 起 **skinWidth 由工具寫入（radius×10%）並與 Center 原子綁定**，根絕 center 內嵌 skin 項與活欄位脫鉤（v1 實測教訓：懸浮量＝兩者差值），補「場景實例執行後務必 Apply Prefab」警語（本輪實際根因）；③膠囊落地間隙定律 G=skinWidth 經使用者三點數據（0/0.03/0.08）實證，記入規則 6 | Core Dev |

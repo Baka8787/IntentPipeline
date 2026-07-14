@@ -2,6 +2,23 @@
 
 ---
 
+## [v0.15.1] - Step 1 收案：匯入矩陣定調＋CapsuleFitter v1.1（2026-07-14）
+
+### 1. 驗證結果與最終根因鏈
+* **Step 1 三次迭代全數通過**：跳躍前搖蹲下正常且腳底穩定（迭代 1：Jump 的 Y Based Upon＝Feet）、翻滾貼地翻（迭代 3：Roll 套 BakedCurve preset）、跑步無滑步（Fast Run 套 Locomotion preset）、腳底貼地（Capsule 對齊）。**Step 2（Runtime 共因分析）未啟動即不需要——腳滑/懸浮問題全數在匯入層與膠囊幾何層根治，Runtime 程式碼零修改**，符合本輪「若 Step 1 已能解決即停止」的範圍紀律。
+* **懸浮迷航的最終根因（兩層）**：①幾何層——CharacterController（PhysX CCT）落地間隙 G＝skinWidth（掃掠停距），使用者以 skin 0/0.03/0.08 三點實測（貼地/浮3cm/浮8cm，斜率 1）意外完成了此定律的實證；②流程層——**測試時一直修改場景實例、未 Apply 回 Prefab**，CapsuleFitter 的補償結果從未真正生效（磁碟證據：Prefab 全為舊值、場景零 override），導致「補償公式無效」的假象。教訓：Editor 工具寫入場景實例的結果不會回寫 Prefab 依賴，驗證前必先確認持久化狀態。
+* **排除的假設（代數證明）**：「bounds 高度高估 → 浮空」不成立——膠囊底局部高度 B=(h/2+skin)−h/2=skin，height 在底面位置中消去，高度誤差只影響膠囊頂（頭頂穿模/過梁），與腳底貼地無關。
+
+### 2. 變更內容
+* **`docs/02-dev-spec.md` 新增 §0.4「Humanoid 動畫匯入規範」**：Root Transform 矩陣（Locomotion／Jump／BakedCurve 三類 × Bake/Based Upon/Loop）依「先驗證後定調」閘門正式入文，含 Jump 家族 Y Based Upon＝Feet 的機制說明與 Mixamo 下載慣例。
+* **`CharacterCapsuleFitter` v1.1**：skinWidth 改由工具寫入（radius×10%）並與 `center = (0, h/2 + skinWidth, 0)` **原子綁定**——根絕「事後手調 skin 忘重跑工具」的狀態脫鉤（腳底偏移＝當前 skin − center 內嵌 skin 項）；移除因此失效的 skin 過大/過小警告，改為寫入報告（含原值）；報告與註解補「場景實例執行後務必 Apply Prefab」警語；選單更名去版本號（`Tools/Project/角色 Capsule 自動對齊 (CapsuleFitter)`）。§0.3 規則 6 同步定稿。
+
+### 3. 反思（Why）
+* **「原子綁定」勝過「使用提醒」**：v1 曾在報告中提醒「改 skin 請重跑工具」，實測證明活欄位與快照值的一致性交給人記憶必然失守——凡是「A 由 B 推導」的配置，工具就該同時擁有 A 與 B 的寫入權，否則遲早脫鉤。
+* **驗證要先驗證「狀態有沒有生效」**：本輪繞的最大彎路不是幾何錯誤，而是拿舊幾何測新公式。任何「修改→實測」迴圈，第一步應是確認修改真的持久化到了受測對象（Inspector 數值 spot-check），再談結果解讀。
+
+---
+
 ## [v0.15] - Jump 腳滑修正工具鏈與 Capsule 對齊規範（2026-07-14）
 
 ### 1. 變更內容（僅 Editor 層，零 Runtime 程式碼變更）

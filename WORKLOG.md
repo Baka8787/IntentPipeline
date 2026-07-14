@@ -31,11 +31,20 @@
 **Step 1 第二次實測（2026-07-14）**：✅ **蹲下正常、腳底穩定**（Y=Feet 修正驗證通過）。
 **新現象 → 迭代 2**：所有狀態均勻懸浮（~8cm），但 Model 底與膠囊底彼此貼合（使用者空中放下驗證）。根因＝CharacterController 落地時膠囊面與地面恆保持 `skinWidth`（0.08）緩衝間隙（引擎防穿插設計），「膠囊底＝腳底」對齊法必然懸浮該距離——**CapsuleFitter v1 Center 公式缺陷，已修**：`center = (0, height/2 + skinWidth, 0)`；dev-spec §0.3 規則 6 與 changelog v0.15 §4 補記同步。
 
-**⏳ 等待使用者（迭代 2 驗證）**：
-1. （建議）選 Root 把 CharacterController 的 Skin Width 手動改為 0.03（radius 0.3 的 10%；工具依約不動此欄位）
-2. 重新執行 CapsuleFitter（Center 現依 skinWidth 補償）→ Apply Prefab
-3. 空中放下重測：腳底應貼地（誤差 < 1cm）；順帶走一下斜坡/台階確認 stepOffset 無異常
-4. 全數通過後回報 → 我把 Import 矩陣（含 Y=Feet）正式寫入 dev-spec 定調＋指引 Fast Run/Stand To Roll 套用與重烘焙 Roll，任務一、二結案
+**迭代 2 實測（2026-07-14）**：使用者以 skinWidth=0 實驗證實貼地（同時反證懸浮＝skin 間隙的診斷 ✅）。⚠️ 但 skin=0 不可作為終態（貼牆抖動/卡角/穿透風險），Center 補償已使 skin=0.03 同樣貼地。CapsuleFitter 補上「skin 過小」對稱警告。
+**新發現 → 迭代 3**：翻滾滾到半空中——與跳躍蹲下抹平同機制（Roll clip 仍為預設匯入：Y Based Upon Original 未 Bake → 翻滾下沉被歸入 root Y 遭執行期丟棄 → 姿勢停在髖部高度空中翻）。此即矩陣中刻意延後的第三類 clip，**解法＝既有 BakedCurve preset（Y Bake 正是為此設計），無需改任何工具/程式**。
+
+**迭代 3 實測（2026-07-14）**：Roll/Fast Run preset 套用通過 ✅；skinWidth=0 貼地、0.03 浮空 → 使用者懷疑自適應演算法有誤，要求先分析不改程式。
+**分析結論（磁碟證據）**：Prefab 上 **CapsuleFitter 結果從未持久化**（center=(0,0,0)、H2/R0.5/skin0.08、Model=-0.996 全為舊值，場景零 override）→ 實驗實際跑在舊幾何上（Play mode 調參或未存檔/Undo）。幾何推導：落地間隙 G=skinWidth（PhysX contactOffset 掃掠停距）；使用者三點數據（0/0.03/0.08→貼/浮3cm/浮8cm）斜率 1，**反而實證了 G=skin 與補償公式**。Height/bounds 誤差在代數上不可能造成腳底浮空（B=(h/2+skin)−h/2=skin，h 消去），僅影響膠囊頂。真因＝center 的 skin 項是快照、與活欄位 skinWidth 脫鉤的**契約缺陷**（H1）。
+**H1 使用者確認（2026-07-14）**：「測試時一直改場景物件、忽略了 Prefab 依賴」——已更新 Prefab 並手動實測通過。✅ **任務一、二正式結案**（Step 2 未啟動即不需要：全數在匯入層＋膠囊幾何層根治，Runtime 零修改）。
+
+**收案輪（2026-07-14，詳見 changelog v0.15.1）**：
+- [x] **CapsuleFitter v1.1**：skinWidth 由工具寫入（radius×10%）與 center 原子綁定；移除失效警告改為報告原值；Apply Prefab 警語；選單去版本號
+- [x] **Import 矩陣正式定調**：dev-spec 新增 §0.4（三類 clip 矩陣＋Y=Feet 機制＋Mixamo 慣例）；§0.3 規則 6 定稿（G=skinWidth 定律＋原子綁定＋Prefab 警語）
+- [x] changelog v0.15.1（驗證結果、最終根因鏈、反思）；dev-spec 版本 v0.15.1
+
+**⏳ 等待使用者（收案後最後一步，v1.1 上線後執行一次）**：
+1. 選場景角色 Root → `Tools/Project/角色 Capsule 自動對齊 (CapsuleFitter)`（v1.1 會把 skinWidth 寫為 radius×10% ≈ 0.03 並同步 Center）→ **Apply 到 Prefab** → 空中放下確認貼地不變。此後 skinWidth 請勿單獨手調，一律重跑工具。
 
 ---
 
