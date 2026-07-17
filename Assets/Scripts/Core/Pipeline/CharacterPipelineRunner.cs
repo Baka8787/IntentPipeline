@@ -137,6 +137,11 @@ namespace Project.Core.Pipeline
                 animationFacade.Play(current.AnimationKey);
                 _lastPlayedState = current.Type;
             }
+
+            // 🆕（v0.16 F2）黑板 → 動畫圖參數同步：MoveSpeed 每幀送入動畫圖（§1.1 權限表既定 Reader = AnimationFacade），
+            // 由 Locomotion Transition 資產內的 ParameterName 綁定驅動 1D Mixer 混合，本層不認識任何 Mixer。
+            // M1 裁決（2026-07-17）：不做平滑、原值直送；Game Feel（加減速/SmoothDamp）屬後續專門調整輪。
+            animationFacade.SetFloat(AnimationFacadeBase.ParamMoveSpeed, _runtimeData.MoveSpeed);
         }
 
         private void LateUpdate()

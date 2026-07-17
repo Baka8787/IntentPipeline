@@ -10,9 +10,9 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5780b1706ecdbf749bcbcf9343242cd3, type: 3}
-  m_Name: Bake_Anim_Jump
+  m_Name: Bake_Jump
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Motion.MotionBakeData
-  SourceClip: {fileID: 7400000, guid: a0e35b887df97fd49bf2778efad539fd, type: 2}
+  SourceClip: {fileID: -203655887218126122, guid: e4b6e5ef89960954da177e5f3f1d19d5, type: 3}
   SampleRate: 60
   SpeedCurve:
     serializedVersion: 2

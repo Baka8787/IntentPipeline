@@ -79,6 +79,13 @@ Avoid: `new`, `LINQ`, `boxing`, string interpolation inside `Update` (unless exp
 ## Respect Ownership
 Each RuntimeData field has an Owner, Writer, and Readers. Do NOT introduce additional writers.
 
+## Animation Assets: Immutable by Default (decided 2026-07-17)
+**AnimationClip is immutable by default. The FBX sub-clip is the single source of truth.**
+- Always reference FBX sub-clips directly (TransitionAssets, MotionBakeData.SourceClip, everything). Never duplicate an AnimationClip (Ctrl+D extraction) as part of the normal workflow.
+- Ordinary adjustments — tuning values, Mixers, Transitions, playback speed, MotionDriver settings — belong to the Data / Presentation layer (TransitionAsset, Mixer, MotionDriver, ModelImporter settings). They NEVER justify creating a copied clip.
+- If data and animation presentation disagree, fix it in the Data / Presentation layer first. Do NOT create a new clip to paper over the mismatch.
+- Creating a standalone AnimationClip is allowed ONLY when the animation content itself must change (Animation Events, extra curves, keyframe edits, special variants unachievable via import settings) — and the reason MUST be documented.
+
 ---
 
 # AI Coding Rules

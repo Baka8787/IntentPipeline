@@ -1,7 +1,7 @@
 # CharacterController 開發規格文件（API / 資料結構）
 
-> **狀態**：草稿 v0.15.1
-> **最後更新**：2026-07-14
+> **狀態**：草稿 v0.16.1
+> **最後更新**：2026-07-17
 > **用途**：實作時的對照表，採「介面先行，實作隨後」原則。
 
 ---
@@ -44,6 +44,7 @@ Assets/
   ScriptableObjects/
     Motion/              # Bake_*.asset（MotionBakeData 烘焙資產）
     StateMachine/        # PlayerStateMachineConfig.asset, JumpStateParams.asset
+    Animation/           # Transition_*.asset（TransitionAsset：狀態鍵 → 過渡資產）、MoveSpeed.asset（StringAsset 參數名）
   Scenes/
   Prefabs/
   _Project/
@@ -89,16 +90,19 @@ CharacterRoot                          <- 邏輯/物理權威層，外部一律�
 
 | Clip 類型 | 執行期驅動 | XZ Bake | Y Bake | Y Based Upon | Rot Bake | Loop Time | 現有 clip |
 |---|---|---|---|---|---|---|---|
-| **Locomotion** | procedural（MotionDriver） | ✅ | ✅ | Original | ✅ | ✅ | Idle、Fast Run |
+| **Locomotion-原地** | procedural（MotionDriver） | ✅ | ✅ | Original | ✅ | ✅ | Idle |
+| **Locomotion-位移**（v0.16.1 新增） | procedural（MotionDriver）；烘焙採**速度真相** | **❌**（執行期抽出丟棄＝天然原地化） | ✅ | Original | ✅ | ✅ | Walking、Fast Run |
 | **Jump 家族** | 物理 launch（ADR-002）；烘焙採 Y 特徵 | ✅ | ❌ | **Feet** | ✅ | ❌ | Jump |
 | **烘焙曲線驅動** | SpeedCurve＋RotationCurve | ❌（採速度） | ✅ | Original | ❌（採 yaw） | ❌ | Stand To Roll |
 
 （XZ／Rotation 的 Based Upon 一律 **Original**——所有 clip 共用 armature 原點參考系，杜絕切換瞬間的水平跳移。）
+（**Locomotion-位移的 XZ ❌ 機制**：clip 保留真實 root motion，執行期 `applyRootMotion=false` 將其抽出後丟棄＝視覺原地播放；烘焙器（採樣時開 root motion）仍量得到天生步速，作為 `MotionDriver.moveSpeed` 校準與 Mixer 門檻換算的資料來源。若誤套全 Bake，位移被烤進姿勢：原地播放時角色在動畫內前衝、循環點瞬移回彈。⚠️ 原地型全 Bake 與位移型 Rot ✅ 屬文件目標值，v0.16.1 遷移後首次實測依「先驗證再定調」原則做最終確認。）
 
 **規則**：
-1. 新增動畫後，一律以 Project 視窗右鍵 `Project 動畫匯入 SOP` 套用對應 preset（工具經 `ModelImporter.defaultClipAnimations` 覆寫，take 名稱/影格範圍由 Unity 填入，clip 引用不斷鏈；禁止手改 `.meta`）。該 clip 若有烘焙資產，套用後**必須重烘焙**。
+0. **AnimationClip 預設不可變（immutable by default），FBX 子 clip 為唯一預設真相來源（2026-07-17 定調，CLAUDE.md 同步收錄）**：所有引用端（`TransitionAsset`、`MotionBakeData.SourceClip`…）一律直接引用 FBX 內的子 clip；匯入設定變更經 SOP 工具落在 FBX 上、立即傳播到執行期，不存在快照過期問題。**禁止以 Ctrl+D 重萃取 `.anim` 作為一般流程**（歷史教訓：v0.15 preset 只落在 FBX、執行期 `.anim` 快照未同步而分岔，2026-07-17 盤點發現五支快照三支過期＋一次 GUID 更替斷引用）。一般調整（數值、Mixer、Transition、播放速度、`MotionDriver` 參數）一律在 Data／Presentation 層解決；僅當需要**修改動畫內容本身**（Animation Event、加曲線、改 keyframe、Import Setting 無法達成的特殊 Variant）才允許建立獨立 AnimationClip，且必須註明建立原因。
+1. 新增動畫後，一律以 Project 視窗右鍵 `Project 動畫匯入 SOP` 套用對應 preset（工具經 `ModelImporter.defaultClipAnimations` 覆寫，take 名稱/影格範圍由 Unity 填入，`X Bot@動作名` 慣例使子 clip 自動獲得 @ 後的名稱；禁止手改 `.meta`）。該 clip 若有烘焙資產，套用後**必須重烘焙**。
 2. **Jump 家族的 Y Based Upon＝Feet 是關鍵設定**：Y 的 Based Upon 是「全程連續追蹤」（非 XZ/Rotation 的僅起始對齊）——貼地段（前搖/收勢）root Y 持平、下沉保留在姿勢（執行期腳踩得住）；滯空段腳升高才進 root Y（烘焙器量測 `AutoApexHeight` 用、執行期丟棄改由 `ApplyJumpLaunch` 物理接管，無二重上升）。若誤用 Original，前搖下沉會被歸入 root motion Y 而被抹平。`AutoApexHeight` 語意＝**腳底淨空高度**，與 `g=8h/t²`／`v=√(2gh)` 自洽（ADR-002 §2.3）。
-3. Mixamo 下載慣例：同一角色（X Bot）下載保 retarget 一致；第一支 with skin、其餘 without skin；FBX for Unity、30fps；有 In Place 選項一律勾選（無此選項者由 XZ Bake 等效達成）；命名沿用 `X Bot@<動作名>`。
+3. Mixamo 下載慣例：同一角色（X Bot）下載保 retarget 一致；第一支 with skin、其餘 without skin；FBX for Unity、30fps；**一律不勾 In Place（2026-07-17 反轉舊規）**——root motion 是速度／特徵的資料真相，In Place 會在源頭銷毀它（實證：In Place 版 Walking 烘出 0.1 m/s 雜訊，非 In Place 版量得 1.677 m/s），執行期原地化改由 Locomotion-位移 preset（XZ ❌＋`applyRootMotion=false` 抽出丟棄）達成；命名沿用 `X Bot@<動作名>`。
 
 ---
 
@@ -154,7 +158,7 @@ public class PlayerRuntimeData
 | 欄位 | 型別 | 誰寫入 | 誰讀取 | 備註 |
 | --- | --- | --- | --- | --- |
 | **Intent** | `IntentData` (struct) | InputPipeline | 狀態機 | 每帧結尾自動復位 |
-| **MoveSpeed** | `float` | Parameter Processor | AnimationFacade | 控制 BlendTree 混合 |
+| **MoveSpeed** | `float` | Parameter Processor | AnimationFacade | 控制 Locomotion 1D Mixer 混合（✅ v0.16 兌現：`SyncAnimation` 每幀經 `SetFloat(ParamMoveSpeed)` 寫入動畫圖參數字典，由 Transition 資產內 `ParameterName` 綁定驅動，見 §3.2） |
 | **CurrentWeapon** | `ItemInstance` | EquipmentDriver | 多處 | 唯讀引用，禁止外部修改內容 |
 | **Arbitration** | `ArbiterData` (struct) | ArbiterPipeline | 各表現層 Controller | 每帧統一覆寫，Controller 只讀不寫 |
 | **IsGrounded** | `bool` | MotionDriver（於 `GetGravityThisFrame(data)` 內部統一寫入，所有移動路徑最終都會呼叫此方法，來源 `CharacterController.isGrounded`） | 狀態機（如 `JumpState.IsLanded`） | ✅ v0.7 規劃、v0.8 實作完成；已取代 `JumpState` 內部原本的固定計時器落地判定 |
@@ -232,7 +236,7 @@ public struct ArbiterData
 | **3** | Parameter Processor | `RuntimeData` | `RuntimeData`（更新參數） | 計算當幀 MoveSpeed、移動方向等。 |
 | **4** | 狀態機 Tick | `RuntimeData` | 狀態切換與邏輯驅動 | 讀取 Intent。讀完當幀即視為消耗完畢。 |
 | **4.5** | ArbiterPipeline Tick | `RuntimeData` (含新狀態) | `RuntimeData.Arbitration` | **第四階段接入**，緊跟狀態機之後評估最新旗標。 |
-| **5** | AnimationFacade 同步 | `RuntimeData` / 當前狀態 | 動畫播放指令 | 向 Animancer 提交當幀播放請求。 |
+| **5** | AnimationFacade 同步 | `RuntimeData` / 當前狀態 | 動畫播放指令＋參數同步 | 狀態變更時提交播放請求；每幀將 `MoveSpeed` 寫入動畫圖參數（v0.16，驅動 Locomotion Mixer 混合）。 |
 | **6a** | MotionDriver 基礎運動 | `RuntimeData`（輸入方向/速度）＋單幀快取重力積分 | `CharacterController.Move` | **必須在 LateUpdate**，由當前狀態的 `OnUpdateMotion` 選擇移動路徑。v0.9 起全程式碼驅動，**不再讀取 `OnAnimatorMove` 根運動增量**（見 §3.2 風險註記）。 |
 | **6b** | MotionDriver 烘焙曲線/補償 | `MotionBakeData`（＋補償目標點） | `CharacterController.Move` | **與 6a 同幀 LateUpdate 執行**。現行 Roll 走 `ExecuteBakedCurveMovement`（純曲線）；`ApplyBakedCompensation`（動態吸附）屬 Warping 階段，尚無呼叫端。 |
 | **7** | IntentData.Reset() | — | `RuntimeData.Intent` 清空 | **LateUpdate 末尾**執行，確保所有讀取方已消耗。 |
@@ -285,7 +289,7 @@ public abstract class BaseState
     public abstract StateType Type { get; }
     protected StateMachineConfigSO Config;
 
-    // 動畫鍵：預設以 enum 名稱對應 AnimancerFacade 的 ClipMapping.StateKey，子類別可覆寫
+    // 動畫鍵：預設以 enum 名稱對應 AnimancerFacade 的 TransitionMapping.StateKey，子類別可覆寫
     public virtual string AnimationKey => Type.ToString();
 
     public virtual void Initialize(StateMachineConfigSO config) => Config = config;
@@ -343,12 +347,18 @@ public class FullBodyStateMachine
 ```csharp
 public abstract class AnimationFacadeBase : MonoBehaviour
 {
-    public abstract void Play(string stateKey, float transitionDuration = 0.15f);
-    public abstract void PlayWithCallback(string stateKey, System.Action onComplete, float transitionDuration = 0.1f);
+    // 動畫圖參數鍵：管線順序 5 每幀把黑板 MoveSpeed 送入動畫圖，
+    // 訂閱者由 Transition 資產內的 ParameterName（StringAsset，名稱須一致）自行綁定
+    public const string ParamMoveSpeed = "MoveSpeed";
+
+    // v0.16（F1）：Play / PlayWithCallback 拔除 transitionDuration——
+    // 過渡時長/速度/起始時間由 Transition 資產承載（單一真相），程式碼不再覆寫（2026-07-17 裁決 Q1）
+    public abstract void Play(string stateKey);
+    public abstract void PlayWithCallback(string stateKey, System.Action onComplete);
     public abstract void SetLayerWeight(int layerIndex, float weight, float transitionDuration = 0.1f);
-    public abstract void SetFloat(string key, float value);
+    public abstract void SetFloat(string key, float value);   // v0.16（F2）由空殼轉正：寫入動畫圖參數字典
     public abstract void SetBool(string key, bool value);
-    public abstract bool IsPlaying(string stateKey);
+    public abstract bool IsPlaying(string stateKey);          // 語意：多鍵可映射同一資產（Idle/Move → Locomotion），結果一致
     public abstract float GetNormalizedTime();
 }
 
@@ -504,32 +514,61 @@ public readonly struct JumpLaunchData
 
 **逆推時機**：`JumpState.Initialize()` 逐段以 `v = √(2gh)`（g = `AutoCalculatedGravity` × `GravityMultiplier`、h = `AutoApexHeight` × `HeightMultiplier`，再乘 `LaunchVelocityMultiplier`）預算並快取 `JumpLaunchData`；`OnUpdateMotion` 於當前段 `AutoTakeoffDelay` 過後點火注入。查無 `Stages` 或該段無可信烘焙資料時安全退化為程式碼內建預設值。
 
-#### AnimancerFacade（Animancer Lite 封裝）
+#### AnimancerFacade（Animancer v8 Pro 封裝，v0.16 Transition 資產機制）
 
 ```csharp
 public class AnimancerFacade : AnimationFacadeBase
 {
+    [System.Serializable]
+    public struct TransitionMapping
+    {
+        public string StateKey;                // 慣例＝StateType.ToString()；BaseState.AnimationKey 可覆寫
+        public TransitionAssetBase Transition; // 抽象基底：ClipTransition / LinearMixerTransition… 皆可承載
+    }
+
     [SerializeField] private AnimancerComponent animancer; // 序列化欄位依 §0.1 豁免條款採 camelCase
-    // TODO: 建立 stateKey → AnimationClip 的映射資產機制
+    [SerializeField] private List<TransitionMapping> transitionMappings = new();
 
-    public override void Play(string stateKey, float transitionDuration = 0.15f) { ... }
+    private readonly Dictionary<string, TransitionAssetBase> _transitionMap = new();
+    private readonly Dictionary<string, AnimancerState> _stateCache = new(); // IsPlaying / GetNormalizedTime 依據
 
-    public override void PlayWithCallback(string stateKey, System.Action onComplete, float transitionDuration = 0.1f)
+    public override void Play(string stateKey) { /* TryGetTransition → animancer.Play(transition) → 快取 state */ }
+
+    public override void PlayWithCallback(string stateKey, System.Action onComplete)
     {
-        // ⚠️ 注意：避免每次 new lambda 產生 GC Alloc，後續需接入物件池
+        // ⚠️ 注意：結束回調 lambda 每次呼叫產生一次閉包 GC Alloc，§5 既有待辦（回調 ObjectPool）維持追蹤
     }
 
-    public override void SetLayerWeight(int layerIndex, float weight, float transitionDuration = 0.1f)
+    public override void SetFloat(string key, float value)
     {
-        #if UNITY_EDITOR
-        // Lite 版限制：Layer 1 以上在 Build 後無效。在此加入防禦 Log 避免靜默失效。
-        if(layerIndex > 0) Debug.LogWarning("Animancer Lite 不支援 Runtime 多層混合！");
-        #endif
+        // 寫入 Animancer v8 Parameters（ParameterDictionary）；訂閱者由資產內 ParameterName 綁定
     }
-    // ... 其餘實作 ...
 }
 
 ```
+
+**運作規則（v0.16 定調）**：
+1. **資產＝單一真相**：過渡時長（FadeDuration）、播放速度、起始時間、循環、事件全部由 `TransitionAsset` 承載；`Play(string stateKey)` 不提供 duration（2026-07-17 裁決 Q1），杜絕程式碼靜默覆寫資產。未來若出現「執行期動態 fade」需求（受擊打斷等），屆時另開專用重載，不回頭加預設參數。
+2. **Awake 建表＋預熱**：一次性建 `_transitionMap`，並以 `animancer.States.GetOrCreate(transition)` 預建全部 AnimancerState——首播的一次性堆配置移到初始化，Play/SetFloat 熱路徑零 GC。
+3. **冪等播放**：Animancer 依 `transition.Key` 對應 state，對「已在播放中」的同一資產重複 `Play` 不會重頭播放——Idle/Move 兩鍵映射同一份 Locomotion 資產時，狀態切換動畫層無縫。
+4. **查表防線**：映射缺失或資產無效（內部 transition／clip 未指定）時警告並安全返回（不拋例外），與 v0.15 前的 clip 查表防線行為一致；`RollState` 的 `IsPlaying` 防呆鏈不受影響。
+5. **SetFloat／SetBool＝通用參數通道**：寫入 Animancer v8 `Parameters`（`ParameterDictionary`，型別化容器無裝箱；string→StringReference 隱轉走 intern 快取，穩態零 GC）。**Facade 不持有任何 Mixer 引用**——「哪個 Mixer 訂閱哪個參數」由 Transition 資產內序列化的 `ParameterName`（StringAsset）決定，資料流：黑板 → 參數字典 → 資產綁定。
+6. `SetLayerWeight` 的 Lite 警報已移除（Pro 解除限制）；多層混合落地屬 F4（Upper Body Layer）。
+
+#### Locomotion 1D Mixer 規格（F2，v0.16）
+
+`Transition_Locomotion.asset`（`TransitionAsset` 內含 `LinearMixerTransition`）：
+
+| child | threshold | SynchronizeChildren | 說明 |
+|---|---|---|---|
+| Idle | 0 | ✗ | 非步態循環，不參與相位同步（避免拖慢步態群） |
+| Walking | 0.5 | ✓ | 新增 clip，依 §0.4 Locomotion preset 匯入 |
+| Fast Run | 1.0 | ✓ | 既有 clip |
+
+- **參數空間＝正規化輸入強度（0~1）**，即黑板 `MoveSpeed`；資產內 `ParameterName` 綁 StringAsset `MoveSpeed`（與 `AnimationFacadeBase.ParamMoveSpeed` 常數一致）。實體速度（m/s）參數空間與步速精確匹配（消滑步）屬 M4（foot-phase）範疇；M1 的視覺步速以 mixer child 的 per-clip Speed 微調。
+- **腳步循環同步**：Animancer 原生 `SynchronizeChildren`（加權 NormalizedTime 對齊），Walk↔Run 混合區腳步不跳相。
+- **資料流（管線順序 5）**：`SyncAnimation()` 每幀 `SetFloat(ParamMoveSpeed, data.MoveSpeed)`——兌現 §1.1 權限表「MoveSpeed 的 Reader＝AnimationFacade」的既定設計。M1 裁決（Q2）不做平滑（Game Feel 留後續專門輪）。現況 Move 僅綁 WASD（`2DVector` composite 預設 `DigitalNormalized`，對角線模長＝1，經查證免 Clamp01，裁決 Q3），參數為 0/1 二值：混合區間需類比輸入（搖桿綁定）或 Editor 手動滑參數才踩得到。
+- **FSM 拓撲零改動**：Idle/Move 狀態、StateType、Config 資產不動；「兩狀態共用一個表現資產」純由映射表達成（兩鍵指向同一資產）。
 
 #### MotionDriver（根運動與補償驅動）
 
@@ -725,7 +764,7 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 
 ### 第三階段（目前衝刺中）
 
-* [ ] `AnimancerFacade` 實作：建立 `stateKey` $\rightarrow$ `AnimationClip` 的映射配置資產機制。
+* [x] `AnimancerFacade` 實作：建立 `stateKey` $\rightarrow$ `AnimationClip` 的映射配置資產機制。**✅ v0.16 落地並升級**：直接落在 `stateKey` → `TransitionAssetBase`（F1 Transition 資產機制，過渡參數由資產承載），見 §3.2；映射表本體維持序列化於 Facade 元件上——抽成 `AnimationSetSO` 屬 YAGNI 延後（等第二個角色／模式的動畫集共享需求，遷移路徑見 `docs/01-design-doc.md` §5 Trade-off 表 v0.16 列）。
 * [ ] `PlayWithCallback` 的回調分配器（ObjectPool）實作，消除 Lambda 的 GC Alloc 隱患。
 * [ ] `MotionDriver` 基礎版實作：驗證 LateUpdate 根運動物理同步。
 * [ ] 動畫烘焙 Editor 工具實作（`RootMotionExtractor`）：以跳躍落地動畫進行首波驗證。
@@ -788,3 +827,5 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | 2026-07-14 | v0.14.2 | **決策收錄（純文件，零程式碼變更）**：①§0.2 資料夾結構由「待決」改為**正式定調現狀**（`Assets/Scripts/` 直掛為最終形，`_Project/` 收攏規劃廢止，CLAUDE.md 同步新增 Project Structure 章節）；②§0.1 新增**序列化私有欄位豁免條款**（`[SerializeField]` 統一 `camelCase`，CLAUDE.md 同步）；③`JustLanded`／`JustLeftGround` 定調**延後實作**（比照 `VerticalVelocity` 的 YAGNI 紀律，等第一個下游消費者；§1.1 code block／讀寫表／§5 待補清單同步標註） | Core Dev |
 | 2026-07-14 | v0.15 | **兩支 Editor 工具＋Capsule 對齊規範（零 Runtime 變更）**：①§0.3 新增規則 6「Capsule 對齊規範」（Root 原點＝腳底＝膠囊底、Model 必為 identity、廢止 -0.996 偏移補償），配套 `CharacterCapsuleFitter` v1（Height=bounds／Radius=0.3×humanScale／Center=h/2／Model 歸零／Undo／合理性警告；骨骼推估等 v2 項留 Backlog）；②新增 `MotionClipImportSOP` 匯入設定套用工具（Locomotion／Jump／BakedCurve 三 preset，經 `defaultClipAnimations` 覆寫保引用不斷鏈），供 Jump 腳滑 Step 1 驗證使用——**Root Transform 匯入矩陣本身待實測通過後才寫入本文件定調**；③§0.2 目錄補 `Editor/Tools/` | Core Dev |
 | 2026-07-14 | v0.15.1 | **Step 1 全數驗證通過，匯入矩陣正式定調＋CapsuleFitter v1.1**：①新增 **§0.4 Humanoid 動畫匯入規範**（Root Transform 矩陣＋Jump 家族 Y Based Upon=Feet 關鍵設定＋Mixamo 下載慣例），Step 1 三次迭代實測全過（跳躍前搖蹲下正常/腳底穩定、翻滾貼地、跑步無滑步、腳底貼地）後依「先驗證後定調」閘門入文；②§0.3 規則 6 定稿：`CapsuleFitter` v1.1 起 **skinWidth 由工具寫入（radius×10%）並與 Center 原子綁定**，根絕 center 內嵌 skin 項與活欄位脫鉤（v1 實測教訓：懸浮量＝兩者差值），補「場景實例執行後務必 Apply Prefab」警語（本輪實際根因）；③膠囊落地間隙定律 G=skinWidth 經使用者三點數據（0/0.03/0.08）實證，記入規則 6 | Core Dev |
+| 2026-07-17 | v0.16 | **M1 Locomotion 落地（F1＋F2）**：①§3.1／§3.2 動畫門面升級 **Transition 資產機制**——`Play`／`PlayWithCallback` 拔除 `transitionDuration`（裁決 Q1：資產＝單一真相）、映射改 `TransitionMapping`（string → `TransitionAssetBase`）、Awake 建表＋預熱、`SetFloat`／`SetBool` 由空殼轉正為 Animancer v8 參數字典通道（Facade 不持有 Mixer 引用）；②新增「Locomotion 1D Mixer 規格」小節（Idle／Walking／Fast Run，threshold 0/0.5/1，Idle 不參與同步；參數空間＝0~1 輸入強度；裁決 Q2 不平滑；裁決 Q3 查證 Move 的 2DVector composite 預設 DigitalNormalized、對角線模長＝1，免 Clamp01）；③§0.2 補 `ScriptableObjects/Animation/`、§2.1 順序 5 補參數同步、§1.1 MoveSpeed Reader 兌現標註、§5 映射資產機制待辦勾銷。FSM 拓撲／State／MotionDriver／黑板 schema 零改動 | Core Dev |
+| 2026-07-17 | v0.16.1 | **動畫資產治理定調：FBX 子 clip 直引（單一真相）**：①§0.4 新增規則 0——AnimationClip 預設不可變、FBX 子 clip 為唯一預設來源，Ctrl+D 重萃取廢止（僅內容修改可建獨立 clip 且須註明原因），CLAUDE.md 同步收錄；②矩陣 Locomotion 拆「原地／位移」兩列（位移型 XZ ❌＝執行期抽出原地化＋烘焙採速度真相）；③規則 3 反轉：Mixamo 一律**不勾 In Place**（In Place 版 Walking 0.1 m/s 雜訊 vs 非 In Place 1.677 m/s 實證）；④`MotionClipImportSOP` v2：Locomotion preset 拆為原地／位移兩個。遷移 SOP 與 `.anim` 盤點（五支全屬設定快照、零內容修改、全數退場）見 changelog v0.16.1 | Core Dev |

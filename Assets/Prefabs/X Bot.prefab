@@ -2232,15 +2232,15 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Project.Presentation.Animation.AnimancerFacade
   animancer: {fileID: 5245578631213322395}
-  clipMappings:
+  transitionMappings:
   - StateKey: Idle
-    Clip: {fileID: 7400000, guid: 4f5c52715b2b78b439ee466df16d347a, type: 2}
+    Transition: {fileID: 11400000, guid: 2febf8e6feabc7742aff76e6fec5fd26, type: 2}
   - StateKey: Move
-    Clip: {fileID: 7400000, guid: f0b9c514bde37cb48bccfe56c834aef4, type: 2}
+    Transition: {fileID: 11400000, guid: 2febf8e6feabc7742aff76e6fec5fd26, type: 2}
   - StateKey: Jump
-    Clip: {fileID: 7400000, guid: a0e35b887df97fd49bf2778efad539fd, type: 2}
+    Transition: {fileID: 11400000, guid: e699a25893c624947ae20c583020753f, type: 2}
   - StateKey: Roll
-    Clip: {fileID: 7400000, guid: c0f59fe2a8b43e44f936d84e64d19f8e, type: 2}
+    Transition: {fileID: 11400000, guid: d204aa5b80b94a2438234e86cd6c4910, type: 2}
 --- !u!114 &4074466034556624722
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2254,7 +2254,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Project.Presentation.Motion.MotionDriver
   characterController: {fileID: 7600688329978809718}
-  moveSpeed: 5
+  moveSpeed: 5.66
   gravity: -9.81
   reboundForce: -2
 --- !u!114 &5245578631213322395

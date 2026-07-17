@@ -7,7 +7,7 @@ namespace Project.Editor
 {
     /// <summary>
     /// Humanoid 動畫 clip 的 Root Transform 匯入設定 SOP 套用工具。
-    /// 依「clip 類型 × Root Transform 匯入設定」矩陣（Step 1 驗證中，通過後正式寫入 docs/02-dev-spec.md）：
+    /// 依「clip 類型 × Root Transform 匯入設定」矩陣（已定調於 docs/02-dev-spec.md §0.4）：
     /// 執行期用不到的 root motion 成分一律 Bake Into Pose——本專案 applyRootMotion 恆為 false（ADR-001），
     /// 未 Bake 的成分會被引擎「抽出後丟棄」，hips 被錨定在 root 上、雙腳反向滑動，即腳掌滑移的主嫌；
     /// 烘焙器要採樣的成分（Jump 的 Y、Roll 的 XZ/旋轉）維持不 Bake。
@@ -18,18 +18,32 @@ namespace Project.Editor
     /// 一舉化解「烘焙要量 root Y、執行期又不能丟蹲下」的兩難。
     /// <para>
     /// 實作以 <see cref="ModelImporter.defaultClipAnimations"/>（或既有 clipAnimations）為基底覆寫旗標，
-    /// take 名稱與影格範圍由 Unity 自動填入，不手改 .meta——確保 MotionBakeData.SourceClip 與
-    /// AnimancerFacade ClipMappings 的既有 clip 引用不斷鏈。
+    /// take 名稱與影格範圍由 Unity 自動填入，不手改 .meta；`X Bot@動作名` 命名慣例會讓子 clip 自動獲得 @ 後的名稱。
+    /// </para>
+    /// <para>
+    /// ⚠️ 資產管理規範（2026-07-17 定調，dev-spec §0.4 規則 0）：全專案一律**直接引用 FBX 子 clip**
+    /// （AnimationClip 預設不可變、FBX 為唯一真相來源），Ctrl+D 重萃取 .anim 快照已廢止——
+    /// 因此本工具改的就是執行期實際播放的 clip，套用後立即生效，不再有「快照過期」的同步問題。
+    /// 該 clip 若有對應的 MotionBakeData，套用後必須重烘焙。
     /// </para>
     /// </summary>
     public static class MotionClipImportSOP
     {
         private const string MenuRoot = "Assets/Project 動畫匯入 SOP/";
 
-        // === Preset：Locomotion（Idle / Walk / Run…，procedural 驅動，root motion 全數不進位移管線）===
-        [MenuItem(MenuRoot + "套用 Locomotion 設定（XZ·Y·Rot 全 Bake＋Loop）")]
-        private static void ApplyLocomotion()
-            => ApplyToSelection(bakeXZ: true, bakeY: true, bakeRotation: true, loopTime: true, presetName: "Locomotion");
+        // === Preset：Locomotion-原地（Idle 類；clip 本身無位移，微量 root 漂移全 Bake 保留原作姿勢）===
+        [MenuItem(MenuRoot + "套用 Locomotion-原地 設定（Idle 類；XZ·Y·Rot 全 Bake＋Loop）")]
+        private static void ApplyLocomotionInPlace()
+            => ApplyToSelection(bakeXZ: true, bakeY: true, bakeRotation: true, loopTime: true, presetName: "Locomotion-原地");
+
+        // === Preset：Locomotion-位移（Walk / Run 類；clip 帶真實 root motion，v0.16.1 新增）===
+        // XZ 不 Bake：執行期 applyRootMotion=false 會把位移「抽出後丟棄」＝天然原地化；
+        // 同時烘焙器（採樣時開 root motion）仍量得到天生步速——速度真相，供 MotionDriver 校準與 Mixer 門檻換算。
+        // 若誤套全 Bake，位移會被烤進姿勢：執行期原地播放時角色在動畫內前衝、循環點瞬移回彈。
+        // （配套慣例：Mixamo 下載一律不勾 In Place，保留 root motion 作為資料來源，見 dev-spec §0.4 規則 3。）
+        [MenuItem(MenuRoot + "套用 Locomotion-位移 設定（Walk/Run 類；XZ 不 Bake 供採速度＋Loop）")]
+        private static void ApplyLocomotionTravel()
+            => ApplyToSelection(bakeXZ: false, bakeY: true, bakeRotation: true, loopTime: true, presetName: "Locomotion-位移");
 
         // === Preset：Jump 家族（物理 launch 驅動；Y 不 Bake 供烘焙器採 AutoApexHeight，見 changelog v0.13）===
         // Y 的 Based Upon 採 Feet（而非 Original）：讓 root Y 追蹤「腳的高度」——
@@ -46,7 +60,8 @@ namespace Project.Editor
         private static void ApplyBakedCurve()
             => ApplyToSelection(bakeXZ: false, bakeY: true, bakeRotation: false, loopTime: false, presetName: "BakedCurve(Roll)");
 
-        [MenuItem(MenuRoot + "套用 Locomotion 設定（XZ·Y·Rot 全 Bake＋Loop）", true)]
+        [MenuItem(MenuRoot + "套用 Locomotion-原地 設定（Idle 類；XZ·Y·Rot 全 Bake＋Loop）", true)]
+        [MenuItem(MenuRoot + "套用 Locomotion-位移 設定（Walk/Run 類；XZ 不 Bake 供採速度＋Loop）", true)]
         [MenuItem(MenuRoot + "套用 Jump 設定（XZ·Rot Bake；Y 不 Bake·Based Upon Feet）", true)]
         [MenuItem(MenuRoot + "套用烘焙曲線驅動設定（XZ·Rot 不 Bake 供採樣；Y Bake）", true)]
         private static bool ValidateSelectionHasModelImporter()

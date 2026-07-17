@@ -8,18 +8,23 @@ namespace Project.Presentation.Animation
     public class AnimancerFacade : AnimationFacadeBase
     {
         [System.Serializable]
-        public struct ClipMapping
+        public struct TransitionMapping
         {
             public string StateKey;
-            public AnimationClip Clip;
+            // 欄位型別採抽象基底 TransitionAssetBase：同一條映射可承載 ClipTransition /
+            // LinearMixerTransition / 2D Mixer 等任意過渡型態（TransitionAsset 以 [SerializeReference]
+            // 多型持有內部 transition），未來新增混合型態零 Facade 改動。
+            public TransitionAssetBase Transition;
         }
 
         [Header("Setup")]
         [SerializeField] private AnimancerComponent animancer;
         // 🆕（v0.7 Code Review）補上預設初始化，避免非 Editor 流程建立此元件時 Awake() 的 foreach 直接 NRE
-        [SerializeField] private List<ClipMapping> clipMappings = new();
+        // 🆕（v0.16 F1）string→AnimationClip 升級為 string→TransitionAssetBase：
+        // 過渡時長/播放速度/循環/事件全數由資產承載（單一真相），程式碼簽名不再提供 duration。
+        [SerializeField] private List<TransitionMapping> transitionMappings = new();
 
-        private readonly Dictionary<string, AnimationClip> _clipMap = new();
+        private readonly Dictionary<string, TransitionAssetBase> _transitionMap = new();
         private readonly Dictionary<string, AnimancerState> _stateCache = new();
 
         private void Awake()
@@ -31,12 +36,18 @@ namespace Project.Presentation.Animation
             // 🆕（ADR-001）結構校驗與 Fail-Fast 防線：Runtime 違規直接拋例外，並強制關閉 Model Animator 的 Root Motion。
             ValidateHierarchy(runtimeThrow: true);
 
-            // 建立快速查表
-            foreach (var mapping in clipMappings)
+            // 建立快速查表，並預熱底層 AnimancerState：
+            // 首次 Play 的 state 建立屬一次性堆配置，移到 Awake 一次做完，讓 Play/SetFloat 熱路徑維持零 GC。
+            // 多鍵映射同一資產（如 Idle/Move → Locomotion）時，GetOrCreate 依 transition.Key 回傳同一個 state。
+            foreach (var mapping in transitionMappings)
             {
-                if (!string.IsNullOrEmpty(mapping.StateKey) && mapping.Clip != null)
+                if (string.IsNullOrEmpty(mapping.StateKey) || mapping.Transition == null) continue;
+
+                _transitionMap[mapping.StateKey] = mapping.Transition;
+
+                if (mapping.Transition.IsValid)
                 {
-                    _clipMap[mapping.StateKey] = mapping.Clip;
+                    _stateCache[mapping.StateKey] = animancer.States.GetOrCreate(mapping.Transition);
                 }
             }
         }
@@ -146,30 +157,45 @@ namespace Project.Presentation.Animation
         }
 #endif
 
-        public override void Play(string stateKey, float transitionDuration = 0.15f)
+        public override void Play(string stateKey)
         {
-            if (!_clipMap.TryGetValue(stateKey, out var clip))
-            {
-                // 💡 升級防禦線：如果是這裡噴出警告，代表狀態機有叫它播，但 Inspector 的連線斷了！
-                Debug.LogWarning($"<color=red>[AnimancerFacade] 警告：狀態機請求播放 '{stateKey}'，但 Clip Mappings 查表失敗！請檢查 Inspector 是否殘留 Missing 欄位！</color>", this);
-                return;
-            }
+            if (!TryGetTransition(stateKey, out var transition)) return;
 
-            if (clip == null)
-            {
-                Debug.LogWarning($"<color=red>[AnimancerFacade] 警告：狀態機請求播放 '{stateKey}'，但對應的 AnimationClip 實體為 null！</color>", this);
-                return;
-            }
-
-            var state = animancer.Play(clip, transitionDuration);
+            // 過渡時長/FadeMode/起始時間全部由資產決定。對「已在播放中」的同一資產重播為冪等
+            //（Animancer 依 transition.Key 對應同一個 state，不會從頭重播），
+            // Idle/Move 共用 Locomotion 資產時的狀態切換因此無縫。
+            var state = animancer.Play(transition);
             _stateCache[stateKey] = state;
         }
 
-        public override void PlayWithCallback(string stateKey, Action onComplete, float transitionDuration = 0.1f)
+        /// <summary>
+        /// 查表＋資產有效性雙防線。任一層失敗回傳 false 並警告（不拋例外、不中斷管線），
+        /// 呼叫端直接 return——行為與 v0.15 前的 clip 查表防線一致，RollState 的
+        /// IsPlaying 防呆（查表失敗時退回 Procedural 結算）依然成立。
+        /// </summary>
+        private bool TryGetTransition(string stateKey, out TransitionAssetBase transition)
         {
-            if (!_clipMap.TryGetValue(stateKey, out var clip)) return;
+            if (!_transitionMap.TryGetValue(stateKey, out transition))
+            {
+                // 💡 升級防禦線：如果是這裡噴出警告，代表狀態機有叫它播，但 Inspector 的連線斷了！
+                Debug.LogWarning($"<color=red>[AnimancerFacade] 警告：狀態機請求播放 '{stateKey}'，但 Transition Mappings 查表失敗！請檢查 Inspector 是否殘留 Missing 欄位！</color>", this);
+                return false;
+            }
 
-            var state = animancer.Play(clip, transitionDuration);
+            if (transition == null || !transition.IsValid)
+            {
+                Debug.LogWarning($"<color=red>[AnimancerFacade] 警告：狀態機請求播放 '{stateKey}'，但對應的 Transition 資產為 null 或內容無效（內部 transition／clip 未指定）！</color>", this);
+                return false;
+            }
+
+            return true;
+        }
+
+        public override void PlayWithCallback(string stateKey, Action onComplete)
+        {
+            if (!TryGetTransition(stateKey, out var transition)) return;
+
+            var state = animancer.Play(transition);
             _stateCache[stateKey] = state;
 
             // 💡 利用 Animancer 原生事件系統，並在結束後自動移除，防止事件掛載殘留污染下一次播放。
@@ -184,13 +210,8 @@ namespace Project.Presentation.Animation
 
         public override void SetLayerWeight(int layerIndex, float weight, float transitionDuration = 0.1f)
         {
-            // 💡 v0.5 規格書防禦策略：Lite 版打包後不支援 Layer 1+，在此加入編輯器警報
-#if UNITY_EDITOR
-            if (layerIndex > 0)
-            {
-                Debug.LogWarning($"[AnimancerFacade] 偵測到嘗試修改 Layer {layerIndex} 的權重。請注意 Animancer Lite 打包發行版後此功能將失效！", this);
-            }
-#endif
+            // （v0.16）Animancer 已升級 Pro，移除 v0.5 時代「Lite 打包後 Layer 1+ 失效」的編輯器警報；
+            // 多層混合的實際落地屬 F4（Upper Body Layer）範疇，屆時再處理 transitionDuration 的平滑內插。
             // 🆕（v0.7 Code Review 修正）原本只檢查 layerIndex < animancer.Layers.Count，
             // 負數 index 會直接繞過檢查、在下面的索引存取時丟例外。改為雙邊界檢查並安全略過。
             if (layerIndex < 0 || layerIndex >= animancer.Layers.Count)
@@ -204,10 +225,19 @@ namespace Project.Presentation.Animation
 
         public override void SetFloat(string key, float value)
         {
-            // Lite 版限制了動態 Mixer 建立，後續若接預烘焙的 BlendTree SO，可在此同步參數
+            // 🆕（v0.16 F2）寫入 Animancer v8 參數字典。誰訂閱這個參數，由 Transition 資產內
+            // 序列化的 ParameterName（StringAsset）綁定決定——Facade 不持有任何 Mixer 引用，
+            // 維持「黑板 → 參數 → 資產綁定」的單向資料流。
+            // 零 GC：string → StringReference 隱式轉換走 intern 快取（僅首次遇到新字串配置一次），
+            // Parameter<float> 為型別化容器，無裝箱。
+            animancer.Parameters.SetValue(key, value);
         }
 
-        public override void SetBool(string key, bool value) { }
+        public override void SetBool(string key, bool value)
+        {
+            // 同 SetFloat：通用參數通道，訂閱關係定義在資產端。
+            animancer.Parameters.SetValue(key, value);
+        }
 
         public override bool IsPlaying(string stateKey)
         {

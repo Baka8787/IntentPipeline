@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: JumpStateParams
   m_EditorClassIdentifier: Project.Runtime::Project.Core.StateMachine.JumpStateParams
   Stages:
-  - Bake: {fileID: 11400000, guid: 0694ae1c6141de347bd3988e4f3781dd, type: 2}
+  - Bake: {fileID: 11400000, guid: de633036526a931498f985475fbebdd8, type: 2}
   HeightMultiplier: 1
   GravityMultiplier: 1
   LaunchVelocityMultiplier: 1

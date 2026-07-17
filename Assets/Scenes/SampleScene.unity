@@ -571,6 +571,10 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 0}
     m_Modifications:
+    - target: {fileID: 5885071440779706115, guid: 1166b9756cdbe5b49a34559de0988bf0, type: 3}
+      propertyPath: playerCamera
+      value: 
+      objectReference: {fileID: 330585546}
     - target: {fileID: 7356619014195126258, guid: 1166b9756cdbe5b49a34559de0988bf0, type: 3}
       propertyPath: m_Name
       value: X Bot

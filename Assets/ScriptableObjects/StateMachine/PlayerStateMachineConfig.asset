@@ -30,14 +30,8 @@ MonoBehaviour:
     CanBeInterruptedBy: 
     ValidTransitions: 0200000001000000
   bakeMappings:
-  - State: 2
-    BakeData: {fileID: 11400000, guid: 47ae0e18f259d044dae3f25b9b8d9aec, type: 2}
-  - State: 1
-    BakeData: {fileID: 11400000, guid: 242c2fce7593f4f468e7c10b7f0e6711, type: 2}
-  - State: 3
-    BakeData: {fileID: 11400000, guid: 0694ae1c6141de347bd3988e4f3781dd, type: 2}
   - State: 4
-    BakeData: {fileID: 11400000, guid: bbdaeb2801028254d8091921c492bbd6, type: 2}
+    BakeData: {fileID: 11400000, guid: 16859e51b3a95c1498ed63675b67cc1b, type: 2}
   paramsMappings:
   - State: 3
     Params: {fileID: 11400000, guid: a3c1461acedafba499451adcce40d749, type: 2}

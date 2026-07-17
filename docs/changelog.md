@@ -2,6 +2,81 @@
 
 ---
 
+## [v0.16.1] - 動畫資產治理：FBX 子 Clip 直引定調（2026-07-17）
+
+> 使用者裁決：動畫資產管理策略改為 **(a) FBX 子 Clip 直引**，正式規範四條：①預設一律直引 FBX 子 clip，Ctrl+D 重萃取廢止；②AnimationClip 視為 Presentation Resource，一般調整不得複製 clip；③數據與表現不一致優先在 Data／Presentation 層解決（MotionDriver／TransitionAsset／Mixer／播放速度）；④僅內容修改（Events／Curves／Keyframes／特殊 Variant）允許建立獨立 clip，且必須註明原因。已收錄至 **CLAUDE.md（Animation Assets: Immutable by Default）** 與 **dev-spec §0.4 規則 0**。
+
+### 1. `.anim` 盤點結論（磁碟證據）
+* 全專案五支 `.anim`（Idle／Walking／FastRun／Jump／Roll）逐一檢查：**`m_Events` 全空、零自訂曲線、零 keyframe 修改**——全數為純「匯入設定快照」，不含任何內容修改。**依規範第 4 條反面：無一符合保留條件，五支全數退場**（遷移完成、引用歸零後刪除）。
+* 快照流的兩類實害已各發生一次：①**設定分岔**——v0.15 preset 只落在 FBX，Idle／FastRun 執行期快照未重萃取而過期（Walking 亦曾以過期慣例下載 In Place 版）；②**GUID 更替斷引用**——Walking 重萃取產生新檔（`eec7cb4b→46d36c8a`），`Locomotion.asset` 的 Walking child 隨即成為 Missing。
+* FBX 子 clip 具名確認：`X Bot@動作名` 命名慣例使子 clip 自動命名為 @ 後的動作名（Idle／Jump／Stand To Roll／Walking 皆已如此），直引無命名障礙。
+
+### 2. 引用風險盤點（遷移前現況）
+| 風險 | 位置 | 處置 |
+|---|---|---|
+| 🔴 映射鍵錯誤 | Prefab `transitionMappings` 僅一條 `StateKey: "Idle/Move"`（合併鍵）——查表比對完整字串，`Play("Idle")`／`Play("Move")` 皆查無此鍵，**兩狀態動畫都播不出來** | 拆成 `Idle`、`Move` 兩條，各指 Locomotion.asset |
+| 🔴 Missing 引用 | `Locomotion.asset` Walking child 指向已死 GUID | 重指 FBX 子 clip（遷移一併完成） |
+| 🟡 未接線 | Prefab `Jump`／`Roll` 兩條映射為 None；Roll 的 Transition 資產尚未建立 | 依遷移 SOP 補上 |
+| 🟡 preset 未套 | `X Bot@Fast Run.fbx` 為 `clipAnimations: []`（出廠預設，Loop 未開） | 套 Locomotion-位移 preset |
+| 🟢 Bake SourceClip | 五份 Bake 均指向 `.anim` 快照 | 重指 FBX 子 clip 後重烘焙 |
+
+### 3. 變更內容（本輪 AI 側）
+* **`MotionClipImportSOP` v2**：Locomotion preset 拆為兩個——`Locomotion-原地`（Idle 類；XZ·Y·Rot 全 Bake＋Loop，即原 preset）與 **`Locomotion-位移`（新增：Walk/Run 類；XZ 不 Bake 供採速度＋Y·Rot Bake＋Loop）**；工具註解同步新流程（工具改的就是執行期 clip，套用即生效）。
+* **文件**：CLAUDE.md 新增 Animation Assets 規範章；dev-spec §0.4 新增規則 0（不可變原則）、矩陣拆原地／位移兩列、規則 3 反轉（**Mixamo 一律不勾 In Place**——In Place 版 Walking 烘出 0.1 m/s 雜訊 vs 非 In Place 版 1.677 m/s 的源頭銷毀實證）；design-doc §5 新增「動畫資產管理策略」Trade-off 列。
+
+### 4. 遷移 SOP（Unity Editor 作業，取代 v0.16 §4 的接線步驟）
+1. **套 preset**：選 `X Bot@Walking.fbx`＋`X Bot@Fast Run.fbx` → 右鍵 `套用 Locomotion-位移 設定`（Walking 的 Loop 在源頭修正、Fast Run 首次獲得正式設定；Idle／Jump／Roll 的 FBX 已就緒不動）。
+2. **Transition 接線（全部直指 FBX 子 clip）**：`Locomotion.asset` 三個 child 重指（Idle→`X Bot@Idle` 的 Idle、Walking→`X Bot@Walking` 的 Walking、Fast Run→`X Bot@Fast Run` 的 Fast Run），同時 **Walk threshold 0.5→0.3、FadeDuration 0.25→0.15**；`Jump.asset` 的 Clip 重指 `X Bot@Jump` 的 Jump 子 clip；**新建 Roll 的 Transition 資產**（選 FBX 子 clip → 右鍵 Create→Animancer→Transition Assets From Selection）放 `ScriptableObjects/Animation/`。
+3. **Prefab 修正為四條映射**：`Idle`→Locomotion、`Move`→Locomotion（🔴 取代現有的 `"Idle/Move"` 合併鍵）、`Jump`→Jump、`Roll`→Roll。
+4. **Bake 重指＋重烘焙**：`Bake_Anim_Walking`／`Bake_Anim_FastRun`／`Bake_Anim_Jump`／`Bake_Anim_Roll` 的 SourceClip 重指對應 FBX 子 clip 後重烘焙（一致性驗證：Walking 應重現 ≈1.68 m/s、FastRun ≈5.66 m/s、Jump 特徵值不變）；`Bake_Anim_Idle`（0.004 m/s 雜訊，無資訊價值）**直接刪除**，Config `bakeMappings` 若有殘留條目順手清（含 B4 的 Jump 舊條目）。
+5. **刪除五支 `.anim`**：確認引用歸零後（Project 視窗搜尋引用），刪 `Anim_Idle/Walking/FastRun/Jump/Roll.anim`。
+6. **調參**：Prefab `MotionDriver.moveSpeed` **5 → 5.66**（來源：`Bake_Anim_FastRun`）。
+7. **驗收**：v0.16 §4 第 5 點六項清單＋確認 Idle↔Run 動畫恢復播放（修正合併鍵後）＋Walk 混合區（Play mode 滑 mixer 參數）＋EditMode 測試 16 條。
+
+### 5. 反思（Why）
+* **「衍生快取必須有同步機制，否則不該存在」**：`.anim` 快照對 FBX 設定的關係，同 center 對 skinWidth 的關係（v0.15.1）——這次選擇不是「幫快取加同步」而是「刪掉快取直用源頭」，是同一教訓更徹底的解。
+* **資料真相要在最源頭守住**：In Place 在 Mixamo 下載頁就銷毀了步速資料，後端管線再完備也救不回；治理規則因此要覆蓋到「下載慣例」這一層。
+* **規範寫成「預設禁止＋白名單例外」比「建議」有效**：「AnimationClip 預設不可變」讓每一次建 clip 都需要說出理由，而不是事後盤點誰忘了同步。
+
+---
+
+## [v0.16] - M1 Locomotion：Transition 資產機制＋1D Mixer（2026-07-17）
+
+> 設計輪（提案＋API 查證）→ 裁決（Q1~Q3）→ 實作輪同日完成。程式碼變更集中三檔（`AnimationFacadeBase`／`AnimancerFacade`／`CharacterPipelineRunner`）；**FSM 拓撲、全部 State、MotionDriver、黑板 schema 零改動**，16 條 EditMode 測試零觸及。
+
+### 1. 變更內容
+* **F1 Transition 資產機制**：`AnimancerFacade` 映射由 `ClipMapping`（string → `AnimationClip`）乾淨替換為 `TransitionMapping`（string → `TransitionAssetBase`），過渡時長／播放速度／循環／事件全數改由 `TransitionAsset` 承載；`Play`／`PlayWithCallback` 簽名拔除 `transitionDuration`；Awake 一次性建表＋`States.GetOrCreate` 預熱（首播堆配置移到初始化，熱路徑零 GC，`IsPlaying` 首播前即可用）；`TryGetTransition` 雙防線（查表失敗／資產無效均警告後安全返回，`RollState` 的 IsPlaying 防呆鏈不受影響）；移除 `SetLayerWeight` 的 Lite 時代警報（Pro 已解除限制，多層混合屬 F4）。
+* **F2 Locomotion 1D Mixer（資料流側）**：`SetFloat`／`SetBool` 由空殼轉正——寫入 Animancer v8 參數字典（`ParameterDictionary`，型別化容器無裝箱、string→StringReference 隱轉走 intern 快取，穩態零 GC）；`CharacterPipelineRunner.SyncAnimation()` 每幀 `SetFloat(ParamMoveSpeed, MoveSpeed)`，兌現 dev-spec §1.1 權限表自 v0.1 即定的「MoveSpeed Reader＝AnimationFacade」。**Facade 不持有任何 Mixer 引用**：「哪個 Mixer 訂閱哪個參數」由 Transition 資產內序列化的 `ParameterName`（StringAsset）決定，資料流＝黑板 → 參數字典 → 資產綁定。
+* **文件**：dev-spec v0.16（§3.1／§3.2 Facade 契約與運作規則、Locomotion Mixer 規格、§0.2 `ScriptableObjects/Animation/`、§2.1 順序 5、§1.1、§5）；design-doc v0.16（Trade-off 表新增四列＋「動畫系統」列狀態更新）。**不開 ADR**：共用既有 Facade／資料驅動模式，屬 incremental API／資產結構變更，依 CLAUDE.md 路由規則進 Living Docs。
+
+### 2. 裁決紀錄（2026-07-17，設計輪 Q1~Q3）
+* **Q1 簽名**：同意拔除 `transitionDuration`——Transition 資產為單一真相，杜絕程式碼靜默覆寫資產；未來執行期動態 fade 需求出現時另開專用重載，不回頭加預設參數。
+* **Q2 參數平滑**：M1 **不加任何 SmoothDamp**，先完成資料流與 Mixer；Game Feel（平滑／加減速）留後續專門輪調整。`SyncAnimation` 原值直送。
+* **Q3 Clamp01**：先查證再決定、不預先加防呆。**查證結果（磁碟證據）**：`X Bot.prefab` 的 Move action 僅 WASD 四鍵，`2DVector` composite 未帶 mode 參數＝Unity 預設 `DigitalNormalized`，對角線輸出 (±0.707, ±0.707)、模長恆為 1 → **免 Clamp01，未加任何程式碼**。⚠️ 複查觸發條件：未來新增搖桿綁定、或 composite 改 Analog 模式時，MoveSpeed 可能 >1（對角加速＋Mixer 外插），屆時再評估。
+
+### 3. 架構設計理由（Why）
+* **過渡時長歸資產**：duration 硬編碼在簽名預設值＝表現參數活在程式碼裡，策劃不可調、不能隨動作差異化；資產化後與 `StateParamsSO`／`MotionBakeData` 同屬「內容進資產、程式管流程」的既有設計語言。
+* **FSM 拓撲零改動**：「兩個邏輯狀態共用一個表現資產」純由映射表達成（Idle／Move 兩鍵指向同一資產），Animancer 對同一 transition 的重複 Play 冪等（依 `transition.Key` 對應同一 state，不重頭播放）→ 狀態切換動畫層無縫。合併 LocomotionState 的替代案要動 enum＋Config＋測試，收益只省一條映射，違反最小變更。
+* **映射鍵維持 `string`（複核 v0.4 既定）**：`StateType` 當鍵會建立 Animation → StateMachine 的反向依賴（CLAUDE.md 禁止邊）；且動畫鍵與狀態非 1:1（本輪的多鍵→一資產、未來 Combat 的一狀態→多 combo 鍵）；代價是編譯期安全換執行期查表警告，防線已在。詳 design-doc §5。
+* **`AnimationSetSO` 延後（YAGNI）**：單一角色下映射表資產化零當下收益；`TransitionMapping` 型別與建表迴圈已按「可原樣搬進 SO」設計，屆時 Facade 僅一欄位型別替換、外部契約零改。觸發條件＝第二個角色或模式需整組共享／切換動畫集。
+
+### 4. 需手動操作（Unity Editor，M1 收尾）
+1. **下載 Walk clip**：Mixamo「Walking」（X Bot、without skin、FBX for Unity、30fps、勾 In Place）→ 匯入後 Project 視窗右鍵 `Project 動畫匯入 SOP → 套用 Locomotion 設定`（§0.4 規則 1）。若循環有接縫 → 啟動 WORKLOG B8（Loop Pose 評估）。
+2. **建參數名資產**：`Create → Animancer → String Asset`，命名 **`MoveSpeed`**（須與 `AnimationFacadeBase.ParamMoveSpeed` 常數一致）。
+3. **建 Transition 資產**（統一放 `Assets/ScriptableObjects/Animation/`）：
+   * 選 Jump clip → 右鍵 `Create → Animancer → Transition Assets From Selection` → 更名 `Transition_Jump`；Stand To Roll 同法 → `Transition_Roll`。
+   * `Create → Animancer → Transition Asset` → 命名 `Transition_Locomotion` → Inspector 將 Transition 型別切換為 **LinearMixerTransition** → 加入三個 child：Idle（threshold 0）／Walking（0.5）／Fast Run（1.0）→ **Synchronize Children 取消勾選 Idle** → Parameter Name 掛上步驟 2 的 `MoveSpeed` StringAsset。
+   * Fade Duration 初值建議：Locomotion 0.15／Jump 0.1／Roll 0.05，之後直接在資產上調。
+4. **重接 Prefab**：`X Bot.prefab` → `AnimancerFacade` → Transition Mappings 四條：`Idle` → Transition_Locomotion、`Move` → Transition_Locomotion、`Jump` → Transition_Jump、`Roll` → Transition_Roll。（舊 Clip Mappings 欄位已隨程式碼移除，原資料消失屬預期。）
+5. **實測驗收**：①起步／停步過渡正常、Idle↔Move 切換動畫無重播跳變；②Walk↔Run 混合區腳步不跳相（鍵盤參數為 0/1 二值，中間值請在 Play mode 於 Animancer Inspector 手動滑 mixer 參數驗證，或待未來搖桿綁定）；③Jump／Roll 進出正常、fade 時長＝資產值、Roll 位移正常；④Console 零警告；⑤Profiler 穩態 GC 0B/幀；⑥Test Runner 跑 16 條 EditMode 測試。
+
+### 5. 反思（Why）
+* **「先查證、再防呆」與「先驗證、再定調」是同一條紀律**：Q3 的 Clamp01 一行之差，查證（讀 Prefab 序列化的 composite mode）證明不需要——防呆碼也是複雜度，沒有證據支撐的防禦跟沒有證據支撐的功能一樣該被擋下。
+* **第三方 API 逐條驗證的價值**：設計輪對 Animancer v8 的四個關鍵假設（TransitionAssetBase 實作 ITransition、Play(ITransition) 重載、ParameterDictionary 型別化無裝箱、LinearMixerTransition 序列化 ParameterName）全部讀原始碼確認後才定案，避免把設計蓋在印象中的 API 上。
+* **「介面先行」的複利**：`SetFloat` 空殼與黑板權限表的 MoveSpeed Reader 是 v0.1～v0.5 就畫好的線，本輪只是接上——當初多想一步的抽象，讓 F2 的 Core 側變更縮到兩行。
+
+---
+
 ## [v0.15.1] - Step 1 收案：匯入矩陣定調＋CapsuleFitter v1.1（2026-07-14）
 
 ### 1. 驗證結果與最終根因鏈

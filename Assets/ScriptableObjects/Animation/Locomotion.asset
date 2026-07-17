@@ -1,0 +1,41 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c5a8877f26e7a6a43aaf06fade1a064a, type: 3}
+  m_Name: Locomotion
+  m_EditorClassIdentifier: Kybernetik.Animancer::Animancer.TransitionAsset
+  _Transition:
+    rid: 6230867920669900877
+  references:
+    version: 2
+    RefIds:
+    - rid: 6230867920669900877
+      type: {class: LinearMixerTransition, ns: Animancer, asm: Kybernetik.Animancer}
+      data:
+        _FadeDuration: 0.15
+        _Speed: 1
+        _Events:
+          _NormalizedTimes: []
+          _Callbacks: []
+          _Names: []
+        _Animations:
+        - {fileID: -203655887218126122, guid: f7fe50b745302314b9bcf083cd89c472, type: 3}
+        - {fileID: -203655887218126122, guid: 7c3d9bedeadb6204ea24217149a1e599, type: 3}
+        - {fileID: -203655887218126122, guid: b2cd9b5a0d61afd43b81554e616e314c, type: 3}
+        _Speeds: []
+        _SynchronizeChildren: 00
+        _Thresholds:
+        - 0
+        - 0.3
+        - 1
+        _DefaultParameter: 0
+        _ExtrapolateSpeed: 1
+        _ParameterName: {fileID: 11400000, guid: cd5f9c0eddfe08b46b124551590503b1, type: 2}
