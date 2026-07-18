@@ -239,6 +239,20 @@ namespace Project.Presentation.Animation
             animancer.Parameters.SetValue(key, value);
         }
 
+        public override void SetApplyAnimatorIK(int layerIndex, bool value)
+        {
+            // 🆕（M3）Playables 下 OnAnimatorIK 需對應層開啟 ApplyAnimatorIK（Animancer v8 API）。
+            // 僅擋負數、不做上界略過：Animancer 的 Layers[index] 索引器對未建立的層會自動建層，
+            // 初始化期（FootIKController.Start）呼叫屬一次性配置，非熱路徑。
+            if (layerIndex < 0)
+            {
+                Debug.LogWarning($"[AnimancerFacade] SetApplyAnimatorIK 收到負數 layerIndex={layerIndex}，已略過此次呼叫。", this);
+                return;
+            }
+
+            animancer.Layers[layerIndex].ApplyAnimatorIK = value;
+        }
+
         public override bool IsPlaying(string stateKey)
         {
             if (_stateCache.TryGetValue(stateKey, out var state))

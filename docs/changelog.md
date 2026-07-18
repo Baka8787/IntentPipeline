@@ -2,6 +2,116 @@
 
 ---
 
+## [v0.18] - M3 Foot IK：Presentation Pipeline 第二個 Controller（2026-07-18）
+
+> Foot IK＋Pelvis Compensation 一體落地。Presentation Pipeline 骨架的**首次回收驗證**：Runner／MotionDriver／黑板 schema 零改動。⚠️ 程式碼未經 Unity 編譯；Rig 掛載與測試地形屬 Unity 人工作業（見 §4）。
+
+### 1. 裁決（2026-07-18，四項＋一項新增架構要求）
+* **Q1 IK Solver＝Unity Humanoid IK**（OnAnimatorIK）：專案重點是 Character Architecture、不是 IK Solver；不自寫 Two-Bone。`FootIKRig` 作為 Animator 同物件上的薄執行元件（OnAnimatorIK 回呼的 Unity 硬性限制＝ADR-001 預留的 Model 層掛點）。
+* **Q2 範圍＝Foot IK＋Pelvis Compensation 一體**，不拆里程碑。
+* **Q3 權重＝Runtime Pose Heuristic**（混合後 pose 的腳骨高度 → `min~max` 線性權重帶）：**禁** MotionBake 新增 Foot Phase Curve／Bake Metadata 擴充／Mixer 介面外露——Foot Phase Curve 留 Footstep／Audio 輪再評估。
+* **Q4 Roll/Jump＝不特判**：`IsGrounded`＋pose 權重自然關閉；**禁**提前 Mini Arbiter／`BlockIK` Writer（reader 契約保留，現值恆 false）。日後實測 Roll 吸地明顯，回 Arbiter Pipeline 解決。
+* **新增架構要求：`FootIKRuntimeData` 單向資料管道**——Controller 唯一 Writer、Rig 唯一 Reader、Rig 零判斷零 raycast 零權重計算；執行期兩者間**無任何方法呼叫**（禁 Event Bus／Message System／Callback），與黑板／MotionDriver 同款資料流。不進 `PlayerRuntimeData`（IK 目標是表現層中間產物，非玩法契約，進黑板徒增 Owner/Writer/Readers 治理成本）。
+
+### 2. 變更內容
+* **新檔 3 支**（`Assets/Scripts/Presentation/IK/`）：
+  - `FootIKRuntimeData`——值語義數據（權重 0＝不生效、PelvisOffsetY 0＝不補償），Reader 因此零布林判斷；
+  - `FootIKController`（Root，`IPresentationController`，順序 6.5）——讀黑板、雙腳 raycast（地面點＋法線）、權重計算與平滑（MoveTowards）、骨盆補償；骨骼 Transform 僅初始化快取、執行期**唯讀 pose 採樣**（Q3 的必要輸入，讀取非修改）；`ComputeFootWeight`／`ComputePelvisOffset` 抽純函數（比照 `ComputeAverageSpeed` 先例）；
+  - `FootIKRig`（Model，`[RequireComponent(Animator)]`）——`OnAnimatorIK` 原樣套用 RuntimeData（SetIK×8＋bodyPosition 骨盆疊加），組裝期 `Bind()` 注入一次。
+* **Facade**：`AnimationFacadeBase` 新增 `SetApplyAnimatorIK(int, bool)` **virtual no-op**（非所有動畫後端有 IK pass 概念）；`AnimancerFacade` 覆寫為 `Layers[i].ApplyAnimatorIK`（Playables 下 OnAnimatorIK 的觸發前提）。Controller 於 **Start** 呼叫——確保 Facade 的 Awake（animancer 引用補洞）已完成，不賭同幀 Awake 順序。
+* **測試**：`FootIKTests` 8 條（權重曲線 4：低於閾值／高於閾值／線性中點／退化配置硬切；骨盆補償 4：平地零／低腳負差／maxDrop 夾限／上坡不上抬），總數 34→42。
+* **文件**：dev-spec §3.5（資料流／三類別職責表／已知時序限制／Future Work）＋修訂紀錄 v0.18；design-doc §4.6 第二實例＋Trade-off「Foot IK 溝通方式」列＋§9 v0.18；WORKLOG 翻新。
+
+### 3. 已知限制（時序，全文另見 dev-spec §3.5.2）
+`OnAnimatorIK` 發生於 Animator 評估流程（早於 LateUpdate）；Presentation Pipeline 於 LateUpdate 順序 6.5 寫入——Controller 本幀計算結果**下一幀** IK pass 才生效。一幀延遲屬 Unity Humanoid IK 正常行為；權重平滑降低視覺影響，站立／慢移不可察覺。
+
+### 4. 待辦（Unity Editor 人工作業）
+* Model 子物件（Animator 那顆）掛 `FootIKRig`；Root 掛 `FootIKController`（`groundLayers` 須含地形 Layer）。
+* 場景搭斜坡＋台階測試區（floor 是平地，IK 效果在不平地形才可見）；驗收含 Runtime 零 GC 複測與 42 條測試綠。
+
+### 5. 反思（Why）
+* **骨架的回收測試**：M2 建 `PresentationPipeline` 時「新增 Controller 零 Runner 改動」是承諾，M3 是第一次兌現——`FootIKController` 掛上即被收集，Runner／管線一行未動。架構投資的回報以「第二個使用者出現」為證，而非以設計文件自證。
+* **決策／執行分離的資料載體**：把「Controller 直呼 Rig」改成共享數據管道，表面多一個類別，實質是把 Root→Model 的跨層執行期耦合壓成純值傳遞——Rig 因值語義做到字面意義的零分支 Thin Executor，可獨立測試、可整組替換。
+
+---
+
+## [v0.17] - M2 Presentation Pipeline + Landing Audio（2026-07-18）
+
+> M2 最小版落地：`JustLanded` 單幀事件（第一個消費者出現，YAGNI 閘門通過）＋表現層集中驅動骨架＋Landing Audio。非架構變更（依 Document Consolidation Policy 走 Living Docs，不開 ADR）。⚠️ 程式碼尚未經 Unity 編譯驗證，資產建立與接線（Phase 5）待使用者在 Editor 完成。
+
+### 1. 四項設計裁決（2026-07-17 已裁決，本輪照做）
+* **驅動方式＝集中 `PresentationPipeline`**：Runner Start 一次性 `GetComponentsInChildren<IPresentationController>()` 收集，LateUpdate 順序 **6.5**（MotionDriver 之後、統一復位之前）統一 Tick；Runner 不認識任何具體 Controller，後續 IK／Facial／VFX 沿用同一介面零 Runner 改動。Controller 不得自帶 Update（時序由管線保證）。
+* **`JustLanded`／`JustLeftGround` 生命週期**：MotionDriver 唯一觸發源（`GetGravityThisFrame` 內比較前後幀 `IsGrounded`，新增 `_wasGrounded` 基準）；復位收斂進黑板 `ResetTransientState()`（意圖＋邊沿旗標一致生命週期），Runner 順序 7 呼叫——統一復位屬生命週期管理，不視為第二寫入者。生命週期：6 生 → 6.5 消費 → 7 死。
+* **Audio 結構＝Event → Definition 解耦**：`AudioEventId`（enum 語義鍵，顯式數值＝查表索引）→ `AudioDefinitionSO`（怎麼播：clip 池／音量／音高範圍，隨機微變化抗重複疲勞）→ `AudioLibrarySO`（Inspector 清單維護、執行期攤平成 enum 值索引陣列：O(1)、零 boxing）；`AudioController : IPresentationController` 讀 `JustLanded`＋`BlockAudio`（讀取契約先行，writer 到仲裁層接入才存在）。
+* **範圍最小化**：只做 Landing；腳步音延後（需腳相事件源，屬 Foot IK 週邊）；單一 `AudioSource`＋`PlayOneShot`（pitch 相互干擾／重疊播放限制記入 dev-spec §5 Future Work，等第一個真實劣化案例再上多音軌）。
+
+### 2. 變更內容
+* **黑板 `PlayerRuntimeData`**：新增 `JustLanded`／`JustLeftGround` 欄位＋`ResetTransientState()`（內含 `Intent.Reset()`）。
+* **`MotionDriver`**：`GetGravityThisFrame` 內新增前後幀邊沿偵測（`_wasGrounded`）——觸地同步與事件觸發同點收斂，未來新增移動路徑自動涵蓋。
+* **`CharacterPipelineRunner`**：Start 建 `PresentationPipeline`；LateUpdate 插入順序 6.5；順序 7 由 `Intent.Reset()` 改呼叫 `ResetTransientState()`。
+* **新檔 6 支**：`Presentation/IPresentationController.cs`、`Presentation/PresentationPipeline.cs`＋`Presentation/Audio/` 四檔（`AudioEventId`／`AudioDefinitionSO`／`AudioLibrarySO`／`AudioController`）。
+* **文件**：dev-spec §1.1（欄位轉正＋讀寫表＋`ResetTransientState()`）、§2.1（順序 6.5／7＋脆弱點第 4 條）、新增 §3.4（表現層管線＋Audio 規格）、§5（邊沿旗標待辦勾銷＋Future Work 補多音軌）；design-doc §4.2／§4.6 具體化＋Trade-off 兩列；本 changelog。
+* **（2026-07-18 補）EditMode Warning 治理**：①RollState「資產斷鏈」警告補 `Application.isPlaying` 條件——防線守護的是「進 Play 後 Roll 退化」，產品組裝只發生在 Play 中（Runner.Start → 狀態機 Initialize）；EditMode 測試以最小拓撲 config（無 bakeMappings）組裝狀態機是**有意的合法輸入**、非斷鏈，防線對其誤鳴屬「共用程式碼的環境語義未寫精確」。Player build 整段已被 `UNITY_EDITOR` 排除，此條件唯一排除的就是 EditMode 測試環境——Play 偵測力零損失。②據此撤銷 StateMachineTests 以 LogAssert 耦合警告全文的作法（拓撲測試不該關心資產層警告的措辭）。③測試**親手觸發的契約輸出**類警告（MotionFeatureAnalysis 的 test double 容錯、AudioLibrary 重複覆蓋）維持 `LogAssert.Expect` 宣告——那是斷言「警告必須出現」而非消音——並一律改用鬆耦合 Regex 關鍵詞，訊息措辭調整不誤傷測試。
+* **（2026-07-18 補）M2 測試**：新增 `PresentationPipelineTests`（3 條：註冊順序驅動＋同一黑板實例傳遞、null／空陣列安全）與 `AudioSystemTests`（9 條：Library 註冊查得／未初始化安全／未註冊回 null／重複後者覆蓋＋警告契約／冪等；Definition clip 池空回 null／單 clip 必中／音高範圍內／預設恆 1），測試總數 22→34。
+* **（2026-07-18 補，M1 收案輪）JumpState 防線補齊（防呆對稱）**：`Initialize` 查無 `JumpStateParams` 時比照 RollState 加 Editor 警告（含 `Application.isPlaying` 條件）。退化行為（硬編碼初速 7.5／重力 9.81／前搖 0s）原本完全靜默，且 `GetStateParams<T>` 在「未綁定／引用失效／型別不符」三情境都靜默回 null（v0.10 記錄的防呆缺口）——本防線即其輕量落地；段級 Bake 缺失**不**加警告（屬 ADR-002 既定安全退化矩陣，且無法與「刻意漸進配置」區分，先驗證再防呆）。dev-spec §5 的「型別驗證 Editor 工具」評估項據此收掉（雙 Gate 不過，不建工具）。
+
+### 3. 反思（Why）
+* **「等第一個消費者」紀律的完整兌現**：`JustLanded` 從 v0.9 提出 → v0.10 定案 → 2026-07-14 定調延後 → M2 消費者出現才落地，走完「設計定案與落地時機分離」的完整生命週期——證明 YAGNI 閘門不是拖延，而是讓欄位誕生當天就有真實讀者。
+* **時序契約要有物理載體**：「單幀事件當幀生滅」不是註解就能保證的——6（生）→ 6.5（消費）→ 7（死）的相對順序由 Runner 的呼叫順序物理保證；消費點若散落在各 Controller 自己的 Update，契約立刻失效。集中驅動骨架的真正價值在此，省掉的 Update 呼叫只是附帶收益。
+
+### 4. Phase 5 驗收（2026-07-18 完成，M2 收案）
+* 資產鏈：`MainAudioLibrary`（Landing → `Audio_Landing`）＋`Audio_Landing`（clip：`Floor_step0.wav`、volume 1、pitch (1,1)）；Prefab Root 掛 `AudioController`＋`AudioSource`（已啟用）＋`library` 接線。
+* ✅ 驗收通過：編譯 0 error＋EditMode **34 條全綠**＋Play 實測**落地音正常**。M2 全流程（MotionDriver 邊沿觸發 → 黑板單幀事件 → 順序 6.5 管線消費 → Audio 三層查表 → PlayOneShot）跑通。
+
+### 5. M1 DoD 正式收案（2026-07-18，五項全過）
+* ① 0 error＋測試全綠（34 條）✅；② Play 實測（Idle↔Move 無重播、無滑步、腳步相位同步、Roll≈2.38s＋曲線位移、Console 乾淨）✅；③ Profiler 玩法路徑 GC 0B/frame ✅；④ `moveSpeedSource` 接 `Bake_Fast Run`（override 未勾，滿速＝動畫天生 5.66 m/s，prefab 磁碟實證）✅；⑤ Roll fade 調整實測隨資產變（Transition 資產＝唯一真相，Q1 裁決兌現）✅。
+* 附帶：JumpState 防線補齊（見上方 Warning 治理補記）。**M1（v0.16 家族）至此正式關閉，Locomotion 基線固定；下一里程碑 M3 Foot IK。**
+
+---
+
+## [v0.16.3] - B11 裁決收錄＋Editor Tool 長期準則（2026-07-17）
+
+> 純裁決／文件輪，零程式碼變更。承接 v0.16.2 提出的 B11（Locomotion 門檻自動化）與代表速度統計方式兩個待決點。
+
+### 1. 裁決內容
+* **B11 → 方案 A（維持手填＋公式文件，不做 Editor 自動化）**，保留 Backlog 待未來重評。理由：①門檻數量極少、自動化收益不足；②不願 Editor Tool 依賴 Animancer 內部序列化欄位（`_Thresholds`），降第三方升級風險；③門檻本屬可調表現參數，非必須由 Bake Data 唯一決定；④公式 `threshold=speed_i/speed_max` 已入文、來源可追溯。**重評觸發**：Strafe 2D、多套 Locomotion，或門檻數量明顯增加。
+* **代表速度維持 `SpeedCurve` 平均（mean）**：對現有 loop locomotion（穩態）準確。未來若導入含起步／停止／Pivot 的非循環移動動畫，再評估改穩態區段平均或其他統計，現階段不提前設計。
+
+### 2. 長期準則入 CLAUDE.md
+* 新增「**Editor Tool vs Documented Process**」章：預設採文件化 SOP，僅當通過**雙 Gate** 才建 Tool——Gate A（收益，任一：高頻重複／人工易錯／省大量重複輸入或維護）＋ Gate B（不依賴第三方內部序列化或私有結構）。Gate A 成立但 Gate B 失敗時仍優先文件化。B11 即此準則的結晶活例。
+* 使用者原文四點中，前三為 Gate A 收益、第四（不依賴第三方內部結構）重構為 Gate B 硬約束——避免並列成「任一符合即建」而架空準則（幾乎所有工具都符合「不依賴第三方」）。
+
+### 3. 反思（Why）
+* **抑制過度產出的準則家族**：本準則與既有「Document Consolidation Policy（防 ADR 爆炸）」同源——都是「預設採輕量選項，重量級產出需先過門檻」。工具、ADR、抽象層都適用同一種節制。
+
+---
+
+## [v0.16.2] - MotionBakeData 定位升級：動畫數據 → 配置資料流（2026-07-17，已驗收）
+
+> 使用者新架構方向：`MotionBakeData` 不再只是「人工查看後抄數字」的分析工具，而演進為系統配置的可靠**資料真相來源**——`AnimationClip 是表現資源，Bake Data 是動畫真實數據來源`。資料流 `Clip → MotionBake/Analysis → Runtime/Config Data → MotionDriver + Locomotion + Presentation` 打通。全在 `Presentation.Motion` 層內，未觸及核心架構／Data-Presentation 邊界／ADR。
+
+### 1. MotionBakeData 資料鏈盤點
+* **生命週期**：`MotionBakeEditor` 採樣（Humanoid 替身、`applyRootMotion=true`）→ `SaveAsset` 寫曲線＋特徵 → `MotionFeatureAnalysisStage` 提取跳躍特徵 → 存 `Bake_<clip>.asset`。
+* **讀取端**：`RollState` ← `Config.GetBakeData(Roll)`（曲線位移＋時長）；`JumpState` ← `JumpStateParams.Stages[].Bake`（逆推重力）。
+* **「分析存在但無消費者」缺口（本輪填補）**：`SpeedCurve` 蘊含的「動畫天生速度」過去只能人工手抄進 `moveSpeed`（5.66）與 Mixer 門檻（0.3）——數字與來源脫鉤，同 v0.15 快照分岔、v0.15.1 skin/center 脫鉤的病型。`Bake_Idle` 更全無消費者。
+
+### 2. 變更內容（程式碼，全在 `Presentation.Motion` 層內）
+* **`MotionBakeData`**：新增 `AutoAverageSpeed`（代表速度＝`SpeedCurve` 平均，烘焙時寫入）＋ `GetRepresentativeSpeed()`（欄位優先、為 0 時即時回退算曲線平均，舊資產免立即重烘焙）＋ `static ComputeAverageSpeed`（烘焙寫入與執行期回退共用，杜絕定義分歧）。
+* **`MotionBakeEditor.SaveAsset`**：寫入 `SpeedCurve` 後填 `AutoAverageSpeed`。
+* **`MotionDriver`**：新增 `moveSpeedSource`（`MotionBakeData`，通常指 Fast Run）＋ `overrideMoveSpeed`；`Awake` 時若有來源且未 override，以其代表速度覆寫 `moveSpeed`（滿速＝動畫天生速度、根除滑步）。**唯一寫入在啟動**，執行期熱路徑零新增成本；留空 = 向後相容用手填值。
+* **`RollState`**：`Initialize` 查無 `MotionBakeData` 時 `#if UNITY_EDITOR` 警告（設計問題提示，非限制）；`0.5f` fallback 抽為 `FallbackDuration` 常數與訊息共用。
+* **測試**：新增 `MotionBakeDataTests`（6 條，`ComputeAverageSpeed` 邊界＋`GetRepresentativeSpeed` 雙路徑），測試總數 16→22。（2026-07-18 更正：原誤記「7 條／總數 23」，經 Test Runner 實測全綠與 `[Test]` 屬性計數校準為 6 條／22。）
+* **文件**：CLAUDE.md「Animation Assets」章補「Clip＝表現資源、Bake Data＝數據真相」定位＋四層數據↔表現連動 escalation；dev-spec §3.2 資料流小節／§4.3 曲線聚合類特徵／§0.4 規則 4／Mixer 門檻改推導；design-doc §5 Trade-off 兩列。
+
+### 3. Locomotion 流程檢查
+* Walking／Running／Idle 已直引 FBX、烘出真實速度（Walk 1.677／Run 5.66／Idle 0.004 雜訊）。兩個 hardcode（`moveSpeed`／`threshold`）的**來源**現已可程式化取得，門檻公式入文。手動調整能力全保留。⚠️ 速度來源生效需 Prefab 接 `moveSpeedSource`（不接則維持手填 5.66，向後相容）。
+
+### 4. 反思（Why）
+* **「讀取」勝過「抄寫」**：手抄是一次性快照，來源一改就過期無人察覺——同 v0.15 的 `.anim` 快照。讓配置直接引用 Bake 存取器，是把「數據真相」單一來源原則從資產層延伸到配置層。
+* **刻意不原子綁定的分寸**：CapsuleFitter 的 skin/center 是幾何約束故必須原子綁定；速度是設計手感參數，保留「gameplay 天生速度可分離」（override）才對——綁定強度依參數性質而定。
+
+---
+
 ## [v0.16.1] - 動畫資產治理：FBX 子 Clip 直引定調（2026-07-17）
 
 > 使用者裁決：動畫資產管理策略改為 **(a) FBX 子 Clip 直引**，正式規範四條：①預設一律直引 FBX 子 clip，Ctrl+D 重萃取廢止；②AnimationClip 視為 Presentation Resource，一般調整不得複製 clip；③數據與表現不一致優先在 Data／Presentation 層解決（MotionDriver／TransitionAsset／Mixer／播放速度）；④僅內容修改（Events／Curves／Keyframes／特殊 Variant）允許建立獨立 clip，且必須註明原因。已收錄至 **CLAUDE.md（Animation Assets: Immutable by Default）** 與 **dev-spec §0.4 規則 0**。

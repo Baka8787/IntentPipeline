@@ -81,9 +81,14 @@ Each RuntimeData field has an Owner, Writer, and Readers. Do NOT introduce addit
 
 ## Animation Assets: Immutable by Default (decided 2026-07-17)
 **AnimationClip is immutable by default. The FBX sub-clip is the single source of truth.**
+**Roles: an AnimationClip is a Presentation Resource; MotionBakeData is the source of truth for the animation's real motion values (displacement, speed, gravity, foot phase).** Read those numbers from Bake Data — do not hand-copy them into configs and do not bake gameplay constants into clips.
 - Always reference FBX sub-clips directly (TransitionAssets, MotionBakeData.SourceClip, everything). Never duplicate an AnimationClip (Ctrl+D extraction) as part of the normal workflow.
 - Ordinary adjustments — tuning values, Mixers, Transitions, playback speed, MotionDriver settings — belong to the Data / Presentation layer (TransitionAsset, Mixer, MotionDriver, ModelImporter settings). They NEVER justify creating a copied clip.
-- If data and animation presentation disagree, fix it in the Data / Presentation layer first. Do NOT create a new clip to paper over the mismatch.
+- **When a data change causes an animation-presentation problem, escalate in this fixed order — never jump straight to editing a clip:**
+  1. Adjust **Data / Runtime parameters** (MotionDriver speed, Mixer thresholds, Bake-derived config).
+  2. Adjust the **Presentation layer** (Mixer, Transition, playback Speed, Blend).
+  3. **Swap** the AnimationClip (reference a different FBX sub-clip).
+  4. Only as a last resort, **modify AnimationClip content** — and only when the content itself must change.
 - Creating a standalone AnimationClip is allowed ONLY when the animation content itself must change (Animation Events, extra curves, keyframe edits, special variants unachievable via import settings) — and the reason MUST be documented.
 
 ---
@@ -195,6 +200,13 @@ Do not guess. Ask for clarification. Architecture consistency is preferred over 
 - **Do NOT create a new ADR for every feature.** Keep the total number of ADR files minimal.
 - **Route non-architectural work to Living Docs (not ADRs)**: If a new feature or state shares an existing architectural pattern (e.g., dynamic movement states expanding on ADR-002) and does not change the architecture, write it into the Living Documents (`docs/01-design-doc.md` / `docs/02-dev-spec.md`). Do NOT generate a new ADR, and do NOT modify the existing (frozen) ADR.
 - **Distinguish ADR from Spec**: Only propose a new ADR for systemic, cross-cutting breaking changes (e.g., ownership shifts, hierarchy changes). For incremental API or data layout changes, update `docs/02-dev-spec.md` or `docs/01-design-doc.md` directly.
+
+## Editor Tool vs Documented Process (decided 2026-07-17)
+Default to a **documented process / SOP** over building a new Editor Tool. Only build a tool when it clears BOTH gates:
+- **Gate A — the investment is justified (at least ONE of):** high-frequency repetition (e.g. several times a week); human operation is error-prone (silent mistakes, easy to skip a step); it removes large amounts of repetitive input or ongoing maintenance cost.
+- **Gate B — it does NOT depend on a third party's internal serialization or private structure** (keeps us insulated from third-party upgrade breakage).
+
+If Gate A holds but Gate B fails, still prefer the documented process. This rule crystallizes the **B11** decision (Locomotion Mixer threshold automation): the threshold count is tiny (Gate A weak) and writing it would touch Animancer's internal `_Thresholds` serialization (Gate B fails), so the formula stays documented (`threshold = speed_i / speed_max`) and designers fill it by hand. A threshold is a tunable presentation parameter, not a value Bake Data must uniquely dictate. Re-evaluate only if the count grows sharply (Strafe 2D, multiple locomotion sets).
 
 Unless explicitly requested, prefer:
 - Minimal changes

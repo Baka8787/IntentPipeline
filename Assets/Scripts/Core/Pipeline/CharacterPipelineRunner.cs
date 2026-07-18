@@ -1,6 +1,7 @@
 using UnityEngine;
 using Project.Core.Blackboard;
 using Project.Core.StateMachine;
+using Project.Presentation;
 using Project.Presentation.Animation;
 using Project.Presentation.Motion;
 
@@ -21,6 +22,9 @@ namespace Project.Core.Pipeline
         [SerializeField] private StateMachineConfigSO stateMachineConfig;
 
         private FullBodyStateMachine _stateMachine;
+
+        // 🆕（M2）表現層驅動骨架：Start 一次性收集，LateUpdate 順序 6.5 集中 Tick。
+        private PresentationPipeline _presentationPipeline;
 
         [Header("Presentation Setup")]
         [SerializeField] private AnimationFacadeBase animationFacade; // 💡 規格：掛載 AnimancerFacade 的組件
@@ -84,6 +88,11 @@ namespace Project.Core.Pipeline
         /// </summary>
         private void Start()
         {
+            // 🆕（M2）建立表現層驅動骨架：一次性收集角色階層下所有 IPresentationController。
+            // 放在狀態機檢查之前——表現管線獨立於狀態機配置，不因缺 Config 連坐停擺。
+            // GetComponentsInChildren 僅在 Start 配置一次（預設不含未啟用物件），執行期零 GC。
+            _presentationPipeline = new PresentationPipeline(GetComponentsInChildren<IPresentationController>());
+
             if (stateMachineConfig == null)
             {
                 Debug.LogError($"[{gameObject.name}] 未綁定 StateMachineConfigSO 配置檔！", this);
@@ -160,9 +169,17 @@ namespace Project.Core.Pipeline
             }
 
             // =================================================================
+            // 【順序 6.5】PresentationPipeline —— 表現層集中消費黑板（含單幀事件 JustLanded）
+            // ⚠️ 時序脆弱點：必須在 MotionDriver（順序 6，單幀事件觸發源）之後、
+            // 統一復位（順序 7）之前，否則事件會在被消費前清空。勿調換。
+            // =================================================================
+            _presentationPipeline?.Tick(_runtimeData);
+
+            // =================================================================
             // ⚠️ v0.2 順序脆弱點防禦線：死守在最後清空意圖
             // =================================================================
-            _runtimeData.Intent.Reset();
+            // 🆕（M2）【順序 7】統一復位所有單幀事件（意圖 + JustLanded/JustLeftGround），一致生命週期。
+            _runtimeData.ResetTransientState();
         }
 
         /// <summary>

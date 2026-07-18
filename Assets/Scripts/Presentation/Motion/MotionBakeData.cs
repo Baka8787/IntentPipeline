@@ -68,6 +68,18 @@ namespace Project.Presentation.Motion
         [Tooltip("逆推重力：g = 8·h_max / t_air²。非跳躍/無落地/滯空過短/高度過低時退化為 9.81。")]
         public float AutoCalculatedGravity = 9.81f;
 
+        /// <summary>
+        /// 代表移動速度（公尺/秒）：<see cref="SpeedCurve"/> 的平均瞬時速度，於烘焙時算好存檔。
+        /// 用途——把「動畫天生跑多快」變成可被 Config／MotionDriver 引用的**資料真相**：
+        /// 例如最高速 clip（Fast Run）的此值 = gameplay 滿速，讓腳步視覺與位移速度一致、根除滑步；
+        /// Locomotion Mixer 門檻亦可由各段此值正規化推導（dev-spec §3.2 資料流規範）。
+        /// 語意為整段平均；loop locomotion clip（Walk／Run）為穩態，平均即代表速度。
+        /// 舊資產（此欄為 0、未重烘焙）由 <see cref="GetRepresentativeSpeed"/> 即時從 SpeedCurve 回退計算，
+        /// 因此無需為了取得此值強制立即重烘焙全部資產。
+        /// </summary>
+        [Tooltip("代表移動速度 (m/s)：SpeedCurve 平均值，烘焙時寫入。最高速 clip 的此值可作 MotionDriver 滿速來源／Mixer 門檻推導。")]
+        public float AutoAverageSpeed;
+
         // 便利擴充：取得動畫總長度
         public float Duration => SourceClip != null ? SourceClip.length : 0f;
 
@@ -94,5 +106,31 @@ namespace Project.Presentation.Motion
         /// 可用於狀態內部判斷是否該停止套用 deltaYaw，或是否可以提早允許自然過渡。
         /// </summary>
         public bool IsRotationFinished(float time) => time >= RotationFinishedTime;
+
+        /// <summary>
+        /// 取得代表移動速度（公尺/秒），供「動畫數據 → 配置」資料流使用（dev-spec §3.2）。
+        /// 優先回傳烘焙時存檔的 <see cref="AutoAverageSpeed"/>；若為 0（舊資產未重烘焙）則即時從
+        /// <see cref="SpeedCurve"/> 計算平均值作安全回退——確保現有資產無需立即重烘焙也能被
+        /// MotionDriver 速度來源／Mixer 門檻推導引用。回傳 0 代表此 clip 無有效速度資料（非移動動畫）。
+        /// </summary>
+        public float GetRepresentativeSpeed()
+        {
+            if (AutoAverageSpeed > 0f) return AutoAverageSpeed;
+            return ComputeAverageSpeed(SpeedCurve);
+        }
+
+        /// <summary>
+        /// 計算速度曲線的平均瞬時速度（對關鍵影格值取算術平均）。烘焙採等距取樣、關鍵影格均勻分布，
+        /// 故算術平均即時間平均。曲線為 null／空時回傳 0。供烘焙工具寫入 <see cref="AutoAverageSpeed"/>
+        /// 與執行期回退共用同一套定義，杜絕兩處計算不一致。
+        /// </summary>
+        public static float ComputeAverageSpeed(AnimationCurve speedCurve)
+        {
+            if (speedCurve == null || speedCurve.length == 0) return 0f;
+
+            float sum = 0f;
+            for (int i = 0; i < speedCurve.length; i++) sum += speedCurve[i].value;
+            return sum / speedCurve.length;
+        }
     }
 }

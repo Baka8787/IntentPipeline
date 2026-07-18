@@ -32,6 +32,14 @@ namespace Project.Presentation.Animation
         public abstract void SetFloat(string key, float value);
         public abstract void SetBool(string key, bool value);
 
+        // === IK 通道 ===
+        /// <summary>
+        /// 🆕（M3）開／關指定層的 Animator IK pass（OnAnimatorIK 回呼的觸發前提）。
+        /// 預設 no-op：並非所有動畫後端都有 IK pass 概念；支援 IK 的實作（如 Animancer）自行覆寫。
+        /// 呼叫端：FootIKController 初始化期——表現層經 Facade 觸碰動畫系統，不繞過（CLAUDE.md 依賴邊界）。
+        /// </summary>
+        public virtual void SetApplyAnimatorIK(int layerIndex, bool value) { }
+
         // === 狀態查詢 ===
         /// <summary>
         /// 查詢指定狀態鍵對應的動畫是否正在播放。

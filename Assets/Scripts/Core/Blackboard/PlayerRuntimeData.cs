@@ -44,6 +44,34 @@ namespace Project.Core.Blackboard
         /// </summary>
         public bool IsGrounded;
 
+        // === 單幀事件區（🆕 M2：當幀生、當幀死，由順序 7 統一復位）===
+        /// <summary>
+        /// 單幀事件：本影格剛落地（上一影格空中 → 本影格觸地）。
+        /// 寫入者（唯一觸發源）：MotionDriver.GetGravityThisFrame()——前後幀觸地狀態的邊沿偵測。
+        /// 讀取者：PresentationPipeline 的各 Controller（M2 首個消費者：AudioController 落地音）。
+        /// 生命週期：順序 6（MotionDriver 生）→ 6.5（Presentation 消費）→ 7（ResetTransientState 死）。
+        /// 統一復位屬生命週期管理，不視為第二寫入者。
+        /// </summary>
+        public bool JustLanded;
+
+        /// <summary>
+        /// 單幀事件：本影格剛離地（上一影格觸地 → 本影格空中）。寫入者與生命週期同 JustLanded。
+        /// M2 尚無消費者，與 JustLanded 成對維護，保持邊沿語義完整。
+        /// </summary>
+        public bool JustLeftGround;
+
+        /// <summary>
+        /// 🆕（M2）統一復位所有單幀瞬態：意圖旗標 + 落地/離地邊沿事件。
+        /// 呼叫者：CharacterPipelineRunner.LateUpdate 順序 7（管線最末端），
+        /// 確保所有單幀事件遵守「當幀生、當幀死」的一致生命週期。
+        /// </summary>
+        public void ResetTransientState()
+        {
+            Intent.Reset();
+            JustLanded = false;
+            JustLeftGround = false;
+        }
+
         // === 引用區 ===
         /// <summary>
         /// 當前裝備的武器。規格書規範：唯讀引用，禁止外部修改內容。

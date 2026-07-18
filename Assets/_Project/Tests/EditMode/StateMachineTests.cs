@@ -67,6 +67,9 @@ namespace Project.Tests.EditMode
             var data = new PlayerRuntimeData();
             var sm = new FullBodyStateMachine();
             // Initialize 內部會呼叫 config.Initialize() 建表，並進入初始 Idle 狀態。
+            // 註：測試 config 特意只含拓撲（無 bakeMappings）。RollState 的「資產斷鏈」警告已由
+            // Application.isPlaying 條件排除 EditMode 組裝情境（見 RollState.Initialize 註解）——
+            // 拓撲測試不需要、也不該耦合資產層防線的警告文字。
             sm.Initialize(BuildConfig(), data);
             return (sm, data);
         }

@@ -20,7 +20,7 @@ MonoBehaviour:
     - rid: 6230867920669900881
       type: {class: ClipTransition, ns: Animancer, asm: Kybernetik.Animancer}
       data:
-        _FadeDuration: 0.25
+        _FadeDuration: 0.15
         _Speed: 1
         _Events:
           _NormalizedTimes: []

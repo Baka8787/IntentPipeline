@@ -326,6 +326,11 @@ namespace Project.Editor
             asset.SpeedCurve = speedCurve;
             asset.RotationCurve = rotationCurve;
 
+            // 🆕（v0.16.2）代表移動速度：SpeedCurve 聚合成單一「動畫天生速度」，供 MotionDriver 滿速來源／
+            // Mixer 門檻推導引用（dev-spec §3.2「動畫數據 → 配置」資料流）。與執行期 GetRepresentativeSpeed()
+            // 的回退計算共用 MotionBakeData.ComputeAverageSpeed，確保烘焙值與即時回退值定義一致。
+            asset.AutoAverageSpeed = MotionBakeData.ComputeAverageSpeed(speedCurve);
+
             // 🆕 進階特徵寫入
             asset.RotationFinishedTime = rotationFinishedTime;
             asset.EndPhase = endPhase;

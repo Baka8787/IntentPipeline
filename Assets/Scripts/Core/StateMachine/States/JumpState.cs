@@ -40,6 +40,25 @@ namespace Project.Core.StateMachine
             base.Initialize(config);
 
             var jumpParams = config != null ? config.GetStateParams<JumpStateParams>(Type) : null;
+
+#if UNITY_EDITOR
+            // 🆕（M1 收案輪）設計問題提示（非限制），比照 RollState 斷鏈防線＋M2 Warning 治理原則：
+            // 查無 JumpStateParams 時跳躍仍可運作（BuildStages 合成 fallback 段），但物理量與動畫烘焙
+            // 數據完全脫鉤——高度/重力用硬編碼、前搖 0s，可能重現「先蹲下再往上」的時間軸不同步。
+            // GetStateParams<T> 在「未綁定／引用失效／資產型別不符」三種情境都靜默回 null（v0.10 已知
+            // 防呆缺口），本警告即該防呆的輕量落地（專用 Editor 驗證工具依雙 Gate 評估不建）。
+            // Application.isPlaying：EditMode 測試以最小拓撲 config 組裝屬合法輸入，不誤鳴；
+            // Player build 整段由 UNITY_EDITOR 排除，Play 偵測力零損失。
+            if (jumpParams == null && Application.isPlaying)
+            {
+                Debug.LogWarning(
+                    $"[JumpState] 查無 {Type} 的 JumpStateParams（StateMachineConfig 的 paramsMappings 未綁定、引用已失效、或資產型別不符）。" +
+                    $"跳躍將退化為硬編碼預設（初速 {FallbackInitialVelocity} m/s、重力 {FallbackGravity} m/s²、前搖 0s），" +
+                    "與動畫烘焙數據脫鉤（apex 高度不符、起跳時機可能與預備動作不同步）。" +
+                    "請檢查 Config.paramsMappings 是否綁定有效的 JumpStateParams 資產。");
+            }
+#endif
+
             BuildStages(jumpParams);
         }
 

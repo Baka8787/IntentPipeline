@@ -9,7 +9,18 @@ namespace Project.Presentation.Motion
         [SerializeField] private CharacterController characterController;
 
         [Header("Procedural Move Speed")]
+        [Tooltip("跑步（輸入強度=1）時的水平速度 (m/s)。可由下方 moveSpeedSource 於啟動時自動帶入動畫天生速度。")]
         [SerializeField] private float moveSpeed = 5f; // WASD 移動基礎速度 (m/s)
+
+        // 🆕（v0.16.2）「動畫數據 → 配置」資料流：以最高速 clip（Fast Run）的烘焙代表速度作為 gameplay
+        // 滿速的預設來源，讓「動畫天生跑多快」成為速度真相，根除腳步視覺與位移速度不一致的滑步。
+        // 保留手動調整能力（dev-spec §3.2）：留空 = 純用手填 moveSpeed；勾 overrideMoveSpeed = 忽略來源。
+        [Tooltip("移動速度的動畫數據來源：通常指向最高速 clip（如 Fast Run）的 Bake 資產。設定後，啟動時以其" +
+                 "代表速度（GetRepresentativeSpeed）覆寫 moveSpeed。留空則純用上方手填值。此為『Bake 提供預設＋來源可追蹤』機制。")]
+        [SerializeField] private MotionBakeData moveSpeedSource;
+
+        [Tooltip("勾選 = 忽略 moveSpeedSource，強制使用上方手填的 moveSpeed（Designer 明確 override 動畫數據，如刻意的風格化快/慢）。")]
+        [SerializeField] private bool overrideMoveSpeed = false;
 
         [Header("Physics Fallback")]
         [SerializeField] private float gravity = -9.81f;
@@ -26,6 +37,10 @@ namespace Project.Presentation.Motion
         private int _gravityFrame = -1;
         private Vector3 _cachedGravity;
 
+        // 🆕（M2）上一影格的觸地狀態，供 GetGravityThisFrame 做落地/離地邊沿偵測
+        // （JustLanded / JustLeftGround 的唯一觸發源比較基準）。
+        private bool _wasGrounded;
+
         private void Awake()
         {
             _activeGravity = gravity; // 預設重力，之後可被單次跳躍發射覆寫
@@ -37,6 +52,24 @@ namespace Project.Presentation.Motion
             if (characterController == null)
             {
                 Debug.LogError($"[{gameObject.name}] MotionDriver 缺少 CharacterController，且未在 Inspector 綁定！", this);
+            }
+
+            // 🆕（v0.16.2）動畫數據 → 配置：以烘焙代表速度覆寫 gameplay 滿速（Designer 未 override 且有指定來源時）。
+            // 唯一寫入時機在啟動，之後 moveSpeed 就是一般序列化欄位——不改變執行期熱路徑、不新增每幀成本。
+            if (moveSpeedSource != null && !overrideMoveSpeed)
+            {
+                float sourceSpeed = moveSpeedSource.GetRepresentativeSpeed();
+                if (sourceSpeed > 0f)
+                {
+                    moveSpeed = sourceSpeed;
+                }
+#if UNITY_EDITOR
+                else
+                {
+                    Debug.LogWarning($"[{gameObject.name}] MotionDriver.moveSpeedSource（'{moveSpeedSource.name}'）的代表速度為 0，" +
+                        "無法作為速度來源（SpeedCurve 為空或該 clip 非移動動畫）。維持手填 moveSpeed，請確認來源是否指對最高速 clip。", this);
+                }
+#endif
             }
         }
 
@@ -179,7 +212,13 @@ namespace Project.Presentation.Motion
 
             _gravityFrame = currentFrame;
 
-            data.IsGrounded = characterController.isGrounded;
+            // 🆕（M2）單幀落地/離地邊沿：MotionDriver 是這兩個旗標的唯一觸發源（set true）；
+            // 復位（set false）由管線末尾 PlayerRuntimeData.ResetTransientState() 負責，非此處。
+            bool grounded = characterController.isGrounded;
+            data.JustLanded = !_wasGrounded && grounded;
+            data.JustLeftGround = _wasGrounded && !grounded;
+            data.IsGrounded = grounded;
+            _wasGrounded = grounded;
 
             if (data.IsGrounded && _verticalVelocity < 0f)
             {

@@ -1,6 +1,8 @@
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.TestTools;
 using Project.Editor;
 using Project.Presentation.Motion;
 
@@ -288,6 +290,10 @@ namespace Project.Tests.EditMode
                 new JumpFeatureAnalyzer(),
             });
 
+            // 宣告預期的容錯警告：這是 Stage 契約的正確輸出（分析器失敗 → 警告＋管線繼續），不是誤鳴——
+            // 本測試親手注入了會拋例外的分析器，警告若未出現代表容錯路徑沒走到，測試理應失敗。
+            // 用鬆耦合關鍵詞（Regex）鎖定，警告訊息措辭調整不會誤傷本測試。
+            LogAssert.Expect(LogType.Warning, new Regex(@"Throwing \(test double\)"));
             Assert.DoesNotThrow(() => stage.Run(context, target), "單一分析器失敗不得讓 Stage 對外拋例外");
             Assert.Greater(target.AutoAirTime, 0f, "排在拋例外分析器之後的分析器必須照常執行");
 
