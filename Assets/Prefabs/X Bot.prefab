@@ -1312,6 +1312,7 @@ GameObject:
   m_Component:
   - component: {fileID: 5452878524493562782}
   - component: {fileID: 4138922782603633902}
+  - component: {fileID: 8446754569461167070}
   m_Layer: 0
   m_Name: Model
   m_TagString: Untagged
@@ -1359,6 +1360,18 @@ Animator:
   m_AllowConstantClipSamplingOptimization: 1
   m_KeepAnimatorStateOnDisable: 0
   m_WriteDefaultValuesOnDisable: 0
+--- !u!114 &8446754569461167070
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4355910846030307208}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 349e1277189e8804690313782162819f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Project.Runtime::Project.Presentation.IK.FootIKRig
 --- !u!1 &4390653944297962729
 GameObject:
   m_ObjectHideFlags: 0
@@ -2052,6 +2065,7 @@ GameObject:
   - component: {fileID: 7600688329978809718}
   - component: {fileID: 2315957958602432875}
   - component: {fileID: -2945132341864011770}
+  - component: {fileID: -7543379725507232644}
   m_Layer: 0
   m_Name: X Bot
   m_TagString: Untagged
@@ -2088,7 +2102,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Project.Core.Pipeline.CharacterPipelineRunner
   inputSourceComponent: {fileID: 8897448281995936255}
-  playerCamera: {fileID: 0}
+  playerCamera: {fileID: 8097198700277537437, guid: a854bf73576c1db4694c741a78789aca, type: 3}
   stateMachineConfig: {fileID: 11400000, guid: c34d4d25d9c9268429d2ece56255761b, type: 2}
   animationFacade: {fileID: 5884176032741337020}
   motionDriver: {fileID: 4074466034556624722}
@@ -2412,6 +2426,41 @@ MonoBehaviour:
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Audio.AudioController
   audioSource: {fileID: 0}
   library: {fileID: 11400000, guid: 435e87715d6833e41a8a77676627976d, type: 2}
+--- !u!114 &-7543379725507232644
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7356619014195126258}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a437f239098c7e7488fb52a709245055, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Project.Runtime::Project.Presentation.IK.FootIKController
+  settings:
+    GroundLayers:
+      serializedVersion: 2
+      m_Bits: 4294967295
+    RaycastUpOffset: 0.5
+    RaycastDistance: 1.1
+    MaxGroundAngle: 45
+    NormalFilterSpeed: 12
+    TargetFilterSpeed: 3
+    FootGroundedHeightMin: 0.08
+    FootGroundedHeightMax: 0.25
+    WeightSmoothSpeed: 8
+    IKFadeStart: 0.35
+    IKFadeEnd: 0.6
+    MaxFootHeightDifference: 0.6
+    ReachRatio: 1
+    MaxPelvisOffset: 0.35
+    PelvisSmoothSpeed: 5
+    EnableHeightFade: 0
+    EnableDifferenceFade: 0
+    EnableSlopeGate: 0
+    EnableNormalFilter: 0
+    EnableTargetFilter: 0
 --- !u!1 &7481699873517314820
 GameObject:
   m_ObjectHideFlags: 0

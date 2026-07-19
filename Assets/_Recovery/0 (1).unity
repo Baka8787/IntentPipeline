@@ -650,17 +650,29 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a437f239098c7e7488fb52a709245055, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.IK.FootIKController
-  groundLayers:
-    serializedVersion: 2
-    m_Bits: 4294967295
-  raycastUpOffset: 0.5
-  raycastDistance: 1.1
-  footHeight: 0.1
-  footGroundedHeightMin: 0.08
-  footGroundedHeightMax: 0.25
-  weightSmoothSpeed: 8
-  maxPelvisDrop: 0.35
-  pelvisSmoothSpeed: 5
+  settings:
+    GroundLayers:
+      serializedVersion: 2
+      m_Bits: 4294967295
+    RaycastUpOffset: 0.5
+    RaycastDistance: 1.1
+    MaxGroundAngle: 45
+    NormalFilterSpeed: 12
+    TargetFilterSpeed: 3
+    FootGroundedHeightMin: 0.08
+    FootGroundedHeightMax: 0.25
+    WeightSmoothSpeed: 8
+    IKFadeStart: 0.35
+    IKFadeEnd: 0.6
+    MaxFootHeightDifference: 0.6
+    ReachRatio: 0.98
+    MaxPelvisOffset: 0.35
+    PelvisSmoothSpeed: 5
+    EnableHeightFade: 0
+    EnableDifferenceFade: 0
+    EnableSlopeGate: 0
+    EnableNormalFilter: 0
+    EnableTargetFilter: 0
 --- !u!1001 &1891207192
 PrefabInstance:
   m_ObjectHideFlags: 0

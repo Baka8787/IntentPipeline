@@ -11,16 +11,17 @@
 
 1. **M2 Presentation Pipeline + Landing Audio ✅ 收案**（changelog v0.17）：修復前 session 幻覺殘局 → `JustLanded` 落地（YAGNI 閘門走完）＋`PresentationPipeline` 骨架（順序 6.5）＋Audio 三層（Event→Definition→Library）；Play 實測落地音正常。附 EditMode Warning 治理（RollState/JumpState 防線 `isPlaying` 語義精確化；測試契約輸出用 LogAssert.Expect＋鬆耦合 Regex）。
 2. **M1 Locomotion ✅ 正式收案**（changelog v0.17 §5）：DoD 五項全過（0 error＋測試全綠／Play 實測／Profiler 0B／moveSpeedSource 接 Bake_Fast Run／Roll fade 資產真相驗證）。Locomotion 基線固定。
-3. **M3 Foot IK 實作輪 ✅ 程式碼＋文件完成**（changelog v0.18）：`FootIKController`（Root 決策）→`FootIKRuntimeData`（單寫單讀管道）→`FootIKRig`（Model Thin Executor）；Unity Humanoid IK＋Pelvis Compensation；Runner 零改動（骨架首次回收驗證）。**⏳ 等待使用者 Unity 接線＋斜坡/台階實測**（見下方）。
+3. **M3 Foot IK 實作輪 ✅**（changelog v0.18）＋**M3.1 反饋迴路修正 ✅**（changelog v0.18.1）：實測腳踝抽搐 → Review 定位根因（Controller 採樣骨骼＝上一幀 IK 輸出，旋轉追逐＋權重鎖死雙迴路）→ 裁決雙管道修正——`FootIKController`（Root 決策，對 Animator 零依賴）⇄ 兩條單向管道（`FootIKTargetData` Controller 寫／`FootIKPoseData` Rig 寫）⇄ `FootIKRig`（Model，**Presentation Adapter**）。手填 footHeight 改讀 avatar `FeetBottomHeight`。**⏳ 等待使用者重編＋抽搐複測**（見下方）。
 
 ---
 
 ## 待使用者作業（M3 收尾）
 
-- [ ] 重編確認 0 error＋EditMode 測試 **42 條**全綠（34＋FootIKTests 8）
-- [ ] X Bot Prefab：**Model 子物件**（有 Animator 那顆）掛 `FootIKRig`；**Root** 掛 `FootIKController`（Inspector 確認 `groundLayers` 含地形 Layer）
-- [ ] 場景搭斜坡（~10°/20°）＋台階（~0.1/0.2m）測試區（平地看不出 IK 效果）
-- [ ] Play 驗收：平地不變形／斜坡雙腳貼合＋骨盆下沉／台階邊緣腳不懸空；Roll、Jump 目視無吸地異常（Q4 驗證點）；Profiler 玩法路徑 GC 維持 0B
+**M3.5 最終形（v0.18.6，字面回歸 M3.1）——push 前 checklist**：
+- [ ] 重編 0 error＋EditMode 測試 **42 條**全綠（實驗純函數 7 條已隨機制移除）
+- [ ] Inspector：Settings 剩 8 個參數（實驗參數與 Enable* flag 已刪，Unity 忽略孤兒序列化值）；確認 `GroundLayers` 含地形 Layer
+- [ ] Play smoke test：平地／斜坡／樓梯行為＝M3.1（含大階梯抬腿）；**階梯腳踝歪斜為已知遺留**（極可能 M3.1 即存在，非 regression，不阻擋 push——首查項見下方路線圖）
+- [ ] 上述綠燈後 **push to GitHub**（Git 由你操作）：這是 Foot IK 的第一個乾淨版控基線，未來所有對比以它為錨
 - [ ] （遺留）CapsuleFitter Apply Prefab 確認；floor Scale Z 若尚未翻正順手改（-25.153 → +25.153）
 
 ---
@@ -40,6 +41,11 @@
 ---
 
 ## Backlog / Future Work（超出目前範圍，不動手）
+
+### Foot IK 品質路線圖（M3.5 定調：單點＋權重補丁已到天花板，升級＝輸入資訊量）
+- **首查項（下一輪 IK 起點）**：階梯腳踝歪斜（踏面中央亦現、與 M3.2+ 機制無關）→ 驗證 `GetIKRotation/GetIKPosition` 在 Animancer（Playables）下的值域正確性（OnAnimatorIK 內比對 goal 與骨骼當幀動畫旋轉）
+- **M4+**：Heel＋Toe 雙點採樣（邊緣高低面裁定＋腳掌 pitch）、CapsuleCast（體積採樣）、Foot Contact 狀態機（plant/lift 事件，兼 Footstep 音源）
+- **實驗歸檔**（程式碼已清除，復刻看 changelog v0.18.2~v0.18.6）：fade 族＝半 IK 常態化（棄）；Slope Gate＝邊緣震盪源（棄）；濾波＝離散選擇連續化（棄）；Reach Clamp＝方向正確但距離比模型在骨盆下沉時誤傷（未來以膝角度模型重評）
 
 ### 使用者明定 Future Work（M3 裁決重申：需要時一律 TODO，不得提前實作）
 - **Foot Phase Curve**（烘焙腳相曲線；等 Footstep／Audio 輪一併評估 Mixer 混合取值）

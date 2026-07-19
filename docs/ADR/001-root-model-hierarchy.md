@@ -112,5 +112,6 @@ CharacterRoot                          ← 邏輯/物理權威層，外部一律
 本規範刻意不把邏輯綁死在「唯一一顆固定的 Model 子物件」：
 
 - **FaceRig / WeaponRig / IKRig**：作為 Model 子樹下的節點或獨立 Rig 元件，引用 Model 底下的骨骼 `Transform`；與只讀黑板仲裁旗標的表現層 Controller（design-doc §4.6）分開放。
+  （📌 2026-07-18 機械性補記，非決策變更：此預留已由 M3 Foot IK 兌現——`FootIKRig` 掛 Model、定位為 **Presentation Adapter**（動畫系統邊界的雙向轉接：讀 Target 套 IK＋寫 Pose 快照，各自單寫單讀），與 Root 端決策 Controller 以兩條單向資料管道橋接，規格見 `docs/02-dev-spec.md` §3.5。）
 - **Animator Override / LOD Animator**：仍是 Model 這一層的 `Animator` 家族，維持「子物件恰好 1 個 Animator」不變。
 - **Multiple Models**（換裝／可插拔外觀）：未來若需同時掛多個 Model，將第 2.3 節規則 2 由「恰好 1 個」放寬為「至少 1 個並指定主 Animator」即可，`AnimancerFacade` 對外介面不變。

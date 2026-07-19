@@ -75,5 +75,8 @@ namespace Project.Tests.EditMode
             Assert.AreEqual(0f, FootIKController.ComputePelvisOffset(1.1f, 1.2f, 1f, 0.35f), Epsilon,
                 "地面高於 Root 平面（上坡側）不得上抬——骨盆只下沉，抬升交給 CharacterController 地面跟隨");
         }
+
+        // 註（M3.5 最終形）：M3.2 的 ComputeHeightFade／ClampReach 純函數已隨實驗機制移除，
+        // 對應 7 條測試一併退場（總數回 42）——實驗結論與復刻指引見 changelog v0.18.2~v0.18.6。
     }
 }

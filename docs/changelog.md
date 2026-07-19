@@ -2,6 +2,140 @@
 
 ---
 
+## [v0.18.6] - M3.5 最終形：字面回歸 M3.1，實驗代碼清除（2026-07-18）
+
+> v0.18.5 flag 版驗收未過：flag 全關＋ReachRatio→1.0 後階梯腳踝**仍歪，且踏面中央亦歪**——兩快篩排除了全部 M3.5 新增項（Reach Clamp／法線毛刺假說雙雙不成立），邏輯結論＝**此歪斜極可能 M3.1 即存在**（當時場景／觀察精細度不同而未察覺）。依裁決：字面退回 M3.1、實驗代碼全數清除（不留 flag）、後續優化入路線圖，建立可 push 的乾淨基線。
+
+### 1. 變更內容
+* **四檔回歸 M3.1 本體**：`FootIKController`（單因子 Pose 權重、無條件接受命中、無 fade／clamp／濾波）；`FootIKSettings` 精簡為 8 參數（實驗參數與 5 個 `Enable*` flag 全刪）；`FootIKPoseData` 移除髖位置／腿長（Reach Clamp 專用輸入）；`FootIKRig` 移除腿骨快取與量測。
+* **保留的兩項非 M3.1 改良**（實測驗證乾淨、且兩快篩證明與歪斜無關）：目標沿地面法線抬升（M3.3 幾何正解，踏面上與 M3.1 的 up 抬升等價）；`FeetBottomHeight`（M3.1 本有）。
+* **測試 49→42**：`ComputeHeightFade`／`ClampReach` 7 條隨純函數退場。
+* 雙管道架構（M3.1 裁決）、Presentation Adapter 定位、反饋禁令——全部不動。
+
+### 2. 遺留未解（誠實記錄，下一輪 IK 工作的起點）
+* **階梯腳踝歪斜（踏面中央亦現）**：不是 M3.2~M3.5 任何機制造成。首查項＝`GetIKRotation/GetIKPosition` 在 Animancer（Playables）下的**值域正確性**——M3 交付時標註的唯一外部 API 風險（若 goal rotation 與當幀混合姿勢有固定偏差，SetIKRotation 會把腳踝轉向錯誤基準，平地小到不察、階梯對比下顯眼）。驗法：OnAnimatorIK 內比對 goal rotation 與骨骼當幀動畫旋轉。
+
+### 3. 反思（Why）
+* **快篩的價值在排除**：兩個 10 秒快篩沒找到根因，但把「哪裡不是」釘死了——避免又一輪對著錯誤標的修補（M3.2~M3.4 的核心教訓正是如此）。
+* **「印象中的基線」也要驗證**：regression 對比的參照系（M3.1 手感）本身可能就含著未察覺的缺陷；乾淨基線 push 進版控後，未來的對比才有客觀錨點——這正是本輪堅持先回歸再 push 的理由。
+
+---
+
+## [v0.18.5] - M3.5 Regression Recovery：回歸 M3.1 基線（2026-07-18）
+
+> v0.18.4 後實測仍 regression → 使用者裁定純分析輪 → 結論被接受 → 本輪依 Regression Workflow 落地：**不是新功能版本，是回歸穩定版**。版本語義自此定調：**M3.1＝第一個成熟基線（Baseline）／M3.2~M3.4＝探索實驗版（Experimental）／M3.5＝回歸穩定版（Regression Recovery）**。
+
+### 1. Regression 分析核心結論（本輪的依據）
+* **M3.1 是二態權重系統**：單因子 PoseHeuristic＋窄帶（0.08~0.25）→ 腳絕大多數時間「全 IK」或「全動畫」，中間態只在抬放腳瞬間短暫經過——乾淨。M3.2 起的 Height Fade × Difference Fade × PoseWeight **三因子疊乘**把系統推進「半 IK」常態，而半權重恰是視覺最不自然的區間。
+* **三組交互放大**：Slope Gate（硬 on/off）× 三條平滑鏈＝邊緣權重／骨盆／目標震盪；法線低通 × 邊緣交替命中＝離散面選擇被混成「持續微斜」；目標修正量平滑 × Gate 落空歸零＝懸空插值目標。
+* **Slope Gate 的幾何誤區**：垂直向下的 ray 與垂直立面平行、根本不相交——gate 想防的情境打不中，實際攔的是稜線 normal 與合法陡坡。
+
+### 2. M3.5 內容（Phase 1 落地）
+* **保留的 M3.1 行為（預設路徑）**：雙管道快照採樣（無反饋）、raw hit.normal 對齊、raw 目標（無濾波）、單因子 Pose 權重、無條件接受 raycast 命中、骨盆補償＋Clamp、`WeightSmoothSpeed` 收斂平滑。Ground Detection 本體（origin／distance／layers）未動。
+* **保留的後續改良（非 M3.1 但已驗證乾淨）**：Pose 快照含 `FeetBottomHeight`（avatar 真值取代手填）；**法線抬升**（M3.3，`hit + normal × bottomHeight`，幾何正解）；**Reach Clamp 0.98 恆開**（M3.2 引入、M3.3 校正後唯一乾淨倖存的防護）。
+* **停用（Experimental A/B flag，預設 false，不刪除）**：`EnableHeightFade`／`EnableDifferenceFade`／`EnableSlopeGate`／`EnableNormalFilter`／`EnableTargetFilter`——五個 flag 各自獨立可開，供 A/B Test；相關參數與純函數全數保留（測試 49 條不動）。
+* flag 全關時權重公式：`goalWeight = PoseHeuristic`（×1×1，編譯器層面等價單因子）。
+
+### 3. 為什麼 Reach Clamp 單獨足以處理人體極限
+* **直接建模 vs 代理指標**：人體極限的本質是「幾何可達性」（腿長），不是「地形高度差」——fade 族用高差去**猜**可達性（代理指標，天然誤殺／漏殺）；Reach Clamp 直接量測「目標−髖」距離對腿長，就是極限本身。
+* **介入式 vs 放棄式**：clamp 讓 IK 工作到極限邊界——不可達時 solver 輸出＝腿伸直朝目標「努力搆」，視覺自然且無爆炸；fade 在極限前就放棄——動畫原樣與幾何衝突（穿模）或半權重懸浮，兩者都比「努力搆」難看。
+* **fade 想防的「過度彎曲」在 clamp 後不會發生**：彎曲來自可達範圍內的正常解算（屈髖抬腿＝好看的那種）；超出範圍的部分已被球面夾住，根本輪不到 solver 做出怪姿勢。
+
+### 4. 反思（Why）
+* **Baseline 的價值在「可回去」**：M3.1→M3.4 每輪都「合理地」加一個機制，沒有一輪重新驗證整體——疊加的合理小改共同組成 regression。flag 化保留而非刪除，讓每個實驗機制可單獨與 baseline A/B，把「感覺變好／變差」變成可實驗的命題。
+* **提升品質的路不在權重公式裡**：單點採樣＋權重調製的天花板已到；真正的下一步是資訊量升級（Heel/Toe 雙點、CapsuleCast、Foot Contact 狀態機）——與其把單點的權重公式越調越複雜，不如換更高解析度的輸入。
+
+---
+
+## [v0.18.4] - M3.4 方向性修正＋Edge Filter 完成（2026-07-18）
+
+> 裁決：P1 核可（Fade 僅向下）、P3 核可（Fade 套遠腳）、P2 暫緩（Heel＋Toe 雙點採樣延至 M4）＋新增 Edge Filter＝單點採樣的最後穩定化。與 v0.18.3（使用者側四根因校正）合力關閉「M3.2 貼合劣化」事件。
+
+### 1. P1——深度 Fade 僅對「向下探深」生效（方向性錯誤修正）
+v0.18.2 用絕對值統一「高差」，把物理意義相反的兩側混為一談：向下＝腿拉直下夠（搆不到，該退）；向上＝IK 拉腳踩高階、屈髖屈膝（**IK 最好的表現**，該保留）。絕對值把大階梯上的高腳一併 fade 掉——「原本能抬大腿至接近水平」的能力就是這樣喪失的。修正為 `max(0, rootY−groundY)` 僅向下計；向上極限由 Reach Clamp＋遠腳 Fade 把守。
+
+### 2. P3——雙腳差 Fade 改套「距 Root 平面較遠」的腳
+原「固定放低腳」在踩高階情境放錯腳：root 在低處時跨不上去的是**高腳**。改為距 Root 較遠者退出——root 在高處＝放低腳（深不可及）、在低處＝放高腳（跨不上去），上下方向的極限處理一致。
+
+### 3. Edge Filter（裁決新增；不偷跑雙點採樣）
+* **①Slope Gate**（v0.18.3 已入，收編為第一塊）：立面／陡壁不可站 → 命中無效化。
+* **②法線低通**：`Slerp` 連續收斂——樓梯邊緣／碰撞體稜角的單幀法線毛刺（斜腳底板來源）被濾除，持續坡面變化仍跟得上。以濾波取代「突變檢測＋分支」：無粘滯、無新分支、一個參數（`NormalFilterSpeed` 12）。
+* **③目標修正量平滑**：平滑「相對動畫 goal 的偏移」而非世界位置（`TargetFilterSpeed` 3）——邊緣 ray 在高低階之間跳動的目標瞬移被拉勻；目標隨 pose 前移零滯後，奔跑中不產生腳部拖尾。
+* 落空／禁用時濾波態回歸中性（normal→up、offset→0），下次命中從乾淨狀態重啟。跨幀濾波態＝演算法內態（同 `MotionDriver._wasGrounded` 性質，非幀局部數據跨幀持有）。
+* 殘餘極限（單點採樣本質）：腳跨台階邊緣的「高面／低面裁定」單點無法表達——P2 裁決＝先把單點做穩，M4 以 Heel＋Toe 雙點採樣解，已列 Future Work。
+
+### 4. 反思（Why）
+* **對稱抽象套在不對稱語義上＝隱藏的方向性錯誤**：絕對值在數學上優雅，但「向下搆不到」與「向上踩得上」物理意義相反——抽象化之前先確認兩側語義真的相同。
+* **濾波勝過檢測**：「突變檢測＋特殊處理」需要閾值、分支與粘滯管理；連續低通只要一個速率參數，毛刺與真實變化用同一條路徑自然分離——能用濾波解的訊號問題不要用 if 解。
+
+---
+
+## [v0.18.3] - M3.3 實測校正：v0.18.2 四根因修正（2026-07-18）
+
+> v0.18.2 實測回饋：斜坡／大高差階梯貼合反而變差、腳背穿模、樓梯上腳背歪斜。四個症狀全數對應到 M3.2 引入的調參與幾何失誤（非架構問題），逐一根治：
+
+### 1. 四根因 → 四修正
+* **貼合整體劣化＝`ReachRatio` 0.95 過緊**（主因）：站立／蹬伸時腿本來就接近全直（髖→踝 ≈ 腿長 96~99%），正常踩地目標動輒超限被 clamp 往髖收→腳被系統性拉離地面。→ **0.98**，並修 Tooltip：Reach Clamp 只防「數學上不可達」，不得主動縮短正常步態。
+* **大高差階梯穿模＝`MaxFootHeightDifference` 0.45 誤殺**：大階梯（0.4~0.6）觸發低腳 fade→IK 被關→動畫平地姿勢直接插進階梯幾何——而 v0.18.1 的 IK 硬拉本來貼得好。→ **0.6**（超過「骨盆補償＋腿部伸展」合計能力才放棄）。
+* **樓梯腳背歪斜＝立面／邊緣法線被拿去對齊**：踏面 normal=up 腳本該是平的；斜的來源是 ray 命中垂直立面或邊緣（水平向 normal）——根因一把踩點拉偏後更常中招。→ 新增 **Slope Gate**（`MaxGroundAngle` 45°，語義對齊 `CharacterController.slopeLimit`）：夾角超限＝不可站表面→命中無效化、交還動畫。
+* **斜坡腳背穿模＝目標抬升沿世界 up**：腳掌已對齊斜面，腳踝抬升卻沿垂直方向→前腳掌幾何性插入坡面。→ 改沿 **`hit.normal`** 抬升（腳踝間隙垂直於接觸面才是幾何正解）。
+
+### 2. 反思（Why）
+* **「防護」的預設值必須從動作的真實幾何出發**：0.95 的 ReachRatio 看似保守，實際上落在正常步態的工作區間內——防護參數若不先量測被防護對象的正常範圍（站立腿伸幾乎全直），保守值反而成為系統性干預。
+* **放棄式防護（fade out）的殺傷力大於介入式防護（clamp）**：關掉 IK 的代價是「動畫原樣直接與幾何衝突」（穿模），比 IK 硬拉的「姿勢不自然」更糟——所以放棄閾值必須設在能力的真實極限之外，而非美觀偏好之內。
+
+---
+
+## [v0.18.2] - M3.2 Foot IK 極端案例收束：Fade／Reach Clamp／參數集中（2026-07-18）
+
+> 前提：平地／一般斜坡／一般樓梯已實測正常，僅剩極端高差（左右腳超過正常步高）的腿部過度彎曲。本輪目標＝作品集展示品質、只收束**已驗證**的案例，不為未驗證問題加架構。零新系統、零 Runner／管線改動。
+
+### 1. 三機制＋參數集中（規格詳 dev-spec §3.5.4）
+* **IK Height Fade**：單腳地面深度（|groundY−rootY|）進入 `IKFadeStart(0.35)~IKFadeEnd(0.6)` 帶 → SmoothStep 平滑退出該腳 IK——骨盆補償吃得下的範圍內不退，超過則交還動畫姿勢而不是硬拉。目標值再經 `WeightSmoothSpeed` 收斂（雙層平滑，保證不瞬切）。
+* **雙腳高差 Fade**：|左右腳地面差| > `MaxFootHeightDifference(0.45)` ＝超出正常步高的極端地形 → **較低腳**平滑放棄 IK、骨盆補償同步乘同一 fade（腳都放了就不再為它下沉）；過渡帶寬沿用 `FadeEnd−FadeStart`，零新參數。
+* **Reach Clamp**：目標與髖錨點（動畫髖位置＋當前骨盆偏移）距離 > 腿長×`ReachRatio(0.95)` → 沿原方向夾回可達球面。腿長＝大腿＋小腿骨段和、髖位置＝IK 套用前值——皆由 Rig 於 OnAnimatorIK 開頭量測寫入 `FootIKPoseData`（純賦值無判斷），Controller 維持對 Animator 零依賴。只 clamp Target，不動 Animator／Solver。
+* **Pelvis Clamp**：既有 `maxPelvisDrop` 更名 `MaxPelvisOffset` 並與 Fade 銜接（FadeStart ≈ MaxPelvisOffset：補償極限即退出起點）。
+* **`FootIKSettings`**（Serializable 集中容器）：全部 12 個參數收攏、含銜接關係 Tooltip，杜絕 Magic Number 散落。⚠️ 序列化路徑改變——Inspector 需重新確認（尤其 `GroundLayers`）。
+
+### 2. 測試與文件
+* 純函數 `ComputeHeightFade`／`ClampReach` 入 `FootIKTests`（+7 條：fade 帶兩端／SmoothStep 中點／退化硬切；reach 範圍內原樣／球面夾回方向不變／零距離安全），總數 42→49。
+* dev-spec §3.5.4＋修訂 v0.18.2；WORKLOG；Future Work 補 IK Hint（膝蓋極向，AAA 級範疇）。
+
+### 3. 能力邊界（驗收說明，詳見交付訊息）
+* **已解決**：平地／斜坡／樓梯（前輪）＋深地形不硬拉、極端高差低腳優雅退出、腿部過度拉伸／鎖死（Reach Clamp）、高台階邊過度屈膝（深度 fade 對稱涵蓋高低兩向）。
+* **未解決（明確不做）**：低腳退出後懸空（動畫無探底姿勢，IK 只能誠實放棄）；跨步落點預測與吸附＝**Motion Warping 範疇**；膝蓋極向偶發側偏＝IK Hint（Future）；極端地形自然感的根本解＝**Animation 資產不足**（缺斜坡／樓梯專用 locomotion，屬 M4）。
+
+---
+
+## [v0.18.1] - M3.1 Foot IK 反饋迴路修正：雙管道＋Presentation Adapter（2026-07-18）
+
+> 實測發現腳踝旋轉抽搐 → 使用者裁定純 Review 輪（禁改碼）→ 根因定位 → 裁決 → 本輪修正落地。⚠️ 程式碼未經 Unity 編譯，抽搐複測待使用者。
+
+### 1. 根因（Review 輪定位，抽搐不是 API 用錯而是資料流漏洞）
+單幀時序＝`Animator 評估 → OnAnimatorIK（套 IK，骨骼被改寫）→ LateUpdate 6.5（Controller 採樣骨骼）`。初版 Controller 以骨骼 Transform 現值當「動畫 pose」——實際讀到的是**上一幀 IK 的輸出**，形成兩條反饋迴路：
+* **旋轉環（腳踝抽搐主因）**：`FromToRotation(up, normal) × foot.rotation`——平地＝每幀追逐上一幀的自己（高頻微抖）；斜坡＝法線對齊逐幀疊乘（傾角累積後跳回，大幅抽搐）。
+* **權重環（腳黏地次因）**：權重 1 時腳被 IK 拉在地面 → 採樣高度恆低 → 權重恆 1——pose heuristic 量到的是 IK 自己的輸出，動畫抬腳被黏住。
+Q3「依混合後 Pose 決定權重」裁決本身正確；錯在「Pose」的採樣源。動畫原始 pose 的唯一無污染來源＝OnAnimatorIK 當下的 `GetIKPosition/GetIKRotation`（IK 套用前），而該時間點只有 Rig 在場。
+
+### 2. 裁決（方案 A＋使用者四項調整）
+* **獨立 `FootIKPoseData`**（不併入 Target 結構）：Target 與 Pose 屬不同資料流，不得混合。
+* **雙管道、各自單寫單讀**：`FootIKTargetData`（Controller 唯一 Writer → Rig 唯一 Reader）＋`FootIKPoseData`（Rig 唯一 Writer → Controller 唯一 Reader）。仍符合 Single Writer——是兩條獨立單向資料流，非雙向亂流。
+* **Rig 重定位＝Presentation Adapter**（非單純 Reader）：動畫系統邊界上的雙向轉接器；新增職責僅限「OnAnimatorIK 開頭 `GetIK*` → 寫 PoseData」，仍禁 raycast／黑板／狀態判斷／權重演算法／任何額外判斷。
+* **Controller 對 Animator 零依賴**：移除 `GetBoneTransform`／腳骨 Transform 引用，pose 一律讀快照。
+
+### 3. 變更內容
+* `FootIKRuntimeData` **更名 `FootIKTargetData`**（Target/Pose 對稱命名；純 C# 類無資產引用，改名零風險）；新增 `FootIKPoseData`（動畫原始 goal ×2 腳＋avatar `FeetBottomHeight` ×2＋`IsWarm` 初始化標記）。
+* `FootIKRig`：OnAnimatorIK 開頭寫快照（`GetIKPosition/GetIKRotation`＋`left/rightFeetBottomHeight`）→ 再套用 TargetData；`Bind(targetData, poseData)` 雙注入。
+* `FootIKController`：pose 輸入全面改讀快照（raycast 起點／旋轉基準／權重高度）；**刪除手填 `footHeight` 欄位**改用 avatar 內建 `FeetBottomHeight`（Review 發現的「手抄 vs 讀真相」同型病，比照 v0.16.2 moveSpeed 教訓）；Awake 不再觸碰 Animator（Humanoid 驗證依賴 `AnimancerFacade.ValidateHierarchy` 既有 Fail-Fast，不重複）。
+* 測試：`FootIKTests` 8 條純函數簽名未變，零改動、應維持全綠（總數 42 不變）。
+* 文件：dev-spec §3.5 雙管道圖＋職責表四列＋§3.5.2「反饋禁令」＋v0.18.1；design-doc §4.6 Adapter 定義＋Trade-off 列升級＋§9；**ADR-001 §5 機械性補記**（Presentation Adapter 兌現紀錄——依 Immutable 原則以 cross-reference 補記處理，不動決策內容）。
+
+### 4. 反思（Why）
+* **「唯讀採樣」不等於「無副作用輸入」**：初版自認骨骼讀取無害（讀不是寫），忽略了讀到的值是**自己上一幀的輸出**——反饋迴路不需要寫入權，只需要一條把輸出接回輸入的路。判斷資料流健康，看的是「值的來源鏈」，不是存取修飾詞。
+* **時間點就是架構**：`GetIK*` 只在 OnAnimatorIK 期間有效＝「動畫原始 pose」這種資料**天生只存在於特定時間窗**。與其讓 Controller 穿越到那個時間點（做不到），不如讓在場的 Rig 把資料帶出來——Adapter 的「出」方向不是妥協，是對 Unity 執行模型的誠實建模。
+
+---
+
 ## [v0.18] - M3 Foot IK：Presentation Pipeline 第二個 Controller（2026-07-18）
 
 > Foot IK＋Pelvis Compensation 一體落地。Presentation Pipeline 骨架的**首次回收驗證**：Runner／MotionDriver／黑板 schema 零改動。⚠️ 程式碼未經 Unity 編譯；Rig 掛載與測試地形屬 Unity 人工作業（見 §4）。
