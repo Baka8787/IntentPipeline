@@ -17,6 +17,12 @@
 
 ## 待使用者作業（M3 收尾）
 
+**🔬 A/B 進行中（v0.18.7 候選）：旋轉公式「軸對齊壓平」 vs 基線「保留俯仰」**
+- 改動：`ResolveFoot` 一行——`FromToRotation(poseUp, n) × poseRot`（腳底主動壓平）取代 `FromToRotation(worldUp, n) × poseRot`（保留動畫俯仰）。對照組＝git 基線（M3.5）。
+- [ ] Play 對照重點：**階梯踏面上腳底板應水平**（遺留歪斜的直接驗證點）；平地站立／走動腳部自然（壓平只在權重 1 時生效、踩地相腳本來近平，預期損失極小）；斜坡貼合不退步；抬放腳過渡無異常
+- [ ] 裁決：採用 → 收案入 changelog v0.18.7；不採 → `git checkout` 回基線並記錄結論
+- （已 push ✅ 2026-07-18：M3.5 基線入版控——Foot IK 第一個乾淨版控錨點）
+
 **M3.5 最終形（v0.18.6，字面回歸 M3.1）——push 前 checklist**：
 - [ ] 重編 0 error＋EditMode 測試 **42 條**全綠（實驗純函數 7 條已隨機制移除）
 - [ ] Inspector：Settings 剩 8 個參數（實驗參數與 Enable* flag 已刪，Unity 忽略孤兒序列化值）；確認 `GroundLayers` 含地形 Layer
@@ -43,9 +49,10 @@
 ## Backlog / Future Work（超出目前範圍，不動手）
 
 ### Foot IK 品質路線圖（M3.5 定調：單點＋權重補丁已到天花板，升級＝輸入資訊量）
-- **首查項（下一輪 IK 起點）**：階梯腳踝歪斜（踏面中央亦現、與 M3.2+ 機制無關）→ 驗證 `GetIKRotation/GetIKPosition` 在 Animancer（Playables）下的值域正確性（OnAnimatorIK 內比對 goal 與骨骼當幀動畫旋轉）
-- **M4+**：Heel＋Toe 雙點採樣（邊緣高低面裁定＋腳掌 pitch）、CapsuleCast（體積採樣）、Foot Contact 狀態機（plant/lift 事件，兼 Footstep 音源）
+- **首查項（下一輪 IK 起點，2026-07-18 參考碼對照後更新）**：階梯腳踝歪斜（踏面中央亦現、M3.1 即存在）→ 最可能根因＝**旋轉公式語義**：現行 `FromToRotation(worldUp, normal) × poseRot` **保留動畫腳踝俯仰**（locomotion 混合姿勢腳踝幾乎恆帶微俯仰，階梯上與水平踏沿對比即「腳底板斜」；踏面中央 normal=up 時=動畫原樣，歪照舊）；候選修正＝**軸對齊式**（`AngleAxis(Angle(poseUp→normal), Cross(poseUp, normal)) × poseRot`＝把腳底主動壓平貼地，參考碼驗證形態）。一個公式替換、零架構變更，A/B 後裁決。~~原假說 GetIK* 值域~~（參考碼佐證用法正常，降級）
+- **M4+**：Heel＋Toe 雙點採樣（邊緣高低面裁定＋腳掌 pitch）、CapsuleCast（體積採樣；參考形態＝沿腳踝 −localUp 方向 CapsuleCast 檢測近距離接觸當權重）、Foot Contact 狀態機（plant/lift 事件，兼 Footstep 音源）、骨盆模型重評（參考形態＝`bodyY − (minFootGoalY + legHeight)` 以腿長可達性直接建模，取代地面差代理）
 - **實驗歸檔**（程式碼已清除，復刻看 changelog v0.18.2~v0.18.6）：fade 族＝半 IK 常態化（棄）；Slope Gate＝邊緣震盪源（棄）；濾波＝離散選擇連續化（棄）；Reach Clamp＝方向正確但距離比模型在骨盆下沉時誤傷（未來以膝角度模型重評）
+- ⚠️ 參考碼防搬運註記：其 raycast 從骨骼現值起打＝反饋污染（我們 M3.1 修掉的抽搐根因，快照 goal 起點勿退）；其 body 直接覆寫不適用（我們疊加式）；其漏設 RotationWeight 屬原 bug
 
 ### 使用者明定 Future Work（M3 裁決重申：需要時一律 TODO，不得提前實作）
 - **Foot Phase Curve**（烘焙腳相曲線；等 Footstep／Audio 輪一併評估 Mixer 混合取值）

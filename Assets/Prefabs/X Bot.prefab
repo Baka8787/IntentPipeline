@@ -1372,6 +1372,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 349e1277189e8804690313782162819f, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.IK.FootIKRig
+  debugLogGoals: 1
 --- !u!1 &4390653944297962729
 GameObject:
   m_ObjectHideFlags: 0
@@ -2442,25 +2443,13 @@ MonoBehaviour:
     GroundLayers:
       serializedVersion: 2
       m_Bits: 4294967295
-    RaycastUpOffset: 0.5
-    RaycastDistance: 1.1
-    MaxGroundAngle: 45
-    NormalFilterSpeed: 12
-    TargetFilterSpeed: 3
+    RaycastUpOffset: 0.25
+    RaycastDistance: 0.85
     FootGroundedHeightMin: 0.08
     FootGroundedHeightMax: 0.25
     WeightSmoothSpeed: 8
-    IKFadeStart: 0.35
-    IKFadeEnd: 0.6
-    MaxFootHeightDifference: 0.6
-    ReachRatio: 1
     MaxPelvisOffset: 0.35
     PelvisSmoothSpeed: 5
-    EnableHeightFade: 0
-    EnableDifferenceFade: 0
-    EnableSlopeGate: 0
-    EnableNormalFilter: 0
-    EnableTargetFilter: 0
 --- !u!1 &7481699873517314820
 GameObject:
   m_ObjectHideFlags: 0
