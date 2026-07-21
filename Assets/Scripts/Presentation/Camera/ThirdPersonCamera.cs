@@ -20,6 +20,14 @@ namespace Project.Presentation.CameraControl
 
         private void Start()
         {
+            // Fail-Fast（比照 FootIKController／AnimancerFacade 既有防線）：target 未指派時鏡頭會靜默不跟隨，
+            // 一次性報錯把「為什麼不動」直接指出來，取代先前的靜默 return（LateUpdate 仍安全跳出，不噴例外）。
+            if (target == null)
+            {
+                Debug.LogError($"[{name}] ThirdPersonCamera.target 未指派——鏡頭不會跟隨角色。" +
+                    "請在 Inspector 將角色 Root（掛 CharacterPipelineRunner 的物件，非 Model 子物件）拖入 Target 欄位。", this);
+            }
+
             // 隱藏並鎖定滑鼠指標
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;

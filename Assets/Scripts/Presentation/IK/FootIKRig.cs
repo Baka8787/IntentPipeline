@@ -19,12 +19,6 @@ namespace Project.Presentation.IK
     [RequireComponent(typeof(Animator))]
     public class FootIKRig : MonoBehaviour
     {
-#if UNITY_EDITOR
-        [Tooltip("🔬 臨時診斷（確診後移除）：每 30 幀輸出左腳的 goal 讀值 vs 骨骼動畫值 vs 上幀寫入值，" +
-                 "用於確診「Playables 下 GetIKRotation 是否回傳 goal 緩衝（=我們上幀 Set 的值）而非動畫姿勢」。")]
-        [SerializeField] private bool debugLogGoals = false;
-#endif
-
         private Animator _animator;
         private FootIKTargetData _targetData;
         private FootIKPoseData _poseData;
@@ -47,23 +41,6 @@ namespace Project.Presentation.IK
         private void OnAnimatorIK(int layerIndex)
         {
             if (_targetData == null || _poseData == null) return; // 未綁定（缺 Controller）時安全靜默——防禦線
-
-#if UNITY_EDITOR
-            // 🔬 臨時診斷段（與玩法零互動，確診後整段移除）
-            if (debugLogGoals && Time.frameCount % 30 == 0)
-            {
-                Transform footBone = _animator.GetBoneTransform(HumanBodyBones.LeftFoot);
-                Quaternion goalRot = _animator.GetIKRotation(AvatarIKGoal.LeftFoot);
-                Vector3 goalPos = _animator.GetIKPosition(AvatarIKGoal.LeftFoot);
-                float rotVsLastSet = Quaternion.Angle(goalRot, _targetData.LeftFootRotation);
-                float rotVsBone = footBone != null ? Quaternion.Angle(goalRot, footBone.rotation) : -1f;
-                float posVsBone = footBone != null ? Vector3.Distance(goalPos, footBone.position) : -1f;
-                Debug.Log($"[FootIK 診斷] L goalRot={goalRot.eulerAngles:F1}\n" +
-                          $"  vs 上幀Set夾角={rotVsLastSet:F2}°（≈0 恆定＝goal 緩衝反饋確診）\n" +
-                          $"  vs 骨骼旋轉夾角={rotVsBone:F1}°（恆定值＝軸差；隨動作變＝goal 有跟動畫）\n" +
-                          $"  goalPos={goalPos:F3} vs 骨骼距離={posVsBone:F3}m｜權重={_targetData.LeftFootPositionWeight:F2}");
-            }
-#endif
 
             // === 出：Pose 快照（必須在套用 IK 之前讀——此刻 GetIK* 回傳該幀動畫原始 goal，未被 IK 改寫）===
             _poseData.LeftFootPosition = _animator.GetIKPosition(AvatarIKGoal.LeftFoot);

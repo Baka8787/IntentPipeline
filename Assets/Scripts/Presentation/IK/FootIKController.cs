@@ -143,14 +143,12 @@ namespace Project.Presentation.IK
                 // 同樣垂直於斜面——沿 up 抬會使前腳掌在斜坡上幾何性插入坡面。
                 targetPosition = sample.HitPoint + sample.Normal * footBottomHeight;
 
-                // 🆕（v0.18.7 A/B）軸對齊式：把「腳踝自身的 up 軸」轉到地面法線＝腳底主動壓平貼地。
-                // 原式 FromToRotation(worldUp, n) × poseRot 會**保留動畫腳踝的微俯仰**（locomotion 混合
-                // 姿勢腳踝幾乎恆帶俯仰）——階梯上與水平踏沿對比即「腳底板斜」（M3.1 起的遺留歪斜根因）。
-                // 軸對齊沿 Cross(poseUp, n) 最短弧旋轉：yaw（繞法線的腳尖朝向）不受擾、只壓平 pitch/roll；
-                // 退化（poseUp ∥ n）由 FromToRotation 內建處理。基準仍是動畫原始 goal 旋轉——無反饋、不累積。
-                // A/B 對照組＝git 基線（M3.5，保留俯仰式）。
-                Vector3 poseUp = poseRotation * Vector3.up;
-                targetRotation = Quaternion.FromToRotation(poseUp, sample.Normal) * poseRotation;
+                // 腳掌對齊地面法線；基準是動畫原始 goal 旋轉（非骨骼現值）——無反饋、不累積。
+                // 保留俯仰式（v1 凍結基線）：FromToRotation(worldUp, n) 只把世界 up 轉到法線，
+                // 動畫腳踝自身的俯仰／roll 原樣保留——契合設計哲學「腳踝自由旋轉、不強制壓平」（design-doc §4.6）。
+                // A/B 歸檔（v0.18.7）：軸對齊式（FromToRotation(poseUp, n)＝主動壓平腳底）實測與本式無感差
+                // （踩地相動畫俯仰本就小、平地夾角 ~2°），依哲學回歸本式、軸對齊式棄用（見 changelog v0.18.7／roadmap L6）。
+                targetRotation = Quaternion.FromToRotation(Vector3.up, sample.Normal) * poseRotation;
 
                 // 單因子權重＝Pose Heuristic（二態系統：窄帶外恆 0 或 1，腳不是全 IK 就是全動畫）。
                 goalWeight = ComputeFootWeight(posePosition.y - rootY, settings.FootGroundedHeightMin, settings.FootGroundedHeightMax);

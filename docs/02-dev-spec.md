@@ -738,6 +738,7 @@ public class PresentationPipeline
 > 定位：第二個 `IPresentationController` 實例（Presentation Pipeline 骨架的首次回收驗證，Runner 零改動）。
 > IK Solver 採 **Unity 內建 Humanoid IK**（M3 裁決 Q1：專案重點是 Character Architecture、不是 IK Solver）。
 > 範圍＝腳部貼合＋骨盆補償（Q2，一體不拆）。
+> 🔒 **v1 凍結（2026-07-21，收案輪；roadmap `docs/03` §1）**：架構層全部健康、剩餘問題全屬「已知限制」（§3.5.2 L1~L6，各有不改架構的升級路徑），品質升級改由整體 Animation Runtime Roadmap 承載、不再單點深挖。**設計哲學**（使用者裁決，全文 design-doc §4.6）：**Natural Pose > Terrain Adaptation > Perfect Foot Contact**——禁再加 Fade／Gate／權重修正修穿模，貼地改善走 Ground Sampling 升級（Heel/Toe 雙點、CapsuleCast）。**旋轉公式定形**：`FromToRotation(worldUp, hit.normal) × poseRot`（保留俯仰式，動畫腳踝俯仰原樣保留；A/B 軸對齊式「主動壓平」實測無感差已歸檔，changelog v0.18.7）。
 
 #### 3.5.1 資料流（🆕 M3.1：雙管道、各自單寫單讀）
 
@@ -774,7 +775,7 @@ FootIKController ────寫──→ FootIKTargetData ────讀──
 * **Q4（Roll／Jump）**：不特判狀態——空中 `IsGrounded=false` 自然關閉；Roll 中腳部蜷起由 pose 權重自然降低。`BlockIK` 讀取契約先行（writer 到 ArbiterPipeline 接入才存在）。實測若 Roll 吸地明顯，回 Arbiter Pipeline 解決（Future Work）。
 * **零 GC**：RuntimeData 一次配置；`Physics.Raycast`（單一命中 out 版）無堆配置；熱路徑無 `new`。
 
-#### 3.5.2 已知限制（時序）
+#### 3.5.2 已知限制（時序＋v1 凍結清單）
 
 * Animator IK 與 Animancer（Playables）的時序：`OnAnimatorIK` 發生於 **Animator 評估流程**（PlayerLoop 中早於 LateUpdate）。
 * Presentation Pipeline 更新於 **LateUpdate**（順序 6.5，MotionDriver 之後——Pose 快照為本幀新鮮值、膠囊位置為移動後值）。
@@ -784,10 +785,23 @@ FootIKController ────寫──→ FootIKTargetData ────讀──
 * 權重平滑（`weightSmoothSpeed`）可降低視覺影響；站立／慢速移動下不可察覺。
 * 腳部 IK 目標位置不做平滑（由 raycast 空間連續性保證）；台階邊緣的目標跳變由權重平滑吸收，若不足屬 tuning 範疇。
 
+**v1 凍結已知限制（L1~L6，roadmap §1.3 快照落地本 Living Doc；可接受、升級路徑均不改架構）**：
+
+| # | 症狀 | 根因 | 歸類 | 升級路徑（不改架構） |
+| --- | --- | --- | --- | --- |
+| L1 | 階梯上腳掌中段穿入上一階 | 單點採樣資訊量天花板：ray 只打腳踝下方，腳掌前段（~25cm）跨入上一階體積系統無從得知 | 已知限制 | Heel/Toe 雙點採樣（輪 7）：僅動 `SampleGround`／`ResolveFoot` 內部＋Settings，雙管道／Ownership 全不動 |
+| L2 | toe-off 蹬地相腳尖少量穿模 | 動畫原生腳尖下壓 | 設計接受（哲學 P1 > P5） | 不修 |
+| L3 | 左右腳高差 > `MaxPelvisOffset` 時低腳懸空 | 骨盆補償夾限的設計極限 | 已知限制 | 骨盆模型重評（腿長可達性直接建模，輪 7 選項） |
+| L4 | IK 結果一幀延遲 | Humanoid IK 快照架構本質（本節上方時序段） | 已知限制 | 無需處理（60fps 不可察） |
+| L5 | 腳貼近階梯立面時 ray 誤中上一階頂（「憑空踩半階」） | raycast origin 幾何（`RaycastUpOffset` 高於台階） | tuning 域 | 乾淨 collider 基線上調參（`RaycastUpOffset`／`RaycastDistance`），非程式碼問題 |
+| L6 | A/B 旋轉公式（軸對齊 vs 保留俯仰）實測無感差 | 踩地相動畫俯仰本就小（平地夾角 ~2°） | 收案項（已結） | 依哲學回歸保留俯仰式，軸對齊式歸檔（changelog v0.18.7） |
+
+> 灰色地帶（架構乾淨、觀感有天花板，記錄非缺陷）：IK 是純視覺層，`CharacterController` 膠囊高度不隨骨盆補償變動——階梯邊緣站姿的懸浮感上限由「膠囊幾何 × `MaxPelvisOffset`」共同決定，屬兩系統邊界已定義下的固有天花板。
+
 #### 3.5.3 Future Work（M3 裁決明定不得提前實作，需要時一律 TODO）
 
 **Foot IK 品質路線圖（M3.5 定調：單點＋權重補丁已到天花板，升級＝輸入資訊量）**：
-* **首查項（下一輪 IK 工作的起點）**：階梯腳踝歪斜（踏面中央亦現、與 M3.2+ 機制無關）——驗證 `GetIKRotation/GetIKPosition` 在 Animancer（Playables）下的值域正確性（驗法：OnAnimatorIK 內比對 goal rotation 與骨骼當幀動畫旋轉）。
+* **~~首查項：GetIK* 值域~~ → 已否證（v0.18.7 收案）**：M3 交付時標註的唯一外部 API 風險——「`GetIKRotation/GetIKPosition` 在 Animancer（Playables）下值域是否正確」——經 2026-07-18 `debugLogGoals` 診斷數據排除（goal 位置與骨骼距離 ≈ 0.002m、旋轉健康、與上幀 Set 值非恆等）。**GetIK* 值域正常。** 長期被歸為此首查項的樓梯腳踝歪斜，真凶＝**樓梯 collider 整面是斜坡**（環境資料錯誤，非演算法／API 缺陷；collider 修正後消失，見 changelog v0.18.7）。殘餘的跨階腳掌穿模已改歸 §3.5.2 **L1**（單點採樣資訊量天花板，升級＝輪 7 Heel/Toe 雙點採樣）。
 * **M4+ 品質升級**：Heel＋Toe 雙點採樣（邊緣高低面裁定＋腳掌 pitch 貼合）、CapsuleCast（體積採樣取代線採樣）、Foot Contact 狀態機（plant/lift 事件，兼 Footstep 音源）、Foot Phase Curve（烘焙腳相，等 Footstep／Audio 輪一併評估 Mixer 混合取值）。
 * **實驗歸檔（M3.2~M3.5 結論，程式碼已移除、復刻看 changelog v0.18.2~v0.18.6）**：fade 族＝半 IK 常態化（棄）；Slope Gate＝邊緣震盪源且垂直 ray 打不中立面（棄）；濾波＝離散面選擇連續化（棄）；Reach Clamp＝方向正確（介入式、直接建模）但距離比模型在骨盆下沉情境誤傷，未來以膝蓋彎曲角度模型重評。
 * 其他既有 Future Work：Footstep Event、Audio Integration、`BlockIK` Writer、Mini Arbiter、Animation Rigging Package、Two-Bone IK Solver、Motion Warping、IK Hint。
@@ -1003,4 +1017,4 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | 2026-07-18 | v0.18.4 | **M3.4 方向性修正＋Edge Filter 完成（裁決 P1/P3 核可、P2 暫緩）**：①P1——單腳 Height Fade 改**僅向下探深**（v0.18.2 絕對值誤殺踩高階、抬腿能力喪失＝方向性錯誤，抬腿表現回歸）；②P3——雙腳差 Fade 改套**距 Root 平面較遠腳**（上下極限處理一致）；③Edge Filter 補完——②法線低通（Slerp，稜角毛刺濾除）＋③目標修正量平滑（偏移空間，移動零拖尾），與 v0.18.3 的 ①Slope Gate 合為單點採樣最後穩定化；④Heel＋Toe 雙點採樣列 Future Work（P2 暫緩至 M4）；Settings 新增 `NormalFilterSpeed`／`TargetFilterSpeed`，純函數簽名未變、測試維持 49 條 | Core Dev |
 | 2026-07-18 | v0.18.5 | **M3.5 Regression Recovery**：實測 regression → 分析定調（M3.1 二態權重系統被疊乘 fade 推進「半 IK」常態；Slope Gate 硬開關＝邊緣三路震盪源；法線低通把離散面選擇混成持續微斜）→ 預設行為**回退 M3.1 基線**＋保留法線抬升／`FeetBottomHeight`／**Reach Clamp 0.98 恆開**（對人體極限的直接建模：可達性＝腿長幾何，取代 fade 族的高差代理指標）；Height Fade／雙腳差 Fade／Slope Gate／Edge Filter ②③ 降為 Experimental A/B flag（`Enable*` 預設 false，不刪除）。版本語義：M3.1＝Baseline、M3.2~M3.4＝Experimental、M3.5＝Regression Recovery；未來品質路線＝Heel/Toe 雙點採樣／CapsuleCast／Foot Contact（M4+） | Core Dev |
 | 2026-07-18 | v0.18.6 | **M3.5 最終形：字面回歸 M3.1**：flag 版驗收未過（兩快篩：ReachRatio→1.0 仍歪＋踏面中央亦歪 → 排除全部 M3.5 新增項）→ 依裁決實驗機制**連同 flag 全數移除**（Controller／Settings／PoseData／Rig 四檔回 M3.1 本體＋法線抬升＋`FeetBottomHeight`；Settings 精簡為 8 參數；測試 49→42）；§3.5.3 改寫為「Foot IK 品質路線圖」（首查項＝`GetIK*` 在 Playables 的值域、M4+ 雙點採樣／CapsuleCast／Foot Contact、實驗歸檔）；階梯腳踝歪斜列**遺留未解**（極可能 M3.1 即存在） | Core Dev |
-| 2026-07-18 | v0.18.3 | **M3.3 實測校正（四根因）**：①`ReachRatio` 0.95→0.98——站立／蹬伸時髖→踝≈腿長 96~99%，過緊系統性把正常踩地目標拉離地面（貼合劣化主因）；②`MaxFootHeightDifference` 0.45→0.6——誤殺 IK 本可貼好的大階梯（低腳被關→動畫姿勢穿模）；③新增 **Slope Gate**（`MaxGroundAngle` 45°）——樓梯立面／邊緣的水平向法線不再被拿去對齊（腳背歪斜根因），語義對齊 `slopeLimit`；④目標抬升改沿 `hit.normal`（斜坡上沿 up 抬會使前腳掌插入坡面）。§3.5.4 表同步 | Core Dev |
+| 2026-07-21 | v0.18.7 | **Foot IK v1 凍結（收案輪，對應 changelog v0.18.7／roadmap `docs/03`）**：§3.5 intro 補 v1 凍結宣告＋設計哲學（Natural Pose > Terrain Adaptation > Perfect Foot Contact）＋旋轉公式定形（保留俯仰式）；§3.5.2 補已知限制表 L1~L6（roadmap §1.3 落地 Living Doc）；§3.5.3 首查項（GetIK* 值域）標記**已否證**（樓梯歪斜真凶＝斜坡 collider，殘餘跨階穿模改歸 L1 單點採樣天花板）。程式碼：`ResolveFoot` 旋轉還原保留俯仰式、`FootIKRig` 刪 `debugLogGoals`；測試 42 條不變。（順修：移除本表重複／錯置的 v0.18.3 列，內容已存 changelog 與上方 v0.18.3 列） | Core Dev |

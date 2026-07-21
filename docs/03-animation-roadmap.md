@@ -37,14 +37,14 @@
 | L5 | 腳貼近階梯立面時 ray 誤中上一階頂（「憑空踩半階」） | raycast origin 幾何（`RaycastUpOffset` 高於台階） | tuning 域 | 乾淨 collider 基線上調參（`RaycastUpOffset`／`RaycastDistance`），非程式碼問題 |
 | L6 | A/B 旋轉公式（軸對齊 vs 保留俯仰）實測無感差 | 踩地相動畫俯仰本來就小（平地夾角 ~2°） | 收案項 | 依哲學（腳踝自由旋轉、不強制壓平）回歸 git 基線「保留俯仰式」，軸對齊式歸檔 |
 
-### 1.4 凍結執行清單（收案輪待辦——本輪不執行，僅列出）
+### 1.4 凍結執行清單（✅ 程式＋文件側已於 2026-07-21 執行，見 changelog v0.18.7）
 
-1. 程式碼：還原 `ResolveFoot` 旋轉公式為 git 基線（保留俯仰式）；刪除 `FootIKRig.debugLogGoals` 臨時診斷段。
-2. `changelog.md` v0.18.7：樓梯 collider 根因（**教訓：IK 疑難先驗 collision 幾何**——28° 歪斜實為斜坡 collider 坡角）、A/B 結論、設計哲學轉向、v1 凍結宣告。
-3. `01-design-doc.md`：Foot IK 段補「設計哲學」（五優先級＋活動空間檢核問句）。
-4. `02-dev-spec.md` §3.5：補 v1 凍結狀態＋已知限制表；§3.5.3「首查項（GetIK* 值域）」標記已否證。
-5. `WORKLOG.md`：Foot IK 品質路線圖段改為指向本檔。
-6. （使用者，資產側）牆壁 collider 過胖修正；樓梯 collider 已於 2026-07-20 修正 ✅。
+1. ✅ 程式碼：還原 `ResolveFoot` 旋轉公式為 git 基線（保留俯仰式）；刪除 `FootIKRig.debugLogGoals` 臨時診斷段。
+2. ✅ `changelog.md` v0.18.7：樓梯 collider 根因（**教訓：IK 疑難先驗 collision 幾何**——28° 歪斜實為斜坡 collider 坡角）、A/B 結論、設計哲學轉向、v1 凍結宣告。
+3. ✅ `01-design-doc.md`：Foot IK 段（§4.6）補「設計哲學」（五優先級＋活動空間檢核問句）。
+4. ✅ `02-dev-spec.md` §3.5：補 v1 凍結狀態（intro）＋已知限制表 L1~L6（§3.5.2）；§3.5.3「首查項（GetIK* 值域）」標記已否證。
+5. ✅ `WORKLOG.md`：Foot IK 品質路線圖段改為指向本檔。
+6. ⏳（使用者，資產側）牆壁 collider 過胖修正；樓梯 collider 已於 2026-07-20 修正 ✅。
 
 ---
 

@@ -5,30 +5,31 @@
 
 ---
 
-## 今日進度（2026-07-18）
+## 今日進度（2026-07-21）——Foot IK v1 收案輪（輪 1）✅
+
+roadmap `docs/03-animation-roadmap.md` §1.4 收案清單執行完畢（詳 changelog v0.18.7）：
+
+1. **程式碼**：`FootIKController.ResolveFoot` 旋轉公式還原基線「保留俯仰式」（`FromToRotation(worldUp, n) × poseRot`；A/B 軸對齊式歸檔）；`FootIKRig` 刪 `debugLogGoals` 臨時診斷段。
+2. **文件同步**：changelog v0.18.7（樓梯 collider 根因／A/B 結論／設計哲學／v1 凍結宣告）；design-doc §4.6 補 Foot IK 設計哲學；dev-spec §3.5 補 v1 凍結狀態＋已知限制表 L1~L6、§3.5.3 首查項標否證、版本表補 v0.18.7（順修重複／錯置的 v0.18.3 列）。
+3. **Foot IK v1 凍結**：架構健康、6 條已知限制（L1~L6）文件化於 dev-spec §3.5.2；品質升級改由 `docs/03` roadmap 承載。主線下一步＝**輪 2 Locomotion 資產升級**（＋Foot Phase 烘焙 stage＋B9）。
+
+---
+
+## 前次進度（2026-07-18，已收案 → changelog v0.17／v0.18）
 
 三輪連發，詳見 changelog v0.17／v0.18：
 
 1. **M2 Presentation Pipeline + Landing Audio ✅ 收案**（changelog v0.17）：修復前 session 幻覺殘局 → `JustLanded` 落地（YAGNI 閘門走完）＋`PresentationPipeline` 骨架（順序 6.5）＋Audio 三層（Event→Definition→Library）；Play 實測落地音正常。附 EditMode Warning 治理（RollState/JumpState 防線 `isPlaying` 語義精確化；測試契約輸出用 LogAssert.Expect＋鬆耦合 Regex）。
 2. **M1 Locomotion ✅ 正式收案**（changelog v0.17 §5）：DoD 五項全過（0 error＋測試全綠／Play 實測／Profiler 0B／moveSpeedSource 接 Bake_Fast Run／Roll fade 資產真相驗證）。Locomotion 基線固定。
-3. **M3 Foot IK 實作輪 ✅**（changelog v0.18）＋**M3.1 反饋迴路修正 ✅**（changelog v0.18.1）：實測腳踝抽搐 → Review 定位根因（Controller 採樣骨骼＝上一幀 IK 輸出，旋轉追逐＋權重鎖死雙迴路）→ 裁決雙管道修正——`FootIKController`（Root 決策，對 Animator 零依賴）⇄ 兩條單向管道（`FootIKTargetData` Controller 寫／`FootIKPoseData` Rig 寫）⇄ `FootIKRig`（Model，**Presentation Adapter**）。手填 footHeight 改讀 avatar `FeetBottomHeight`。**⏳ 等待使用者重編＋抽搐複測**（見下方）。
+3. **M3 Foot IK 實作輪 ✅**（changelog v0.18）＋**M3.1 反饋迴路修正 ✅**（changelog v0.18.1）：實測腳踝抽搐 → Review 定位根因（Controller 採樣骨骼＝上一幀 IK 輸出，旋轉追逐＋權重鎖死雙迴路）→ 裁決雙管道修正——`FootIKController`（Root 決策，對 Animator 零依賴）⇄ 兩條單向管道（`FootIKTargetData` Controller 寫／`FootIKPoseData` Rig 寫）⇄ `FootIKRig`（Model，**Presentation Adapter**）。手填 footHeight 改讀 avatar `FeetBottomHeight`。抽搐複測通過、M3.5 基線已 push（2026-07-18）；**v1 已於 2026-07-21 凍結**（見頂部收案輪）。
 
 ---
 
-## 待使用者作業（M3 收尾）
+## 待使用者作業
 
-**🔬 A/B 進行中（v0.18.7 候選）：旋轉公式「軸對齊壓平」 vs 基線「保留俯仰」**
-- 改動：`ResolveFoot` 一行——`FromToRotation(poseUp, n) × poseRot`（腳底主動壓平）取代 `FromToRotation(worldUp, n) × poseRot`（保留動畫俯仰）。對照組＝git 基線（M3.5）。
-- [ ] Play 對照重點：**階梯踏面上腳底板應水平**（遺留歪斜的直接驗證點）；平地站立／走動腳部自然（壓平只在權重 1 時生效、踩地相腳本來近平，預期損失極小）；斜坡貼合不退步；抬放腳過渡無異常
-- [ ] 裁決：採用 → 收案入 changelog v0.18.7；不採 → `git checkout` 回基線並記錄結論
-- （已 push ✅ 2026-07-18：M3.5 基線入版控——Foot IK 第一個乾淨版控錨點）
-
-**M3.5 最終形（v0.18.6，字面回歸 M3.1）——push 前 checklist**：
-- [ ] 重編 0 error＋EditMode 測試 **42 條**全綠（實驗純函數 7 條已隨機制移除）
-- [ ] Inspector：Settings 剩 8 個參數（實驗參數與 Enable* flag 已刪，Unity 忽略孤兒序列化值）；確認 `GroundLayers` 含地形 Layer
-- [ ] Play smoke test：平地／斜坡／樓梯行為＝M3.1（含大階梯抬腿）；**階梯腳踝歪斜為已知遺留**（極可能 M3.1 即存在，非 regression，不阻擋 push——首查項見下方路線圖）
-- [ ] 上述綠燈後 **push to GitHub**（Git 由你操作）：這是 Foot IK 的第一個乾淨版控基線，未來所有對比以它為錨
-- [ ] （遺留）CapsuleFitter Apply Prefab 確認；floor Scale Z 若尚未翻正順手改（-25.153 → +25.153）
+- **重編確認**：Unity 重編 0 error＋EditMode 測試 **42 條**全綠。收案輪程式改動＝旋轉公式一行還原＋刪 Editor-only 診斷段，不涉純函數／測試契約。
+- **孤兒序列化值**（無害，Unity 靜默忽略）：`X Bot.prefab` 殘留 `debugLogGoals` 序列化值——同 v0.18.6 移除 `Enable*` flag 的既定情形，可在 Inspector 順手清、不清亦無影響。
+- **資產側**（AI 不碰，SOP 由你在 Editor 執行）：牆壁 collider 過胖修正（身體碰不到牆）；CapsuleFitter Apply Prefab 確認；floor Scale Z 翻正（-25.153 → +25.153）若未做。**樓梯 collider 已修 ✅**。
 
 ---
 
@@ -39,20 +40,23 @@
 - [x] M3 Foot IK：3 新檔＋Facade IK 通道＋`FootIKTests` 8 條＋Living Docs v0.18
 
 ### Doing
-（無——等 M3 Unity 驗收）
+- [ ] **輪 2 資產盤點文件已產出 → `docs/04-locomotion-foundation.md`**（Kubold Movement Animset Pro：Catalog／Import Preset／Bake Strategy／Motion Feature Mapping／承載分析／工作拆分）。**等使用者核可 §8 五點方向後進 Phase A**（承載方式依實測定案，不預先拍板）。
+- [ ] **鏡頭修復**：程式加了 Fail-Fast（target null 報錯）；**待使用者在場景**把角色 Root 拖入 Main Camera 的 `Third Person Camera.Target`，並把 `Mouse Sensitivity` 2→0.1。Cinemachine 為未來打磨選項（已裝 2.10.7），非本輪必要。
 
-### Todo
-（驗收後排定下一輪；建議順序見文末）
+### Todo（輪 2，依 `docs/04` §7 拆分；核可後啟動）
+- [ ] Phase A 地基＋loops：Import Preset（Idle→原地／Walk/Run/Sprint loop→位移）＋建 loops MotionBakeData 烘焙＋擴充 Mixer 至 Idle/Walk/Run/Sprint＋Facade 映射
+- [ ] Phase B Foot Phase Curve 烘焙 stage（連續腳相，供選腳別）
+- [ ] Phase C Starts/Stops/Turns 導入（烘焙曲線驅動＝Roll 先例）＋**承載方式實測定案**
+- [ ] Phase D B9 參數平滑（資產定形後）
 
 ---
 
 ## Backlog / Future Work（超出目前範圍，不動手）
 
-### Foot IK 品質路線圖（M3.5 定調：單點＋權重補丁已到天花板，升級＝輸入資訊量）
-- **首查項（下一輪 IK 起點，2026-07-18 參考碼對照後更新）**：階梯腳踝歪斜（踏面中央亦現、M3.1 即存在）→ 最可能根因＝**旋轉公式語義**：現行 `FromToRotation(worldUp, normal) × poseRot` **保留動畫腳踝俯仰**（locomotion 混合姿勢腳踝幾乎恆帶微俯仰，階梯上與水平踏沿對比即「腳底板斜」；踏面中央 normal=up 時=動畫原樣，歪照舊）；候選修正＝**軸對齊式**（`AngleAxis(Angle(poseUp→normal), Cross(poseUp, normal)) × poseRot`＝把腳底主動壓平貼地，參考碼驗證形態）。一個公式替換、零架構變更，A/B 後裁決。~~原假說 GetIK* 值域~~（參考碼佐證用法正常，降級）
-- **M4+**：Heel＋Toe 雙點採樣（邊緣高低面裁定＋腳掌 pitch）、CapsuleCast（體積採樣；參考形態＝沿腳踝 −localUp 方向 CapsuleCast 檢測近距離接觸當權重）、Foot Contact 狀態機（plant/lift 事件，兼 Footstep 音源）、骨盆模型重評（參考形態＝`bodyY − (minFootGoalY + legHeight)` 以腿長可達性直接建模，取代地面差代理）
-- **實驗歸檔**（程式碼已清除，復刻看 changelog v0.18.2~v0.18.6）：fade 族＝半 IK 常態化（棄）；Slope Gate＝邊緣震盪源（棄）；濾波＝離散選擇連續化（棄）；Reach Clamp＝方向正確但距離比模型在骨盆下沉時誤傷（未來以膝角度模型重評）
-- ⚠️ 參考碼防搬運註記：其 raycast 從骨骼現值起打＝反饋污染（我們 M3.1 修掉的抽搐根因，快照 goal 起點勿退）；其 body 直接覆寫不適用（我們疊加式）；其漏設 RotationWeight 屬原 bug
+### Foot IK 品質路線圖 → 已凍結並移交 `docs/03-animation-roadmap.md`
+- **v1 已凍結（收案輪，2026-07-21）**：架構健康＋6 條已知限制（L1~L6）文件化於 dev-spec §3.5.2；品質升級順序、技術分類、依賴關係全數移交 roadmap `docs/03`（輪 2 Locomotion 資產 → … → 輪 7 Foot IK v2 雙點採樣）。
+- **~~首查項 GetIK* 值域~~ 已否證**：樓梯歪斜真凶＝斜坡 collider（環境資料錯誤，collider 修正後消失）；殘餘跨階腳掌穿模＝L1 單點採樣資訊量天花板，升級＝輪 7 Heel/Toe 雙點採樣。A/B 旋轉公式無感差、已回歸保留俯仰式（changelog v0.18.7）。
+- ⚠️ 參考碼防搬運註記（仍有效，動 IK 前重讀）：其 raycast 從骨骼現值起打＝反饋污染（我們 M3.1 修掉的抽搐根因，快照 goal 起點勿退）；其 body 直接覆寫不適用（我們疊加式）；其漏設 RotationWeight 屬原 bug。骨盆模型重評（`bodyY − (minFootGoalY + legHeight)` 以腿長可達性直接建模）併輪 7 評估。
 
 ### 使用者明定 Future Work（M3 裁決重申：需要時一律 TODO，不得提前實作）
 - **Foot Phase Curve**（烘焙腳相曲線；等 Footstep／Audio 輪一併評估 Mixer 混合取值）
@@ -77,9 +81,9 @@
 
 ---
 
-## 建議下一步（M3 驗收後）
+## 建議下一步 → 權威輪次順序見 `docs/03-animation-roadmap.md` §3
 
-- **M4 購入 locomotion 資產**（Movement Animset Pro 級別）→ 左/右腳停步、pivot、方向性起步＋foot-phase 資料設計（烘焙管線加 analyzer 即可）
-- **M5 Combat 初版（ARPG）**→ 產生 Hit/Death 等真正需要「封鎖」的狀態
-- **M6 ArbiterPipeline**（順序 4.5 兌現；BlockIK/BlockAudio writer 到位、§7/§8.3 旗標粒度屆時有真實案例可答）
+- **輪 2（＝既定 M4）購入 locomotion 資產**（Movement Animset Pro 級別）→ 左/右腳停步、pivot、方向性起步＋foot-phase 資料設計（烘焙管線加 analyzer 即可）；一併做 Foot Phase 烘焙 stage 與 B9 參數平滑（資產定形後）
+- **輪 4 ArbiterPipeline**（順序 4.5 兌現；BlockIK/BlockAudio writer 到位、§7/§8.3 旗標粒度屆時有真實案例可答）→ Combat 前置
+- **輪 6（＝既定 M5）Combat 初版（ARPG）**→ 產生 Hit/Death 等真正需要「封鎖」的狀態（前置：輪 4 Arbiter＋輪 5 Upper Body Layer）
 - 表情模組：暫緩（X Bot 無臉部 rig）
