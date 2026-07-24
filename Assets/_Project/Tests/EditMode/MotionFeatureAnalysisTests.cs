@@ -300,5 +300,41 @@ namespace Project.Tests.EditMode
             Assert.DoesNotThrow(() => stage.Run(null, target), "context 為 null 時應安全略過");
             Assert.DoesNotThrow(() => stage.Run(context, null), "target 為 null 時應安全略過");
         }
+
+        // === Foot Phase Curve 分析器（🆕）：連續腳相曲線（值 = 左腳Y − 右腳Y；<0 左觸地、>0 右觸地）===
+
+        private static MotionFeatureSample Feet(float time, float leftY, float rightY)
+            => new MotionFeatureSample(time, 0f, leftY, rightY);
+
+        private MotionBakeData RunFootPhase(List<MotionFeatureSample> samples)
+        {
+            var target = ScriptableObject.CreateInstance<MotionBakeData>();
+            _created.Add(target);
+            var context = new MotionFeatureContext(samples, samples.Count * 0.1f, Threshold, LeftBaseline, RightBaseline);
+            new FootPhaseCurveAnalyzer().Analyze(context, target);
+            return target;
+        }
+
+        [Test]
+        public void FootPhaseCurve_BuildsSignedLeftMinusRightPerFrame()
+        {
+            var result = RunFootPhase(new List<MotionFeatureSample>
+            {
+                Feet(0.0f, 0.05f, 0.30f), // 左腳較低 → 值 = 左−右 = −0.25（左觸地）
+                Feet(0.1f, 0.30f, 0.05f), // 右腳較低 → 值 = +0.25（右觸地）
+            });
+
+            Assert.IsNotNull(result.FootPhaseCurve);
+            Assert.AreEqual(2, result.FootPhaseCurve.length);
+            Assert.AreEqual(-0.25f, result.FootPhaseCurve.Evaluate(0.0f), 1e-4f, "左腳較低 → 曲線值 < 0（LeftFootDown）");
+            Assert.AreEqual(0.25f, result.FootPhaseCurve.Evaluate(0.1f), 1e-4f, "右腳較低 → 曲線值 > 0（RightFootDown）");
+        }
+
+        [Test]
+        public void FootPhaseCurve_EmptySamples_LeavesCurveNull()
+        {
+            var result = RunFootPhase(new List<MotionFeatureSample>());
+            Assert.IsNull(result.FootPhaseCurve, "無採樣 → 安全預設 null，不拋例外");
+        }
     }
 }

@@ -79,5 +79,31 @@ namespace Project.Tests.EditMode
             var bake = NewBake();                          // 皆為預設：欄位 0、曲線 null
             Assert.AreEqual(0f, bake.GetRepresentativeSpeed());
         }
+
+        // === GetFootPhaseAt（🆕）：連續腳相查詢；曲線缺退回單點 EndPhase ===
+
+        [Test]
+        public void GetFootPhaseAt_NegativeCurveValue_ReturnsLeftFootDown()
+        {
+            var bake = NewBake();
+            bake.FootPhaseCurve = Curve(-0.2f, -0.1f); // 全負 → 左腳觸地
+            Assert.AreEqual(FootPhase.LeftFootDown, bake.GetFootPhaseAt(0f));
+        }
+
+        [Test]
+        public void GetFootPhaseAt_PositiveCurveValue_ReturnsRightFootDown()
+        {
+            var bake = NewBake();
+            bake.FootPhaseCurve = Curve(0.2f, 0.1f); // 全正 → 右腳觸地
+            Assert.AreEqual(FootPhase.RightFootDown, bake.GetFootPhaseAt(0f));
+        }
+
+        [Test]
+        public void GetFootPhaseAt_NoCurve_FallsBackToEndPhase()
+        {
+            var bake = NewBake();                     // FootPhaseCurve = null（未重烘焙的舊資產）
+            bake.EndPhase = FootPhase.RightFootDown;
+            Assert.AreEqual(FootPhase.RightFootDown, bake.GetFootPhaseAt(0.5f), "曲線缺 → 退回單點 EndPhase");
+        }
     }
 }

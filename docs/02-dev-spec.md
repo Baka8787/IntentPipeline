@@ -100,7 +100,7 @@ CharacterRoot                          <- 邏輯/物理權威層，外部一律�
 
 **規則**：
 0. **AnimationClip 預設不可變（immutable by default），FBX 子 clip 為唯一預設真相來源（2026-07-17 定調，CLAUDE.md 同步收錄）**：所有引用端（`TransitionAsset`、`MotionBakeData.SourceClip`…）一律直接引用 FBX 內的子 clip；匯入設定變更經 SOP 工具落在 FBX 上、立即傳播到執行期，不存在快照過期問題。**禁止以 Ctrl+D 重萃取 `.anim` 作為一般流程**（歷史教訓：v0.15 preset 只落在 FBX、執行期 `.anim` 快照未同步而分岔，2026-07-17 盤點發現五支快照三支過期＋一次 GUID 更替斷引用）。一般調整（數值、Mixer、Transition、播放速度、`MotionDriver` 參數）一律在 Data／Presentation 層解決；僅當需要**修改動畫內容本身**（Animation Event、加曲線、改 keyframe、Import Setting 無法達成的特殊 Variant）才允許建立獨立 AnimationClip，且必須註明建立原因。
-1. 新增動畫後，一律以 Project 視窗右鍵 `Project 動畫匯入 SOP` 套用對應 preset（工具經 `ModelImporter.defaultClipAnimations` 覆寫，take 名稱/影格範圍由 Unity 填入，`X Bot@動作名` 慣例使子 clip 自動獲得 @ 後的名稱；禁止手改 `.meta`）。該 clip 若有烘焙資產，套用後**必須重烘焙**。
+1. 新增動畫後，一律以 Project 視窗右鍵 `Project 動畫匯入 SOP` 套用對應 preset（工具經 `ModelImporter.defaultClipAnimations` 覆寫，take 名稱/影格範圍由 Unity 填入，`X Bot@動作名` 慣例使子 clip 自動獲得 @ 後的名稱；禁止手改 `.meta`）。該 clip 若有烘焙資產，套用後**必須重烘焙**。**套用粒度（🆕 per-clip）**：選 FBX 本體＝整檔套用（單 clip FBX 用）；**選個別 AnimationClip 子資產＝只套那幾支、不碰同 FBX 其他 clip**——一支 FBX 內含多類型 clip（如 Kubold Movement Animset Pro）時務必用子 clip 選取，避免單一 preset 誤灌整檔。
 2. **Jump 家族的 Y Based Upon＝Feet 是關鍵設定**：Y 的 Based Upon 是「全程連續追蹤」（非 XZ/Rotation 的僅起始對齊）——貼地段（前搖/收勢）root Y 持平、下沉保留在姿勢（執行期腳踩得住）；滯空段腳升高才進 root Y（烘焙器量測 `AutoApexHeight` 用、執行期丟棄改由 `ApplyJumpLaunch` 物理接管，無二重上升）。若誤用 Original，前搖下沉會被歸入 root motion Y 而被抹平。`AutoApexHeight` 語意＝**腳底淨空高度**，與 `g=8h/t²`／`v=√(2gh)` 自洽（ADR-002 §2.3）。
 3. Mixamo 下載慣例：同一角色（X Bot）下載保 retarget 一致；第一支 with skin、其餘 without skin；FBX for Unity、30fps；**一律不勾 In Place（2026-07-17 反轉舊規）**——root motion 是速度／特徵的資料真相，In Place 會在源頭銷毀它（實證：In Place 版 Walking 烘出 0.1 m/s 雜訊，非 In Place 版量得 1.677 m/s），執行期原地化改由 Locomotion-位移 preset（XZ ❌＋`applyRootMotion=false` 抽出丟棄）達成；命名沿用 `X Bot@<動作名>`。
 
@@ -162,7 +162,7 @@ public class PlayerRuntimeData
 | 欄位 | 型別 | 誰寫入 | 誰讀取 | 備註 |
 | --- | --- | --- | --- | --- |
 | **Intent** | `IntentData` (struct) | InputPipeline | 狀態機 | 每帧結尾由 `ResetTransientState()` 統一復位（順序 7，🆕 M2 起與邊沿旗標一致生命週期） |
-| **MoveSpeed** | `float` | Parameter Processor | AnimationFacade | 控制 Locomotion 1D Mixer 混合（✅ v0.16 兌現：`SyncAnimation` 每幀經 `SetFloat(ParamMoveSpeed)` 寫入動畫圖參數字典，由 Transition 資產內 `ParameterName` 綁定驅動，見 §3.2） |
+| **MoveSpeed** | `float` | Parameter Processor | AnimationFacade | 控制 Locomotion 1D Mixer 混合（✅ v0.16 兌現：`SyncAnimation` 每幀經 `SetFloat(ParamMoveSpeed)` 寫入動畫圖參數字典，由 Transition 資產內 `ParameterName` 綁定驅動，見 §3.2）。🆕 B9：Parameter Processor 以 `SmoothDamp` 平滑本值（加/減速不同時間常數＋減速保留方向），動畫與位移共用此平滑值、加減速不滑步 |
 | **CurrentWeapon** | `ItemInstance` | EquipmentDriver | 多處 | 唯讀引用，禁止外部修改內容 |
 | **Arbitration** | `ArbiterData` (struct) | ArbiterPipeline | 各表現層 Controller | 每帧統一覆寫，Controller 只讀不寫 |
 | **IsGrounded** | `bool` | MotionDriver（於 `GetGravityThisFrame(data)` 內部統一寫入，所有移動路徑最終都會呼叫此方法，來源 `CharacterController.isGrounded`） | 狀態機（如 `JumpState.IsLanded`） | ✅ v0.7 規劃、v0.8 實作完成；已取代 `JumpState` 內部原本的固定計時器落地判定 |
@@ -571,7 +571,7 @@ public class AnimancerFacade : AnimationFacadeBase
 | Walking | **0.3** | ✓ | 依 §0.4 Locomotion-位移 preset；門檻 0.3 ≈ 1.677/5.66 由動畫數據推導（見下方資料流小節） |
 | Fast Run | 1.0 | ✓ | 依 §0.4 Locomotion-位移 preset；門檻 1.0＝速度基準（最高速 clip） |
 
-- **參數空間＝正規化輸入強度（0~1）**，即黑板 `MoveSpeed`；資產內 `ParameterName` 綁 StringAsset `MoveSpeed`（與 `AnimationFacadeBase.ParamMoveSpeed` 常數一致）。各 child 門檻由動畫天生速度正規化推導（下方資料流小節），非憑感覺手填。徹底消滑步（中間值步速精確匹配）屬 M4（foot-phase）範疇。
+- **參數空間＝正規化輸入強度（0~1）**，即黑板 `MoveSpeed`（🆕 B9：經 `SmoothDamp` 平滑，讓鍵盤 0/1 輸入平順爬過各 tier）；資產內 `ParameterName` 綁 StringAsset `MoveSpeed`（與 `AnimationFacadeBase.ParamMoveSpeed` 常數一致）。各 child 門檻由動畫天生速度正規化推導（下方資料流小節），非憑感覺手填。徹底消滑步（中間值步速精確匹配）屬 M4（foot-phase）範疇。
 - **腳步循環同步**：Animancer 原生 `SynchronizeChildren`（加權 NormalizedTime 對齊），Walk↔Run 混合區腳步不跳相。
 - **資料流（管線順序 5）**：`SyncAnimation()` 每幀 `SetFloat(ParamMoveSpeed, data.MoveSpeed)`——兌現 §1.1 權限表「MoveSpeed 的 Reader＝AnimationFacade」的既定設計。M1 裁決（Q2）不做平滑（Game Feel 留後續專門輪）。現況 Move 僅綁 WASD（`2DVector` composite 預設 `DigitalNormalized`，對角線模長＝1，經查證免 Clamp01，裁決 Q3），參數為 0/1 二值：混合區間需類比輸入（搖桿綁定）或 Editor 手動滑參數才踩得到。
 - **FSM 拓撲零改動**：Idle/Move 狀態、StateType、Config 資產不動；「兩狀態共用一個表現資產」純由映射表達成（兩鍵指向同一資產）。
@@ -583,7 +583,7 @@ public class AnimancerFacade : AnimationFacadeBase
 ```
 AnimationClip（FBX 子 clip，表現資源）
   ↓ MotionBake / Feature Analysis（離線烘焙，§4.1／§4.3）
-MotionBakeData（真實數據：SpeedCurve→AutoAverageSpeed、AutoApexHeight、AutoCalculatedGravity、EndPhase…）
+MotionBakeData（真實數據：SpeedCurve→AutoAverageSpeed、AutoApexHeight、AutoCalculatedGravity、EndPhase、FootPhaseCurve…）
   ↓ GetRepresentativeSpeed() / Auto* 欄位（單一存取契約）
 Runtime / Config Data（MotionDriver.moveSpeed、Mixer threshold、JumpStateParams 逆推…）
   ↓
@@ -897,6 +897,7 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 
 > 位置：Bake Pipeline 中 Root Motion 曲線提取「之後」、資產存檔「之前」（`MotionBakeEditor.SaveAsset` 內呼叫 `MotionFeatureAnalysisStage.Run`），完全不干涉既有曲線／旋轉收斂／腳相邏輯。
 > 契約：`IMotionFeatureAnalyzer` 讀取 `MotionFeatureContext`（整段動畫的逐影格採樣緩衝）並將結果寫入 `MotionBakeData`；實作必須自帶安全退化，不可拋例外中斷管線。新增特徵（Stride Length、Trajectory…）＝實作介面並註冊到 `MotionFeatureAnalysisStage`，無需改動採樣迴圈或既有分析器。
+> 已註冊分析器：`JumpFeatureAnalyzer`（本節演算法）＋`FootPhaseCurveAnalyzer`（🆕 輪 2 依此契約新增＝連續腳相曲線，複用雙腳世界 Y 採樣、零額外採樣；詳見 `docs/04-locomotion-foundation.md` §9.2）。
 
 #### 世界空間相對足跡演算法（World-Relative Footprint，v0.14 落地）
 

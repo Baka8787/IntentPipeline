@@ -34,6 +34,10 @@ namespace Project.Presentation.Motion
         [Tooltip("動畫播放結束的瞬間，左右腳何者落地，供動作銜接（例如翻滾接跑步時要接對步相）使用")]
         public FootPhase EndPhase;
 
+        [Tooltip("連續腳相曲線（🆕 Foot Phase Curve）：值 = 左腳世界Y − 右腳世界Y。<0 左腳觸地、>0 右腳觸地" +
+                 "（與 EndPhase 符號一致）。零交越＝換腳時刻，供 Start/Stop 選腳別與未來 Footstep／相位同步。")]
+        public AnimationCurve FootPhaseCurve;
+
         [Tooltip("整段動畫的總位移方向，換算成『動畫開始那一刻』角色本地座標系下的方向向量，" +
                  "可直接餵給 Blend Tree 的 X/Z 方向參數；若位移量太小或方向太接近正前方（死區內），視為 Vector3.zero（原地動作）。")]
         public Vector3 TargetLocalDirection;
@@ -106,6 +110,17 @@ namespace Project.Presentation.Motion
         /// 可用於狀態內部判斷是否該停止套用 deltaYaw，或是否可以提早允許自然過渡。
         /// </summary>
         public bool IsRotationFinished(float time) => time >= RotationFinishedTime;
+
+        /// <summary>
+        /// 🆕 查詢某時刻哪隻腳觸地（連續腳相）。<see cref="FootPhaseCurve"/> 缺（舊資產未重烘焙）時退回單點
+        /// <see cref="EndPhase"/>。符號約定：曲線值 &lt; 0 = 左腳觸地、&gt; 0 = 右腳觸地
+        /// （與烘焙時「LeftFoot 較低判 LeftFootDown」一致）。
+        /// </summary>
+        public FootPhase GetFootPhaseAt(float time)
+        {
+            if (FootPhaseCurve == null || FootPhaseCurve.length == 0) return EndPhase;
+            return FootPhaseCurve.Evaluate(time) < 0f ? FootPhase.LeftFootDown : FootPhase.RightFootDown;
+        }
 
         /// <summary>
         /// 取得代表移動速度（公尺/秒），供「動畫數據 → 配置」資料流使用（dev-spec §3.2）。

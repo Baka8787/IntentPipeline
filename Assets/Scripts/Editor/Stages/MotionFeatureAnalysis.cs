@@ -255,6 +255,36 @@ namespace Project.Editor
     }
 
     /// <summary>
+    /// 連續腳相曲線分析器（🆕）：逐影格以「左腳世界 Y − 右腳世界 Y」建立腳相曲線——
+    /// 值 &lt; 0 表左腳較低（LeftFootDown）、&gt; 0 表右腳較低（RightFootDown），與烘焙末尾腳相
+    /// （<see cref="MotionBakeData.EndPhase"/>，LeftFoot 較低判 LeftFootDown）**符號一致**。差值抵消共模
+    /// 垂直起伏（雙腳共享根運動 Y），零交越點即換腳時刻，供 Start/Stop 選腳別與未來 Footstep／相位同步。
+    /// 複用既有採樣緩衝（<see cref="MotionFeatureSample"/> 已含雙腳世界 Y），零額外採樣。
+    /// </summary>
+    public sealed class FootPhaseCurveAnalyzer : IMotionFeatureAnalyzer
+    {
+        /// <inheritdoc/>
+        public string FeatureName => "Foot Phase Curve (continuous L/R contact)";
+
+        /// <inheritdoc/>
+        public void Analyze(MotionFeatureContext context, MotionBakeData target)
+        {
+            target.FootPhaseCurve = null; // 安全預設（比照 JumpFeatureAnalyzer 先寫退化值，任何一步失敗都保留此結果）
+
+            IReadOnlyList<MotionFeatureSample> samples = context.Samples;
+            if (samples == null || samples.Count == 0) return;
+
+            AnimationCurve curve = new AnimationCurve();
+            for (int i = 0; i < samples.Count; i++)
+            {
+                MotionFeatureSample s = samples[i];
+                curve.AddKey(s.Time, s.LeftFootWorldY - s.RightFootWorldY);
+            }
+            target.FootPhaseCurve = curve;
+        }
+    }
+
+    /// <summary>
     /// Feature Analysis Stage：Bake Pipeline 中的特徵分析階段。持有一組 <see cref="IMotionFeatureAnalyzer"/>，
     /// 依序對同一份採樣上下文執行，把結果寫進 <see cref="MotionBakeData"/>。
     /// 位置：Root Motion 曲線提取「之後」、資產存檔「之前」，完全不干涉既有曲線／旋轉收斂／腳相邏輯。
@@ -269,6 +299,7 @@ namespace Project.Editor
             _analyzers = new List<IMotionFeatureAnalyzer>
             {
                 new JumpFeatureAnalyzer(),
+                new FootPhaseCurveAnalyzer(), // 🆕 連續腳相曲線（Foot Phase Curve）
             };
         }
 

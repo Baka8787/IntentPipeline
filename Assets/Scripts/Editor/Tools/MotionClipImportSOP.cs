@@ -1,4 +1,5 @@
 #if UNITY_EDITOR
+using System.Collections.Generic;
 using System.Text;
 using UnityEditor;
 using UnityEngine;
@@ -25,6 +26,12 @@ namespace Project.Editor
     /// （AnimationClip 預設不可變、FBX 為唯一真相來源），Ctrl+D 重萃取 .anim 快照已廢止——
     /// 因此本工具改的就是執行期實際播放的 clip，套用後立即生效，不再有「快照過期」的同步問題。
     /// 該 clip 若有對應的 MotionBakeData，套用後必須重烘焙。
+    /// </para>
+    /// <para>
+    /// 🆕 套用粒度（per-clip）：選取 FBX 本體 → 整檔套用（單 clip FBX、或確實要整檔時用）；選取個別
+    /// AnimationClip 子資產 → **只套那幾支具名 clip、不碰同 FBX 其他 clip**——這是 Kubold 這類「一支 FBX
+    /// 內含多類型 clip（Idle／Walk／Start／Turn…）」的正確用法，避免把單一 preset 誤灌到整檔。
+    /// 同一 FBX 兩者都選時整檔優先（涵蓋較廣）。
     /// </para>
     /// </summary>
     public static class MotionClipImportSOP
@@ -76,13 +83,43 @@ namespace Project.Editor
 
         private static void ApplyToSelection(bool bakeXZ, bool bakeY, bool bakeRotation, bool loopTime, string presetName, bool yBasedUponFeet = false)
         {
-            var report = new StringBuilder();
-            int applied = 0;
+            // 🆕 依選取內容決定套用粒度：
+            // - 選到 FBX 本體（Model／GameObject）→ 整檔套用（wholeFbx；給單 clip FBX 或確要整檔時用）。
+            // - 選到個別 AnimationClip 子資產 → 只套那幾支具名 clip（perClip），不碰同 FBX 其他 clip。
+            // 同一 FBX 若兩者都選，整檔優先（涵蓋較廣）。
+            var wholeFbx = new HashSet<string>();
+            var perClip = new Dictionary<string, HashSet<string>>();
 
             foreach (Object obj in Selection.objects)
             {
                 string path = AssetDatabase.GetAssetPath(obj);
-                if (string.IsNullOrEmpty(path) || AssetImporter.GetAtPath(path) is not ModelImporter importer) continue;
+                if (string.IsNullOrEmpty(path) || AssetImporter.GetAtPath(path) is not ModelImporter) continue;
+
+                if (obj is AnimationClip clip)
+                {
+                    if (!perClip.TryGetValue(path, out HashSet<string> names)) perClip[path] = names = new HashSet<string>();
+                    names.Add(clip.name);
+                }
+                else
+                {
+                    wholeFbx.Add(path); // FBX 本體（含 Model root GameObject）＝整檔
+                }
+            }
+
+            // 彙整目標：value == null → 整檔套用；非 null → 只套集合內的 clip 名稱。整檔優先。
+            var targets = new Dictionary<string, HashSet<string>>();
+            foreach (string p in wholeFbx) targets[p] = null;
+            foreach (KeyValuePair<string, HashSet<string>> kv in perClip)
+                if (!wholeFbx.Contains(kv.Key)) targets[kv.Key] = kv.Value;
+
+            var report = new StringBuilder();
+            int applied = 0;
+
+            foreach (KeyValuePair<string, HashSet<string>> target in targets)
+            {
+                string path = target.Key;
+                HashSet<string> onlyClips = target.Value; // null = 全部
+                var importer = (ModelImporter)AssetImporter.GetAtPath(path);
 
                 if (importer.animationType != ModelImporterAnimationType.Human)
                 {
@@ -90,7 +127,7 @@ namespace Project.Editor
                     continue;
                 }
 
-                // 以既有 clip 配置為基底（保留使用者手動調過的其他欄位）；從未配置過（clipAnimations 為空）
+                // 以既有 clip 配置為基底（保留其他 clip 與手動調過的欄位）；從未配置過（clipAnimations 為空）
                 // 則以 defaultClipAnimations 為基底——take 名稱／影格範圍由 Unity 填入，clip 引用不會斷。
                 ModelImporterClipAnimation[] clips = importer.clipAnimations;
                 if (clips == null || clips.Length == 0) clips = importer.defaultClipAnimations;
@@ -101,8 +138,12 @@ namespace Project.Editor
                     continue;
                 }
 
+                int clipApplied = 0;
                 foreach (ModelImporterClipAnimation clip in clips)
                 {
+                    // per-clip：只套選中的具名 clip，其餘 clip 保持原設定不動。
+                    if (onlyClips != null && !onlyClips.Contains(clip.name)) continue;
+
                     // Bake Into Pose 三軸：lockRootRotation＝Rotation、lockRootHeightY＝Y、lockRootPositionXZ＝XZ
                     clip.lockRootRotation = bakeRotation;
                     clip.lockRootHeightY = bakeY;
@@ -119,10 +160,17 @@ namespace Project.Editor
                     clip.loopTime = loopTime;
                     // 刻意不動 loopPose／cycleOffset／事件／遮罩等其餘欄位（最小變更原則）。
 
+                    clipApplied++;
                     report.AppendLine(
                         $"  {System.IO.Path.GetFileName(path)} › clip '{clip.name}'：" +
                         $"BakeXZ={bakeXZ}, BakeY={bakeY}, BakeRot={bakeRotation}, Loop={loopTime}, " +
                         $"BasedUpon(Y)={(yBasedUponFeet ? "Feet" : "Original")}, BasedUpon(XZ/Rot)=Original");
+                }
+
+                if (clipApplied == 0)
+                {
+                    Debug.LogWarning($"[動畫匯入 SOP] '{path}'：選取的子 clip 名稱未在此 FBX 對到，未套用。");
+                    continue;
                 }
 
                 importer.clipAnimations = clips;
@@ -132,12 +180,12 @@ namespace Project.Editor
 
             if (applied > 0)
             {
-                Debug.Log($"[動畫匯入 SOP] Preset '{presetName}' 已套用至 {applied} 個 FBX 並重新匯入：\n{report}" +
+                Debug.Log($"[動畫匯入 SOP] Preset '{presetName}' 已套用（{applied} 個 FBX）：\n{report}" +
                           "提醒：若該 clip 有對應的 MotionBakeData 資產，請用烘焙工具重烘焙一次以保持資產與新設定一致。");
             }
             else
             {
-                Debug.LogWarning("[動畫匯入 SOP] 選取範圍內沒有可套用的 Humanoid FBX。請在 Project 視窗選取動畫 FBX 後再執行。");
+                Debug.LogWarning("[動畫匯入 SOP] 選取範圍內沒有可套用的 Humanoid FBX／子 clip。請在 Project 視窗選取動畫 FBX 或其子 clip 後再執行。");
             }
         }
     }

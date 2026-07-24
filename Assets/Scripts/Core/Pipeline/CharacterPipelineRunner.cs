@@ -30,6 +30,15 @@ namespace Project.Core.Pipeline
         [SerializeField] private AnimationFacadeBase animationFacade; // 💡 規格：掛載 AnimancerFacade 的組件
         [SerializeField] private MotionDriver motionDriver;
 
+        // 🆕（B9 Game Feel）MoveSpeed 平滑：鍵盤 0/1 輸入直送會讓 1D Mixer 一幀從 Idle 跳 Sprint、
+        // 中間 Walk/Run tier 踩不到。以 SmoothDamp 讓 MoveSpeed 隨時間爬升/回落，平順經過各速度 tier。
+        // 動畫混合與實際位移共用同一平滑值（MotionDriver: currentSpeed = MoveSpeed × moveSpeed），加減速全程不滑步。
+        [Header("Move Speed Smoothing (B9)")]
+        [Tooltip("MoveSpeed 0→滿 的加速平滑時間（秒，SmoothDamp）。越小越 snappy。")]
+        [SerializeField] private float moveSpeedAccelTime = 0.12f;
+        [Tooltip("MoveSpeed 滿→0 的減速平滑時間（秒）。通常略大於加速＝放開後自然滑行收步。")]
+        [SerializeField] private float moveSpeedDecelTime = 0.18f;
+
         // === [新增：供 Editor 跨幀讀取的普通結構體快照] ===
         public struct InputDebugSnapshot
         {
@@ -45,6 +54,11 @@ namespace Project.Core.Pipeline
 
         // 🆕 記錄上一次播放的狀態，避免每幀重複 Play
         private StateType _lastPlayedState = StateType.None;
+
+        // 🆕（B9）MoveSpeed 平滑狀態（寫入者僅本類別＝Parameter Processor，不新增黑板 writer）。
+        private float _smoothedMoveSpeed;
+        private float _moveSpeedVelocity;  // SmoothDamp 的 ref 速度緩存
+        private Vector2 _lastMoveDir;      // 減速滑行期保留最後移動方向，避免方向瞬歸零造成「身體停、動畫動」的滑步
 
         // 🆕 改用 None 當哨兵值，不再借用 Idle
         public StateType CurrentState => _stateMachine?.CurrentState?.Type ?? StateType.None;
@@ -205,12 +219,38 @@ namespace Project.Core.Pipeline
         /// </summary>
         private void ProcessParameters(ref InputData input)
         {
-            _runtimeData.MoveDirection = input.MoveInput; // 保持賦值給黑板，供下游狀態與物理使用
-            _runtimeData.MoveSpeed = input.MoveInput.magnitude;
-            _runtimeData.UpperBodyWeight = input.MoveInput != Vector2.zero ? 0.5f : 0.0f;
+            // 🆕（B9）MoveSpeed 平滑：鍵盤輸入強度為 0/1 二值，直送會讓 Mixer 一幀從 Idle 跳到 Sprint、
+            // 中間 Walk/Run tier 踩不到。以 SmoothDamp 隨時間平順爬升/回落，經過各速度 tier；
+            // 加速/減速採不同時間常數（減速略長＝放開後自然滑行收步）。SmoothDamp 內部使用 Time.deltaTime。
+            float rawMagnitude = Mathf.Clamp01(input.MoveInput.magnitude);
+            float smoothTime = rawMagnitude > _smoothedMoveSpeed ? moveSpeedAccelTime : moveSpeedDecelTime;
+            _smoothedMoveSpeed = Mathf.SmoothDamp(_smoothedMoveSpeed, rawMagnitude, ref _moveSpeedVelocity, smoothTime);
 
-            // ✨ 修正點：將硬編碼的轉向判斷移除！
-            // 身體的轉向將完全收斂至 LateUpdate 內由 CurrentState 呼叫的 OnUpdateMotion 中完成，
+            // 完全停止時 snap 到 0（清 SmoothDamp 殘尾）：確保 Mixer 回純 Idle、狀態機依 MoveSpeed<0.1 收斂進 Idle。
+            if (rawMagnitude < 0.001f && _smoothedMoveSpeed < 0.001f)
+            {
+                _smoothedMoveSpeed = 0f;
+                _moveSpeedVelocity = 0f;
+            }
+
+            _runtimeData.MoveSpeed = _smoothedMoveSpeed;
+
+            // 移動方向：有輸入時直接採用並記憶；放開（rawMagnitude≈0）但仍在減速滑行（smoothed>0）時保留最後方向，
+            // 讓 MotionDriver（Idle/Move 皆走 ExecuteBaseMovement）以殘速續走該方向，動畫與位移同步收步、不滑步；
+            // 完全停止才歸零 → ExecuteBaseMovement 的方向閘門關閉，乾淨停步。
+            if (rawMagnitude > 0.001f)
+            {
+                _lastMoveDir = input.MoveInput;
+                _runtimeData.MoveDirection = input.MoveInput;
+            }
+            else
+            {
+                _runtimeData.MoveDirection = _smoothedMoveSpeed > 0.001f ? _lastMoveDir : Vector2.zero;
+            }
+
+            _runtimeData.UpperBodyWeight = _smoothedMoveSpeed > 0.001f ? 0.5f : 0.0f;
+
+            // ✨（既有）身體轉向不在此硬編碼：完全收斂至 LateUpdate 內 CurrentState.OnUpdateMotion，
             // 實現「單一決策、單一物理出口」的架構潔淨。
         }
     }
