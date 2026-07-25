@@ -10,6 +10,7 @@
 | 前置事實 | B9 MoveSpeed 平滑已落地於 `Runner.ProcessParameters`；Locomotion Foundation（4-tier 1D Mixer）已建；設計經 `docs/04` §11–14 **四輪對抗式評審**收斂為 v3「三軸分離」 |
 
 > **本 ADR 的定位**：記錄**決策與否決理由**（immutable log）。完整推導、被推翻的中途方案、逐輪挑戰見 `docs/04` §11–14；此處固定收斂後的契約。
+> **§13 補述四點責任邊界**（`MovementIntent` schema 適用範圍、**MovementContext 的責任邊界**、Producer 與 Input Routing 的分工、**Stage 1 的 Source of Truth**）——釐清語意邊界，**不改 §3 決策**。讀 §3 決策時請一併參照 §13。
 
 ---
 
@@ -237,3 +238,28 @@ flowchart TD
 - `MovementIntent` 為黑板 region（一次配置）；producer 每幀寫值（value type，無 heap）；`SmoothDamp` 等為 stack 數學運算。熱路徑零 `new`。
 - 依賴方向：`Input → Producer(介面) → Blackboard → State/Model → MotionDriver/Facade(抽象)`——無 `Motion→Input`、`State→Controller`、`Controller→Animation API` 違規。唯一 back-edge＝env 信號經黑板延遲一幀（同 M2 既有模式，非同幀 cycle）。
 - 單一寫入者：每個 intent region、每個 env 欄位皆單一 writer；`MovementContext`/FSM 只選擇不寫業務欄位。
+
+---
+
+## 13. 補充說明：責任邊界釐清（2026-07-21 補述）
+
+> 定位：對 §3 決策與 §10 遷移的**責任邊界收緊**，防止四類常見誤解。**決策內容不變**，此為邊界釐清。
+
+### 13.1 `MovementIntent` schema 的適用範圍（**非「所有 model 永遠通用」**）
+§3-D1 稱 `MovementIntent{DesiredSpeedNormalized[0–1], Direction}` 為「模型無關」，需**收緊語意**：它是「**方向性移動家族**」（walk/run/sprint/strafe/swim——凡可化約為「往某方向、以某強度移動」者）的**共通 schema**，**不主張對所有 model 永遠適用**。控制不化約為「速度＋方向」的 model（例：Vehicle＝throttle/brake/steer；tank-control；grid-based）**應定義自己的 intent schema**——依 D1 的 **domain-partitioned** 原則，作為**兄弟 region**（如 `VehicleIntent`），而非把異質欄位硬塞進 `MovementIntent`。**紀律**：`MovementIntent` 是「方向性移動」這一類的契約，不是萬用袋；擴到不同控制範式時**開兄弟 schema，不擴脹本 schema**（否則本 schema 退化成 God-object）。
+
+### 13.2 MovementContext 的責任邊界（**描述性；Gameplay Authority 屬 Capability/Profile，Context 不否決 State**）
+**MovementContext 只回答「當前環境該用哪個 movement model」（locomotion vs swim vs vehicle）＝描述性選擇，不具 gameplay 權威。** 它**不否決、不覆寫** gameplay FSM 對「角色在做什麼／允不允許做」的決定。**「能不能衝刺／能不能水下攻擊／這個 action 是否被允許」的權威屬 Capability／Profile（能力與玩法規則）層**，與 FSM 協作裁定，**非 MovementContext**。
+- 具體：MovementContext 偵測「在水中」→ 提供 Swim model 給 motion 執行；它**不會**把 FSM 踢出 `Attack`、也**不否決**攻擊——是否允許水下攻擊由 Capability／FSM 判。
+- 為何重要：若讓 MovementContext 兼管「允許/禁止」，它會退化成橫跨 model 與 gameplay 的**隱形 god-authority**，破壞 D3 正交性。**三者權責不重疊**：`MovementContext`＝「**how**（怎麼移動）」、Capability/Profile＝「**what's allowed**（能不能）」、Gameplay FSM＝「**what/doing**（在做什麼）」。**兩軸（FSM／Context）互不否決；『允許與否』是第三者（Capability）的事。**
+
+### 13.3 Producer 不負責 Context-Sensitive Input（**Input Routing 在更上游完成**）
+D2 的 producer（`PlayerLocomotionPolicy`）**只消費「已被路由好、對當前情境正確」的 movement 相關輸入**，**不處理 context-sensitive input**——「同一顆實體鍵在不同情境代表不同意義」（選單 vs 遊戲；「互動」vs「攻擊」依目標而定；載具 vs 徒步）的切換，**在更上游的 Input 層完成**（Unity Input System 的 action map 切換，或專責 **Input Router** 依情境 enable/disable action map）。輸入抵達 movement producer 時，其語意已定。
+- 為何：維持 D2 的「producer context-free」——producer **不判**「這個 Shift 是給移動還是別的」；input 的**情境歸屬是 input 層職責**。把 input routing 塞進 producer 會讓 producer 開始認識 gameplay 情境，重蹈耦合。
+
+### 13.4 Stage 1 的 Source of Truth（**`MovementIntent` 唯一真相；`MoveSpeed` 僅過渡衍生值**）
+遷移 Stage 1 期間 `MovementIntent` 與 legacy `MoveSpeed` 並存，**須明確單一真相，以免重演「兩個真相來源」病**（＝ ADR-002 為 jump 物理奮戰的同型問題）：
+- **`MovementIntent`（producer 寫入）＝唯一真相（authoritative）。**
+- **`MoveSpeed`（若為相容現行 mixer／MotionDriver 消費端而暫留）＝從 `MovementIntent` **下游衍生**的過渡值**（例：經 B9 平滑後導出），**非獨立真相、不得與 intent 分岔**。
+- Stage 2 後 `MoveSpeed` 完全內化進 Locomotion model，過渡 shim 消失。
+- **紀律**：Stage 1 任何時刻，`MoveSpeed` 必須**可由 `MovementIntent`（＋model dynamics）重新導出**；**禁止任何路徑直接寫 `MoveSpeed` 而繞過 `MovementIntent`**。這條紀律讓 Stage 1 即使雙欄位並存，真相仍單一、可驗證。

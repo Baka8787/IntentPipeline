@@ -76,3 +76,24 @@ crashlytics-build.properties
 
 # Technical Mentor 個人複習題庫（不上 GitHub）
 /_MentorQuiz/
+
+# =========================================================================
+# 第三方資產排除（不上 GitHub）
+#   法律：Unity Asset Store EULA 禁「二次散佈」付費資產 → 公開 repo 等同免費散佈他人付費產品。
+#   工程：大型二進位（FBX/貼圖/音效）污染 .git 歷史、拖慢 clone/pull；核心程式碼與重型美術資產分離維護。
+# ⚠️ 這些檔案「已被 git 追蹤」——**光加本 .gitignore 不會取消追蹤**，需再跑 `git rm -r --cached <path>`
+#    後 commit 才真正生效（見 WORKLOG「交辦：第三方資產屏蔽 SOP」）。取消追蹤後本機檔案保留、Unity 照常運作。
+# ⚠️ 排除後 fresh clone **無法直接編譯/執行**：需持有合法授權者各自重新匯入（Animancer＝執行期核心依賴；
+#    Kubold＝Bake_*.asset 依 GUID 引用其子 clip）。建議 repo 內加 README 註明「必要資產與匯入方式」。
+# =========================================================================
+
+# Animancer Pro（付費，執行期動畫系統核心依賴）
+/[Pp]ackages/com.kybernetik.animancer/
+
+# Kubold Movement Animset Pro（付費 locomotion 資產）
+/[Aa]ssets/MovementAnimsetPro/
+/[Aa]ssets/MovementAnimsetPro.meta
+
+# Unity StarterAssets（免費但第三方；純大小/分離考量，法律風險低——確認專案不依賴後再取消追蹤）
+/[Aa]ssets/StarterAssets/
+/[Aa]ssets/StarterAssets.meta
