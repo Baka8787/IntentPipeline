@@ -12,6 +12,39 @@
 
 ---
 
+## 🎯 下一會話：建議起手（2026-07-26 規劃）
+
+> 📍 開場照舊：`docs/00-map.md` → 本段 → 只讀任務對應的 ADR／章節。**不要**為了熟悉而整檔讀 dev-spec／design-doc。
+
+### 主推薦：輪 4 ArbiterPipeline（順序 4.5）
+
+**為什麼是它，而不是 Footstep／Phase C**：它是唯一一個**已經有具體需求在等、且卡著一個未決架構問題**的項目。
+
+* **需求端已存在**：你的控制方案裡「**Alt ＝ 顯示滑鼠並停止移動**」還沒實作，而它正是 `BlockInput` 的第一個真實使用情境。
+* **它會結掉 §7-M5 這個懸了兩輪的未決項**：「`BlockInput` 是否應同時凍結 `MovementIntent`？」現況是順序 2.5 刻意置於閘門外（維持 Migration 前行為），當時明寫「留待 ArbiterPipeline 真正有 writer 時一併裁決」。**現在有 writer 了，可以裁決了。**
+* **黑板契約早就備好**：`ArbiterData{BlockInput, BlockIK, BlockAudio, BlockExpression}` 已在 §1.4，且 `A5` 的 WriterRules 目前把 `Arbitration` 標為「不得有任何執行期寫入者」——這一輪會是**第一次讓它合法擁有寫入者**，測試規則要同步更新（設計上刻意的摩擦）。
+* 規模適中：一個 pipeline 階段 ＋ 一個裁決 ＋ 測試，不動 FSM 拓撲。
+
+**開場要讀**：dev-spec §1.4（ArbiterData）、§2.1 順序 4.5、§7.2-M5、§7.3；design-doc §4.6（表現層管線既有骨架）。
+
+**已知要一併裁決的三題**（別直接動手，先討論）：
+1. `BlockInput` 該凍結哪些東西——trigger 意圖？`MovementIntent`？兩者語意不同（放開輸入 vs 凍結當下狀態），選錯會出現「封鎖瞬間角色定格」或「封鎖期間仍在滑行」。
+2. 多來源封鎖的疊加（死亡／CC／過場同時要求封鎖）——現況是單一 bool，§2.4 舊規格提過優先級疊加，但那是 YAGNI 延後項，**先確認真的有第二個來源再做**。
+3. 「顯示滑鼠」屬 Input 層還是 Arbiter 層？依 ADR-003 §13.3，游標狀態切換偏 Input／UI 職責，**不該讓 Arbiter 認識滑鼠**。
+
+### 替代選項（若你想做動畫品質而非系統）
+
+* **輪 3 Footstep**：FootPhaseCurve 在 v0.19 已烘進 4 支 loop，**至今沒有任何消費者**——這一輪會是它的第一個真實使用者，也會驗證「烘焙曲線 → 表現層事件」這條資料流。已有 `AudioController` 可擴充，規模小。
+* **Phase C**：停步分腿姿勢（stop 動畫＋Foot Phase 選腳別）＋Starts/Stops/Turns。動畫品質收益最大，但也最大輪、且會動到 locomotion 的核心手感。
+
+### 順手可做的小項（隨時，不需獨立輪次）
+
+* README 稽核剩下的 D 項：**What works today**（跑起來會怎樣）、**控制列表**、**gait 數值來源鏈**、**GIF／截圖**。現在素材齊了（0 GC 已驗、locomotion 手感已調），**GIF 是作品集首頁最大的單一缺口**。
+* GitHub Topics（目前空）、個人頁 Pin。
+* 🐛 `ComputeAverageSpeed` 的 0 值哨兵偏差（低估 1.6~2.6%）——修正要全面重烘，**建議跟下次「反正要重烘」的輪次綁一起做**（例如 Phase C 導入新 clip 時）。
+
+---
+
 ## 🏁 里程碑檢查點（2026-07-26，changelog v0.19 補記）
 
 **v0.19 Foundation ＋ GaitProfile ＋ Run 預設型態 ＋ Animation-independent gameplay core ＋ Runtime baked data** 五項齊備，這條線第一次全程走通：
@@ -129,7 +162,9 @@ InputAction → InputData(ref struct) → PlayerLocomotionPolicy(+GaitProfileSO)
 2. **§7-M2 Profiler 0 GC** —— ✅ **自檢級達標**（2026-07-26，changelog v0.24）：量測過程中**抓到並修掉一個真的 bug**——`EvaluateTransitions` 對介面型 `IReadOnlyList<T>` 做 `foreach`，`List<T>` 的 struct enumerator 被裝箱，每帧 40 B。改索引迴圈後**穩態 `PlayerLoop` = 0 B**。
    - **量測程序已寫成 SOP → `docs/02-dev-spec.md` §7.4**（量哪裡／排除什麼／兩級判定／實測數據）。
    - 狀態切換幀約 2.6 KB，已拆解定位為 Editor-only 的 `Debug.Log`（其中 2.4 KB 是 Unity 的 `StackTraceUtility`，非我們的字串），Release 編譯移除。**不是回歸。**
-   - **仍差一步**：以上皆 Editor 內量測。要讓 README 把零 GC 從「設計目標」升為「已驗證」，仍須 **Development Build ＋ Autoconnect Profiler** 複驗一次（§7.4.3 的「達標」等級）。**在此之前對外維持「設計目標」。**
+   - ✅ **達標複驗完成**（同日）：Development Build 穩態 `PlayerLoop` = **0 B**；Player 側無 `EditorLoop`、CPU 7.19ms／記憶體 499.6 MB（Editor 為 31.65ms／3.38 GB）。**README 的零 GC 已升為「已驗證（Player 實測）」**——這是整份 README 唯一一條有量測數據撐著的宣稱。
+   - ⚠️ **待你存檔**：把那張 Player Profiler 截圖存成 **`docs/images/profiler/gc-alloc-zero-player-walk.png`**。dev-spec §7.4.5 已用 `![]()` 內嵌、README 已連結它——**存檔前這兩處會是破圖**。
+   - 🆕 `.gitignore` 新增 `/[Bb]uilds/`（原本的 `# Builds` 段只擋副檔名、擋不到資料夾，你的 `Builds/` 有 173 MB）。**證據進版控、產物不進。**
 3. **changelog v0.19（Foundation 收案）** → ✅ **已於 2026-07-26 補寫**，並升格為里程碑檢查點（見下）。
 
 ---

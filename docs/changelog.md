@@ -50,12 +50,26 @@ GC.Alloc              180 B    ← 富文本訊息字串本身
 
 來源是各 State `OnEnter` 的 `#if UNITY_EDITOR Debug.Log`（ADR-002 §3 既有取捨，Release 整段移除）。**大頭甚至不是我們的字串，是 Unity 的 stack trace 擷取。** 這不是回歸，是已知且刻意的 Editor-only 成本——但現在有數字，下次看到 2.6 KB 不必重新推理。
 
-### 5. 文件
+### 5. ✅ 達標複驗：Development Build
+
+同日以 **Development Build ＋ Autoconnect Profiler** 複驗，`PlayerLoop` 的 `GC Alloc` 在穩態移動下為 **0 B**。Player 與 Editor 的對照本身也很說明問題：
+
+| | Editor（Play Mode） | Development Build |
+| --- | --- | --- |
+| `PlayerLoop` GC Alloc | 0 B | **0 B** |
+| `EditorLoop` | 佔 89.2%／28.25 ms | **不存在** |
+| CPU／Total Used Memory | 31.65 ms／3.38 GB | **7.19 ms／499.6 MB** |
+
+零 GC 自此在 README 從「設計目標」升為「**已驗證（Player 實測）**」——**這是整份 README 唯一一條有量測數據撐著的宣稱**。措辭限定在「穩態移動」：狀態切換幀的 Editor-only `Debug.Log` 在 Release build 已被編譯移除，不在量測範圍也不影響結論。
+
+存證截圖進版控（`docs/images/profiler/`），**build 產物本身不進**（`.gitignore` 新增 `/[Bb]uilds/` 排除，該目錄實測 173 MB）——**進版控的是證據，不是產物**。順帶發現原本的 `# Builds` 區段只擋 `*.apk`／`*.unitypackage` 等副檔名，擋不到建置**資料夾**。
+
+### 6. 文件
 
 * **新增 dev-spec §7.4「零 GC 量測 SOP」**：量哪裡（`GC Alloc` 欄，**不是** `GarbageCollector` 毫秒）／排除什麼（Editor 開銷、自訂 Inspector 的字串配置、狀態 Debug.Log、Deep Profile、Profiler 自身的 frame buffer——後者實測緩衝 14,877 幀時 Reserved 2.88 GB 並造成週期性卡頓）／兩級判定標準／當前實測狀態。
 * **§7.1-A3 補上能力邊界**：token 掃描抓不到介面型 foreach 裝箱，**熱路徑迭代介面型集合一律用索引迴圈**。
 
-### 6. 反思（Why）
+### 7. 反思（Why）
 
 * **靜態測試守不到的東西，要誠實標出它守不到。** A3「禁 LINQ」一直被當成零 GC 的自動防線，但它是 token 掃描——這次的配置點沒有任何可疑 token。與其讓人誤以為有防線，不如把邊界寫進 A3 自己的敘述裡。
 * **「宣稱」逼出了「量測」，量測逼出了 bug。** 這個 40 B 從 B9 平滑那輪就存在，一直沒人發現，因為沒有人真的量過。README 稽核把「零 GC」降級為設計目標，才觸發了這次量測——**對外誠實的副作用是對內發現問題。**

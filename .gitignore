@@ -64,6 +64,12 @@ sysinfo.txt
 *.unitypackage.meta
 *.app
 
+# 🆕（2026-07-26）本機建置輸出：可由專案重新產生的大型二進位，不進版控。
+# 目前 Builds/Development/ 為 Profiler 驗收用的 Development Build（~173MB）。
+# ⚠️ 對照：驗收「截圖」是另一回事——它是 dev-spec §7.4／README 的**真實佐證**，
+#    必須進版控，存放於 docs/images/profiler/（該路徑刻意不在此排除）。
+/[Bb]uilds/
+
 # Crashlytics generated file
 crashlytics-build.properties
 

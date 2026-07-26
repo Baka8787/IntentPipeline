@@ -11,7 +11,7 @@ Every significant decision is recorded as an ADR, and the architecture's invaria
 
 ## 這個專案在做什麼
 
-一個**學習導向**的 Unity 角色框架，目標**不是**做出一款遊戲，而是把「乾淨架構、資料驅動」做到能被測試檢驗，並以零 GC 為熱路徑的設計約束——同時把每一個重要決策的**理由與被否決的替代方案**寫下來。
+一個**學習導向**的 Unity 角色框架，目標**不是**做出一款遊戲，而是把「乾淨架構、資料驅動、零 GC 熱路徑」三件事做到**能被檢驗**——前兩者由 EditMode 測試守，第三者由 Development Build 的 Profiler 實測佐證。同時把每一個重要決策的**理由與被否決的替代方案**寫下來。
 
 因此這個 repo 的重點有一半在 `docs/`：架構決策紀錄（ADR）、當前架構文件、開發規格、以及一份逐版本的開發日誌，記錄每一輪撞到什麼坑、為什麼那樣解。
 
@@ -26,7 +26,7 @@ Every significant decision is recorded as an ADR, and the architecture's invaria
 | **資料驅動** | Gameplay 讀黑板資料，不直接查詢其他 gameplay 系統 |
 | **單一寫入者** | 黑板每個欄位有明確的 Owner／Writer／Readers，禁止第二個寫入者（由測試守） |
 | **單向依賴** | `Input → Pipeline → 黑板`；`StateMachine`／`Animation`／`Motion` 皆為黑板的**平行消費者**，彼此不互相依賴（表現層反向依賴狀態機由 A4 擋下）。逐帧執行順序見 `docs/02-dev-spec.md` §2.1 |
-| **零 GC 熱路徑（設計目標）** | `ref struct` 輸入採樣、值型別 dynamics、無 LINQ（由 A3 測試守）、穩態無字串配置。⚠️ 靜態切片已由測試守；**執行期 Profiler 驗收尚未完成**（`docs/02-dev-spec.md` §7-M2 人工項） |
+| **零 GC 熱路徑（✅ Player 實測）** | `ref struct` 輸入採樣、值型別 dynamics、無 LINQ（由 A3 測試守）。**Development Build ＋ Profiler 實測：穩態移動下 `PlayerLoop` 的 `GC Alloc` = 0 B**（[存證截圖](docs/images/profiler/gc-alloc-zero-walk.png)；量測程序、排除項與已知邊界見 `docs/02-dev-spec.md` §7.4） |
 | **動畫資產不可變** | FBX 子 clip 是唯一真相；調整依「資料 → 呈現層 → 換 clip → 改 clip 內容」的固定升級階梯，禁止跳級 |
 | **不預造** | 第二個使用者出現前不抽象。每一次「先蓋好等以後用」都在文件裡被明確否決過 |
 

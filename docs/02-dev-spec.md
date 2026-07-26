@@ -231,7 +231,7 @@ public ref struct InputData
 > 🛑 **使用限制（執行盲區）**：
 > * 只能存活在 Stack 上，**不能**被任何 `class` 持有為欄位。
 > * 不能裝箱（Boxing）、不能用於 `async/await` 方法或 `yield return` 迭代器。
-> * **後續動作**：用 Unity Profiler 量測升版前後的 GC Alloc 差異，截圖存入 `/docs/profiler/` 並更新 `docs/01-design-doc.md`。
+> * ~~**後續動作**：用 Unity Profiler 量測升版前後的 GC Alloc 差異~~ → ✅ **已於 2026-07-26 完成**（Development Build 實測穩態 `PlayerLoop` = 0 B）。量測程序見 §7.4，存證於 `docs/images/profiler/`。
 > 
 > 
 
@@ -1076,7 +1076,7 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | ID | 檢核項 | 為什麼不能自動化 | 執行時機 |
 | --- | --- | --- | --- |
 | **M1** | Play 行為等價：未配置 gait 資產時，移動手感與 Migration 前一致（加速平順、放開滑行收步、無滑步） | 手感屬人為感知；自動測試只能守數值契約（A7），守不住「看起來對不對」 | 每次動 Locomotion dynamics |
-| **M2** | Profiler 執行期 0 GC Alloc（順序 1～7 全程）。**量測程序見 §7.4**（量哪裡、排除什麼、判定標準）。⚠️ **當前實測狀態（2026-07-26）：Editor 穩態下 `PlayerLoop` 仍有 40 B/frame，來源未定位 → 對外文件一律標「設計目標」，不得寫成已驗證** | 需 Play 模式 Profiler 量測；A3 只能守 LINQ 這一類靜態可見的來源 | 每次動熱路徑 |
+| **M2** | Profiler 執行期 0 GC Alloc（順序 1～7 全程）。**量測程序見 §7.4**。✅ **已達標（2026-07-26）：Development Build 穩態移動下 `PlayerLoop` 的 `GC Alloc` = 0 B**（§7.4.5，存證 `docs/images/profiler/`）。⚠️ 每次動熱路徑須重驗——本項無法自動化，而 A3 抓不到裝箱類配置（見 §7.1-A3 能力邊界） | 需 Play 模式／Player 連線量測；A3 只能守 LINQ 這一類靜態可見的來源 | 每次動熱路徑 |
 | **M3** | Inspector 綁定：角色 Root 掛 `PlayerLocomotionPolicy` ＋ `LocomotionModel`；Runner 的 Movement Intent Source／Movement Model 欄位（留空則自動 `GetComponent`）；`WalkAction` 綁鍵（現行方案＝Left Ctrl）。🆕 **`SprintAction` 刻意不綁**——現行方案的 sprint 由 buff 驅動而非按鍵（見 §7.3 張力表） | 資產／Prefab 配置屬使用者側（AI 不碰 `.prefab`／`.asset`） | 本輪落地後首次進 Editor |
 | **M4** | 🆕 **改為兩段**：①**Mixer threshold 必須**等於 `speed_i / speed_max`（不可協商的校準，錯了必滑步）；②`GaitProfileSO` 的 gait intensity 以該公式為**基準參考**，允許依手感偏離（不會滑步，見 §3.1 釐清），但偏離時要知道自己選的是混合姿態 | 數值來源的正確性無法從程式碼判定（B11 決策：公式文件化、設計師手填）；「姿態好不好看」更是純人為判斷 | 建立／調整 gait 資產、或更換 locomotion clip 時 |
 | **M5** | **未決項**：`BlockInput` 是否應同時凍結 `MovementIntent`？現況刻意置於閘門外＝維持 Migration 前行為（`ArbiterPipeline` 尚無 writer，`BlockInput` 恆 false） | 需先有真實的封鎖情境（死亡／CC／過場）才能判斷正確語意 | 輪 4 ArbiterPipeline（順序 4.5）落地時 |
@@ -1120,7 +1120,9 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | **自檢** | Editor 內，穩態直線走（不跳／不滾／不切狀態、角色未被選取），`PlayerLoop` 的 `GC Alloc` 連續數十幀為 **0 B** | 內部判斷「這輪改動有沒有帶進配置」 |
 | **達標** | **Development Build**（勾 Development Build ＋ Autoconnect Profiler）＋ Player 連線，同條件下 `PlayerLoop` `GC Alloc` = **0 B** | **對外文件（README／design-doc）唯一可據以宣稱「已驗證」的等級** |
 
-存證截圖放 `docs/profiler/`。**未達「達標」等級前，對外一律寫「設計目標／Profiler 驗收未完成」**——這條是 2026-07-26 README 稽核的直接產物（當時 README 把零 GC 寫成已達成的性質，而專案裡沒有任何量測）。
+**存證截圖放 `docs/images/profiler/`，並且必須進版控**——它是 dev-spec 與 README 的真實佐證，別人 clone 下來要能在 Markdown 裡看到。檔名採語意化命名（現有：`gc-alloc-zero-walk.png`）。**截圖須自證來源**——Player 連線的證據是「目標選單顯示機器名而非 `Play Mode`」＋「Hierarchy 無 `EditorLoop`」＋「`Deep Profile` 自動停用」，截圖時務必把這幾處一起框進去，否則日後無法分辨它是 Editor 還是 Player 的數字。對照：**build 產物本身不進版控**（`.gitignore` 排除 `/[Bb]uilds/`），因為它可重新產生且是大型二進位——**進版控的是證據，不是產物**。
+
+**未達「達標」等級前，對外一律寫「設計目標／Profiler 驗收未完成」**——這條是 2026-07-26 README 稽核的直接產物（當時 README 把零 GC 寫成已達成的性質，而專案裡沒有任何量測）。
 
 #### 7.4.4 當前實測狀態（2026-07-26，修正後複驗）
 
@@ -1142,5 +1144,17 @@ CharacterPipelineRunner.Update      2.6 KB
 
 **修正前的狀態（保留作為對照）**：穩態下每幀 **40 B**，來自 `FullBodyStateMachine.EvaluateTransitions` 對介面型別 `IReadOnlyList<StateType>` 做 `foreach` 導致 `List<T>` 的 struct enumerator 被裝箱。改為索引迴圈後歸零。同幀的 `EditorLoop` 佔 89.2%／28.25 ms 而 `PlayerLoop` 僅 2.61 ms——這組對比是「Editor 數字不能直接用」的量化依據。
 
-**仍差一步到「達標」**：以上皆為 Editor 內量測。要讓 README／design-doc 把零 GC 從「設計目標」升為「已驗證」，仍須跑一次 **Development Build ＋ Autoconnect Profiler** 複驗（§7.4.3）。**在此之前對外一律維持「設計目標」。**
+#### 7.4.5 ✅ 達標複驗（2026-07-26，Development Build）
+
+| 量測 | Editor（Play Mode） | **Development Build（Player）** |
+| --- | --- | --- |
+| `PlayerLoop` 的 `GC Alloc`（穩態移動） | 0 B | **0 B** ✅ |
+| Hierarchy 是否出現 `EditorLoop` | 有（佔 89.2%／28.25 ms） | **無**（純 Player Loop，`PlayerLoop` 佔 99.6%） |
+| CPU / Total Used Memory | 31.65 ms／3.38 GB | **7.19 ms／499.6 MB** |
+
+Profiler 連線目標為 `<機器名> - CharacterController`（非 `Play Mode`），`Deep Profile` 於 Player 連線時自動停用——這兩點可用來確認截圖確實來自 Player 而非 Editor。
+
+![Development Build（Player 連線）穩態移動下 PlayerLoop 的 GC Alloc = 0 B](images/profiler/gc-alloc-zero-walk.png)
+
+**結論：達標。** 零 GC 自此可在 README／design-doc 寫成「**已驗證（Player 實測）**」，但措辭須限定範圍：**穩態移動**下 0 B；狀態切換幀的 Editor-only `Debug.Log`（§7.4.4）在 Release build 已被編譯移除，不在此量測範圍內亦不影響結論。
 
