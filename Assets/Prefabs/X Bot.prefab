@@ -2068,6 +2068,9 @@ GameObject:
   - component: {fileID: -7543379725507232644}
   - component: {fileID: 1780814311861303900}
   - component: {fileID: -1807324153759337557}
+  - component: {fileID: 8591615603802138020}
+  - component: {fileID: 2274902780729010716}
+  - component: {fileID: 8740204725354185545}
   m_Layer: 0
   m_Name: X Bot
   m_TagString: Untagged
@@ -2506,6 +2509,78 @@ MonoBehaviour:
   m_EditorClassIdentifier: Project.Runtime::Project.Core.Movement.LocomotionModel
   moveSpeedAccelTime: 0.12
   moveSpeedDecelTime: 0.18
+--- !u!114 &8591615603802138020
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7356619014195126258}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 460519c034612a44396af2f19f1c8c76, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Project.Runtime::Project.Core.Arbitration.Sources.UiModeArbiterSource
+  UiModeAction:
+    m_Name: Ui Mode
+    m_Type: 0
+    m_ExpectedControlType: 
+    m_Id: 6ac000ad-5f8b-4bf3-8d6a-f3f37611159c
+    m_Processors: 
+    m_Interactions: 
+    m_SingletonActionBindings:
+    - m_Name: 
+      m_Id: 3bfe9410-2a00-4908-9d6d-3c0ae0812c82
+      m_Path: <Keyboard>/leftAlt
+      m_Interactions: 
+      m_Processors: 
+      m_Groups: 
+      m_Action: Ui Mode
+      m_Flags: 0
+    m_Flags: 0
+--- !u!114 &2274902780729010716
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7356619014195126258}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 75562fec2c8bc8b47bc8d0332b3bad5d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Project.Runtime::Project.App.GamePauseController
+  PauseToggleAction:
+    m_Name: Pause Toggle
+    m_Type: 0
+    m_ExpectedControlType: 
+    m_Id: 51be55a0-0e78-4d5c-9c3a-f26735124d8c
+    m_Processors: 
+    m_Interactions: 
+    m_SingletonActionBindings:
+    - m_Name: 
+      m_Id: 55a4e8fc-7d80-4e14-8a1f-f347da21e349
+      m_Path: <Keyboard>/escape
+      m_Interactions: 
+      m_Processors: 
+      m_Groups: 
+      m_Action: Pause Toggle
+      m_Flags: 0
+    m_Flags: 0
+--- !u!114 &8740204725354185545
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7356619014195126258}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2b14119cbe8c3494eb2b7bdd0912cd6e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Project.Runtime::Project.App.CursorModeController
+  uiModeSource: {fileID: 8591615603802138020}
+  pauseController: {fileID: 2274902780729010716}
 --- !u!1 &7481699873517314820
 GameObject:
   m_ObjectHideFlags: 0

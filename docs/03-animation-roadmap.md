@@ -21,7 +21,7 @@
 | 資料流 | ✅ | 雙管道各自單寫單讀；反饋禁令成立（腳踝抽搐根因已根治，EditMode 測試 42 條） |
 | 管線契約 | ✅ | 順序 6.5 時序、單幀事件窗口、`IsWarm` 防線全數遵守 |
 | 零 GC | ✅ | 一次性配置＋stack 採樣結構，熱路徑無 `new` |
-| 擴充預留 | ✅ | `BlockIK` 讀取契約先行（等 Arbiter）；參數集中 `FootIKSettings` |
+| 擴充預留 | ✅ 已兌現 | `BlockIK` 讀取契約先行——🆕 Arbiter 已於輪 4 落地（changelog v0.25），`FootIKController` **零改動**；旗標目前仍恆 false（尚無來源要求 IK 封鎖）。參數集中 `FootIKSettings` |
 | 外部 API 風險 | ✅ 已否證 | M3 交付時標註的「`GetIK*` 在 Playables 下值域」疑慮，經 2026-07-18 診斷數據排除（goal 位置≈骨骼 0.002m、旋轉健康）——dev-spec §3.5.3「首查項」待同步更新 |
 
 灰色地帶（架構乾淨、觀感有天花板，記錄非缺陷）：IK 是純視覺層，`CharacterController` 膠囊高度不隨骨盆補償變動——階梯邊緣站姿的懸浮感上限由「膠囊幾何 × `MaxPelvisOffset`」共同決定，屬兩系統邊界已定義下的固有天花板。
@@ -57,7 +57,7 @@
 
 | 技術 | 解決的問題 | 相容性 | 需改架構？ | 作品集亮點 | 導入時機 |
 | --- | --- | --- | --- | --- | --- |
-| **F6 ArbiterPipeline**（順序 4.5） | 狀態 → 表現層封鎖的單一決策點（Hit/Death 時 BlockIK/BlockInput），根除「Controller 各自讀狀態」的耦合 | ★★★ 架構本來就為它留洞：順序 4.5 預留、`ArbiterData` 規格已寫（dev-spec §1.4）、`BlockIK` 讀端已接 | 否——是把既定架構**補完** | 中高（旗標解耦 vs 狀態耦合的架構敘事，design-doc §2.5 已有完整論述） | 輪 5 前夕（第一批真實 Block* 用例＝Combat 出現時，符合 YAGNI 紀律） |
+| **F6 ArbiterPipeline**（順序 4.5） ✅ **已落地（輪 4，2026-07-27）** | 狀態 → 表現層封鎖的單一決策點（Hit/Death 時 BlockIK/BlockInput），根除「Controller 各自讀狀態」的耦合 | ★★★ 架構本來就為它留洞：順序 4.5 預留、`ArbiterData` 規格已寫（dev-spec §1.4）、`BlockIK` 讀端已接 | 否——是把既定架構**補完** | 中高（旗標解耦 vs 狀態耦合的架構敘事，design-doc §2.5 已有完整論述） | ~~輪 5 前夕（第一批真實 Block* 用例＝Combat 出現時）~~ → **提前至輪 4**：第一個真實用例不是 Combat 而是 **UI 模式（Alt）**，且它證明**封鎖不必然來自狀態**（design-doc §2.5 因此修正）。落地範圍＝seam＋UI 模式一顆來源；Hit/Death 來源仍留待 Combat 輪（changelog v0.25） |
 | **F4 Upper Body Layer**（Animancer Layers＋Avatar Mask） | 上身動作（持武器／攻擊／換彈）與下身 locomotion 並行 | ★★☆ Animancer Pro 已解鎖 Layers；Facade 已有 `SetLayerWeight` 雛形；design-doc §2.3 本就規劃三層 | **部分**——上身狀態的驅動方式（第二狀態機 vs Facade 直驅）是 design-doc §7 開放問題，需裁決（可能開 ADR） | 高（分層混合＋打斷優先級是 3C 標配能力） | 輪 6（Combat 需要上身攻擊時） |
 | **Animation Event 管道標準化**（TransitionAsset 序列化事件） | 動畫時間軸事件（腳步時點）→ 玩法／音效的標準通道，不違反「clip 不可變」治理 | ★★★ v0.16.1 決策已預留此通道；Audio 三層（M2）是現成消費端 | 否（Presentation 層內） | 中（治理一致性的展示） | 輪 3（Footstep 輪） |
 | **Foot Phase Curve 烘焙**（`FootPhase` 採樣 stage） | 腳相資料（哪腳著地／相位）供 Footstep／Foot Contact／未來同步使用 | ★★★ 烘焙管線 IBuildStage 可插拔；dev-spec §5 既定未完成項（v0.7 Code Review 發現） | 否——烘焙管線延伸 | 高（離線特徵提取＝本專案差異化敘事的延續） | 輪 2（新資產進場需重烘焙，一次做掉） |

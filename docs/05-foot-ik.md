@@ -46,7 +46,7 @@ FootIKController ────寫──→ FootIKTargetData ────讀──
 
 * **組裝**：`FootIKController.Awake` 建立兩份資料 → `rig.Bind(targetData, poseData)` 一次性注入；此後兩者僅透過兩條單向共享數據溝通，執行期**無任何方法呼叫／事件／回呼**（M3 裁決明禁 Event Bus／Message System／Callback）。Humanoid Avatar 有效性由 `AnimancerFacade.ValidateHierarchy` 既有 Fail-Fast 防線把關，IK 模組不重複驗。
 * **IK pass 開啟**：`FootIKController.Start` 經 `AnimationFacadeBase.SetApplyAnimatorIK(0, true)`（🆕 基底 virtual no-op；`AnimancerFacade` 覆寫為 `Layers[i].ApplyAnimatorIK`）。放 Start＝確保 Facade 的 Awake 已完成，不賭同幀 Awake 順序。
-* **Q4（Roll／Jump）**：不特判狀態——空中 `IsGrounded=false` 自然關閉；Roll 中腳部蜷起由 pose 權重自然降低。`BlockIK` 讀取契約先行（writer 到 ArbiterPipeline 接入才存在）。實測若 Roll 吸地明顯，回 Arbiter Pipeline 解決（Future Work）。
+* **Q4（Roll／Jump）**：不特判狀態——空中 `IsGrounded=false` 自然關閉；Roll 中腳部蜷起由 pose 權重自然降低。`BlockIK` 讀取契約先行——🆕 **writer 已於輪 4 落地**（`ArbiterPipeline`，順序 4.5），但目前沒有任何 `IArbiterSource` 要求 `BlockIK`，旗標仍恆 `false`，`FootIKController` **零改動**（契約先行的代價在此兌現）。實測若 Roll 吸地明顯，回 Arbiter Pipeline 解決（Future Work）——屆時作法是新增一顆讀 FSM 狀態的來源，而非改本檔。
 * **零 GC**：RuntimeData 一次配置；`Physics.Raycast`（單一命中 out 版）無堆配置；熱路徑無 `new`。
 
 #### 3.5.2 已知限制（時序＋v1 凍結清單）

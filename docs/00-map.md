@@ -26,6 +26,8 @@
 | Movement Model（dynamics） | `Core/Movement/Models/`：`IMovementModel`／`LocomotionModel`（B9 平滑＋運動輸出＋自驅動畫參數） | **ADR-003 D3／D4**；dev-spec §3.1／§2.1 順序 3；design-doc §4.8 |
 | 狀態機 | `Core/StateMachine/`（＋`States/`） | dev-spec §3.1（`BaseState`）／§3.2（Config／Params）／§3.3 State Matrix |
 | 跳躍物理 | `Core/StateMachine/JumpStateParams`＋`Presentation/Motion/JumpLaunchData` | **ADR-002**；dev-spec §3.2 跳躍注入 API |
+| 仲裁層（順序 4.5） | `Core/Arbitration/`：`ArbiterData`／`IArbiterSource`／`ArbiterPipeline`／`Sources/UiModeArbiterSource` | dev-spec §1.4（含來源契約）／§2.1 順序 4.5；design-doc §2.5／§4.5 |
+| **應用層**（全域狀態，非角色） | `App/`：`GamePauseController`（`Time.timeScale` 的擁有者）／`CursorModeController`（**`Cursor` API 的唯一擁有者**） | **design-doc §4.9**（為什麼暫停與游標都不屬於角色）；dev-spec §0.2／§7.2-M8・M9／§7.3 |
 | 位移驅動 | `Presentation/Motion/`：`MotionDriver`／`MotionBakeData` | dev-spec §2.1 順序 6／§3.2 MotionDriver |
 | 動畫門面 | `Presentation/Animation/`：`AnimationFacadeBase`（抽象）／`AnimancerFacade` | 抽象在 dev-spec §3.1；**實作／Mixer／資料流在 `docs/06-animation-presentation.md`** |
 | 表現層管線＋音效 | `Presentation/`：`IPresentationController`／`PresentationPipeline`／`Audio/` | dev-spec §3.4；design-doc §4.6 |

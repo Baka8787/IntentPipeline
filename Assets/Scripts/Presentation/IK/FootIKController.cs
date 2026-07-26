@@ -85,7 +85,9 @@ namespace Project.Presentation.IK
             float rootY = transform.position.y;
 
             // Q4：不特判狀態——空中 IsGrounded=false 自然關閉；Roll 中腳部蜷起由 pose 權重自然降低。
-            // BlockIK 為讀取契約先行（writer 到 ArbiterPipeline 接入才存在，現值恆 false）。
+            // BlockIK 為讀取契約先行。🆕（輪 4）writer 已存在（ArbiterPipeline，順序 4.5），
+            // 但目前沒有任何 IArbiterSource 要求 BlockIK，故現值仍恆 false，直到死亡等來源進場——
+            // 屆時本檔零改動即生效。
             bool ikAllowed = data.IsGrounded && !data.Arbitration.BlockIK;
 
             // === ① 各腳採樣 ===

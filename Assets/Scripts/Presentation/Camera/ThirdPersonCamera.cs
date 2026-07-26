@@ -28,9 +28,13 @@ namespace Project.Presentation.CameraControl
                     "請在 Inspector 將角色 Root（掛 CharacterPipelineRunner 的物件，非 Model 子物件）拖入 Target 欄位。", this);
             }
 
-            // 隱藏並鎖定滑鼠指標
-            Cursor.lockState = CursorLockMode.Locked;
-            Cursor.visible = false;
+            // 🗑️（輪 4.2）原本這裡做開場的「隱藏並鎖定滑鼠指標」，已移交
+            //     Project.App.CursorModeController——它是 Cursor API 的唯一擁有者，
+            //     沒有任何來源要求自由游標時（＝開場）它自然會鎖上。
+            // ⚠️ 留在這裡就等於有第二個寫入者，「唯一擁有者」只會是文件上的說法。
+            //     代價：場景若沒掛 CursorModeController，開場游標不會鎖、連帶本相機也不轉
+            //     （下方閘門以 Cursor.lockState 為判準）。**這是刻意讓它大聲壞掉**，一眼可見，
+            //     不是靜默的行為漂移。
 
             Vector3 angles = transform.eulerAngles;
             _yaw = angles.y;
@@ -42,7 +46,18 @@ namespace Project.Presentation.CameraControl
             if (target == null) return;
 
             // 💡 升級防線：檢查當前是否有滑鼠裝置連結
-            if (Mouse.current != null)
+            // 🆕（輪 4）游標解鎖期間（UI 模式）不消費滑鼠位移——否則玩家移動滑鼠去點 UI 時鏡頭會跟著轉，
+            //    「顯示滑鼠」就只做了一半。
+            // 為什麼用 Cursor.lockState 當判準而不是讀黑板 Arbitration：本元件不是 IPresentationController、
+            //    也不持有 PlayerRuntimeData，而「游標有沒有被鎖住」本身就是「該不該吃滑鼠位移」的正解——
+            //    零新增依賴、零新增欄位。時序也對：游標由 CursorModeController 在 **Update** 套用，
+            //    而所有 Update 都跑在所有 LateUpdate 之前，所以本幀讀到的必定是已套用的值，不會有一幀誤轉。
+            // ⚠️ 這是**現階段**的取捨，不是「Cursor.lockState 永遠是全域權威」的宣告。
+            //    🔄（輪 4.2 複驗）現在已有**兩個**滑鼠模式（UI 模式、暫停），兩者也都會放開游標——
+            //    但它們對相機的期望**一致**（都要停轉），所以這個判準依然是對的答案。
+            //    **真正的失效條件因此收窄為**：出現一個「游標自由**但相機仍該轉**」（或反之）的模式，
+            //    屆時再裁決是否需要一份更上游的 camera-input contract（見 dev-spec §7.3）。
+            if (Mouse.current != null && Cursor.lockState == CursorLockMode.Locked)
             {
                 // 讀取新版輸入系統的滑鼠每影格偏移量 (Delta X / Y)
                 Vector2 mouseDelta = Mouse.current.delta.ReadValue();

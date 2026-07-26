@@ -6,6 +6,229 @@
 
 ---
 
+## [v0.26] - Hold／Tap 分流、應用層暫停、游標擁有權歸位：一顆鍵、兩個 scope（2026-07-27）
+
+> 輪 4.1。v0.25 的 UI 模式是「按一下切換」，實際用起來想要的是兩件事：**按住** Alt 臨時放開滑鼠去點畫面上既有的 UI（遊戲繼續跑），**短按** Alt 開介面並暫停。同一顆鍵、兩種行為——聽起來像個小需求，實際上逼出了一層新的東西。
+
+### 1. 暫停差點被做成 `ArbiterData` 的第 5 個旗標
+
+第一個直覺是：既然已經有 `BlockInput`／`BlockIK`／`BlockAudio`／`BlockExpression`，那就加個 `BlockTime`。
+
+**這是錯的，而且錯在一個之前沒有意識到的維度上：scope。**
+
+`PlayerRuntimeData` 是**單一角色**的黑板，`ArbiterData` 是那隻角色的仲裁旗標。而 `Time.timeScale` 是**應用全域**的——它凍結的不是「這隻角色」，是整個世界。把全域狀態放進 per-character 結構，現在看不出問題（只有一隻角色），第二隻角色進場立刻露餡：**兩塊黑板都會聲稱自己擁有暫停**。
+
+還有一個更硬的證據：`ArbiterPipeline` 的來源是 `GetComponentsInChildren<IArbiterSource>()`，**只掃角色階層**。一個全域暫停器根本不在那裡。而 CLAUDE.md 明禁 Singleton，所以「角色端 source 去查全域單例」這條路也堵死。
+
+三條路同時撞牆 → 這個狀態需要自己的家。於是有了 `Assets/Scripts/App/`（design-doc §4.9），第一個住戶是 `GamePauseController`。
+
+**這一層與角色層唯一的紀律差異**：它**自帶 `Update`**。`IArbiterSource`／`IPresentationController` 都明文禁止自帶 Update（時序由管線保證），但那條紀律的前提是「你屬於角色管線」——本層明確不屬於，沒有管線可掛，只能自己推進。差異寫進 §4.9，免得下次有人照著抄錯。
+
+### 2. Tap 與 Hold 有個沒有免費午餐的取捨
+
+tap ＝ 按下＋快速放開，而**放開之前無法知道它是不是 tap**。所以只有兩種可能：
+
+* 按下就進 hold 模式 → **每次 tap 都會先閃一下游標**
+* 等超過門檻才進 hold 模式 → **游標延遲約 0.25s 才出現**
+
+這是時序的物理限制，不是實作技巧能繞過的。**裁決取後者**：Tap 不先觸發 Hold，接受 hold 的 0.25s 延遲。日後調整的是**門檻數值**，不是新增更複雜的判定機制——這句話是刻意寫下的，用來擋住未來「再加個預測性判定」的衝動。
+
+分流方式走 **Input System 原生的 `Hold`／`Tap` interaction**，不自刻計時器。理由與 `GaitProfileSO.walkIsToggle` 完全同源：**操作語意是 per-game 差異，該住在資產裡而不是程式碼裡**。代價是多綁一條 action，而且 **Tap 門檻必須 ≤ Hold 門檻**——這是正確性條件不是調味，寫進 M3。
+
+（自刻計時器那條路還有個陷阱：暫停時 `Time.time` 不走，得記得用 `Time.unscaledTime`。走原生 interaction 就完全繞開了。）
+
+### 3. 進出邊沿刻意不對稱
+
+```csharp
+if (UiModeAction.WasPerformedThisFrame())      SetUiMode(true);   // Hold 撐過門檻
+else if (_uiMode && !UiModeAction.IsPressed()) SetUiMode(false);  // 鍵已不在按下狀態
+```
+
+離場**不用**放開的邊沿訊號，而用「控制鍵現在是不是還按著」。因為 `IsPressed()` 讀的是控制本身的狀態、與 interaction 無關，所以**會自癒**——視窗失焦、Play 模式切換這類會吃掉放開邊沿的情境，不會讓 UI 模式永久卡住（那個 bug 一旦發生，症狀是「游標放不回去」，而且很難重現）。
+
+### 4. 撞上輪 4 剛立的 Ownership 鐵律，選擇不繞過它
+
+輪 4 才判定「`UiModeArbiterSource` 是**唯一**擁有 Cursor API 的元件」。而「短按開介面」隱含暫停時游標要出現——若 `GamePauseController` 也寫 `Cursor`，立刻有兩個擁有者，而且對撞是具體的：**暫停中按住再放開 Alt，對方的 `ApplyCursor(false)` 會把游標收回去，即使暫停還開著**。
+
+要正確解決得抽出一個 cursor-mode 擁有者，但那正是輪 4 明文排除的「Cursor service 抽象」。**當下的裁決：最小版的暫停不碰 Cursor**——只切 `timeScale`，把「等真實壓力再決定」寫進 §7.3。
+
+**然後壓力在同一個工作階段就到了**（「暫停時游標應常駐」），於是有了 §5。這件事本身值得記：**「等真實壓力」不是拖延的藉口，它真的會很快到來，而且到來時你會知道介面該長什麼樣——因為需求把形狀說清楚了**。若在輪 4.1 就憑空抽象，抽出來的很可能是「暫停自己存還原游標」那種埋著 LIFO 假設的版本。
+
+同理，暫停**也不封鎖角色輸入**（`timeScale = 0` 已讓位移與動畫全停）。已知殘留：trigger 意圖仍會寫入、FSM 仍以 `deltaTime = 0` Tick，所以暫停中按跳躍可能在解除時「補跳」。**兩個缺口都記進 §7.3 並各自寫明未來的正解**——不封鎖輸入的正解是讓暫停器實作 `IArbiterSource` 由角色以 Inspector 引用（DIP），**不是**讓角色去查詢全域。
+
+### 5. 壓力到了：`Cursor` 的擁有權搬到應用層（輪 4.2）
+
+需求是一句話：**暫停時游標應常駐存在**。它逼出 §4 那個被延後的裁決。
+
+考慮過兩條路：
+
+* **存○還原**（`UiModeArbiterSource` 進 UI 模式前記住 `Cursor.lockState`，離開時還原而非寫死 `Locked`）。零新檔零接線，而且在**現行綁定下完全正確**——兩個模式共用 Left Alt，「按住中再短按」物理上不可能，所以不會有交錯。
+* **抽出單一擁有者**：`App/CursorModeController` 把所有「想要自由游標」的來源 OR 起來，套用一次。
+
+**選了後者。** 存○還原的正確性建立在一個**隱藏的 LIFO 假設**上：模式必須後進先出地退出。今天成立只是因為兩個模式剛好共用同一顆鍵；哪天暫停改綁 Esc，「按住 Alt 時按 Esc 暫停 → 放開 Alt」就會把游標鎖回去。**這種「今天對、明天無聲地錯」正是這個專案的文件一直在防的東西**，不值得為了省一個檔案買下來。
+
+形狀直接沿用 `ArbiterPipeline`：**來源各報各的，單一擁有者合併後套用一次**。差別只在來源是 Inspector 明確引用的兩顆，沒有做成介面集合——第三個滑鼠模式出現時再一般化（同 `PresentationPipeline` 當年的節奏）。
+
+順帶把 `ThirdPersonCamera.Start` 的初始游標鎖定也**移除**了。留著它就是第二個寫入者，「唯一擁有者」會淪為文件上的說法。代價是這顆元件缺席時開場游標不鎖、連帶相機不轉——**刻意讓它大聲壞掉**。
+
+**一個值得記下的對稱性**：游標的解法是「高層擁有、低層回報意圖」（App 讀角色的 `IsUiModeActive`），而「暫停封鎖角色輸入」的未來正解卻是「低層擁有、高層提供來源」（角色的 `ArbiterPipeline` 收一顆 App 給的 `IArbiterSource`）。方向相反，判準卻同一個：**那個狀態的 scope 屬於誰，就由誰擁有**。游標是全域的，封鎖是每角色的。
+
+#### 5.1 初版立刻踩到的 bug：「唯一擁有者」不等於「唯一寫入者」
+
+第一版 `CursorModeController` 為了避免每帧覆寫，快取了「自己上次寫了什麼」，只在要求改變時才動 `Cursor`。實測症狀：**游標永久可見**。
+
+根因是那個快取隱含一個假設——**我們是唯一會動 `Cursor.lockState` 的人**。但 Unity Editor 不是：Play 模式按 **Esc**、以及視窗失焦，Unity 內建都會強制解鎖游標（那是它讓你逃出鎖定游標的後門）。一旦被外力改掉，快取仍認為「已經套用過了」，於是**永遠不再修正**。
+
+改成比對 `Cursor` 的**現值**而非快取後就自癒了：不管誰把它改掉，下一帧都會被拉回。仍然只在不一致時才寫，所以沒有付出每帧覆寫的成本。
+
+**教訓比 bug 本身有價值**：這一輪花了很多力氣確保「程式碼裡只有一個寫入者」，但 `Cursor` 是**作業系統／引擎共管的全域狀態**，我們永遠不可能是唯一寫入者。對這類狀態，正確的模式是**收斂（converge to desired）而不是事件驅動的 set-once**——「我說了算」要靠每帧確認，不能靠記憶。
+
+（副作用要誠實記：Editor 內「按 Esc 逃出鎖定游標」的後門會被我們立刻收回。現行方案下不成問題，Esc 本來就是暫停鍵。）
+
+#### 5.2 暫停改綁 Esc，讓那個被否決的方案當場失效
+
+驗收途中暫停鍵從「短按 Alt」改成獨立的 **Esc**。這順手證明了 §5 的選擇：兩個模式不再共用一顆鍵，**「按住 Alt → 按 Esc 暫停 → 放開 Alt」從此做得到**——正是當初判斷「存○還原」會踩爆 LIFO 假設的那個情境。**被延後的抽象在一小時內就兌現了；被否決的捷徑在同一小時內就失效了。**
+
+連帶：`Tap` 門檻 ≤ `Hold` 門檻的相依解除，`PauseToggleAction` 也不再需要 `Tap` interaction。
+
+### 6. 順手修掉的 Editor 錯誤（與本輪功能無關）
+
+```
+NullReferenceException: SerializedObject of SerializedProperty has been Disposed
+GUI Error: You are pushing more GUIClips than you are popping
+```
+
+兩條是**因果**不是兩件事：`OnInspectorGUI` 進行到一半丟例外 → IMGUI 的 clip stack 沒 pop 完。而我們自己的 Editor 程式**完全沒碰過 `SerializedProperty`**（全專案只有一個 `CustomEditor`），所以丟例外的是別人——唯一有大量 string 序列化欄位＋自訂 drawer 的，是 Input System 的 `InputActionDrawer`。
+
+放大器是 `CharacterPipelineRunnerEditor` 在 `OnInspectorGUI` **內部**每帧呼叫 `Repaint()`：在 GUI 遍歷中排程重繪屬重入寫法，而它猛打的正是同時掛著 InputAction drawer 的那個 Inspector 視窗。改用 Unity 為此提供的 `RequiresConstantRepaint()`，由 InspectorWindow 自行決定節奏。
+
+**教訓**：`Repaint()` 寫在 `OnInspectorGUI` 結尾是網路上很常見的「即時 Inspector」寫法，它在只有自家欄位時沒事，一旦視窗裡混進第三方 property drawer 就會開始出現無法解釋的隨機錯誤。
+
+### 7. 沒做的事（都是刻意的）
+
+Pause Menu／Canvas／EventSystem／UI navigation、暫停時封鎖角色輸入、死亡 ArbiterSource、優先級／強制解封、把 `CursorModeController` 的來源一般化成介面集合。
+
+（原本列在這裡的「Cursor service 抽象」**已於 §5 落地**——壓力在同一個工作階段就到了。）
+
+### 8. 檔案與檢核
+
+* 新增 `Assets/Scripts/App/GamePauseController.cs`（應用層首個住戶）
+* 新增 `Assets/Scripts/App/CursorModeController.cs`（`Cursor` API 的唯一擁有者）
+* 修改 `UiModeArbiterSource`（toggle → hold；**移除 Cursor 寫入**，改為公開 `IsUiModeActive` 回報意圖）
+* 修改 `ThirdPersonCamera`（移除 `Start` 的初始游標鎖定＝移除第二個寫入者）
+* 修改 `CharacterPipelineRunnerEditor`（`Repaint()` → `RequiresConstantRepaint()`）
+* **新增測試 12 條**（`[Test]` 83 → **95**）
+  * `GamePauseControllerTests` 6 條：暫停／還原**暫停前的** `timeScale`（非寫死 1）／重複要求暫停不得污染還原值／還原值為 0 時退回 1／切換交替／**停用時必須把時間還給遊戲**
+  * `CursorModeControllerTests` 6 條：OR 合併／來源留空安全／**其中一個來源收手時另一個仍在要求則不得解除**（＝本輪 bug 的回歸測試）／全部收手才回到鎖定
+* ⚠️ 兩個測試檔都會動到全域狀態（`Time.timeScale`），**`SetUp` 記錄、`TearDown` 無條件還原**——否則一條測試失敗會讓整個測試回合在 `timeScale = 0` 下跑
+* `CursorModeControllerTests` 刻意**只測 `WantsFreeCursor` 不測 `Cursor` 本身**：游標是全域且與編輯器視窗焦點互動的狀態，EditMode 斷言它既不穩定、連還原都不可靠。套用行為屬人工驗收（§7.2-**M9**）
+* 📌 最後那條刻意用**反射直接呼叫 `OnDisable`**，而不是靠 `DestroyImmediate` 觸發：EditMode 下 Unity 是否派送生命週期訊息不在測試的掌控範圍內，依賴它會讓成敗取決於引擎行為而非我們的程式。**要驗的是那段防禦碼寫對了沒有，就直接驗它**
+* ⚠️ 測試自身的紀律：`Time.timeScale` 是全域狀態，`SetUp` 建立確定性基準、`TearDown` 無條件還原——否則一條測試失敗會讓**整個測試回合**在 `timeScale = 0` 下跑
+* 人工驗收見 §7.2-**M8**，其中 ④「暫停中能否再短按解除」是關鍵項：它驗證 Input System 的 Tap 判定用的是不受 `timeScale` 影響的真實時間。**若該條失敗，暫停將無法解除**，必須改用 `Time.unscaledTime` 自行計時
+
+---
+
+## [v0.25] - ArbiterPipeline 落地：Arbitration 第一次有寫入者（2026-07-27）
+
+> 輪 4。`RuntimeData.Arbitration` 的三個 reader 早在 M2／M3 就寫好了（`CharacterPipelineRunner` 讀 `BlockInput`、`AudioController` 讀 `BlockAudio`、`FootIKController` 讀 `BlockIK`），但整整兩輪沒有任何 writer——旗標恆為 false，讀取契約先行、等一個真實需求。這一輪那個需求出現了：控制方案裡唯一還沒做的「**Alt ＝ 顯示滑鼠並停止移動**」。
+
+### 1. 第一個真實需求，推翻了設計文件裡的一個假設
+
+design-doc §2.5 原本畫的資料流是「狀態機 → Arbiter 依狀態轉譯 → 黑板」，因為當初想的封鎖情境全是死亡、被控制這類**確實是角色狀態**的東西。所以最自然的實作是在 `BaseState` 開一個 `BlocksInput` virtual，讓每個 State 自己宣告。
+
+接上第一個需求才發現：**UI 模式根本不是角色狀態。** 玩家按 Alt 去點介面，角色本身什麼事都沒發生。硬要為它開一個 FSM 狀態＝為了實作方便去污染狀態機拓撲。
+
+而且 `BaseState.BlocksInput` 還有兩個更深的問題：**方向錯了**（§2.5 說的是 Arbiter 讀 state，不是 state 宣告 arbiter，反過來就讓 FSM 認識了仲裁概念），以及**把一張表拆散**（「哪些狀態封鎖什麼」本質是一張表，散在 N 個 state 檔比放一個檔案難審）。
+
+結論是把上游一般化成 `IArbiterSource` 集合——**狀態機是眾多可能來源之一**，不是唯一來源。這是 `IMovementIntentSource`（順序 2.5）／`IPresentationController`（順序 6.5）之後**第三次沿用同一個 pattern**：管線只認介面、新增實作零改動核心。
+
+### 2. 一個小決定，省掉一條測試：回傳值 vs `ref`
+
+最自然的介面寫法是 `void Contribute(data, ref ArbiterData flags)`——來源直接往共用的旗標上抬。但那樣每個來源都**看得見、也改得掉**別人已經抬起的旗標，「不得清掉別人的封鎖」就只能靠紀律或再寫一條回歸測試去守。
+
+改成各自回傳自己的請求、由管線 OR 合併：
+
+```csharp
+public interface IArbiterSource
+{
+    ArbiterData Evaluate(PlayerRuntimeData data);   // 只回報「我自己」要什麼
+}
+```
+
+這件事就變成**結構上不可能**。附帶好處是「多來源如何合併」有了唯一的家——未來真要做優先級／強制解封，改的是管線裡那一個迴圈，所有來源零改動。
+
+**學到的**：能用型別讓錯誤寫不出來時，就不要用測試去守它。測試守的是「有人做錯了會變紅」，型別守的是「根本寫不出來」。
+
+### 3. `BlockInput` 到底該凍結什麼——懸了兩輪的 M5 結案
+
+Stage 1 遷移時，順序 2.5（`MovementIntent`）被刻意放在 `BlockInput` 閘門**之外**以維持 Migration 前行為，並明寫「留待 Arbiter 有 writer 時裁決」。現在有 writer 了。
+
+直覺答案是「把 2.5 移進閘門」。**這是個陷阱**：
+
+> `MovementIntent` 是**連續型**意圖，刻意不參與順序 7 復位（§1.5）。**跳過 producer ≠ 意圖歸零，而是意圖凍結在最後一帧。**
+
+也就是說，如果封鎖那一瞬間你正按著 W 全速跑，黑板上 `DesiredSpeedNormalized` 會永遠停在 1.0，`LocomotionModel` 每帧照吃——**角色以全速無限前進，而且放不下來**。這比原本預想的「封鎖期間仍在滑行」嚴重一級。
+
+第二個候選是「封鎖時把 `MovementIntent` 歸零」。也不行：那需要 `MovementIntent` 的**第二個寫入者**（Runner），直接違反 A5 單一寫入者；要嘛就得讓 producer 自己去讀封鎖旗標，那又破壞 ADR-003 D2 的 context-free。
+
+最後採用的是**在閘門處把 `InputData` 整份歸零**：
+
+```csharp
+if (_runtimeData.Arbitration.BlockInput) inputData = default;
+ProcessIntents(ref inputData);                                     // 順序 2
+_movementIntentSource?.ProduceIntent(ref inputData, _runtimeData); // 順序 2.5
+```
+
+三個問題一起解決：單一寫入者不變、producer 完全不需要知道「封鎖」存在、手感自然落在既有的 B9 減速收步上（＝與放開 WASD 完全同款，零新增機制、不動 `IMovementModel` 介面）。
+
+**副產物比修法本身更值錢**：`BlockInput` 從「兩套規則」（順序 2 跳過、順序 2.5 不跳過）收斂成**一個語意**——「本帧管線看不到任何輸入」。dev-spec §2.1 上那條解釋為什麼 2.5 在閘門外的 ⚠️ 註記，因此是整條刪掉而不是改寫。
+
+順帶檢查到一個容易漏的副作用：零輸入時 `WalkButtonDown` 也是 false，所以 Ctrl 的 Walk toggle **不會**被誤翻，封鎖解除後型態原樣保留。這條已寫成測試。
+
+### 4. 「顯示滑鼠」歸誰——以及差點只做一半的相機
+
+游標切換依 ADR-003 §13.3 偏 Input／UI 職責，**Arbiter 不該認識滑鼠**。做法是讓 `UiModeArbiterSource` 獨佔三樣東西：UI 模式開關狀態、Left Alt 的 `InputAction`、`Cursor` API；上游 `ArbiterPipeline` 只收到一顆 bool。
+
+**Alt 刻意不進 `InputData`**，理由比職責論更硬：`InputData` 是**可被 `BlockInput` 封鎖的通道**，而解除封鎖的那顆鍵不能住在可被封鎖的通道裡——放進去就得為它開一條「這顆不受封鎖影響」的例外，例外一開，剛剛才收斂好的「封鎖＝看不到輸入」語意馬上又破了。
+
+另外，開場讀碼時抓到一個會讓需求**只做一半**的細節：`ThirdPersonCamera` 每帧**無條件**讀 `Mouse.current.delta`，而 `Cursor.lockState = Locked` 只在它自己的 `Start` 設定一次。只做「游標＋停止移動」的話，玩家一移動滑鼠去點 UI，鏡頭就跟著轉。
+
+修法沒有引入任何新耦合——`Cursor.lockState` 本身就是「該不該吃滑鼠位移」的天然權威：
+
+```csharp
+if (Mouse.current != null && Cursor.lockState == CursorLockMode.Locked)
+```
+
+**但這條被明確記進 §7.3 張力表而不是當成通則**：它成立的前提是「全專案目前只有 UI Mode 一個滑鼠模式」。哪天出現 Pause／Inventory／Dialogue／Cutscene 等多個模式（它們對相機的期望未必一致），就要重新裁決是否需要一份更上游的 camera-input contract。**把成立前提寫下來，比把結論寫下來重要**——結論會過期，前提會告訴你什麼時候過期。
+
+### 5. 刻意接受的一帧延遲
+
+順序 4.5 卡在狀態機**之後**（脆弱點警告第 2 條），所以封鎖旗標第 N 帧寫入、第 N+1 帧的閘門才看得到。約 16ms。
+
+**不為此把 4.5 提前**：提前並不能消除延遲，只會把「旗標晚一帧生效」換成「旗標依據**過期的**狀態計算」，後者更難除錯。這條連同「若未來真的出現無法容忍一帧的封鎖情境，正解是讓它走 FSM 狀態而非仲裁旗標」一起寫進 §2.1 脆弱點第 7 條。
+
+實務上使用者也感覺不到：來源自身的即時反應（游標、相機）在**當帧**就完成，只有輸入封鎖晚一帧。
+
+### 6. 沒做的事（都是刻意的）
+
+* **優先級／強制解封**：多來源只做 OR。優先級需要真實競爭情境（死亡 vs 過場誰贏？）才能裁決語意，現在決定＝在沒有壓力測試下把介面定死。擴充成本已預先壓到最低（改管線一個迴圈）。
+* **死亡的 ArbiterSource**：等第二個真實來源出現再加。屆時它會是一顆**讀 FSM 狀態**的 source，而不是回頭去給 `BaseState` 開 virtual。
+* **抽象 Cursor service**：一個滑鼠模式不需要服務層。
+* **重新鎖定游標時的鏡頭跳動抑制器**：Unity 的 `Mouse.delta` 在解鎖期間照常回報，重鎖那一帧理論上可能有小幅跳動。但觸發時手在按鍵、滑鼠通常靜止，預估風險低——列為人工觀察項（§7.2-M7），實測明顯再處理。
+
+### 7. 檔案與檢核
+
+**新增**：`Core/Arbitration/IArbiterSource.cs`、`Core/Arbitration/ArbiterPipeline.cs`、`Core/Arbitration/Sources/UiModeArbiterSource.cs`、`Tests/EditMode/ArbiterPipelineTests.cs`
+**修改**：`CharacterPipelineRunner`（Start 收集 ＋ 順序 4.5 ＋ 閘門改零輸入）、`ThirdPersonCamera`（游標閘門）、`ArchitectureRegressionTests`（A4／A5 規則）
+
+檢核表變動：
+* **A5**：`Arbitration` 從「不得有任何執行期寫入者」→ `ArbiterPipeline.cs`。⚠️ 白名單只有**管線**一個檔案，多來源進場時**不會跟著變長**——這正是回傳值設計的副產物。
+* **A4**：新增 `Core/Arbitration` ✗ `Project.Presentation`（落地 §4.5「只能透過黑板旗標與表現層溝通」）。刻意**不**禁 StateMachine——未來的死亡 source 需要讀它。
+* **M5**：結案。
+* **M7**：新增（Alt 行為的 Play 模式驗收；邊沿輸入與游標狀態無法在 EditMode 確定性重現）。
+
+---
+
 ## [v0.24] - 熱路徑每帧 40 B：介面型 foreach 的裝箱（2026-07-26）
 
 > 起因是去補「零 GC」那項一直沒做的 Profiler 驗收。README 稽核時已經把這句話從「已達成」降級為「設計目標」，這次是真的去量——**結果量出一個真的 bug**。

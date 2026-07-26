@@ -7,12 +7,87 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
-> ⬆️ **最新狀態（2026-07-26）＝里程碑檢查點：v0.19 Foundation 收案補寫完成**，見緊接的專段；再往下依序是 v0.23／README・LICENSE／v0.22／Stage 2／Stage 1 的交辦。
+> ⬆️ **最新狀態（2026-07-27）＝輪 4.1 Hold／Tap 分流＋應用層暫停已落地，等待 Unity 端驗證**（輪 4 本體已驗收通過：測試全綠、UI 模式正常）。見緊接的專段；再往下依序是 v0.19 里程碑／v0.23／README・LICENSE／v0.22／Stage 2／Stage 1 的交辦。
 > 📍 **會話開場請先讀 `docs/00-map.md`**（單頁索引：模組 → 檔案 → 治理章節），再讀本段。
 
 ---
 
-## 🎯 下一會話：建議起手（2026-07-26 規劃）
+## 🔴 待使用者操作：輪 4.1 落地後的 Unity 端驗收（2026-07-27）
+
+> 程式／測試／文件已全部寫完（changelog v0.26）。以下**只能由你在 Unity 做**（AI 不碰 `.prefab`／`.asset`／`.meta`／場景）。
+> ✅ 輪 4 本體（ArbiterPipeline ＋ UI 模式 toggle 版）已驗收通過，本段只列**輪 4.1 新增／變更**的部分。
+
+### A. Inspector 綁定
+
+**A-1　既有的 `UiModeArbiterSource`（語意已變：toggle → hold）**
+* 在 `Ui Mode Action` 上**新增一個 `Hold` interaction**，`Duration` 設 **0.25**
+* 綁定本身不用動（仍是 `<Keyboard>/leftAlt`）
+
+**A-2　新增暫停器（⚠️ 不要掛在角色 Root）**
+1. 場景中另建一顆空物件（例如 `SystemsRoot`），掛上 **`GamePauseController`**
+2. 其 `Pause Toggle Action` 綁 **Esc**（`<Keyboard>/escape`）。🔄（輪 4.2）獨佔一顆鍵，**不需要 `Tap` interaction**
+
+> 🔄 **暫停已改綁 Esc**，與 UI 模式的 Left Alt 不再共用，所以原本「Tap 門檻 ≤ Hold 門檻」的相依**已解除**。⚠️ 若日後改回共用一顆鍵，那條相依會回來（且是正確性條件，不是手感調味）。
+> 📌 **為什麼暫停器不能掛角色 Root**：`Time.timeScale` 是全域狀態，角色黑板／仲裁是單一角色的。理由完整版見 design-doc §4.9。
+
+**A-3　新增游標擁有者（🔴 缺這顆會很明顯地壞掉，見下方警告）**
+1. 同一顆 `SystemsRoot` 再掛上 **`CursorModeController`**
+2. 把 **`Ui Mode Source`** 拖入角色 Root 上的 `UiModeArbiterSource`
+3. 把 **`Pause Controller`** 拖入同物件上的 `GamePauseController`
+
+> 🔴 **這顆缺席時：開場游標不會被鎖住，而且相機完全不會轉。** 因為 `ThirdPersonCamera.Start` 原本那行初始鎖定**已被移除**——留著它就是第二個 Cursor 寫入者，「唯一擁有者」會淪為文件上的說法。這是**刻意讓它大聲壞掉**，症狀一眼可見，不是靜默漂移。
+> 📌 **為什麼游標要搬到應用層**：暫停成為第二個滑鼠模式後，兩個各寫各的會產生可重現的碰撞（暫停中按住再放開 Alt，游標會被鎖回去）。詳見 changelog v0.26 §5。
+
+### B. Play 模式行為驗收（＝dev-spec §7.2-**M8**，另 §7.2-M7 的觸發方式已改為「按住」）
+
+| # | 驗收項 | 預期 |
+| --- | --- | --- |
+| 1 | 按 **Esc** | 世界凍結（角色與動畫全停） |
+| 2 | ⚠️ **關鍵項**：再按 Esc | 必須能解除，且 `timeScale` 回到暫停前的值。這條驗證 `Update` 在 `timeScale == 0` 下照跑——若失敗，暫停將無法解除，回報我處理 |
+| 3 | **按住** Alt 超過 0.25s | 進 UI 模式（游標出現、相機停轉、角色 B9 收步），**且不會順便暫停** |
+| 4 | 放開 Alt | UI 模式全部復原 |
+| 5 | 🆕 按住 Alt → 按 Esc 暫停 → 放開 Alt | 游標**必須仍然可見**。改綁 Esc 後這個交錯情境才成立（共用 Alt 時物理上做不到），是單一游標擁有者的實證 |
+| 6 | 已知缺口複驗 | 暫停中按跳躍 → 解除後是否會「補跳」（暫停刻意不封鎖輸入，見 §7.3） |
+
+**游標擁有權（＝dev-spec §7.2-M9，輪 4.2 新增）**
+
+| # | 驗收項 | 預期 |
+| --- | --- | --- |
+| 7 | 開場 | 游標即被鎖住、相機正常轉動（＝`CursorModeController` 有接上，它接手了相機原本的初始鎖定） |
+| 8 | 暫停期間 | 游標**常駐可見**（本輪需求） |
+| 9 | 🎯 **關鍵回歸** | 暫停中按住 Alt 進 UI 模式 → 再放開 → **游標必須仍然可見**。舊架構在此會把游標鎖回去，正是本輪修的 bug |
+| 10 | 兩個模式都退出後 | 游標回到鎖定 |
+| 11 | 🆕 **外力自癒回歸** | Play 中讓 Game 視窗失焦再切回 → 游標必須在下一帧被拉回鎖定。**這是第一版 bug 的回歸測試**：初版快取「自己上次寫了什麼」，一旦 Unity 在背後解鎖（按 Esc、失焦都會）就永遠不再修正，游標永久可見。現版比對 `Cursor` 現值，故會自癒 |
+
+> 📌 **副作用要知道**：因為現在每帧都會把游標拉回，Editor 內「按 Esc 逃出鎖定游標」的內建後門會被立刻收回。現行方案下不成問題（Esc 本來就是暫停鍵，暫停會正當地放開游標）。
+
+### C. 回歸
+
+* **EditMode 全綠**：83 條 ＋ `GamePauseControllerTests` 6 條 ＋ `CursorModeControllerTests` 6 條 → **95 條**
+* **零 GC 複驗**（§7.4 SOP）：`UiModeArbiterSource` 的 `Evaluate` 改了邊沿判定但仍無 new／無字串；`GamePauseController` 的 `Update` 只在按鍵當帧做事。仍建議重驗 Development Build 穩態 `PlayerLoop` `GC Alloc` = **0 B**
+* **Editor 錯誤複驗**：`CharacterPipelineRunnerEditor` 已改用 `RequiresConstantRepaint()`。確認 `GUIClips` 失衡與 `SerializedProperty has been Disposed` 兩條是否消失；**若仍出現**，把 `PlayerInputSource` 與 `UiModeArbiterSource` 兩顆元件在 Inspector 摺疊起來再測一次（可確認是否為 InputAction drawer），並考慮把 `UiModeArbiterSource` 移到角色的**子物件**（`GetComponentsInChildren` 照樣找得到）
+
+---
+
+## 🎯 下一會話：建議起手（2026-07-27 規劃）
+
+> 📍 開場照舊：`docs/00-map.md` → 本段 → 只讀任務對應的 ADR／章節。
+
+**先確認上面 🔴 那段的 Unity 驗收有沒有過**；沒過就先修那裡，不要開新輪次。
+
+驗收過了之後，下一輪的候選（**依然沒有預設答案，由你選**）：
+
+* **輪 3 Footstep**：`FootPhaseCurve` 在 v0.19 已烘進 4 支 loop，**至今沒有任何消費者**——會是它的第一個真實使用者，並驗證「烘焙曲線 → 表現層事件」這條資料流。已有 `AudioController` 可擴充（它也已經在讀 `BlockAudio`，本輪起那顆旗標終於是活的），規模小。
+* **Phase C 停步分腿姿勢**：動畫品質收益最大，但也最大輪、會動到 locomotion 核心手感。
+* **README 的 D 項**：What works today／控制列表／gait 數值來源鏈／**GIF**。控制方案這一輪才真正補完（Alt 是最後一顆），現在寫控制列表才是完整的。**GIF 仍是作品集首頁最大的單一缺口。**
+
+⛔ **明確沒做、也不要順手做**的（都是刻意延後，理由見 changelog v0.25 §6 與 v0.26 §7）：死亡 ArbiterSource、優先級／強制解封、鏡頭跳動抑制器、**Pause Menu／Canvas／EventSystem／UI navigation**、**暫停時封鎖角色輸入**、把 `CursorModeController` 的來源一般化成介面集合。
+
+> ✅ **「Cursor service 抽象」已不在此列**——它於輪 4.2 落地（`App/CursorModeController`）。壓力在同一個工作階段就到了（「暫停時游標應常駐」），而且到來時形狀是清楚的。**這是一個「等真實壓力再抽象」奏效的正面案例**：若在輪 4.1 憑空抽，抽出來的很可能是埋著 LIFO 假設的「暫停自己存還原游標」版本（見 changelog v0.26 §5）。
+
+---
+
+## 🗂️ 已完成：輪 4 起手規劃（2026-07-26 規劃，✅ 已於 2026-07-27 執行完畢）
 
 > 📍 開場照舊：`docs/00-map.md` → 本段 → 只讀任務對應的 ADR／章節。**不要**為了熟悉而整檔讀 dev-spec／design-doc。
 

@@ -72,7 +72,9 @@
 
 這與黑板模式的精神一致：下游模組只看黑板上的資料辦事，不直接詢問上游模組的內部狀態。仲裁旗標就是黑板上繼「意圖」「參數」之後的第三種資料類型。
 
-**實作時機**：第四階段（仲裁器與打斷系統），狀態機完成後再接入。
+**實作時機**：~~第四階段（仲裁器與打斷系統），狀態機完成後再接入~~ → ✅ **輪 4 落地（2026-07-27）**，見 4.5 節。
+
+🆕 **落地時修正的一個假設：封鎖不必然來自狀態。** 上面那條資料流把「狀態機」畫成唯一的上游，是因為當初想的都是死亡／被控制這類**確實是角色狀態**的情境。實際接上第一個需求（Alt ＝ 放開滑鼠去點 UI）才發現它**根本不是角色狀態**——強行為它開一個 FSM 狀態只會污染拓撲。因此上游被一般化為 `IArbiterSource` 集合：**狀態機是眾多可能來源之一**（未來的死亡封鎖會是一顆讀 FSM 狀態的 source），而不是唯一來源。仲裁層「把能不能收斂成單一決策點」的核心精神不變，改變的只是「決策的**輸入**可以來自哪裡」。
 
 ### 2.6 表現層物件階層：Adapter Root + Model Child（v0.9 新增，v0.12 定調，詳見 `docs/ADR/001-root-model-hierarchy.md`）
 
@@ -218,9 +220,15 @@ flowchart LR
 - 不該做：不該包含遊戲邏輯判斷
 - **物件階層（v0.9 新增，v0.12 定調）**：Facade 與 `AnimancerComponent` 同掛在 Root（Adapter），以 `GetComponent<AnimancerComponent>()` 取得動畫邏輯元件；`Animator` 掛在 Model 子物件，以 `GetComponentInChildren<Animator>()` 取得。不該把 `Animator` 掛在 Root（會與 `CharacterController` 世界座標互搶），理由見 2.6 節與 `docs/ADR/001-root-model-hierarchy.md`。
 
-### 4.5 ArbiterPipeline（仲裁管線）
-- 該做：接收狀態機目前狀態，統一計算並寫入 `RuntimeData.Arbitration` 仲裁旗標（如 `BlockInput`、`BlockIK`、`BlockAudio`）
-- 不該做：不該直接呼叫任何表現層 Controller 的方法（只能透過寫黑板旗標溝通）、不該包含狀態切換邏輯（那是狀態機的職責）
+### 4.5 ArbiterPipeline（仲裁管線）＋ IArbiterSource（✅ 輪 4 落地）
+- 該做：於管線順序 4.5（Update，狀態機之後、動畫表現層之前）詢問所有 `IArbiterSource`、**OR 合併**、整體覆寫 `RuntimeData.Arbitration`（`BlockInput`／`BlockIK`／`BlockAudio`／`BlockExpression`）。它是該區的**唯一執行期寫入者**
+- 不該做：不該直接呼叫任何表現層 Controller 的方法（只能透過寫黑板旗標溝通，由 dev-spec §7-A4 的層級掃描守）、不該包含狀態切換邏輯（那是狀態機的職責）、**不該認識任何具體封鎖語意**（不知道有 UI 模式、不知道有游標、不知道有死亡——那些都住在各自的 source 裡）
+- **seam 形態（輪 4 裁決）**：`IArbiterSource` 集合 ＋ 管線只認介面，與 `IMovementIntentSource`（順序 2.5）／`IPresentationController`（順序 6.5）**第三次沿用同一個 pattern**。新增封鎖來源＝實作介面掛上角色階層，管線與 Runner 零改動
+- **被否決的替代方案**：①**`BaseState.BlocksInput` virtual（各 State 自帶宣告）**——會讓 FSM 反向認識仲裁概念（2.5 節的資料流是「Arbiter 讀 state」，方向相反），把「哪些狀態封鎖什麼」這張表拆散到 N 個 state 檔，而且**蓋不住 Alt**（UI 模式不是角色狀態）；②**`StateMachineConfigSO` per-state 封鎖旗標**——同樣蓋不住非狀態來源，且把只有一條 bool 的規則搬進資產，徒增維護面
+- **來源介面刻意回傳 `ArbiterData` 而非收 `ref ArbiterData`**：採 `ref` 時來源看得見（也就改得掉）別人已抬起的旗標，「不得清掉別人的封鎖」只能靠紀律去守；回傳自己的請求後這件事**結構上不可能**，且「多來源如何合併」有唯一的家——未來要做優先級／強制解封，改的是管線一個迴圈，所有來源零改。這是「用型別把紀律變成不可能」優於「用測試把紀律守住」的一個實例
+- **首個來源：`UiModeArbiterSource`（UI 模式）**——Alt 放開滑鼠、角色停止移動。它是「UI 模式」概念的唯一持有者（開關狀態＋`InputAction`），上游只收到一顆 bool。🔄（輪 4.2）**`Cursor` API 已移出**——第二個滑鼠模式（暫停）出現後改由 §4.9 的 `CursorModeController` 統一擁有，本元件只回報意圖。**Alt 刻意不進 `InputData`**：那是可被 `BlockInput` 封鎖的通道，而解除封鎖的鍵不能住在可被封鎖的通道裡（詳見 `docs/02-dev-spec.md` §1.4）
+- **`BlockInput` 的語意（dev-spec §7-M5 結案）**：＝「本帧管線看不到任何輸入」，實作為在順序 2 閘門把 `InputData` 歸零、順序 2 與 2.5 照常執行。**不是**「跳過移動意圖」——`MovementIntent` 是連續型意圖，跳過等於凍結在最後一帧（封鎖瞬間全速跑 ⇒ 無限前進）。歸零輸入讓 producer 依然是 `MovementIntent` 的唯一寫入者，且**完全不需要知道「封鎖」存在**（ADR-003 D2 context-free 不受影響），手感則自然落在既有 B9 減速收步上
+- **不預造**：多來源只做 OR，**無優先級／強制解封**（需要真實競爭情境才能裁決語意，見 dev-spec §7.3）；死亡封鎖等第二個真實來源出現時，再新增一顆讀 FSM 狀態的 source
 
 ### 4.6 表現層 Controller（IK / Audio / 表情等）＋ PresentationPipeline（✅ M2 落地）
 - 該做：實作 `IPresentationController`，由 `PresentationPipeline` 於管線順序 6.5（LateUpdate，MotionDriver 之後、統一復位之前）集中驅動；每帧讀取 `RuntimeData.Arbitration` 對應旗標決定要不要執行、讀取單幀事件（`JustLanded` 等）觸發一次性表現
@@ -228,7 +236,8 @@ flowchart LR
 - **定位（M2 定調）**：`PresentationPipeline` 是**表現層驅動骨架**——Runner 只呼叫管線、不認識任何具體 Controller；後續 IK／Facial／VFX 模組沿用同一介面掛上角色階層即生效，Runner 零改動。M2 首個實例：`AudioController`（落地音；Event → Definition → Library 查表結構見 `docs/02-dev-spec.md` §3.4）
 - **第二實例（✅ M3 Foot IK，M3.1 修正定調）**：`FootIKController`（Root，決策端）＋`FootIKRig`（Model，**Presentation Adapter**）——兌現 2.6 節「需要直接操作骨骼的功能掛 Model 層、與讀黑板的 Controller 分開放」的預留。兩者以**兩條各自單寫單讀的獨立單向管道**橋接：`FootIKTargetData`（Controller 寫 → Rig 讀，IK 目標）與 `FootIKPoseData`（Rig 寫 → Controller 讀，動畫原始 goal 快照）——執行期零方法呼叫，與黑板／MotionDriver 同款資料流哲學。**Adapter 定義**：動畫系統邊界上的雙向轉接器，對每條管道各守單一讀寫方向、零判斷零演算法，非單純 Reader。Controller 對 Animator 零依賴（pose 一律讀快照，不採骨骼現值——反饋迴路教訓見 §5 Trade-off 與 changelog v0.18.1）。Runner 零改動（骨架的首次回收驗證）。規格見 `docs/05-foot-ik.md`（原 dev-spec §3.5，2026-07-25 分卷）
 - **Foot IK 設計哲學（✅ v1 凍結，2026-07-20 使用者裁決）**：源自對喜好遊戲全身 IK 的觀察（大腿可高抬、小腿不受限、腳踝自由旋轉、腳底不強制整面貼地、允許少量腳尖穿模），目標鐵律定為 **Natural Pose > Terrain Adaptation > Perfect Foot Contact**——接受少量腳尖穿模，不接受為修穿模讓動作僵硬。優先級（高→低）：①動畫自然度 → ②保留角色原本活動範圍（抬腿／跨步／轉向不因 IK 受限）→ ③只擋真正超出人體極限的姿勢（Reach Clamp 類屬允許範疇）→ ④地形適應（Ground Sampling）→ ⑤腳尖穿模等視覺瑕疵（最後處理）。**禁令**：不再新增 Fade／Gate／大量權重修正修穿模——貼地品質改善一律走 Ground Sampling 升級（Heel/Toe 雙點、多點採樣、CapsuleCast），懸置的「Normal Gate 僅旋轉版」正式否決。**新機制檢核問句**：所有新 IK 機制必答「是否會縮小角色原本的活動空間？」，會就必須提替代方案。此哲學把 M3.2~M3.4 實驗教訓（fade 族＝半 IK 常態化、Slope Gate＝邊緣震盪源，changelog v0.18.2~v0.18.6）升格為明文禁令；v1 已知限制與品質升級順序見 `docs/05-foot-ik.md` §3.5.2（原 dev-spec §3.5.2，2026-07-25 分卷）與 `docs/03-animation-roadmap.md`
-- **升級預留**：本骨架只做「依序驅動」，不做輸出仲裁。未來若多個 Controller 競爭同一輸出（例如兩個模組都要控制 AudioSource／同一根骨骼），屆時升級為 ArbiterPipeline 式的表現仲裁並**補 ADR**——在那之前不預先設計（YAGNI）
+- **升級預留**：本骨架只做「依序驅動」，不做**輸出**仲裁。未來若多個 Controller 競爭同一輸出（例如兩個模組都要控制 AudioSource／同一根骨骼），屆時升級為表現層的輸出仲裁並**補 ADR**——在那之前不預先設計（YAGNI）
+  - ⚠️ **這個預留沒有因為輪 4 而兌現**（2026-07-27 澄清）：4.5 節落地的 `ArbiterPipeline` 解的是「**誰可以運作**」（功能封鎖旗標，經黑板 `ArbiterData` 單向溝通，Controller 只讀不寫）；此處預留的是「**同一個輸出由誰說了算**」（多個 Controller 同時要寫同一個目標時的取捨）。兩者層次不同、資料流也不同，**前者落地不代表後者已解決**——別因為專案裡已經有一顆叫 `ArbiterPipeline` 的類別就把這條劃掉
 
 ### 4.7 GameObject 物件階層（v0.9 新增，v0.12 定調，詳見 2.6 節與 `docs/ADR/001-root-model-hierarchy.md`）
 - 該做：邏輯／物理權威元件（`CharacterController`、`CharacterPipelineRunner`、`MotionDriver`、`AnimationFacade` 子類、`AnimancerComponent`、`IInputSource` 實作）掛在 Root（Adapter）；美術／骨骼相關元件（`Animator`、`SkinnedMeshRenderer`、骨骼階層）掛在子物件 Model；外部模組（如 `ThirdPersonCamera`）一律引用 Root Transform
@@ -243,6 +252,18 @@ flowchart LR
 - 🆕 **Movement Model（Stage 2 落地）**：`IMovementModel` 封裝「此刻怎麼動」的全部 dynamics（B9 平滑、運動輸出、**自驅自己的動畫參數**）。ambient 狀態（Idle／Move）的 `OnUpdateMotion` delegate 給它、`CanEnter` 問它 `IsProducingMotion`；intrinsic-motion 狀態（Jump／Roll）維持自帶位移。**model 的唯一持有點是狀態機**（Runner 解析 → 注入 → 發給所有 state），因為跨帧平滑狀態必須全域唯一——多份平滑＝Idle↔Move 切換時收步被重置
 - ✅ **殘餘耦合已收尾（2026-07-25）**：B9 平滑＋`MoveSpeed` 導出＋動畫參數驅動已整組遷入 `LocomotionModel`，通用 Runner 不再認識任何 locomotion 概念（ADR-003 §9-L1 消解，由 dev-spec §7-A9／A10 自動守住不回流）。**唯一刻意保留的中間態**：Movement Output 仍走黑板欄位（消費端含 `MotionDriver` 與 Jump 空中控制），D4 的「完全內化」待第二個 model 進場時一併處理（dev-spec §7.3）
 - **Stage 2 學到的時序課**：「把 dynamics 併進 `OnUpdateMotion`、讓 model 只有一個進入點」看起來更乾淨，實測會壞兩件事——Jump／Roll 期間平滑凍結（空中控制吃的正是這組輸出，落地滑步），以及 `SetFloat` 落到 LateUpdate 後動畫參數比位移晚一帧（Animator 評估卡在 Update 與 LateUpdate 之間）。**「乾淨的形狀」必須先通過時序驗證**，這條寫進 dev-spec §2.1 脆弱點警告第 6 條
+
+### 4.9 應用層（Application Layer，🆕 輪 4.1 落地：`Assets/Scripts/App/`）
+
+- **這一層為什麼存在**：輪 4.1 要做「Tap Left Alt ＝ 暫停」時，第一個直覺是把它做成 `ArbiterData` 的第 5 個旗標。**那是錯的**——`PlayerRuntimeData`／`ArbiterData` 是**單一角色**的黑板與仲裁旗標，而 `Time.timeScale` 是**應用全域**狀態。把全域狀態放進 per-character 結構，第二隻角色進場立刻露餡：兩塊黑板都會聲稱自己擁有暫停。**這是「哪個 scope 擁有這個狀態」的問題，不是「哪個模組比較方便」的問題**
+- 該做：持有**跨角色／全域**的狀態與其副作用（首例：`GamePauseController` 擁有暫停狀態與 `Time.timeScale`）。自帶 `Update`——它沒有管線可掛，**這是與 `IArbiterSource`／`IPresentationController`「不得自帶 Update」紀律的刻意差異**，那條紀律的前提是「你屬於角色管線」，本層明確不屬於
+- 不該做：不掛在角色階層上、不由 `CharacterPipelineRunner` 管理、不寫入任何角色黑板欄位；**不做 Singleton**（CLAUDE.md 明禁）——沒有靜態實例與全域存取點，需要驅動它的人以 Inspector 引用
+- **首例的刻意最小化（使用者裁決）**：`GamePauseController` 只做 `timeScale` 切換，**不封鎖角色輸入**（`timeScale = 0` 已讓位移與動畫全停）。已知缺口與未來正解記在 dev-spec §7.3
+- 🆕 **第二個住戶：`CursorModeController`（輪 4.2）＝`Cursor` API 的唯一擁有者**。它把所有「想要自由游標」的來源（目前：UI 模式、暫停）**OR 合併後套用一次**——形狀與 `ArbiterPipeline` 同源，只是來源改用 Inspector 明確引用（兩個而已，不預先做成介面集合；等第三個滑鼠模式出現再一般化，同 `PresentationPipeline` 當年的節奏）
+  - **為什麼游標會搬到這一層**：輪 4 只有一個滑鼠模式時，Cursor 判給 `UiModeArbiterSource` 是合理的最小解；輪 4.1 的暫停讓它變成**兩個**，各寫各的就出現可重現的碰撞（暫停中進出 UI 模式會把游標鎖回去）。游標的**scope 本來就是應用層**——它跟 `timeScale` 一樣，不屬於任何一隻角色
+  - ⚠️ **`ThirdPersonCamera.Start` 的初始鎖定已一併移除**：留著就是第二個寫入者，「唯一擁有者」會變成只是文件上的說法。代價是這顆元件缺席時開場游標不會鎖、連帶相機不轉（相機以 `Cursor.lockState` 為閘門）——**刻意讓它大聲壞掉**，而不是靜默漂移
+- **這一層的兩個方向，都對**：游標是「**高層擁有、低層回報意圖**」（App 讀角色元件的 `IsUiModeActive`）；而若未來暫停要封鎖角色輸入，則是「**低層擁有、高層提供來源**」（角色的 `ArbiterPipeline` 收一顆 App 給的 `IArbiterSource`）。看起來相反，判準其實同一個：**那個狀態的 scope 屬於誰，就由誰擁有**
+- **與角色層的溝通方式（尚未需要，先記下界線）**：若未來暫停真的必須讓角色 `BlockInput`，正解**不是**讓角色去查詢全域，而是讓暫停器實作 `IArbiterSource`、由角色以 Inspector 引用（DIP，同 `IMovementIntentSource` 的注入形態）。在真的需要之前不預先接線
 
 ---
 
@@ -366,3 +387,4 @@ flowchart LR
 | 2026-07-25 | v0.20 | **ADR-003 Movement Intent Migration Stage 1（對應 dev-spec v0.20／changelog v0.20）**：①§4.1 InputPipeline 補「中性紀律」（`InputData` 只承載中性 action，禁領域分類欄位）；②§4.2 黑板補「兩類意圖的分界」（trigger vs 連續型 domain intent，domain-partitioned 原則）；③**新增 §4.8 Movement 意圖層**（producer 職責邊界、為什麼需要這一層、Stage 1 單一真相紀律、已知殘餘耦合）；④Trade-off 表補兩列——「移動控制方案的落點」（含三個被否決方案的共同病灶＝seam 放錯層）與「架構不變量的守法：文件約定 vs 可執行測試」。架構層新增一個分層（Movement 意圖），FSM 拓撲／表現層／物件階層皆零改動 |
 | 2026-07-25 | v0.21 | **ADR-003 Migration Stage 2（locomotion dynamics 歸位，對應 dev-spec v0.21／changelog v0.21）**：①§4.8 更名為「Movement 意圖層 ＋ Movement Model」，新增 Movement Model 職責段（`IMovementModel` 封裝平滑／運動輸出／自驅動畫參數；ambient delegate、intrinsic 自帶位移；**唯一持有點是狀態機**，因跨帧平滑必須全域唯一）；②「已知殘餘耦合」條**結案**（§9-L1 消解，改由 dev-spec §7-A9／A10 自動守），僅保留「Movement Output 仍走黑板欄位」的刻意中間態；③新增「Stage 2 學到的時序課」——把 dynamics 併進 `OnUpdateMotion` 會壞 Jump 空中控制與動畫參數時序，**乾淨的形狀必須先通過時序驗證**；④Trade-off 表補一列（locomotion dynamics 該住哪：三個替代方案與各自的失敗機制）。**架構分層數不變**，改變的是既有分層的職責歸屬；FSM 拓撲／MotionDriver／物件階層皆零改動 |
 | 2026-07-25 | v0.22 | **Walk 型態 hold／toggle（對應 dev-spec v0.22／changelog v0.22）**：§4.8 補一條「控制方案的可配置面在資產、不在 policy 程式碼」——連操作語意（按住 vs 切換）都做成 `GaitProfileSO` 欄位，並把 toggle 的持久型態放黑板（`WalkModeActive`）而非 producer 私有欄位，理由是 ADR-003 D5 與 §9-L5 的 snapshot 前提。**無架構變更**，屬既有分層內的職責填實 |
+| 2026-07-27 | v0.25 | **輪 4 ArbiterPipeline 落地（對應 dev-spec v0.25／changelog v0.25）**：①**§2.5 修正一個原始假設**——原資料流把狀態機畫成仲裁的唯一上游，第一個真實需求（Alt ＝ UI 模式）證明**封鎖不必然來自狀態**，上游一般化為 `IArbiterSource` 集合，狀態機降為眾多可能來源之一；「把能不能收斂成單一決策點」的核心精神不變，變的只是決策**輸入**可以來自哪裡；②§4.5 由規劃轉為落地並補完整職責邊界：seam 形態（第三次沿用「介面集合＋管線只認介面」pattern）、**兩個被否決的替代方案**（`BaseState.BlocksInput` virtual／`StateMachineConfigSO` per-state 旗標，皆蓋不住非狀態來源且方向相反）、**來源介面回傳值而非 `ref`** 的理由（用型別讓錯誤寫不出來，優於用測試守紀律）、`BlockInput` 的語意結案、以及明列的不預造項。**屬既有架構骨架的兌現**（§2.5 早已規劃仲裁層），非新架構——依 CLAUDE.md 路由規則寫入 Living Doc，**不另開 ADR** |

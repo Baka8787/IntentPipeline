@@ -246,6 +246,15 @@ namespace Project.Tests.EditMode
                 Forbidden = new[] { "Project.Core.StateMachine", "StateType", "Project.Core.Pipeline", "CharacterPipelineRunner" },
                 Reason = "ADR-003 D3：model 由 state delegate 呼叫、不得反向認識狀態機或管線（model 正交於 gameplay FSM）"
             },
+            // 🆕（輪 4）仲裁層：design-doc §4.5「不該直接呼叫任何表現層 Controller 的方法
+            //    （只能透過寫黑板旗標溝通）」的機器化。刻意**不**禁 StateMachine——
+            //    §2.5 的資料流本就是「Arbiter 讀 state → 轉譯成旗標」，未來的 Death source 需要它。
+            new LayerRule
+            {
+                Folder = "Core/Arbitration",
+                Forbidden = new[] { "Project.Presentation", "IPresentationController" },
+                Reason = "design-doc §4.5：仲裁層只能透過黑板旗標與表現層溝通，不得直接呼叫表現層 Controller"
+            },
             new LayerRule
             {
                 Folder = "Core/Blackboard",
@@ -311,8 +320,11 @@ namespace Project.Tests.EditMode
                              Owner = "MotionDriver.GetGravityThisFrame（唯一觸發源）" },
             new WriterRule { Member = "JustLeftGround", AllowedFiles = new[] { "MotionDriver.cs" },
                              Owner = "MotionDriver.GetGravityThisFrame（唯一觸發源）" },
-            new WriterRule { Member = "Arbitration", AllowedFiles = new string[0],
-                             Owner = "ArbiterPipeline（順序 4.5，尚未實作 → 目前不得有任何執行期寫入者）" },
+            // 🆕（輪 4）Arbitration 第一次擁有合法的執行期寫入者。
+            // ⚠️ 唯一寫入者是**管線**而非任何 IArbiterSource：來源只回傳自己的請求（值複製），
+            //    合併與寫黑板由 ArbiterPipeline 獨佔——多來源進場時本白名單**不會**跟著變長。
+            new WriterRule { Member = "Arbitration", AllowedFiles = new[] { "ArbiterPipeline.cs" },
+                             Owner = "ArbiterPipeline（順序 4.5；OR 合併所有 IArbiterSource 後整體覆寫）" },
         };
 
         [Test]

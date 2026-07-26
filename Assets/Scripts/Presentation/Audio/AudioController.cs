@@ -10,7 +10,9 @@ namespace Project.Presentation.Audio
     /// 掛載：Character Root 階層下（Runner 的 GetComponentsInChildren 收集得到即可）。
     /// M2 裁決：單一 AudioSource + PlayOneShot（多音軌 / Source 池屬 dev-spec §5 Future Work；
     /// 已知侷限：pitch 是 Source 層屬性，連續觸發時後一發會改到仍在播的前一發）。
-    /// BlockAudio 現在就讀（契約先行），其 writer 到 M6 ArbiterPipeline 才存在。
+    /// BlockAudio 現在就讀（契約先行）。🆕（輪 4）writer 已存在（ArbiterPipeline，順序 4.5），
+    /// 但目前沒有任何 IArbiterSource 要求 BlockAudio，故旗標仍恆 false，直到死亡等來源進場——
+    /// 屆時本檔**零改動**即生效，這正是當初契約先行要買的東西。
     /// </summary>
     [RequireComponent(typeof(AudioSource))]
     public class AudioController : MonoBehaviour, IPresentationController

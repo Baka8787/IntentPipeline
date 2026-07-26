@@ -12,6 +12,22 @@ namespace Project.Core.Pipeline
     [CustomEditor(typeof(CharacterPipelineRunner))]
     public class CharacterPipelineRunnerEditor : UnityEditor.Editor
     {
+        /// <summary>
+        /// 🆕（2026-07-27）即時監視的重繪改走 Unity 正規 API，取代原本在 <see cref="OnInspectorGUI"/>
+        /// 結尾直接呼叫 <c>Repaint()</c> 的寫法。
+        ///
+        /// **為什麼要換**：在 GUI 遍歷「內部」排程重繪屬重入寫法，會把同一個 Inspector 視窗打成每帧重繪；
+        /// 該視窗同時還掛著 Input System 的 <c>InputActionDrawer</c>（<c>PlayerInputSource</c> 的 7 顆
+        /// ＋ <c>UiModeArbiterSource</c> 的 1 顆裸 <c>InputAction</c> 欄位），高頻重繪會撞上該 drawer
+        /// 內部快取的 <c>SerializedProperty</c> 已被 dispose 的競態，症狀是
+        /// 「SerializedObject of SerializedProperty has been Disposed」＋隨之而來的
+        /// 「pushing more GUIClips than you are popping」（後者是例外中斷 GUI 遍歷的**結果**，非獨立問題）。
+        ///
+        /// <c>RequiresConstantRepaint</c> 由 InspectorWindow 自行決定重繪節奏，不在 GUI 內部重入。
+        /// ⚠️ 純 Editor 議題：建置與執行期不受影響。
+        /// </summary>
+        public override bool RequiresConstantRepaint() => Application.isPlaying;
+
         public override void OnInspectorGUI()
         {
             // 先畫出原本 Runner 的預設 Inspector 欄位
@@ -95,8 +111,8 @@ namespace Project.Core.Pipeline
             EditorGUILayout.Toggle("Arbitration: Block Audio", data.Arbitration.BlockAudio);
             EditorGUILayout.Toggle("Arbitration: Block Expression", data.Arbitration.BlockExpression);
 
-            // 強制重繪 Inspector，達到即時重新整理的動態效果
-            Repaint();
+            // 🗑️（2026-07-27）原本此處呼叫 Repaint() 強制即時重繪，已改由上方
+            //     RequiresConstantRepaint() 承擔——理由與症狀見該覆寫的註解。
         }
     }
 }

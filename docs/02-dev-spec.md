@@ -37,11 +37,24 @@ Assets/
       StateMachine/      # BaseState, FullBodyStateMachine, StateMachineConfigSO,
                          # StateRule, StateType, StateParamsSO, JumpStateParams
         States/          # IdleState, MoveState, JumpState, RollState
-      Arbitration/       # ArbiterData (仲裁層；ArbiterPipeline 屬第四階段，尚未建立)
-    Presentation/
+      Arbitration/       # 🆕（輪 4）仲裁層：ArbiterData, IArbiterSource,
+                         # ArbiterPipeline（順序 4.5，Arbitration 區的唯一寫入者）
+        Sources/         # 🆕 IArbiterSource 實作：UiModeArbiterSource
+                         #    （UI 模式；自持「按住 Left Alt」的 InputAction。
+                         #     🔄 輪 4.2 起**不再持有 Cursor API**，改由 App/CursorModeController 統一擁有）
+    App/                 # 🆕（輪 4.1）**應用層**：GamePauseController（Time.timeScale 的擁有者）、
+                         # 🆕（輪 4.2）CursorModeController（**Cursor API 的唯一擁有者**，OR 合併所有
+                         #    「想要自由游標」的來源）
+                         # ⚠️ 與角色層的分界：本層放「跨角色／全域」的狀態，不掛在角色階層上、
+                         #    不由 CharacterPipelineRunner 管理、不進黑板。非 Singleton（見 design-doc §4.9）
+    Presentation/        # IPresentationController, PresentationPipeline（表現層驅動骨架，順序 6.5）
       Animation/         # AnimationFacadeBase, AnimancerFacade
       Motion/            # MotionDriver, MotionBakeData, JumpLaunchData
       Camera/            # ThirdPersonCamera
+      Audio/             # AudioController（IPresentationController 首個實例）,
+                         # AudioEventId, AudioDefinitionSO, AudioLibrarySO（Event→Definition→Library 三層）
+      IK/                # FootIKController（Root，決策端）, FootIKRig（Model，Presentation Adapter）,
+                         # FootIKTargetData / FootIKPoseData（兩條單向管道）, FootIKSettings
     Editor/
       Project.Editor.asmdef  # Editor 組件（引用 Project.Runtime）
       Pipeline/          # CharacterPipelineRunnerEditor（Inspector 除錯擴充）
@@ -182,7 +195,7 @@ public class PlayerRuntimeData
 | **MovementIntent** | `MovementIntentData` (struct) | 🆕 該 domain 當下**唯一 active** 的 `IMovementIntentSource`（＝`PlayerLocomotionPolicy`，順序 2.5） | 當下 active 的 `IMovementModel`（順序 3，Stage 2 起＝`LocomotionModel`）；未來亦供 FSM 轉換判斷 | **模型無關契約**（`DesiredSpeedNormalized[0-1]` ＋ `DesiredDirection`）。連續型意圖：每帧整體覆寫、**不**參與順序 7 復位。換 AI／Replay／Network 驅動＝換掛另一個 `IMovementIntentSource` 元件，Runner 零改（ADR-003 D1／D2） |
 | **MoveSpeed**／**MoveDirection**／**UpperBodyWeight**（＝**Movement Output**） | `float`／`Vector2`／`float` | 🆕（Stage 2）當下 active 的 `IMovementModel`（順序 3 `Tick`；Locomotion 時＝`LocomotionModel`） | `MotionDriver.ExecuteBaseMovement`（位移結算，含 `JumpState` 空中控制）；Editor 監視器 | 🆕 **語意（2026-07-25 裁決）**：這三欄不再是 Runner 維護的 locomotion state，而是**當下 active Movement Model 發布的 Movement Output**——換 model 就換這組值的產生者，欄位形狀不變。B9 平滑（`SmoothDamp`，加/減速不同時間常數＋減速保留方向）與 0.1 ambient 門檻皆已內化為 model 私有。⚠️ **ADR-003 §13.4**：輸出恆可由 `MovementIntent` ＋ model dynamics 重新導出，禁止繞過 intent 直寫。⚠️ 動畫參數已**不再**由此欄位經 Runner 轉送——model 於順序 3 自行 `SetFloat`（D4）。D4 的最終形態（欄位完全內化、不經黑板）目標不變，見 §7.3 |
 | **CurrentWeapon** | `ItemInstance` | EquipmentDriver | 多處 | 唯讀引用，禁止外部修改內容 |
-| **Arbitration** | `ArbiterData` (struct) | ArbiterPipeline | 各表現層 Controller | 每帧統一覆寫，Controller 只讀不寫 |
+| **Arbitration** | `ArbiterData` (struct) | 🆕（輪 4）`ArbiterPipeline`（順序 4.5）——**全專案唯一執行期寫入者** | 順序 2 的輸入閘門（`BlockInput`）／各表現層 Controller（`BlockIK`／`BlockAudio`） | 每帧**從 `default` 重算後整體覆寫**（不以現值為起點，否則旗標只會愈疊愈多、永遠關不掉）。⚠️ 唯一寫入者是**管線**而非任何 `IArbiterSource`：來源只回傳自己的請求（值複製），合併與寫黑板由管線獨佔——**多來源進場時 §7-A5 白名單不會跟著變長**。合併政策目前為**純 OR**（見 §1.4） |
 | **IsGrounded** | `bool` | MotionDriver（於 `GetGravityThisFrame(data)` 內部統一寫入，所有移動路徑最終都會呼叫此方法，來源 `CharacterController.isGrounded`） | 狀態機（如 `JumpState.IsLanded`） | ✅ v0.7 規劃、v0.8 實作完成；已取代 `JumpState` 內部原本的固定計時器落地判定 |
 | **VerticalVelocity** | `float`（`internal set`） | MotionDriver、`Project.Core` 內的狀態類別 | 各表現層 Controller（唯讀） | ⏸ v0.10 定案 → **ADR-002 §6-1 延後**：等第二個垂直速度消費者（wall-slide／擊飛／電梯）再落地；目前垂直速度仍封裝於 `MotionDriver` |
 | **JustLanded / JustLeftGround** | `bool` | MotionDriver（於 `GetGravityThisFrame(data)` 內比較前後兩幀 `IsGrounded`，**唯一觸發源**；順序 7 `ResetTransientState()` 的統一復位屬生命週期管理，不視為第二寫入者） | PresentationPipeline 驅動的表現層 Controller（✅ M2 首個消費者：`AudioController` 落地音；未來鏡頭震動／特效同窗口讀取） | ✅ v0.10 定案 → 2026-07-14 定調延後 → **M2 落地**（第一個下游消費者出現，YAGNI 閘門通過）；單幀生命週期：順序 6 生 → 6.5 消費 → 7 死 |
@@ -252,10 +265,52 @@ public struct ArbiterData
 
 | 旗標 | 誰寫入 | 誰讀取 | 典型觸發情境 |
 | --- | --- | --- | --- |
-| **BlockInput** | ArbiterPipeline | PipelineRunner | 死亡、被定身 CC、過場動畫 |
-| **BlockIK** | ArbiterPipeline | IK Controller | 死亡、角色不可見、LOD 降級 |
-| **BlockAudio** | ArbiterPipeline | Audio Controller | 死亡、劇烈爆炸靜音、LOD 降級 |
-| **BlockExpression** | ArbiterPipeline | 表情 Controller | 死亡、頭部被全罩式頭盔遮擋 |
+| **BlockInput** | ArbiterPipeline | PipelineRunner（順序 2 閘門） | 🆕 **UI 模式（Alt，✅ 輪 4 落地）**、死亡、被定身 CC、過場動畫 |
+| **BlockIK** | ArbiterPipeline | IK Controller（`FootIKController`，已在讀） | 死亡、角色不可見、LOD 降級 |
+| **BlockAudio** | ArbiterPipeline | Audio Controller（`AudioController`，已在讀） | 死亡、劇烈爆炸靜音、LOD 降級 |
+| **BlockExpression** | ArbiterPipeline | 表情 Controller（尚無 reader，僅 Editor 監視器顯示） | 死亡、頭部被全罩式頭盔遮擋 |
+
+#### 🆕 IArbiterSource／ArbiterPipeline（輪 4 落地，`Assets/Scripts/Core/Arbitration/`）
+
+```csharp
+public interface IArbiterSource
+{
+    /// 回傳「本來源自己」這一幀請求的封鎖旗標；合併由 ArbiterPipeline 負責。
+    ArbiterData Evaluate(PlayerRuntimeData data);
+}
+```
+
+| 面向 | 規格 |
+| --- | --- |
+| seam 形態 | **介面集合 ＋ 管線只認介面**，與 `IMovementIntentSource`（順序 2.5）／`IPresentationController`（順序 6.5）同款。新增封鎖來源＝實作介面掛上角色階層，`ArbiterPipeline` 與 `CharacterPipelineRunner` **零改動** |
+| 為什麼**回傳值**而非 `ref ArbiterData` | 採 `ref` 時來源看得見（也就改得掉）別人已抬起的旗標，「不得清掉別人的封鎖」只能靠紀律去守。回傳自己的請求後這件事**結構上不可能**，且「多來源如何合併」有唯一的家——未來做優先級／強制解封只改 `ArbiterPipeline` 一個檔案，所有來源零改。回傳 4 bool 的 struct，熱路徑零配置 |
+| 合併政策 | **純 OR，任一來源要求即封鎖**。⛔ **刻意不做**優先級／強制解封（某來源可否決他人的封鎖）——需要真實競爭情境（死亡 vs 過場誰贏？）才能裁決語意，見 §7.3 |
+| 生命週期 | 管線每帧從 `default` 重算，**不累積**上一帧。封鎖是「本幀有沒有人在要求」，不是狀態 |
+| 實作紀律 | ①**不得自帶 `Update`／`LateUpdate`**（比照 `IPresentationController`）——時序由管線保證；需要邊沿訊號就在 `Evaluate` 內採樣，那正好每幀一次。②**不得回寫黑板**。③可以讀狀態機當前狀態（§2.5 的資料流本就是「Arbiter 讀 state」），但反過來讓 `BaseState` 自帶 `BlocksInput` 是**被否決的方向**（design-doc §4.5） |
+| 零 GC | 來源陣列於 `Runner.Start` 一次性 `GetComponentsInChildren` 收集；`Tick` 為純索引 for 迴圈。⚠️ **禁用介面型 `foreach`**（會裝箱 struct enumerator，見 §7.1-A3） |
+
+**第一顆來源：`Sources/UiModeArbiterSource.cs`（UI 模式）**——**按住** Left Alt 放開滑鼠、角色停止移動，**放開即收回**。它是「UI 模式」概念的**唯一持有者**，獨佔兩樣東西：① UI 模式開關狀態　② Left Alt 的 `InputAction`。上游 `ArbiterPipeline` 只收到一顆 bool，**不認識 UI、不認識游標**。
+
+> 🔄 **輪 4.2：`Cursor` API 已移出本元件**（原本是第三樣獨佔物）。暫停成為第二個滑鼠模式後，兩個各寫各的會產生**可重現的碰撞**——暫停中按住 Alt 進 UI 模式、再放開，`ApplyCursor(false)` 會把游標鎖回去，即使暫停還開著。游標的唯一擁有者改為 `Project.App.CursorModeController`（design-doc §4.9），本元件只透過 `IsUiModeActive` 回報**意圖**。**合併政策與 `ArbiterPipeline` 同源：來源各報各的，單一擁有者 OR 後套用一次。**
+
+> 🔄 **輪 4.1 語意變更：toggle → hold，並與 Tap 暫停分流同一顆鍵。**
+>
+> | 操作 | 誰負責 | 效果 |
+> | --- | --- | --- |
+> | **按住** Left Alt（Hold interaction，門檻約 0.25s） | `UiModeArbiterSource`（角色層） | 游標解鎖、`BlockInput`、相機停轉；放開即全部復原 |
+> | **Esc**（🔄 輪 4.2 改綁；原為短按 Left Alt） | `Project.App.GamePauseController`（**應用層**，design-doc §4.9） | `Time.timeScale = 0`；再按解除 |
+>
+> **分流方式＝Input System 原生 interaction，不是自刻計時器**（輪 4.1 裁決）：`Hold`／`Tap` 門檻在 Inspector 可調。理由同 `GaitProfileSO.walkIsToggle`——**操作語意是 per-game 差異，應該住在資產而不是程式碼**。
+>
+> 🔄 **輪 4.2：暫停改綁獨立的 Esc**，兩者不再共用 Left Alt。連帶影響兩點：①原本「**Tap 門檻必須 ≤ Hold 門檻**」的相依**已解除**，`PauseToggleAction` 也不再需要 `Tap` interaction（獨佔一顆鍵，一般 Button 綁定即可）；②⚠️ **「按住 Alt 時按 Esc 暫停、再放開 Alt」變成做得到的操作**——共用同一顆鍵時它物理上不可能。這正是游標必須有**單一擁有者**（而非各模式自己存○還原）的實證情境，見 changelog v0.26 §5。
+>
+> ⚠️ **刻意接受的 UX 取捨（使用者裁決）**：因為「放開之前無法知道它是不是 tap」，要嘛 tap 會先閃一下 UI 模式，要嘛 hold 要等門檻。本專案選**後者**——Tap **不**先觸發 Hold，代價是按住後約 0.25s 游標才出現。日後調整的是**門檻數值**，不是新增更複雜的判定機制。
+>
+> ⚠️ 進出邊沿刻意不對稱：進場用 `WasPerformedThisFrame()`（Hold 撐過門檻才算），離場用 `!IsPressed()`（讀控制實際狀態、與 interaction 無關）。後者**會自癒**——視窗失焦等吃掉放開邊沿的情境不會讓 UI 模式永久卡住。
+
+> **為什麼 Alt 不進 `InputData`**（輪 4 裁決）：`InputData` 是**可被 `BlockInput` 封鎖的角色輸入通道**，而「解除封鎖的那顆鍵」絕不能住在可被封鎖的通道裡——放進去就得為它開一條「這顆不受 `BlockInput` 影響」的例外，例外一開，「封鎖＝本幀管線看不到任何輸入」這個乾淨語意就沒了。Alt 屬**應用層／shell 輸入**（同 Esc 開選單），先例是 `ThirdPersonCamera` 同樣自持 `Mouse.current`。這也落地 ADR-003 §13.3「游標狀態切換偏 Input／UI 職責」。
+>
+> **UI 模式狀態為何留在元件私有欄位而非黑板**：它是應用層 shell 狀態，不是角色的 gameplay state（對比 `MovementIntent.WalkModeActive` 因 netcode snapshot 前提而必須進黑板，ADR-003 D5）。黑板上該有的是它的**結果**——`Arbitration.BlockInput`。
 
 ### 1.5 MovementIntentData（Movement 領域意圖，🆕 ADR-003 D1）
 
@@ -295,11 +350,12 @@ public struct MovementIntentData
 | 順序 | 處理器 | 輸入 | 輸出 | 執行時機與關鍵備註 |
 | --- | --- | --- | --- | --- |
 | **1** | InputPipeline | 裝置原始輸入 | `InputData` | `ref struct` 採樣，隨後即銷毀。 |
-| **2** | Intent Processor | `InputData` | `RuntimeData.Intent` | 若 `Arbitration.BlockInput == true` 則跳過。（trigger 邊沿：Jump／Roll／Fire） |
-| **2.5** | 🆕 Movement Intent Producer | `InputData` ＋ `GaitProfileSO` | `RuntimeData.MovementIntent` | **ADR-003 D2**：Runner 只依賴 `IMovementIntentSource` 介面、不認識任何移動策略（Shift=Sprint 這類規則全在 policy＋profile 資產）。**唯一**寫入 `MovementIntent` 的環節。⚠️ 刻意在 `BlockInput` 閘門**之外**（維持 Migration 前行為，見 §7-M5）。 |
+| **2 閘門** 🆕 | BlockInput Gate | `RuntimeData.Arbitration` | 本帧 `InputData`（可能被歸零） | **輪 4 落地（§7-M5 結案）**：`BlockInput == true` 時 **`inputData = default`**——`BlockInput` 的語意定為「**本帧管線看不到任何輸入**」，順序 2 與 2.5 由此自動同時失效，不需要兩套規則。⚠️ Editor 除錯快照刻意取在閘門**之前**（永遠是原始輸入，封鎖期間仍看得到「按著 W 但被擋下」）。 |
+| **2** | Intent Processor | `InputData` | `RuntimeData.Intent` | 每帧無條件執行（封鎖時輸入全 false ⇒ 不寫入任何意圖，與舊版「跳過」逐位元等價）。（trigger 邊沿：Jump／Roll／Fire） |
+| **2.5** | 🆕 Movement Intent Producer | `InputData` ＋ `GaitProfileSO` | `RuntimeData.MovementIntent` | **ADR-003 D2**：Runner 只依賴 `IMovementIntentSource` 介面、不認識任何移動策略（Shift=Sprint 這類規則全在 policy＋profile 資產）。**唯一**寫入 `MovementIntent` 的環節。🆕 **輪 4 裁決（§7-M5 結案）**：本步**仍每帧無條件執行**，封鎖時吃到的是**被歸零的輸入** ⇒ `DesiredSpeedNormalized` 歸零 ⇒ B9 減速收步。⚠️ **不可**改為「跳過本步」——`MovementIntent` 是連續型意圖、不參與順序 7 復位，跳過 ≠ 歸零而是**凍結在最後一帧**（封鎖瞬間若正全速跑，角色會以全速無限前進且放不下來）。 |
 | **3** | 🆕 **Movement Model Tick**（active `IMovementModel`） | `RuntimeData.MovementIntent` | `RuntimeData` 的 Movement Output（`MoveSpeed`／`MoveDirection`／`UpperBodyWeight`）＋**該 model 自己的動畫參數** | **ADR-003 D3／D4（Stage 2）**：Runner 只呼 `_movementModel?.Tick(...)`，**不認識** 平滑／MoveSpeed／gait（原 `DeriveMovementParameters` 已整段遷入 `LocomotionModel`）。⚠️ **每幀無條件執行、不看當前狀態**（理由見下方脆弱點 6）。model 在此自驅 `SetFloat(MoveSpeed)`（不再由順序 5 轉送）。 |
 | **4** | 狀態機 Tick | `RuntimeData` | 狀態切換與邏輯驅動 | 讀取 Intent。讀完當幀即視為消耗完畢。 |
-| **4.5** | ArbiterPipeline Tick | `RuntimeData` (含新狀態) | `RuntimeData.Arbitration` | **第四階段接入**，緊跟狀態機之後評估最新旗標。 |
+| **4.5** | ArbiterPipeline Tick | `RuntimeData`（含新狀態） | `RuntimeData.Arbitration` | ✅ **輪 4 落地**。緊跟狀態機之後評估最新旗標：詢問所有 `IArbiterSource` → OR 合併 → 整體覆寫仲裁區（**唯一寫入者**）。Runner 只呼叫管線、**不認識任何具體封鎖語意**（UI 模式／死亡／過場都是 source 的事），比照順序 6.5 的 `PresentationPipeline`。⚠️ 本步在順序 2 閘門**之後**，故 `BlockInput` 有**一帧延遲**——刻意的取捨，見下方脆弱點警告第 7 條。 |
 | **5** | AnimationFacade 同步 | 當前狀態 | 動畫播放指令 | 狀態變更時提交播放請求（`Play(AnimationKey)`）。🆕（Stage 2）**參數同步已遷出**：每個 model 於順序 3 驅動自己的參數（Locomotion→`MoveSpeed`、未來 Swim→`StrokeRate`），共用同一支通用 Facade（D4）。此處只剩「狀態 → 動畫鍵」的通用映射。 |
 | **6a** | MotionDriver 基礎運動 | `RuntimeData`（Movement Output）＋單幀快取重力積分 | `CharacterController.Move` | **必須在 LateUpdate**，由當前狀態的 `OnUpdateMotion` 選擇移動路徑。🆕（Stage 2，D3）**ambient 狀態**（Idle／Move）在此 **delegate 給 active model** 的 `UpdateMotion`；**intrinsic-motion 狀態**（Jump／Roll）維持既有 override 自帶位移。v0.9 起全程式碼驅動，**不再讀取 `OnAnimatorMove` 根運動增量**（見 §3.2 風險註記）。 |
 | **6b** | MotionDriver 烘焙曲線/補償 | `MotionBakeData`（＋補償目標點） | `CharacterController.Move` | **與 6a 同幀 LateUpdate 執行**。現行 Roll 走 `ExecuteBakedCurveMovement`（純曲線）；`ApplyBakedCompensation`（動態吸附）屬 Warping 階段，尚無呼叫端。 |
@@ -316,6 +372,16 @@ public struct MovementIntentData
 >    - **不可只在 ambient 狀態推進**：`JumpState.OnUpdateMotion` 的空中控制吃的正是 Movement Output。若 Jump／Roll 期間平滑凍結，落地會拿起跳時的殘值續走＝滑步。
 >    - **不可移到 LateUpdate**：Animator 的評估卡在 Update 與 LateUpdate 之間，`SetFloat` 落到 LateUpdate 會讓動畫參數比位移**晚一帧**（動畫／位移分岔）。
 >    這也是為什麼順序 3 **沒有隨 Stage 2 消失**，而是換人執行（Runner 呼介面 → model 決定內容）。
+> 7. 🆕（輪 4）**`BlockInput` 的一帧延遲是刻意的，不得為了消除它而把順序 4.5 提前。**
+>    仲裁在順序 4.5（狀態機**之後**）評估，而輸入閘門在順序 2——因此某來源在第 N 帧要求封鎖時，
+>    旗標於第 N 帧寫入，**第 N+1 帧的閘門才看得到**。約 16ms。
+>    - **為什麼不提前**：4.5 卡在狀態機之後，是為了讓仲裁讀得到當幀**更新後**的 state
+>      （design-doc §2.5 的資料流本就是「狀態機 → Arbiter 轉譯 → 黑板」）。提前到順序 2 之前，
+>      仲裁就只能讀到**上一帧**的狀態——延遲並沒有消失，只是從「旗標晚一帧生效」變成
+>      「旗標根據過期狀態計算」，後者更難除錯，且違反脆弱點第 2 條。
+>    - **實務影響**：來源自身的即時反應（如 UI 模式的游標／相機）在當帧就完成，
+>      只有「輸入封鎖」晚一帧。若未來出現無法容忍一帧的封鎖情境（例如需要 frame-perfect 的
+>      無敵幀取消），正解是讓該情境走 **FSM 狀態**而非仲裁旗標，不是搬動 4.5。
 > 
 > 
 
@@ -822,7 +888,7 @@ public class PresentationPipeline
 | `AudioController` | MonoBehaviour, `IPresentationController` | 「**何時播**」：讀 `JustLanded`＋`BlockAudio`，查表播放 | 由管線順序 6.5 驅動，無自身 Update；`[RequireComponent(AudioSource)]`，掛角色 Root 階層（Runner `GetComponentsInChildren` 收得到即可）；缺引用 Awake 報錯（防禦線風格同 Runner／MotionDriver） |
 
 * **M2 裁決：單一 `AudioSource`＋`PlayOneShot`**。已知侷限：pitch 是 Source 層屬性，連續觸發時後一發會改到仍在播的前一發；多音軌／Source 池屬 §5 Future Work，等第一個真實劣化案例再上。
-* `BlockAudio` 讀取**契約先行**：writer（ArbiterPipeline，順序 4.5）到第四階段接入才存在，現值恆 `false`。
+* `BlockAudio` 讀取**契約先行**：M2 落地時 writer 尚不存在、旗標恆 `false`。🆕 **輪 4 起 writer 已存在**（`ArbiterPipeline`，順序 4.5），但目前沒有任何 `IArbiterSource` 要求 `BlockAudio`——旗標仍恆 `false`，直到死亡等來源進場。**契約先行的代價已於此兌現：Controller 本身零改動。**
 * Unity 接線（Phase 5 人工作業）：`AudioController`＋`AudioSource` 掛 Root；`library` 指向 `AudioLibrary` 資產；Library entries 填 `Landing → 落地 AudioDefinition`；Definition 填至少一個落地 `AudioClip`。
 
 ### 3.5 Foot IK 子系統 → 已分卷至 `docs/05-foot-ik.md`（2026-07-25）
@@ -1041,6 +1107,8 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | 2026-07-25 | v0.21 | **ADR-003 Migration Stage 2（B9／MoveSpeed 歸位，§9-L1 收尾）**：①§1.1 權限表把 `MoveSpeed`／`MoveDirection`／`UpperBodyWeight` 合併為 **Movement Output** 一列，寫入者改為 active `IMovementModel`（語意重定義：非 Runner 維護的 locomotion state，而是 model 發布的輸出）；②§2.1 順序 3 改寫為 **Movement Model Tick**（未消失，換人執行）、順序 5 移除參數同步、順序 6a 補 ambient delegate、**脆弱點警告新增第 6 條**（順序 3 必須留 Update 且每帧無條件——Jump 空中控制凍結／動畫參數晚一帧兩個實測陷阱）；③§3.1 新增 `IMovementModel`／`LocomotionModel` 規格節，`BaseState` 補 `MovementModel` 注入與三種 `OnUpdateMotion` 歸屬，`LocomotionSpeedSmoother` 改標為「已遷移，換持有者、邏輯零改」；④§7.1 A4／A5 更新＋**新增 A9（Runner 不得認識 locomotion）／A10（平滑持有者唯一）**，§7.2 M3 補 `LocomotionModel` 綁定；⑤**§7.3 結案兩列**（B9 在 Runner、FSM 讀衍生值），新增一列誠實記錄「Movement Output 仍是黑板欄位」＝刻意的 migration intermediate state。程式碼：新增 2 檔（`Core/Movement/Models/`）、修改 9 檔，`CharacterPipelineRunner` 移除 B9 欄位／`DeriveMovementParameters`／`SetFloat`；FSM 拓撲、MotionDriver、Jump／Roll 位移路徑皆行為等價 | Core Dev |
 | 2026-07-25 | v0.22 | **Walk 型態 hold／toggle（控制方案落地，參考終末地）**：①§1.3 `InputData` 新增 `WalkButtonDown`（邊沿，與 `WalkButtonHeld` **並存**——raw input 層不預設控制方案）；②§1.5 `MovementIntentData` 新增 `WalkModeActive`（**mode state**，語意為「型態開著沒有」而非「鍵按住沒有」），並補兩列契約：mode state 必須存黑板（ADR-003 D5／§9-L5，toggle 走「讀黑板→邊沿翻轉→寫回」）、mode vs trigger 的生命週期差異；③§3.1 `GaitProfileSO` 新增 `walkIsToggle`＋`WalkIsToggle`，`ResolveIntensity` 第三參數改名 `walkHeld`→`walkActive`（語意不再是「按住」）；④§7.1 A8 擴充（hold/toggle 語意＋toggle 狀態無私有殘留）；⑤§7.2 M3 補 `WalkAction`→Left Ctrl、註明 `SprintAction` 刻意不綁；⑥§7.3 新增一列誠實記錄「Sprint 由 buff 驅動未來會撞 D2 producer context-free」。程式碼：修改 6 檔，**新增測試 4 條**（`[Test]` 69 → **73**）。無架構變更（沿用 ADR-003 既有裁決，不開新 ADR） | Core Dev |
 | 2026-07-26 | v0.23 | **切斷 Runtime → AnimationClip 的最後一條依賴（`BakedDuration`）**：①§4.3 新增「動畫長度（BakedDuration）」小節——問題（`Duration => SourceClip.length` 是全專案唯一的執行期 clip 讀取，且是「Roll 秒退」在 clip 層的變體）、做法（烘焙期快照，與 `AutoAverageSpeed` 同 pattern）、`SourceClip` 降為 Editor-side provenance、舊資產遷移策略（**刻意不回退讀 clip**，改由消費端以「值 > 0」接住）、以及誠實揭露的未解項（欄位保留 → clip 仍被打包/載入）；②`RollState` 退化條件由「引用是否為 null」改為「**值是否 > 0**」，並補 Editor 警告提示重烘。程式碼：`MotionBakeData`（+`BakedDuration`，`Duration` 改讀它）、`MotionBakeEditor`（烘焙時寫入）、`RollState`；**新增測試 3 條**（`[Test]` 73 → **76**）：`Duration` 不依賴 `SourceClip`、舊資產如實回 0、**Roll 在資產無時長時不得秒退**。⚠️ 需重烘 8 顆 `Bake_*.asset`（使用者側） | Core Dev |
+| 2026-07-27 | v0.25 | **輪 4 ArbiterPipeline 落地：`Arbitration` 第一次擁有合法寫入者**：①§1.4 新增 `IArbiterSource`／`ArbiterPipeline` 契約（**回傳值而非 `ref`**——讓「來源不得清掉別人的封鎖」結構上不可能；合併政策＝**純 OR**，優先級／強制解封明確延後）與首個來源 `UiModeArbiterSource`（UI 模式：Alt 放開滑鼠＋停止移動；**Alt 刻意不進 `InputData`**，因為解除封鎖的鍵不能住在可被封鎖的通道裡）；②§2.1 新增「**順序 2 閘門**」列並改寫順序 2／2.5／4.5 三列，脆弱點警告新增**第 7 條**（`BlockInput` 的一帧延遲是刻意取捨，不得為此提前 4.5）；③§1.1 權限表 `Arbitration` 寫入者由「不得有」改為 `ArbiterPipeline`；④**§7.2-M5 結案**——`BlockInput` ＝「本帧管線看不到任何輸入」，實作為閘門處 `inputData = default`（**不可**改為跳過順序 2.5：連續型意圖跳過 ≠ 歸零而是**凍結在最後一帧**，封鎖瞬間全速跑會無限前進），手感落在既有 B9 減速收步；⑤§7.1 A5 白名單改為 `ArbiterPipeline.cs`、A4 新增 `Core/Arbitration` ✗ `Project.Presentation`（刻意不禁 StateMachine，未來死亡 source 需要）；⑥§7.2 新增 **M7**（Alt 行為 Play 驗收＋重鎖游標的鏡頭跳動觀察項）、M3 補 `UiModeArbiterSource` 綁定；⑦§7.3 新增三條張力（僅 OR 無優先級／`Cursor.lockState` 兼任相機閘門的**成立前提與失效條件**／一帧延遲）。程式碼新增 3 檔 ＋ `ThirdPersonCamera` 游標閘門；**新增測試 7 條**（`[Test]` 76 → **83**） | Core Dev |
+| 2026-07-27 | v0.26 | **輪 4.1 Hold／Tap 分流 ＋ 應用層暫停**：①§1.4 `UiModeArbiterSource` 語意 **toggle → hold**，新增分流表（按住＝UI 模式／短按＝暫停）與三條紀律：分流走 **Input System 原生 interaction 而非自刻計時器**（同 `walkIsToggle` 精神——操作語意屬 per-game 差異，該住資產）、**Tap 門檻必須 ≤ Hold 門檻**（正確性條件非調味）、進出邊沿刻意不對稱（進場 `WasPerformedThisFrame`／離場 `!IsPressed()`，後者對失焦**會自癒**）；②**§0.2 新增 `App/` 應用層**＋補完 `Presentation/` 遺漏的 `Audio/`／`IK/` 與頂層兩檔（舊漂移，順手修）；③**design-doc 新增 §4.9 應用層**——`Time.timeScale` 是全域狀態、`ArbiterData` 是**單一角色**的仲裁旗標，把暫停做成第 5 個 Block 旗標會在第二隻角色進場時露餡；④§7.2 M3 補 Hold／Tap interaction 綁定與「暫停器不要掛在角色 Root」，M7 隨語意改寫，**新增 M8**（含關鍵驗收：暫停中能否再短按解除＝驗證 Tap 判定用的是不受 `timeScale` 影響的真實時間）；⑤§7.3 新增一列「暫停刻意不碰 `Cursor` 且不封鎖輸入」（兩個缺口理由不同，各自記明未來的正解），並複驗 `Cursor.lockState` 相機閘門**仍然成立**（暫停不碰游標，失效條件未觸發）。⑥**（輪 4.2）`Cursor` API 擁有權移交**：§1.4 記 `UiModeArbiterSource` 由「獨佔三樣」降為兩樣，新增 `App/CursorModeController` 為唯一擁有者（OR 合併所有「想要自由游標」的來源，形狀同 `ArbiterPipeline`）；§7.3 上列「暫停刻意不碰 Cursor」**結案**（壓力在同一階段到來：暫停時游標需常駐），並記下**不採「存○還原」**的理由（埋 LIFO 假設，暫停改綁 Esc 即壞）；相機閘門那列複驗**仍成立但理由更換**（兩模式都放開游標，但對相機期望一致），失效條件收窄為「游標自由但相機仍該轉」；§7.2 M3 補 `CursorModeController` 接線與「缺席即大聲壞掉」，**新增 M9**。程式碼新增 2 檔（`App/GamePauseController.cs`、`App/CursorModeController.cs`）＋修改 `UiModeArbiterSource`（移除 Cursor 寫入、公開 `IsUiModeActive`）＋`ThirdPersonCamera`（移除 `Start` 初始鎖定＝第二個寫入者）；另修 `CharacterPipelineRunnerEditor` 的 `Repaint()` → `RequiresConstantRepaint()`（Editor-only：GUIClip 失衡／`SerializedProperty` 已 dispose 兩條錯誤的根因）；**新增測試 12 條**（`[Test]` 83 → **95**） | Core Dev |
 
 ---
 
@@ -1061,8 +1129,8 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | **A1** | asmdef 依賴方向單向：`Project.Runtime` 不得引用 `Project.Editor`／測試組件；Runtime 對所有平台開放；Editor／Tests 限定 Editor 平台 | 依賴方向 | `ArchitectureRegressionTests.A1_*` | 解析三份 asmdef 的 `references`／`includePlatforms` 宣告 |
 | **A2** | Runtime 程式觸及 `UnityEditor` 一律包在 `#if UNITY_EDITOR` 內 | 依賴方向（建置期） | `ArchitectureRegressionTests.A2_*` | 原始碼掃描＋前處理器巢狀追蹤（`#if`／`#else`／`#endif`） |
 | **A3** | Runtime 不得引用 `System.Linq` | Zero GC | `ArchitectureRegressionTests.A3_*` | 原始碼掃描（零 GC 紀律中**可機器判定**的切片）。⚠️ **已知能力邊界（2026-07-26 實測界定）**：A3 是 token 掃描，抓不到「**對介面型別 `foreach` 導致 struct enumerator 裝箱**」這類配置——那裡沒有任何可疑 token，只有一個看起來正常的 `foreach`（實例：`EvaluateTransitions` 對 `IReadOnlyList<T>` 迭代，每帧 40 B，只有 Profiler 抓得到）。**熱路徑迭代介面型集合時一律用索引迴圈**；零 GC 的完整驗收走 §7.4 SOP，A3 只是靜態可見的那一片 |
-| **A4** | 層級依賴禁令：`Presentation` ✗ StateMachine／Pipeline／InputData；`Core/StateMachine` ✗ Pipeline／Runner；`Core` ✗ Animancer／Animator；**`Core/Movement`（不遞迴）✗ StateMachine／Presentation（producer context-free）**；🆕 **`Core/Movement/Models` ✗ StateMachine／Pipeline（model 不得反向認識 FSM；但**允許** Presentation，D4 要求自驅 Facade）**；`Core/Blackboard` ✗ 任何消費者 | 依賴方向／DIP／ADR-003 D2・D3 | `ArchitectureRegressionTests.A4_*` | 每層一組禁用 token，掃描去註解後的原始碼；`TopLevelOnly` 控制是否遞迴子資料夾 |
-| **A5** | 黑板成員單一寫入者：`MovementIntent`→`PlayerLocomotionPolicy`；`Intent`→`CharacterPipelineRunner`；🆕 **Movement Output（`MoveSpeed`／`MoveDirection`／`UpperBodyWeight`）→`LocomotionModel`（＝當下 active model）**；`IsGrounded`／`JustLanded`／`JustLeftGround`→`MotionDriver`；`Arbitration`→**目前不得有執行期寫入者** | Ownership／Single Writer | `ArchitectureRegressionTests.A5_*` | 以賦值形 regex 掃描 Runtime，比對允許檔名白名單 |
+| **A4** | 層級依賴禁令：`Presentation` ✗ StateMachine／Pipeline／InputData；`Core/StateMachine` ✗ Pipeline／Runner；`Core` ✗ Animancer／Animator；**`Core/Movement`（不遞迴）✗ StateMachine／Presentation（producer context-free）**；🆕 **`Core/Movement/Models` ✗ StateMachine／Pipeline（model 不得反向認識 FSM；但**允許** Presentation，D4 要求自驅 Facade）**；🆕（輪 4）**`Core/Arbitration` ✗ `Project.Presentation`／`IPresentationController`（仲裁層只能透過黑板旗標與表現層溝通，不得直接呼叫 Controller，design-doc §4.5）——刻意**不**禁 StateMachine，§2.5 的資料流本就是「Arbiter 讀 state → 轉譯成旗標」**；`Core/Blackboard` ✗ 任何消費者 | 依賴方向／DIP／ADR-003 D2・D3／design-doc §4.5 | `ArchitectureRegressionTests.A4_*` | 每層一組禁用 token，掃描去註解後的原始碼；`TopLevelOnly` 控制是否遞迴子資料夾 |
+| **A5** | 黑板成員單一寫入者：`MovementIntent`→`PlayerLocomotionPolicy`；`Intent`→`CharacterPipelineRunner`；🆕 **Movement Output（`MoveSpeed`／`MoveDirection`／`UpperBodyWeight`）→`LocomotionModel`（＝當下 active model）**；`IsGrounded`／`JustLanded`／`JustLeftGround`→`MotionDriver`；🆕（輪 4）**`Arbitration`→`ArbiterPipeline`（第一次擁有合法寫入者）** | Ownership／Single Writer | `ArchitectureRegressionTests.A5_*` | 以賦值形 regex 掃描 Runtime，比對允許檔名白名單 |
 | **A6** | `ResetTransientState()` 清 trigger 意圖與邊沿旗標，但**不得**清 `MovementIntent` | Intent Contract（連續型 vs trigger） | `MovementIntentTests.ResetTransientState_*` | 行為測試 |
 | **A7** | `MoveSpeed`／`MoveDirection` 完全由 `MovementIntent` 序列導出、可重現（無隱藏輸入） | Intent Contract（ADR-003 §13.4 單一真相） | `MovementIntentTests.Smoother_*` | 同一意圖序列餵兩個獨立實例，輸出須一致；含收斂／snap-to-0／滑行保留方向 |
 | **A8** | 未指派 `GaitProfileSO` 時，producer 輸出＝原始推桿量（Stage 1 行為等價保證）；gait 解析規則（Walk 優先、零輸入不生意圖、Clamp01）；🆕 **hold／toggle 兩種 Walk 型態語意**（toggle 只看邊沿不看 Held、放開後閂住、再按翻回）；🆕 **toggle 狀態必須存在黑板**——同一顆 producer 換一塊新黑板時型態須從乾淨狀態開始（＝producer 無私有殘留，ADR-003 D5／§9-L5） | 行為等價／資料驅動／Ownership | `MovementIntentTests.ProduceIntent_*`／`ResolveIntensity_*` | 行為測試 |
@@ -1077,9 +1145,12 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | --- | --- | --- | --- |
 | **M1** | Play 行為等價：未配置 gait 資產時，移動手感與 Migration 前一致（加速平順、放開滑行收步、無滑步） | 手感屬人為感知；自動測試只能守數值契約（A7），守不住「看起來對不對」 | 每次動 Locomotion dynamics |
 | **M2** | Profiler 執行期 0 GC Alloc（順序 1～7 全程）。**量測程序見 §7.4**。✅ **已達標（2026-07-26）：Development Build 穩態移動下 `PlayerLoop` 的 `GC Alloc` = 0 B**（§7.4.5，存證 `docs/images/profiler/`）。⚠️ 每次動熱路徑須重驗——本項無法自動化，而 A3 抓不到裝箱類配置（見 §7.1-A3 能力邊界） | 需 Play 模式／Player 連線量測；A3 只能守 LINQ 這一類靜態可見的來源 | 每次動熱路徑 |
-| **M3** | Inspector 綁定：角色 Root 掛 `PlayerLocomotionPolicy` ＋ `LocomotionModel`；Runner 的 Movement Intent Source／Movement Model 欄位（留空則自動 `GetComponent`）；`WalkAction` 綁鍵（現行方案＝Left Ctrl）。🆕 **`SprintAction` 刻意不綁**——現行方案的 sprint 由 buff 驅動而非按鍵（見 §7.3 張力表） | 資產／Prefab 配置屬使用者側（AI 不碰 `.prefab`／`.asset`） | 本輪落地後首次進 Editor |
+| **M3** | Inspector 綁定：角色 Root 掛 `PlayerLocomotionPolicy` ＋ `LocomotionModel`；Runner 的 Movement Intent Source／Movement Model 欄位（留空則自動 `GetComponent`）；`WalkAction` 綁鍵（現行方案＝Left Ctrl）。🆕 **`SprintAction` 刻意不綁**——現行方案的 sprint 由 buff 驅動而非按鍵（見 §7.3 張力表）。🆕（輪 4）**角色 Root 掛 `UiModeArbiterSource`，其 `UiModeAction` 綁 Left Alt（`<Keyboard>/leftAlt`）**——未綁定＝永遠不進 UI 模式，行為與接上仲裁前完全等價（不會靜默壞掉，只是 Alt 沒反應）。🆕（輪 4.1）**該 action 另需掛 `Hold` interaction（Duration 建議 0.25）**；並在場景中另建一顆物件掛 `Project.App.GamePauseController`（**不要掛在角色 Root**，理由見 design-doc §4.9），其 `PauseToggleAction` 🔄（輪 4.2）綁 **`<Keyboard>/escape`**，一般 Button 綁定即可、**不需要 `Tap` interaction**（獨佔一顆鍵）。⚠️ 若日後改回與 UI 模式共用 Left Alt，才需要掛 `Tap` 且 **Tap 門檻 ≤ Hold 門檻**——那是正確性條件不是調味。🆕（輪 4.2）**同一顆物件再掛 `CursorModeController`，並把 `Ui Mode Source`／`Pause Controller` 兩個欄位拖好**——⚠️ **這顆缺席時開場游標不會被鎖住、連帶相機不會轉**（相機以 `Cursor.lockState` 為閘門，且 `ThirdPersonCamera.Start` 的初始鎖定已移除以確保單一擁有者）。**刻意讓它大聲壞掉**，症狀一眼可見 | 資產／Prefab 配置屬使用者側（AI 不碰 `.prefab`／`.asset`） | 本輪落地後首次進 Editor |
 | **M4** | 🆕 **改為兩段**：①**Mixer threshold 必須**等於 `speed_i / speed_max`（不可協商的校準，錯了必滑步）；②`GaitProfileSO` 的 gait intensity 以該公式為**基準參考**，允許依手感偏離（不會滑步，見 §3.1 釐清），但偏離時要知道自己選的是混合姿態 | 數值來源的正確性無法從程式碼判定（B11 決策：公式文件化、設計師手填）；「姿態好不好看」更是純人為判斷 | 建立／調整 gait 資產、或更換 locomotion clip 時 |
-| **M5** | **未決項**：`BlockInput` 是否應同時凍結 `MovementIntent`？現況刻意置於閘門外＝維持 Migration 前行為（`ArbiterPipeline` 尚無 writer，`BlockInput` 恆 false） | 需先有真實的封鎖情境（死亡／CC／過場）才能判斷正確語意 | 輪 4 ArbiterPipeline（順序 4.5）落地時 |
+| **M5** | ✅ **已結案（輪 4，2026-07-27）**：`BlockInput` ＝「**本帧管線看不到任何輸入**」，實作為在順序 2 閘門把 `InputData` 整份歸零，順序 2 與 2.5 照常執行。**裁決理由**（三段，缺一不可）：①**不能只是跳過 2.5**——`MovementIntent` 是連續型意圖、不參與順序 7 復位，跳過 ≠ 歸零而是**凍結在最後一帧**（封鎖瞬間若正全速跑，角色會以全速無限前進且放不下來）；②**不能改為歸零 `MovementIntent`**——那需要它的第二寫入者，直接違反 A5，且會逼 producer 認識「封鎖」而破壞 ADR-003 D2 的 context-free；③**歸零 `InputData` 三者兼得**——單一寫入者不變、producer 零改、且順序 2 與 2.5 收斂成同一個語意。**手感**（使用者裁決）：意圖歸零 → B9 減速時間常數收步，與「放開 WASD」完全同款，零新增機制、不動 `IMovementModel` 介面 | — | — |
+| **M7** 🆕 | **UI 模式行為驗收**（Play 模式）。🔄（輪 4.1）語意已由「按一下切換」改為「**按住生效**」，下列各項的觸發方式隨之改為**按住 Left Alt 超過 Hold 門檻**：①游標解鎖並顯示、相機**同帧**停止吃 Mouse Delta；②**下一帧**輸入封鎖生效（一帧延遲屬設計，見 §2.1 脆弱點第 7 條）；③封鎖時按著 W，角色**滑行收步**至停止而非瞬間定格；④封鎖期間 Ctrl 的 Walk 型態不被誤翻，解除後型態原樣保留；⑤**放開** Alt 後恢復輸入／相機／移動。⚠️ **附帶觀察項**：重新鎖定游標的當帧可能有一次小幅鏡頭跳動（Unity 的 `Mouse.delta` 在解鎖期間照常回報）。觸發時手在按鍵、滑鼠通常靜止，預估風險低，**刻意不預先做抑制器**；若實測明顯再處理 | 邊沿輸入與游標狀態需要真實 Input System 更新迴圈，EditMode 無法確定性重現（管線側的 OR 合併／零輸入語意已由 `ArbiterPipelineTests` 自動守住） | 輪 4 落地後首次進 Editor；每次動仲裁來源 |
+| **M8** 🆕 | **Hold 分流 ＋ 暫停驗收**（Play 模式，輪 4.1；🔄 4.2 起暫停鍵＝Esc）：①按 **Esc** → 世界凍結（角色、動畫全停）；②再按 Esc → 恢復，且恢復後的 `timeScale` 是暫停前的值——⚠️ **這條是關鍵**：它驗證暫停中輸入仍能被處理（`Update` 在 `timeScale == 0` 下照跑）。若失敗，暫停將無法解除；③**按住** Alt 超過門檻 → 進 UI 模式（游標出現），**且不會順便觸發暫停**；④🆕（4.2）**按住 Alt → 按 Esc 暫停 → 放開 Alt** → 游標**必須仍然可見**（共用按鍵時此情境不可能發生，改綁 Esc 後才成立，見 M9 ③）；⑤已知缺口複驗：暫停中按跳躍，解除後是否會「補跳」（見 §7.3） | interaction 與 `timeScale` 的互動需要真實 Input System 更新迴圈，EditMode 無法確定性重現（暫停器的狀態機／還原／防呆已由 `GamePauseControllerTests` 自動守住） | 輪 4.1 落地後首次進 Editor；每次動 Hold 門檻或暫停綁定 |
+| **M9** 🆕 | **游標唯一擁有者驗收**（Play 模式，輪 4.2）：①開場游標即被鎖住、相機正常轉動（＝`CursorModeController` 有接上，且它接手了原本 `ThirdPersonCamera.Start` 的初始鎖定）；②**暫停期間游標常駐可見**；③**關鍵回歸**：暫停中按住 Alt 進 UI 模式、再放開 → **游標必須仍然可見**（舊架構在此會把游標鎖回去，正是本輪修的 bug；合併邏輯已由 `CursorModeControllerTests` 自動守住，這裡驗的是實際套用到 `Cursor` 的那一段）；④兩個模式都退出後游標回到鎖定；⑤🆕 **外力改動後要自癒**：Play 模式中讓視窗失焦再切回（或任何會被 Unity 內建解鎖游標的操作），游標必須在下一帧被拉回鎖定——**這條是初版 bug 的回歸**：初版快取「自己上次寫了什麼」，一旦 Unity Editor 在背後解鎖（按 Esc、視窗失焦都會），就永遠認為已套用而不再修正，游標永久可見。現版比對 `Cursor` 現值，故自癒 | `Cursor.lockState` 是全域且與編輯器視窗焦點互動的狀態，EditMode 斷言它既不穩定又會污染測試回合（連還原都不可靠），故只自動測合併政策（`WantsFreeCursor`），套用行為人工驗 | 輪 4.2 落地後首次進 Editor；每次新增滑鼠模式 |
 | **M6** | ADR-003 契約語意複驗：新 domain 是否開**兄弟 region**（非擴脹 `MovementIntent`）；新 producer 是否 context-free；新 model 是否自驅動畫參數 | 屬設計意圖層面，靜態掃描只能守 import 邊界（A4） | 每次新增 domain／producer／model |
 
 ### 7.3 已知的架構張力（誠實記錄，非違規）
@@ -1091,6 +1162,11 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | ~~FSM 的 Idle／Move 門檻讀 `MoveSpeed`（衍生值）而非 intent~~ | ✅ **已結案（Stage 2，2026-07-25）** | 採「由 model 提供門檻信號」路線：`CanEnter` 改問 `IsProducingMotion`，0.1 門檻回歸 model 內部。**未改為讀原始 intent**——原因即當初記錄的分岔風險（放開輸入瞬間切 Idle 但仍在滑行），該理由至今成立 |
 | 🆕 **Movement Output 仍是黑板欄位**（D4 字面要求「不再是黑板欄位」） | `MoveSpeed`／`MoveDirection`／`UpperBodyWeight` 仍在 `PlayerRuntimeData`，但語意已改為「active model 發布的輸出」、寫入者唯一且為 model | **刻意的 migration intermediate state（2026-07-25 裁決）**：D4 最終目標不變，但完全內化需連動 `MotionDriver` API（改為顯式傳值）與 `JumpState` 空中控制（intrinsic 狀態也消費這組值），會模糊「ambient delegate／intrinsic override」界線，風險大於本輪收益。待第二個 model（Strafe／Swim）進場時一併處理——屆時「多個 model 寫同一組欄位」的壓力會自然逼出正確形狀 |
 | 🆕 **Sprint 規劃由 buff 驅動，但 producer 不得回讀 gameplay state** | 現行控制方案（參考終末地）中 sprint 不是按鍵而是**加速 buff** 的結果；`SprintAction` 因此未綁鍵、`sprintIntensity` 欄位暫時無來源（填 1.0 閒置） | **未來會撞到 ADR-003 D2**：buff 是 gameplay state，producer 直接查詢它＝context-free 破功（§7-A4 的層級掃描會直接擋）。可行方向是「buff 寫進黑板的 status／capability region，producer 讀**資料**而非查詢系統」，但那條界線（描述性 vs gameplay authority，ADR-003 §13.2）需要真需求才裁決。**現在不做**——YAGNI，且提前決定會在沒有壓力測試的情況下把介面定死 |
+| 🆕（輪 4）**多來源封鎖只做 OR，無優先級／強制解封** | `ArbiterPipeline` 對所有 `IArbiterSource` 的請求做純 OR；任一來源要求即封鎖，沒有任何來源能否決他人的封鎖 | **刻意的 YAGNI**：優先級需要真實的競爭情境（死亡 vs 過場誰贏？無敵幀該不該壓過 CC？）才能裁決語意，現在決定＝在沒有壓力測試下把介面定死。⚠️ 但**擴充成本已預先壓到最低**：來源回傳自己的請求、合併政策獨佔於管線一個迴圈——屆時改一個檔案，所有來源零改動。§2.4 舊規格提過的「優先級疊加」正式歸入本列 |
+| 🆕（輪 4）**`Cursor.lockState` 兼任相機的 Mouse Delta 閘門** | `ThirdPersonCamera` 以 `Cursor.lockState == CursorLockMode.Locked` 決定要不要吃滑鼠位移，而非讀黑板 `Arbitration` | **刻意的現階段取捨，不是「`Cursor.lockState` 永遠是全域權威」的宣告**。成立前提：全專案目前只有 UI Mode **一個**滑鼠模式，且相機不是 `IPresentationController`、不持有黑板——用既有游標狀態當判準是零新增依賴的最小解。⚠️ **失效條件明確**：一旦出現 Pause／Inventory／Dialogue／Cutscene 等**多個**滑鼠模式（它們對相機的期望未必一致），就要重新裁決是否需要一份更上游的 camera-input contract。在那之前不預造。<br>🔄 **輪 4.2 複驗結論：這條仍然成立，但成立的理由換了。** 現在確實有**兩個**滑鼠模式（UI 模式、暫停），兩者也**都會**放開游標——失效條件的前半段已觸發。但後半段沒有：兩個模式對相機的期望**一致**（都要停轉），所以「以 `Cursor.lockState` 判斷該不該吃 Mouse Delta」依然是對的答案。⚠️ **真正的失效條件因此收窄為**：出現一個「游標自由**但相機仍該轉**」（或反之）的模式。在那之前不動相機閘門 |
+| ~~（輪 4.1）暫停刻意不碰 `Cursor`~~ | ✅ **已結案（輪 4.2，2026-07-27）** | 輪 4.1 記錄的是「等真實壓力再裁決 Cursor 擁有權」，壓力在**同一個工作階段內**就到了（需求：暫停時游標常駐）。解法＝把 `Cursor` API 從 `UiModeArbiterSource` 整組移交 `App/CursorModeController`，**OR 合併所有「想要自由游標」的來源後套用一次**（形狀與 `ArbiterPipeline` 同源）。⚠️ **不採「存○還原」的替代方案**：那在現行綁定下也正確（兩模式共用 Left Alt，按住中無法再短按），但埋了一個 LIFO 假設——暫停日後改綁 Esc 就會壞。回歸由 `CursorModeControllerTests` 守（其中一條專門重現舊 bug），套用行為由 §7.2-M9 人工驗 |
+| 🆕（輪 4.1）**暫停不封鎖角色輸入** | `GamePauseController` 只切 `Time.timeScale`，未要求 `BlockInput` | **刻意的缺口**：`timeScale = 0` 已讓 `deltaTime` 歸零、位移與動畫全停，但 trigger 意圖仍會寫入黑板、FSM 仍以 `deltaTime = 0` Tick——**已知症狀是暫停中按跳躍可能在解除時「補跳」**（由 §7.2-M8 ⑥ 人工複驗）。真要修時，正解是讓暫停器實作 `IArbiterSource` 並由角色以 Inspector 引用（DIP），**不是**讓角色去查詢全域。⚠️ 注意這與上一列的 Cursor 解法**方向相反**且兩者都對：游標是「高層擁有、低層回報意圖」（App 讀角色），封鎖是「低層擁有、高層提供來源」（角色收 App 給的 source）——判準是**那個狀態的 scope 屬於誰** |
+| 🆕（輪 4）**`BlockInput` 有一帧延遲** | 仲裁在順序 4.5 評估、輸入閘門在順序 2，故封鎖旗標第 N 帧寫入、第 N+1 帧生效 | **刻意的時序取捨**（§2.1 脆弱點第 7 條）：4.5 卡在狀態機之後是為了讀到當幀更新後的 state。提前並不能消除延遲，只會把「旗標晚一帧生效」換成「旗標依過期狀態計算」。若未來出現無法容忍一帧的封鎖情境，正解是讓它走 **FSM 狀態**而非仲裁旗標 |
 | `MovementContext`（context 軸）未實作 | 只有 Locomotion 一個 model | **ADR-003 §9-L2／Stage 3**：第二個 model（Strafe／Swim）進場時才落地，並以它複驗 context 軸是否真的零改核心 |
 
 ### 7.4 零 GC 量測 SOP（🆕 2026-07-26，對應 §7.2-M2）
