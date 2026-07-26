@@ -6,6 +6,63 @@
 
 ---
 
+## [v0.24] - 熱路徑每帧 40 B：介面型 foreach 的裝箱（2026-07-26）
+
+> 起因是去補「零 GC」那項一直沒做的 Profiler 驗收。README 稽核時已經把這句話從「已達成」降級為「設計目標」，這次是真的去量——**結果量出一個真的 bug**。
+
+### 1. 從「看錯欄位」到「找到真凶」的三步
+
+第一次量看的是 CPU 圖表的 `GarbageCollector` 毫秒數，每帧 0.00ms，看起來很漂亮。但那一列量的是「**GC 回收花了多少時間**」，不是「配置了多少 bytes」——配置會先累積在 managed heap、等閾值才觸發回收。**零配置 ⇒ GC 時間 0ms，反過來不成立。**
+
+改看 CPU → Hierarchy 的 `GC Alloc` 欄，穩態下 `PlayerLoop` 是 **40 B/frame**。同一幀 `EditorLoop` 佔 89.2%／28.25 ms、`PlayerLoop` 只有 2.61 ms——順帶量化了「Editor 的數字不能直接當結論」。
+
+展開 `UpdateScene → Update.ScriptRunBehaviourUpdate → BehaviourUpdate → CharacterPipelineRunner.Update → GC.Alloc 40 B`：**是我們的程式，不是 Editor 記帳。**
+
+### 2. 真凶：對介面 `foreach`，struct enumerator 被裝箱
+
+```csharp
+// FullBodyStateMachine.EvaluateTransitions
+var allowedTargets = _config.GetValidTransitions(_currentState.Type);  // 靜態型別＝IReadOnlyList<StateType>
+foreach (var targetType in allowedTargets)                             // ← 每帧 40 B
+```
+
+`GetValidTransitions` 回傳的是**介面**。foreach 對象的靜態型別是介面時，編譯器不能用 `List<T>` 那個 **struct** enumerator，只能呼叫 `IEnumerable<T>.GetEnumerator()`——**struct enumerator 因此被裝箱到堆上**。裝箱後大小：標頭 16 ＋ List 參照 8 ＋ index 4 ＋ version 4 ＋ current(enum) 4 → 對齊 **40 B**，與實測完全吻合。
+
+**修法是換迭代方式，不是換型別**：改成索引迴圈（`for (int i = 0; i < allowedTargets.Count; i++)`），根本不建立 enumerator。刻意**不**把回傳型別改成具體 `List<StateType>`——那會讓呼叫端拿到可變集合，**為了效能犧牲唯讀封裝並不划算**。
+
+複驗：穩態 `PlayerLoop` = **0 B**。
+
+### 3. 順手掃了全 Runtime 的 foreach，其餘 5 處都安全
+
+`EvaluateInterrupts` 迭代**具體** `Dictionary`（struct enumerator，且是熱路徑）、`StateMachineConfigSO` 三處迭代**具體** `List` 且只在 `Initialize()` 跑一次、`AnimancerFacade` 兩處在 `Awake()`、`PresentationPipeline` 本來就是索引迴圈。**全專案唯一一個「靜態型別為介面」的熱路徑迭代，就是踩到的那個。**
+
+諷刺的是，`EvaluateInterrupts` 的註解明文寫著「Dictionary.Enumerator 結構體迭代，零 GC Alloc」——**同一個檔案、同一個作者，一個做對了、一個沒有**，差別只在回傳型別是具體類別還是介面。
+
+### 4. 順帶量清楚了狀態切換那一幀
+
+切換狀態時 `PlayerLoop` 會跳到約 2.6 KB，拆解後：
+
+```
+LogStringToConsole   2.4 KB
+  └ StackTraceUtility 2.4 KB   ← Unity 為 Debug.Log 擷取 stack trace
+GC.Alloc              180 B    ← 富文本訊息字串本身
+```
+
+來源是各 State `OnEnter` 的 `#if UNITY_EDITOR Debug.Log`（ADR-002 §3 既有取捨，Release 整段移除）。**大頭甚至不是我們的字串，是 Unity 的 stack trace 擷取。** 這不是回歸，是已知且刻意的 Editor-only 成本——但現在有數字，下次看到 2.6 KB 不必重新推理。
+
+### 5. 文件
+
+* **新增 dev-spec §7.4「零 GC 量測 SOP」**：量哪裡（`GC Alloc` 欄，**不是** `GarbageCollector` 毫秒）／排除什麼（Editor 開銷、自訂 Inspector 的字串配置、狀態 Debug.Log、Deep Profile、Profiler 自身的 frame buffer——後者實測緩衝 14,877 幀時 Reserved 2.88 GB 並造成週期性卡頓）／兩級判定標準／當前實測狀態。
+* **§7.1-A3 補上能力邊界**：token 掃描抓不到介面型 foreach 裝箱，**熱路徑迭代介面型集合一律用索引迴圈**。
+
+### 6. 反思（Why）
+
+* **靜態測試守不到的東西，要誠實標出它守不到。** A3「禁 LINQ」一直被當成零 GC 的自動防線，但它是 token 掃描——這次的配置點沒有任何可疑 token。與其讓人誤以為有防線，不如把邊界寫進 A3 自己的敘述裡。
+* **「宣稱」逼出了「量測」，量測逼出了 bug。** 這個 40 B 從 B9 平滑那輪就存在，一直沒人發現，因為沒有人真的量過。README 稽核把「零 GC」降級為設計目標，才觸發了這次量測——**對外誠實的副作用是對內發現問題。**
+* **看錯欄位比看不到更危險。** 第一次量到「GarbageCollector 每帧 0.00ms」時，如果就此收工，我們會帶著一個錯誤的結論繼續往前走，而且會**更有信心**。這也是為什麼 SOP 的第一節寫的是「量哪裡」而不是「怎麼修」。
+
+---
+
 ## [v0.23] - 切斷 Runtime → AnimationClip 的最後一條依賴（2026-07-26）
 
 > 起因是一次「README ↔ 實際專案」的一致性稽核：README 要宣稱「Kubold 只是 sample content、不是 framework dependency」，就必須先**沿實際程式追一遍**——移除動畫資產後，哪些功能仍運作、哪些只是 sample data 失效。追完的結論大致成立，**但抓到一條真的耦合**。

@@ -1060,7 +1060,7 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | --- | --- | --- | --- | --- |
 | **A1** | asmdef 依賴方向單向：`Project.Runtime` 不得引用 `Project.Editor`／測試組件；Runtime 對所有平台開放；Editor／Tests 限定 Editor 平台 | 依賴方向 | `ArchitectureRegressionTests.A1_*` | 解析三份 asmdef 的 `references`／`includePlatforms` 宣告 |
 | **A2** | Runtime 程式觸及 `UnityEditor` 一律包在 `#if UNITY_EDITOR` 內 | 依賴方向（建置期） | `ArchitectureRegressionTests.A2_*` | 原始碼掃描＋前處理器巢狀追蹤（`#if`／`#else`／`#endif`） |
-| **A3** | Runtime 不得引用 `System.Linq` | Zero GC | `ArchitectureRegressionTests.A3_*` | 原始碼掃描（零 GC 紀律中**可機器判定**的切片） |
+| **A3** | Runtime 不得引用 `System.Linq` | Zero GC | `ArchitectureRegressionTests.A3_*` | 原始碼掃描（零 GC 紀律中**可機器判定**的切片）。⚠️ **已知能力邊界（2026-07-26 實測界定）**：A3 是 token 掃描，抓不到「**對介面型別 `foreach` 導致 struct enumerator 裝箱**」這類配置——那裡沒有任何可疑 token，只有一個看起來正常的 `foreach`（實例：`EvaluateTransitions` 對 `IReadOnlyList<T>` 迭代，每帧 40 B，只有 Profiler 抓得到）。**熱路徑迭代介面型集合時一律用索引迴圈**；零 GC 的完整驗收走 §7.4 SOP，A3 只是靜態可見的那一片 |
 | **A4** | 層級依賴禁令：`Presentation` ✗ StateMachine／Pipeline／InputData；`Core/StateMachine` ✗ Pipeline／Runner；`Core` ✗ Animancer／Animator；**`Core/Movement`（不遞迴）✗ StateMachine／Presentation（producer context-free）**；🆕 **`Core/Movement/Models` ✗ StateMachine／Pipeline（model 不得反向認識 FSM；但**允許** Presentation，D4 要求自驅 Facade）**；`Core/Blackboard` ✗ 任何消費者 | 依賴方向／DIP／ADR-003 D2・D3 | `ArchitectureRegressionTests.A4_*` | 每層一組禁用 token，掃描去註解後的原始碼；`TopLevelOnly` 控制是否遞迴子資料夾 |
 | **A5** | 黑板成員單一寫入者：`MovementIntent`→`PlayerLocomotionPolicy`；`Intent`→`CharacterPipelineRunner`；🆕 **Movement Output（`MoveSpeed`／`MoveDirection`／`UpperBodyWeight`）→`LocomotionModel`（＝當下 active model）**；`IsGrounded`／`JustLanded`／`JustLeftGround`→`MotionDriver`；`Arbitration`→**目前不得有執行期寫入者** | Ownership／Single Writer | `ArchitectureRegressionTests.A5_*` | 以賦值形 regex 掃描 Runtime，比對允許檔名白名單 |
 | **A6** | `ResetTransientState()` 清 trigger 意圖與邊沿旗標，但**不得**清 `MovementIntent` | Intent Contract（連續型 vs trigger） | `MovementIntentTests.ResetTransientState_*` | 行為測試 |
@@ -1076,7 +1076,7 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | ID | 檢核項 | 為什麼不能自動化 | 執行時機 |
 | --- | --- | --- | --- |
 | **M1** | Play 行為等價：未配置 gait 資產時，移動手感與 Migration 前一致（加速平順、放開滑行收步、無滑步） | 手感屬人為感知；自動測試只能守數值契約（A7），守不住「看起來對不對」 | 每次動 Locomotion dynamics |
-| **M2** | Profiler 執行期 0 GC Alloc（順序 1～7 全程） | 需 Play 模式 Profiler 量測；A3 只能守 LINQ 這一類靜態可見的來源 | 每次動熱路徑 |
+| **M2** | Profiler 執行期 0 GC Alloc（順序 1～7 全程）。**量測程序見 §7.4**（量哪裡、排除什麼、判定標準）。⚠️ **當前實測狀態（2026-07-26）：Editor 穩態下 `PlayerLoop` 仍有 40 B/frame，來源未定位 → 對外文件一律標「設計目標」，不得寫成已驗證** | 需 Play 模式 Profiler 量測；A3 只能守 LINQ 這一類靜態可見的來源 | 每次動熱路徑 |
 | **M3** | Inspector 綁定：角色 Root 掛 `PlayerLocomotionPolicy` ＋ `LocomotionModel`；Runner 的 Movement Intent Source／Movement Model 欄位（留空則自動 `GetComponent`）；`WalkAction` 綁鍵（現行方案＝Left Ctrl）。🆕 **`SprintAction` 刻意不綁**——現行方案的 sprint 由 buff 驅動而非按鍵（見 §7.3 張力表） | 資產／Prefab 配置屬使用者側（AI 不碰 `.prefab`／`.asset`） | 本輪落地後首次進 Editor |
 | **M4** | 🆕 **改為兩段**：①**Mixer threshold 必須**等於 `speed_i / speed_max`（不可協商的校準，錯了必滑步）；②`GaitProfileSO` 的 gait intensity 以該公式為**基準參考**，允許依手感偏離（不會滑步，見 §3.1 釐清），但偏離時要知道自己選的是混合姿態 | 數值來源的正確性無法從程式碼判定（B11 決策：公式文件化、設計師手填）；「姿態好不好看」更是純人為判斷 | 建立／調整 gait 資產、或更換 locomotion clip 時 |
 | **M5** | **未決項**：`BlockInput` 是否應同時凍結 `MovementIntent`？現況刻意置於閘門外＝維持 Migration 前行為（`ArbiterPipeline` 尚無 writer，`BlockInput` 恆 false） | 需先有真實的封鎖情境（死亡／CC／過場）才能判斷正確語意 | 輪 4 ArbiterPipeline（順序 4.5）落地時 |
@@ -1092,3 +1092,55 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | 🆕 **Movement Output 仍是黑板欄位**（D4 字面要求「不再是黑板欄位」） | `MoveSpeed`／`MoveDirection`／`UpperBodyWeight` 仍在 `PlayerRuntimeData`，但語意已改為「active model 發布的輸出」、寫入者唯一且為 model | **刻意的 migration intermediate state（2026-07-25 裁決）**：D4 最終目標不變，但完全內化需連動 `MotionDriver` API（改為顯式傳值）與 `JumpState` 空中控制（intrinsic 狀態也消費這組值），會模糊「ambient delegate／intrinsic override」界線，風險大於本輪收益。待第二個 model（Strafe／Swim）進場時一併處理——屆時「多個 model 寫同一組欄位」的壓力會自然逼出正確形狀 |
 | 🆕 **Sprint 規劃由 buff 驅動，但 producer 不得回讀 gameplay state** | 現行控制方案（參考終末地）中 sprint 不是按鍵而是**加速 buff** 的結果；`SprintAction` 因此未綁鍵、`sprintIntensity` 欄位暫時無來源（填 1.0 閒置） | **未來會撞到 ADR-003 D2**：buff 是 gameplay state，producer 直接查詢它＝context-free 破功（§7-A4 的層級掃描會直接擋）。可行方向是「buff 寫進黑板的 status／capability region，producer 讀**資料**而非查詢系統」，但那條界線（描述性 vs gameplay authority，ADR-003 §13.2）需要真需求才裁決。**現在不做**——YAGNI，且提前決定會在沒有壓力測試的情況下把介面定死 |
 | `MovementContext`（context 軸）未實作 | 只有 Locomotion 一個 model | **ADR-003 §9-L2／Stage 3**：第二個 model（Strafe／Swim）進場時才落地，並以它複驗 context 軸是否真的零改核心 |
+
+### 7.4 零 GC 量測 SOP（🆕 2026-07-26，對應 §7.2-M2）
+
+> **為什麼需要 SOP**：M2 原本只寫「需 Play 模式 Profiler 量測」，結果第一次實測踩了三個坑——看錯欄位、把 Editor 開銷算進來、把我們自己刻意保留的 Editor-only 配置當成違規。以下把「量哪裡／排除什麼／怎麼判定」寫死，避免每次重新推理一遍。
+
+#### 7.4.1 量哪裡（看錯欄位是最常見的錯誤）
+
+| ✅ 要看 | ❌ 不要看 | 為什麼 |
+| --- | --- | --- |
+| **CPU Usage → 下方面板切 `Hierarchy` → `GC Alloc` 欄 → `PlayerLoop` 那一列** | CPU Usage 圖表的 **`GarbageCollector` 毫秒數** | 那是「GC **回收**花了多少時間」，不是「配置了多少 bytes」。配置會先累積在 managed heap、等閾值才觸發回收——**所以每幀 0.00ms 完全可能同時每幀都在配置**。零配置 ⇒ GC 時間 0ms，反之不成立 |
+| Memory 模組的 **`GC Allocated In Frame`**（可與上者互相驗證） | Memory 模組 **Simple 視圖的總量** | Unity 自己在該視圖印警告：「Memory usage in the Editor is not the same as it would be in a Player」。總量趨勢答不了「這一幀配置多少」 |
+| 佐證：**`GC Used Memory` 是否為平線** | — | 穩態下若呈鋸齒狀（緩升→驟降）＝有持續配置在觸發回收 |
+
+#### 7.4.2 排除什麼（否則量到的是 Editor 的數字）
+
+1. **Editor 開銷** —— 實測 `EditorLoop` 佔一幀 **89.2%／28.25ms**，而 `PlayerLoop` 只有 **2.61ms**。**只讀 `PlayerLoop` 子樹**，或直接用 Development Build。
+2. **不要在 Hierarchy 選取角色** —— `CharacterPipelineRunnerEditor` 每幀重繪會配置字串（`ToString("F3")`、`Vector2.ToString()`、`GetType().Name`）。**這是 Editor-only 監視器，build 中不存在**。
+3. **不要在量測期間切換狀態** —— 各 State 的 `#if UNITY_EDITOR` 富文本 `Debug.Log` 每次觸發都配置（ADR-002 §3 既有取捨，Release 由編譯器整段移除）。要量狀態切換的成本，請直接用 Development Build。
+4. **Deep Profile 必須關** —— 它為每個方法插樁，開銷是數量級差異。
+5. **Profiler 自身的 frame buffer** —— 實測緩衝到 14,877 幀時 Profiler 自己 Reserved **2.88 GB** 並造成週期性卡頓。`Preferences → Analysis → Profiler → Frame Count` 調小，並養成按 `Clear`。
+
+#### 7.4.3 判定標準與存證
+
+| 等級 | 條件 | 可用於 |
+| --- | --- | --- |
+| **自檢** | Editor 內，穩態直線走（不跳／不滾／不切狀態、角色未被選取），`PlayerLoop` 的 `GC Alloc` 連續數十幀為 **0 B** | 內部判斷「這輪改動有沒有帶進配置」 |
+| **達標** | **Development Build**（勾 Development Build ＋ Autoconnect Profiler）＋ Player 連線，同條件下 `PlayerLoop` `GC Alloc` = **0 B** | **對外文件（README／design-doc）唯一可據以宣稱「已驗證」的等級** |
+
+存證截圖放 `docs/profiler/`。**未達「達標」等級前，對外一律寫「設計目標／Profiler 驗收未完成」**——這條是 2026-07-26 README 稽核的直接產物（當時 README 把零 GC 寫成已達成的性質，而專案裡沒有任何量測）。
+
+#### 7.4.4 當前實測狀態（2026-07-26，修正後複驗）
+
+| 量測情境 | `PlayerLoop` 的 `GC Alloc` | 判定 |
+| --- | --- | --- |
+| **穩態**（直線走、不切狀態、角色未選取） | **0 B** | ✅ **自檢級達標** |
+| **狀態切換的那一幀** | 約 2.6 KB | ⚠️ 已定位且**僅存在於 Editor**，見下方拆解 |
+
+**狀態切換幀的 2.6 KB 拆解**（不是回歸，是已知且刻意的取捨）：
+
+```
+CharacterPipelineRunner.Update      2.6 KB
+  └ LogStringToConsole              2.4 KB
+      └ StackTraceUtility           2.4 KB   ← Unity 為 Debug.Log 擷取 stack trace
+  └ GC.Alloc                         180 B   ← 富文本訊息字串本身（4 次配置）
+```
+
+來源是各 State `OnEnter` 的 `#if UNITY_EDITOR Debug.Log("<color=…>")`（ADR-002 §3 既有取捨），**Release build 由編譯器整段移除**。值得注意的是大頭（2.4 KB）**不是我們的字串，而是 Unity 的 stack trace 擷取**——若在 Editor 內量測時想壓掉這個雜訊，可暫時 `Application.SetStackTraceLogType(LogType.Log, StackTraceLogType.None)`。
+
+**修正前的狀態（保留作為對照）**：穩態下每幀 **40 B**，來自 `FullBodyStateMachine.EvaluateTransitions` 對介面型別 `IReadOnlyList<StateType>` 做 `foreach` 導致 `List<T>` 的 struct enumerator 被裝箱。改為索引迴圈後歸零。同幀的 `EditorLoop` 佔 89.2%／28.25 ms 而 `PlayerLoop` 僅 2.61 ms——這組對比是「Editor 數字不能直接用」的量化依據。
+
+**仍差一步到「達標」**：以上皆為 Editor 內量測。要讓 README／design-doc 把零 GC 從「設計目標」升為「已驗證」，仍須跑一次 **Development Build ＋ Autoconnect Profiler** 複驗（§7.4.3）。**在此之前對外一律維持「設計目標」。**
+

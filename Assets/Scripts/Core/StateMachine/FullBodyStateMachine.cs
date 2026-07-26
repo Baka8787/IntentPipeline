@@ -93,10 +93,18 @@ namespace Project.Core.StateMachine
             // 唯讀抽象多型屬性，狀態機主體不知道具體動作細節
             if (!_currentState.CanTransitionAway) return;
 
-            var allowedTargets = _config.GetValidTransitions(_currentState.Type);
-            foreach (var targetType in allowedTargets)
+            // ⚠️（2026-07-26 Profiler 實測修正）**必須用索引迴圈，不能用 foreach**。
+            // GetValidTransitions 的回傳型別是介面 IReadOnlyList<StateType>；對介面 foreach 時
+            // 編譯器只能走 IEnumerable<T>.GetEnumerator()，於是 List<T> 的 **struct** enumerator
+            // 被裝箱到堆上——每帧 40 B（實測值：物件標頭 16 ＋ List 參照 8 ＋ index 4 ＋ version 4
+            // ＋ current 4 → 對齊 40）。索引迴圈根本不建立 enumerator，因此零配置。
+            // 為何不把回傳型別改成具體 List<StateType>：那會讓呼叫端拿到可變集合，
+            // 為了效能犧牲唯讀封裝並不划算——改迭代方式即可，簽名不動。
+            // 對照組：EvaluateInterrupts 迭代的是**具體** Dictionary，走 struct enumerator，本來就零配置。
+            IReadOnlyList<StateType> allowedTargets = _config.GetValidTransitions(_currentState.Type);
+            for (int i = 0; i < allowedTargets.Count; i++)
             {
-                BaseState targetState = _stateRegistry[targetType];
+                BaseState targetState = _stateRegistry[allowedTargets[i]];
                 if (targetState.CanEnter(data))
                 {
                     TransitionTo(targetState, data);

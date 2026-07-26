@@ -126,7 +126,10 @@ InputAction → InputData(ref struct) → PlayerLocomotionPolicy(+GaitProfileSO)
 
 ### ✅ 已回報通過
 1. **§7-M1 行為等價**（含 Stage 2 的兩個迴歸點：跳躍落地不滑步、Idle↔Move 無速度跳變）。
-2. **§7-M2 Profiler 0 GC** —— ⚠️ 使用者回報「沒問題」，但**無截圖存證**（`docs/profiler/` 仍不存在）。README 因此仍把零 GC 標為「設計目標／Profiler 驗收未完成」，要升級為「已驗證」需補一張 Profiler 截圖。
+2. **§7-M2 Profiler 0 GC** —— ✅ **自檢級達標**（2026-07-26，changelog v0.24）：量測過程中**抓到並修掉一個真的 bug**——`EvaluateTransitions` 對介面型 `IReadOnlyList<T>` 做 `foreach`，`List<T>` 的 struct enumerator 被裝箱，每帧 40 B。改索引迴圈後**穩態 `PlayerLoop` = 0 B**。
+   - **量測程序已寫成 SOP → `docs/02-dev-spec.md` §7.4**（量哪裡／排除什麼／兩級判定／實測數據）。
+   - 狀態切換幀約 2.6 KB，已拆解定位為 Editor-only 的 `Debug.Log`（其中 2.4 KB 是 Unity 的 `StackTraceUtility`，非我們的字串），Release 編譯移除。**不是回歸。**
+   - **仍差一步**：以上皆 Editor 內量測。要讓 README 把零 GC 從「設計目標」升為「已驗證」，仍須 **Development Build ＋ Autoconnect Profiler** 複驗一次（§7.4.3 的「達標」等級）。**在此之前對外維持「設計目標」。**
 3. **changelog v0.19（Foundation 收案）** → ✅ **已於 2026-07-26 補寫**，並升格為里程碑檢查點（見下）。
 
 ---
