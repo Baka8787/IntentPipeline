@@ -24,19 +24,43 @@ Never sacrifice architecture simply to make something work.
 
 # Source of Truth
 
-Read these documents before making changes.
+Read these documents before making changes. **Start with `docs/00-map.md`** — it is the single-page index (module → file → governing section) and tells you which of the following to open, so you do not have to scan for it.
+
+0. `docs/00-map.md`
+   - Purpose: Navigation map. Read first; it is designed to make the rest of this list cheap to use.
 
 1. `docs/01-design-doc.md`
    - Purpose: Architecture decisions, Trade-offs, Why the system is designed this way.
 
 2. `docs/02-dev-spec.md`
-   - Purpose: Technical specifications, API contracts, Pipeline order, Data structures, Runtime rules.
+   - Purpose: **Cross-cutting contracts only** — naming/structure (§0), blackboard schema (§1), pipeline order (§2), core driving interfaces (§3.1), State Matrix (§3.3), architecture regression checklist (§7).
+   - Subsystem detail lives in its own file: `docs/05-foot-ik.md`, `docs/06-animation-presentation.md`, …
 
 3. `docs/ADR/`
    - Purpose: Architecture Decision Records. Always follow accepted ADRs.
 
 4. `docs/changelog.md`
-   - Purpose: Development history, Refactoring rationale, Lessons learned.
+   - Purpose: Development history, Refactoring rationale, Lessons learned. **Split-volume**: this file keeps only the latest ~4 versions; older history is in `docs/changelog-archive.md` (open only for archaeology).
+
+---
+
+# Context Discipline (decided 2026-07-25)
+
+The project is ~10k lines (docs 4k / code 6k) with deliberately high comment density. Reading whole files is now the dominant context cost — one feature-sized task was measured at **~23% of the entire project read**, with a **5×–40× read amplification** over what was actually needed. These rules exist to cut that amplification, not to discourage reading.
+
+**Reading protocol**
+- **Session start**: read `WORKLOG.md`'s top 「🔖 交辦」 section and the relevant ADR. That is normally enough to begin. Do NOT pre-read design-doc / dev-spec / changelog "to get oriented" — `docs/00-map.md` tells you where things are.
+- **Large documents** (`docs/02-dev-spec.md`, `docs/01-design-doc.md`, any 300+ line file): locate first, read second — `grep -n "^#"` for the heading map, then `Read` with `offset`/`limit` on the section you need. Never read a large doc end-to-end unless the task genuinely spans it.
+- **Code**: prefer `Grep` for a symbol over `Read` of the file that contains it. When you do read, read the region, not the file.
+- **Never re-read** a file already summarized in the current conversation.
+- Changelog is history: consult it for version conventions or past rationale, not for current state. Current state is in the Living Docs.
+
+**Test-as-Spec principle**
+Architecture invariants are codified in `Assets/_Project/Tests/EditMode/ArchitectureRegressionTests.cs`. When you need to know **who may write a blackboard field**, read `WriterRules` (~15 lines) — not `CharacterPipelineRunner` + `MotionDriver` + `PlayerRuntimeData` (~600 lines). Same for forbidden cross-layer dependencies (`LayerRules`). The test file is the cheapest accurate summary of the architecture that exists; it cannot drift, because drift makes it fail.
+Corollary: when adding an invariant, prefer expressing it as a test over prose — you get enforcement and a cheap summary from the same artifact.
+
+**Explore subagent (authorized)**
+Broad fan-out searches — "where is X", "which files touch Y", "does anything else do Z" — are authorized to run in a read-only `Explore` subagent, which burns its own context and returns only conclusions. Use it when the answer requires sweeping many files and you need the conclusion, not the contents. Do NOT use it for targeted reads you already know the location of (a direct `Read` is cheaper), and do NOT use it to make decisions — it locates, it does not judge.
 
 ---
 
@@ -134,7 +158,13 @@ Code and documentation should never diverge.
   - *Non-architectural new feature / new state* (does not change the architecture) → write it directly into the Living Documents (`docs/01-design-doc.md` / `docs/02-dev-spec.md`). Do **NOT** open a new ADR, and do **NOT** modify any existing (frozen) ADR.
   - *Truly disruptive architectural change* (ownership shifts, hierarchy changes, cross-cutting breaks) → open a **NEW** ADR following the Supersede principle; the old ADR file stays frozen.
 - **Documentation truth flows one way**: ADR (historical decision snapshot) → Design Doc (current architecture) → Dev Spec (implementation API).
-- **Subsystem specs get their own file (size-driven split, decided 2026-07-21)**: when a subsystem's detailed spec would keep bloating `docs/02-dev-spec.md` (its §3 Presentation is already ~half the file and grows with every new subsystem), give the subsystem its own `docs/NN-<subsystem>.md` (precedent: `docs/04-locomotion-foundation.md`). `docs/02-dev-spec.md` then holds **cross-cutting contracts only** — §0 naming/file structure, §1 blackboard schema, §2 pipeline order, §3.1 core driving interfaces, §3.3 State Matrix. These subsystem files sit in the **Dev Spec (implementation API) tier** of the truth-flow above, for their subsystem. **Apply going forward; do NOT retroactively split existing sections** (cross-reference-breakage risk > gain) — the next subsystem's durable spec goes to its own file rather than into dev-spec §3. This is the inverse of the ADR anti-explosion rule: there we avoid too many tiny files, here we avoid one unboundedly-growing file. Split only when a subsystem is genuinely big enough to warrant it (same "let scope/assets decide, don't preempt" spirit as the Locomotion speed-tier decision), never preemptively.
+- **Subsystem specs get their own file (size-driven split, decided 2026-07-21)**: when a subsystem's detailed spec would keep bloating `docs/02-dev-spec.md` (its §3 Presentation is already ~half the file and grows with every new subsystem), give the subsystem its own `docs/NN-<subsystem>.md` (precedent: `docs/04-locomotion-foundation.md`). `docs/02-dev-spec.md` then holds **cross-cutting contracts only** — §0 naming/file structure, §1 blackboard schema, §2 pipeline order, §3.1 core driving interfaces, §3.3 State Matrix. These subsystem files sit in the **Dev Spec (implementation API) tier** of the truth-flow above, for their subsystem. ~~**Apply going forward; do NOT retroactively split existing sections** (cross-reference-breakage risk > gain)~~ — **AMENDED 2026-07-25, see below.** The next subsystem's durable spec goes to its own file rather than into dev-spec §3.
+
+> **Amendment (2026-07-25) — retroactive splitting is now allowed for frozen/stable subsystems.**
+> **Why the reversal**: the original rule weighed "cross-reference-breakage risk > gain" — but *context exhaustion* was not yet an input. It is now (see Context Discipline above: measured 5×–40× read amplification, `docs/02-dev-spec.md` at 1,169 lines being the single largest cost). The gain side of the trade-off changed; the decision follows.
+> **The breakage risk turned out to be avoidable**: split by *moving text verbatim and keeping the original section numbers/titles inside the new file*, leaving a stub at the original location with a summary + link. Existing references (`dev-spec §3.5.2`) then resolve in the new file by the same number. Executed this way for §3.5 → `docs/05-foot-ik.md` and §3.2's animation sections → `docs/06-animation-presentation.md` with zero reference rewrites.
+> **Eligibility (all three)**: (a) the subsystem is **frozen or stable** — do not split something under active redesign, you will pay the move twice; (b) it is **not a cross-cutting contract** (§0/§1/§2/§3.1/§3.3 and §7 always stay in dev-spec); (c) the move is **verbatim, numbering preserved, stub left behind**.
+> This amendment does NOT license reorganizing docs for tidiness. Splitting is a response to a measured cost, not an aesthetic preference — the "don't preempt, let scope decide" spirit is unchanged. This is the inverse of the ADR anti-explosion rule: there we avoid too many tiny files, here we avoid one unboundedly-growing file. Split only when a subsystem is genuinely big enough to warrant it (same "let scope/assets decide, don't preempt" spirit as the Locomotion speed-tier decision), never preemptively.
 
 ---
 

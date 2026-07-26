@@ -1,4 +1,6 @@
 using Project.Core.Blackboard;
+using Project.Presentation.Animation;
+using Project.Presentation.Motion;
 using UnityEngine;
 
 namespace Project.Core.StateMachine
@@ -7,7 +9,18 @@ namespace Project.Core.StateMachine
     {
         public override StateType Type => StateType.Idle;
 
-        public override bool CanEnter(PlayerRuntimeData data) => data.MoveSpeed < 0.1f;
+        // 🆕（ADR-003 Stage 2）門檻信號改問 model，不再讀衍生的 MoveSpeed（dev-spec §7.3 第三列結案）。
+        // 「速度多少算在動」是 locomotion 的內部知識，狀態機只問語意化的「這顆 model 在不在產生運動」。
+        // model 未注入時退化為恆可進 Idle（Runner 會在 Awake LogError，屬設定錯誤而非執行期分支）。
+        public override bool CanEnter(PlayerRuntimeData data)
+            => MovementModel == null || !MovementModel.IsProducingMotion;
+
+        // 🆕（ADR-003 D3）ambient 狀態：位移結算 delegate 給 active model。
+        public override void OnUpdateMotion(MotionDriver motionDriver, AnimationFacadeBase animationFacade, PlayerRuntimeData data)
+        {
+            if (MovementModel != null) MovementModel.UpdateMotion(motionDriver, data);
+            else base.OnUpdateMotion(motionDriver, animationFacade, data);
+        }
 
         public override void OnEnter(PlayerRuntimeData data)
         {

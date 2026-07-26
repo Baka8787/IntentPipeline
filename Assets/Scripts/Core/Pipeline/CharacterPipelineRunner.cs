@@ -1,5 +1,6 @@
 using UnityEngine;
 using Project.Core.Blackboard;
+using Project.Core.Movement;
 using Project.Core.StateMachine;
 using Project.Presentation;
 using Project.Presentation.Animation;
@@ -11,9 +12,23 @@ namespace Project.Core.Pipeline
     {
         [Header("Setup")]
         [SerializeField] private MonoBehaviour inputSourceComponent;
+
+        // 🆕（ADR-003 D2）Movement 意圖 producer 的注入點（DIP）：Runner 依賴 IMovementIntentSource 介面，
+        // 不認識任何具體 policy。換 AI／Replay／Network 驅動＝在 Inspector 換掛別的元件，**本檔零改**（OCP）。
+        [Tooltip("實作 IMovementIntentSource 的元件（預設＝同物件上的 PlayerLocomotionPolicy）。留空時自動 GetComponent。")]
+        [SerializeField] private MonoBehaviour movementIntentSourceComponent;
+
+        // 🆕（ADR-003 D3／D4 Stage 2）active Movement Model 的注入點（DIP）：Runner 依賴 IMovementModel 介面，
+        // **不認識 locomotion**（沒有 MoveSpeed、沒有平滑時間、沒有 gait）。換 Swim／Vehicle model＝換掛元件，本檔零改。
+        // ⚠️ 未來 MovementContext（env-driven，ADR-003 §9-L2／Stage 3）落地時，換的是「誰填這個欄位」，不是這裡的形狀。
+        [Tooltip("實作 IMovementModel 的元件（預設＝同物件上的 LocomotionModel）。留空時自動 GetComponent。")]
+        [SerializeField] private MonoBehaviour movementModelComponent;
+
         [SerializeField] private Transform playerCamera;
 
         private IInputSource _inputSource;
+        private IMovementIntentSource _movementIntentSource;
+        private IMovementModel _movementModel;
         private PlayerRuntimeData _runtimeData;
 
         public PlayerRuntimeData RuntimeData => _runtimeData;
@@ -30,15 +45,6 @@ namespace Project.Core.Pipeline
         [SerializeField] private AnimationFacadeBase animationFacade; // 💡 規格：掛載 AnimancerFacade 的組件
         [SerializeField] private MotionDriver motionDriver;
 
-        // 🆕（B9 Game Feel）MoveSpeed 平滑：鍵盤 0/1 輸入直送會讓 1D Mixer 一幀從 Idle 跳 Sprint、
-        // 中間 Walk/Run tier 踩不到。以 SmoothDamp 讓 MoveSpeed 隨時間爬升/回落，平順經過各速度 tier。
-        // 動畫混合與實際位移共用同一平滑值（MotionDriver: currentSpeed = MoveSpeed × moveSpeed），加減速全程不滑步。
-        [Header("Move Speed Smoothing (B9)")]
-        [Tooltip("MoveSpeed 0→滿 的加速平滑時間（秒，SmoothDamp）。越小越 snappy。")]
-        [SerializeField] private float moveSpeedAccelTime = 0.12f;
-        [Tooltip("MoveSpeed 滿→0 的減速平滑時間（秒）。通常略大於加速＝放開後自然滑行收步。")]
-        [SerializeField] private float moveSpeedDecelTime = 0.18f;
-
         // === [新增：供 Editor 跨幀讀取的普通結構體快照] ===
         public struct InputDebugSnapshot
         {
@@ -47,6 +53,9 @@ namespace Project.Core.Pipeline
             public bool JumpButtonDown;
             public bool RollButtonDown;
             public bool FireButtonDown;
+            public bool SprintButtonHeld;
+            public bool WalkButtonHeld;
+            public bool WalkButtonDown;
         }
 
         private InputDebugSnapshot _inputDebug;
@@ -54,11 +63,6 @@ namespace Project.Core.Pipeline
 
         // 🆕 記錄上一次播放的狀態，避免每幀重複 Play
         private StateType _lastPlayedState = StateType.None;
-
-        // 🆕（B9）MoveSpeed 平滑狀態（寫入者僅本類別＝Parameter Processor，不新增黑板 writer）。
-        private float _smoothedMoveSpeed;
-        private float _moveSpeedVelocity;  // SmoothDamp 的 ref 速度緩存
-        private Vector2 _lastMoveDir;      // 減速滑行期保留最後移動方向，避免方向瞬歸零造成「身體停、動畫動」的滑步
 
         // 🆕 改用 None 當哨兵值，不再借用 Idle
         public StateType CurrentState => _stateMachine?.CurrentState?.Type ?? StateType.None;
@@ -69,6 +73,46 @@ namespace Project.Core.Pipeline
             if (_inputSource == null)
             {
                 Debug.LogError($"[{gameObject.name}] inputSourceComponent 沒有實作 IInputSource 介面！", this);
+            }
+
+            // === 🆕（ADR-003 D2）Movement 意圖 producer 解析：明確指派優先，其次同物件自動尋找 ===
+            if (movementIntentSourceComponent != null)
+            {
+                _movementIntentSource = movementIntentSourceComponent as IMovementIntentSource;
+                if (_movementIntentSource == null)
+                {
+                    Debug.LogError($"[{gameObject.name}] movementIntentSourceComponent 沒有實作 IMovementIntentSource 介面！", this);
+                }
+            }
+
+            if (_movementIntentSource == null)
+            {
+                _movementIntentSource = GetComponent<IMovementIntentSource>(); // 同物件補洞（比照 motionDriver 防禦線）
+                if (_movementIntentSource == null)
+                {
+                    Debug.LogError($"[{gameObject.name}] 缺少 Movement 意圖 producer：請在本物件掛上 PlayerLocomotionPolicy" +
+                                   "（或任一 IMovementIntentSource 實作）。缺少時 MovementIntent 恆為 0，角色不會移動。", this);
+                }
+            }
+
+            // === 🆕（ADR-003 D3／D4）active Movement Model 解析：同上，明確指派優先、其次同物件自動尋找 ===
+            if (movementModelComponent != null)
+            {
+                _movementModel = movementModelComponent as IMovementModel;
+                if (_movementModel == null)
+                {
+                    Debug.LogError($"[{gameObject.name}] movementModelComponent 沒有實作 IMovementModel 介面！", this);
+                }
+            }
+
+            if (_movementModel == null)
+            {
+                _movementModel = GetComponent<IMovementModel>();
+                if (_movementModel == null)
+                {
+                    Debug.LogError($"[{gameObject.name}] 缺少 Movement Model：請在本物件掛上 LocomotionModel" +
+                                   "（或任一 IMovementModel 實作）。缺少時無運動輸出，角色不會移動也不會進 Move 狀態。", this);
+                }
             }
 
             // === 💡 新增：MotionDriver 記憶體漏拖防禦線 ===
@@ -114,7 +158,9 @@ namespace Project.Core.Pipeline
             }
 
             _stateMachine = new FullBodyStateMachine();
-            _stateMachine.Initialize(stateMachineConfig, _runtimeData); // 安全送入黑板
+            // 🆕（ADR-003 Stage 2）連同 active model 一併注入：狀態機是 model 的**唯一持有點**，
+            // 由它發給所有 state，確保跨幀平滑狀態全域唯一（Idle↔Move 切換不重置收步）。
+            _stateMachine.Initialize(stateMachineConfig, _runtimeData, _movementModel); // 安全送入黑板
         }
 
         private void Update()
@@ -131,16 +177,32 @@ namespace Project.Core.Pipeline
             _inputDebug.JumpButtonDown = inputData.JumpButtonDown;
             _inputDebug.RollButtonDown = inputData.RollButtonDown;
             _inputDebug.FireButtonDown = inputData.FireButtonDown;
+            _inputDebug.SprintButtonHeld = inputData.SprintButtonHeld;
+            _inputDebug.WalkButtonHeld = inputData.WalkButtonHeld;
+            _inputDebug.WalkButtonDown = inputData.WalkButtonDown;
 
-            // 【順序 2】Intent Processor 
+            // 【順序 2】Intent Processor
             // 規格書防禦：若黑板仲裁區標記 BlockInput，則跳過意圖寫入
             if (!_runtimeData.Arbitration.BlockInput)
             {
                 ProcessIntents(ref inputData); // 改為傳址
             }
 
-            // 【順序 3】Parameter Processor - 更新黑板連續參數
-            ProcessParameters(ref inputData);
+            // 【順序 2.5】🆕（ADR-003 D2）Movement Intent Producer —— 唯一寫入 MovementIntent 的環節。
+            // Runner 只認識介面，不知道「移動策略」長什麼樣（Shift=Sprint 這類規則全在 policy＋GaitProfileSO）。
+            // ⚠️ 刻意置於 BlockInput 閘門**之外**：維持與 Migration 前完全一致的行為
+            //    （原 ProcessParameters 同樣不受 BlockInput 影響）。BlockInput 是否應同時凍結移動意圖，
+            //    留待 ArbiterPipeline（順序 4.5，輪 4）真正有 writer 時一併裁決，見 dev-spec §7 檢核表 M5。
+            _movementIntentSource?.ProduceIntent(ref inputData, _runtimeData);
+
+            // 【順序 3】🆕（ADR-003 D3／D4 Stage 2）Movement Model Tick —— 推進 active model 的 dynamics。
+            // Runner 只呼介面方法：**不知道**平滑、MoveSpeed、gait 是什麼（原 DeriveMovementParameters 已整段遷出）。
+            // ⚠️ 兩個時序理由讓這一步必須留在 Update、且**每幀無條件**（不看當前狀態）：
+            //    1. Jump／Roll 期間仍須推進——JumpState 的空中控制吃的正是 model 的運動輸出，
+            //       若隨 ambient 狀態才更新，落地會拿起跳時的殘值續走＝滑步。
+            //    2. model 在此驅動自己的動畫參數；Animator 評估卡在 Update 與 LateUpdate 之間，
+            //       移到 LateUpdate 會讓動畫參數比位移晚一幀。
+            _movementModel?.Tick(_runtimeData, animationFacade, Time.deltaTime);
 
             // 【順序 4】狀態機 Tick (預留位置，後續實作接上)
             // 讀取黑板中的 Intent，讀完即可視為被狀態機消耗
@@ -161,10 +223,10 @@ namespace Project.Core.Pipeline
                 _lastPlayedState = current.Type;
             }
 
-            // 🆕（v0.16 F2）黑板 → 動畫圖參數同步：MoveSpeed 每幀送入動畫圖（§1.1 權限表既定 Reader = AnimationFacade），
-            // 由 Locomotion Transition 資產內的 ParameterName 綁定驅動 1D Mixer 混合，本層不認識任何 Mixer。
-            // M1 裁決（2026-07-17）：不做平滑、原值直送；Game Feel（加減速/SmoothDamp）屬後續專門調整輪。
-            animationFacade.SetFloat(AnimationFacadeBase.ParamMoveSpeed, _runtimeData.MoveSpeed);
+            // 🆕（ADR-003 D4 Stage 2）**動畫參數同步已遷出本方法**：每個 model 驅動自己的參數
+            // （Locomotion→MoveSpeed、未來 Swim→StrokeRate）於順序 3 完成，共用同一支通用 Facade。
+            // 這裡只剩「狀態 → 動畫鍵」的通用播放請求——它是 FSM 的表現，不是任何 model 的內部量。
+            // Facade 維持通用抽象、不加 IAnimationModel（ADR-003 §3-D4；docs/04 §14.3）。
         }
 
         private void LateUpdate()
@@ -214,44 +276,11 @@ namespace Project.Core.Pipeline
 #endif
         }
 
-        /// <summary>
-        /// Parameter Processor 邏輯（當前內嵌於 Runner）
-        /// </summary>
-        private void ProcessParameters(ref InputData input)
-        {
-            // 🆕（B9）MoveSpeed 平滑：鍵盤輸入強度為 0/1 二值，直送會讓 Mixer 一幀從 Idle 跳到 Sprint、
-            // 中間 Walk/Run tier 踩不到。以 SmoothDamp 隨時間平順爬升/回落，經過各速度 tier；
-            // 加速/減速採不同時間常數（減速略長＝放開後自然滑行收步）。SmoothDamp 內部使用 Time.deltaTime。
-            float rawMagnitude = Mathf.Clamp01(input.MoveInput.magnitude);
-            float smoothTime = rawMagnitude > _smoothedMoveSpeed ? moveSpeedAccelTime : moveSpeedDecelTime;
-            _smoothedMoveSpeed = Mathf.SmoothDamp(_smoothedMoveSpeed, rawMagnitude, ref _moveSpeedVelocity, smoothTime);
-
-            // 完全停止時 snap 到 0（清 SmoothDamp 殘尾）：確保 Mixer 回純 Idle、狀態機依 MoveSpeed<0.1 收斂進 Idle。
-            if (rawMagnitude < 0.001f && _smoothedMoveSpeed < 0.001f)
-            {
-                _smoothedMoveSpeed = 0f;
-                _moveSpeedVelocity = 0f;
-            }
-
-            _runtimeData.MoveSpeed = _smoothedMoveSpeed;
-
-            // 移動方向：有輸入時直接採用並記憶；放開（rawMagnitude≈0）但仍在減速滑行（smoothed>0）時保留最後方向，
-            // 讓 MotionDriver（Idle/Move 皆走 ExecuteBaseMovement）以殘速續走該方向，動畫與位移同步收步、不滑步；
-            // 完全停止才歸零 → ExecuteBaseMovement 的方向閘門關閉，乾淨停步。
-            if (rawMagnitude > 0.001f)
-            {
-                _lastMoveDir = input.MoveInput;
-                _runtimeData.MoveDirection = input.MoveInput;
-            }
-            else
-            {
-                _runtimeData.MoveDirection = _smoothedMoveSpeed > 0.001f ? _lastMoveDir : Vector2.zero;
-            }
-
-            _runtimeData.UpperBodyWeight = _smoothedMoveSpeed > 0.001f ? 0.5f : 0.0f;
-
-            // ✨（既有）身體轉向不在此硬編碼：完全收斂至 LateUpdate 內 CurrentState.OnUpdateMotion，
-            // 實現「單一決策、單一物理出口」的架構潔淨。
-        }
+        // 🗑️（ADR-003 Stage 2，2026-07-25）原 DeriveMovementParameters（順序 3：B9 平滑 ＋ 運動輸出導出）
+        //     已整段遷入 LocomotionModel.Tick，本檔自此**不再認識任何 locomotion 概念**（§9-L1 結案）。
+        //     順序 3 本身沒有消失，只是換人執行：Runner 呼 IMovementModel.Tick，內容由 model 決定。
+        //
+        // ✨（既有）身體轉向同樣不在此硬編碼：完全收斂至 LateUpdate 內 CurrentState.OnUpdateMotion，
+        //     實現「單一決策、單一物理出口」的架構潔淨。
     }
 }

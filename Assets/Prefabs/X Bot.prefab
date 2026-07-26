@@ -1372,7 +1372,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 349e1277189e8804690313782162819f, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.IK.FootIKRig
-  debugLogGoals: 1
 --- !u!1 &4390653944297962729
 GameObject:
   m_ObjectHideFlags: 0
@@ -2067,6 +2066,8 @@ GameObject:
   - component: {fileID: 2315957958602432875}
   - component: {fileID: -2945132341864011770}
   - component: {fileID: -7543379725507232644}
+  - component: {fileID: 1780814311861303900}
+  - component: {fileID: -1807324153759337557}
   m_Layer: 0
   m_Name: X Bot
   m_TagString: Untagged
@@ -2103,6 +2104,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Project.Core.Pipeline.CharacterPipelineRunner
   inputSourceComponent: {fileID: 8897448281995936255}
+  movementIntentSourceComponent: {fileID: 0}
+  movementModelComponent: {fileID: 0}
   playerCamera: {fileID: 8097198700277537437, guid: a854bf73576c1db4694c741a78789aca, type: 3}
   stateMachineConfig: {fileID: 11400000, guid: c34d4d25d9c9268429d2ece56255761b, type: 2}
   animationFacade: {fileID: 5884176032741337020}
@@ -2236,6 +2239,32 @@ MonoBehaviour:
       m_Action: Fire
       m_Flags: 0
     m_Flags: 0
+  SprintAction:
+    m_Name: Sprint
+    m_Type: 0
+    m_ExpectedControlType: 
+    m_Id: df186a7a-97c3-4f9c-a77e-b5c239c0305f
+    m_Processors: 
+    m_Interactions: 
+    m_SingletonActionBindings: []
+    m_Flags: 0
+  WalkAction:
+    m_Name: Walk
+    m_Type: 0
+    m_ExpectedControlType: 
+    m_Id: 0f6a4f22-1e54-48fd-9b7a-0a6edb4de8d4
+    m_Processors: 
+    m_Interactions: 
+    m_SingletonActionBindings:
+    - m_Name: 
+      m_Id: 4242f0dc-d802-4c39-a384-b2b6cc63764c
+      m_Path: <Keyboard>/leftCtrl
+      m_Interactions: 
+      m_Processors: 
+      m_Groups: 
+      m_Action: Walk
+      m_Flags: 0
+    m_Flags: 0
 --- !u!114 &5884176032741337020
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2272,7 +2301,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Project.Presentation.Motion.MotionDriver
   characterController: {fileID: 7600688329978809718}
   moveSpeed: 5.66
-  moveSpeedSource: {fileID: 11400000, guid: b3d6d04c263e504448bb1008ee19ad47, type: 2}
+  moveSpeedSource: {fileID: 11400000, guid: 7c253da4ed9248b4fa1485ea300fb6ef, type: 2}
   overrideMoveSpeed: 0
   gravity: -9.81
   reboundForce: -2
@@ -2450,6 +2479,33 @@ MonoBehaviour:
     WeightSmoothSpeed: 8
     MaxPelvisOffset: 0.35
     PelvisSmoothSpeed: 5
+--- !u!114 &1780814311861303900
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7356619014195126258}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6c078b51563329249be38b1edb7174c1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Project.Runtime::Project.Core.Movement.PlayerLocomotionPolicy
+  gaitProfile: {fileID: 11400000, guid: fae6d1f0e27f79748bb45197e9f0ba5d, type: 2}
+--- !u!114 &-1807324153759337557
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7356619014195126258}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8ed97140a8ce1954fae59ee0b84b19a9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Project.Runtime::Project.Core.Movement.LocomotionModel
+  moveSpeedAccelTime: 0.12
+  moveSpeedDecelTime: 0.18
 --- !u!1 &7481699873517314820
 GameObject:
   m_ObjectHideFlags: 0

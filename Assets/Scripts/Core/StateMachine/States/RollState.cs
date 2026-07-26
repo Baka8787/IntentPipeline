@@ -1,4 +1,5 @@
 using Project.Core.Blackboard;
+using Project.Core.Movement;
 using Project.Presentation.Animation;
 using Project.Presentation.Motion;
 using UnityEngine;
@@ -19,9 +20,9 @@ namespace Project.Core.StateMachine
         private MotionBakeData _rollBakeData;
 
         // 🆕 移除建構子，改在 Initialize 裡查表
-        public override void Initialize(StateMachineConfigSO config)
+        public override void Initialize(StateMachineConfigSO config, IMovementModel movementModel)
         {
-            base.Initialize(config);
+            base.Initialize(config, movementModel);
             _rollBakeData = config.GetBakeData(Type);
 
 #if UNITY_EDITOR
@@ -41,6 +42,19 @@ namespace Project.Core.StateMachine
                     $"翻滾將退化為固定 {FallbackDuration}s 計時、且不套用烘焙曲線位移（原地翻滾感、提早結束）。" +
                     "請檢查 Config.bakeMappings 是否指向有效的 Bake 資產（例如動畫改走 FBX 子 clip 直引後，Bake 的 SourceClip 或 Config 映射是否已同步更新）。");
             }
+
+            // 🆕（2026-07-26）第二種斷鏈：資產**存在但沒有可用時長**——`BakedDuration` 於 2026-07-26 導入，
+            // 在該日之前烘焙的舊資產此欄位為 0。舊寫法只擋 `_rollBakeData == null`，擋不到這種「半斷鏈」，
+            // 於是 `_rollTimer` 直接為 0、翻滾第一帧就結束，而 FallbackDuration 永遠用不到。
+            // 現在行為上已由 OnEnter 的 `> 0` 閘門接住，這裡負責讓「該重烘了」這件事在 Play 的第一時間現形。
+            if (_rollBakeData != null && _rollBakeData.Duration <= 0f && Application.isPlaying)
+            {
+                Debug.LogWarning(
+                    $"[RollState] {Type} 的 MotionBakeData（{_rollBakeData.name}）BakedDuration 為 0——" +
+                    "此資產是在 BakedDuration 欄位導入前烘焙的（或來源 clip 當時不可用）。" +
+                    $"翻滾已安全退化為固定 {FallbackDuration}s 計時，但曲線位移仍會以 t=0 取樣（原地翻滾感）。" +
+                    "請以 Motion Bake 工具**重跑一次烘焙**寫入正確時長。");
+            }
 #endif
         }
 
@@ -54,7 +68,12 @@ namespace Project.Core.StateMachine
 #if UNITY_EDITOR
             Debug.Log("<color=cyan>[State] 進入 ROLL 翻滾（無敵幀開始）</color>");
 #endif
-            _rollTimer = _rollBakeData != null ? _rollBakeData.Duration : FallbackDuration;
+            // 🆕（2026-07-26）退化條件從「資產是否存在」擴為「資產是否帶得出可用時長」。
+            // 舊寫法 `_rollBakeData != null ? Duration : FallbackDuration` 有個守不到的洞：
+            // 資產存在、但 Duration 為 0（未重烘／來源 clip 缺席）時 `_rollTimer` 會是 0，
+            // 翻滾第一帧即結束，且 FallbackDuration 永遠用不到。改以「值本身」而非「引用」判定。
+            float bakedDuration = _rollBakeData != null ? _rollBakeData.Duration : 0f;
+            _rollTimer = bakedDuration > 0f ? bakedDuration : FallbackDuration;
             IsRollFinished = false;
         }
 

@@ -48,6 +48,9 @@ namespace Project.Core.Pipeline
             EditorGUILayout.LabelField("  Button: Jump Down", input.JumpButtonDown ? "【TRUE】" : "false");
             EditorGUILayout.LabelField("  Button: Roll Down", input.RollButtonDown ? "【TRUE】" : "false");
             EditorGUILayout.LabelField("  Button: Fire Down", input.FireButtonDown ? "【TRUE】" : "false");
+            EditorGUILayout.LabelField("  Button: Sprint Held", input.SprintButtonHeld ? "【TRUE】" : "false");
+            EditorGUILayout.LabelField("  Button: Walk Held", input.WalkButtonHeld ? "【TRUE】" : "false");
+            EditorGUILayout.LabelField("  Button: Walk Down（邊沿）", input.WalkButtonDown ? "【TRUE】" : "false");
 
             EditorGUILayout.Space();
 
@@ -58,9 +61,20 @@ namespace Project.Core.Pipeline
 
             EditorGUILayout.Space();
 
-            // 2. 參數區
-            EditorGUILayout.Vector2Field("Move Direction", data.MoveDirection);
-            EditorGUILayout.FloatField("Move Speed Magnitude", data.MoveSpeed);
+            // 1.5 🆕（ADR-003）Movement 意圖區（唯讀顯示：本 region 的唯一寫入者是 active producer）
+            EditorGUILayout.LabelField("<b>=== 1.5 Movement Intent（模型無關契約）===</b>", GUILayout.ExpandWidth(true));
+            EditorGUILayout.LabelField("  Desired Speed [0-1]", data.MovementIntent.DesiredSpeedNormalized.ToString("F3"));
+            EditorGUILayout.LabelField("  Desired Direction", data.MovementIntent.DesiredDirection.ToString());
+            // 🆕 持久型態（非單幀）：toggle 方案下按一次會一直亮著，正是它與 hold 的差別
+            EditorGUILayout.LabelField("  Walk Mode Active（型態）", data.MovementIntent.WalkModeActive ? "【ON】" : "off");
+
+            EditorGUILayout.Space();
+
+            // 2. Movement Output 區（🆕 ADR-003 Stage 2：由當下 active 的 IMovementModel 於順序 3 發布；
+            //    §13.4——皆為 MovementIntent 的下游衍生值，非獨立真相）
+            EditorGUILayout.LabelField("<b>=== 2. Movement Output（active model 發布）===</b>", GUILayout.ExpandWidth(true));
+            EditorGUILayout.Vector2Field("Move Direction（derived）", data.MoveDirection);
+            EditorGUILayout.FloatField("Move Speed Magnitude（derived）", data.MoveSpeed);
             EditorGUILayout.Slider("Upper Body Weight", data.UpperBodyWeight, 0f, 1f);
             EditorGUILayout.ObjectField("Camera Transform", data.CameraTransform, typeof(Transform), true);
             // 🆕（v0.7）顯示新增的 IsGrounded 黑板欄位，方便對照 JumpState 的落地判定

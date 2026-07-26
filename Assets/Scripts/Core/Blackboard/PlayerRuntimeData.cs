@@ -18,14 +18,38 @@ namespace Project.Core.Blackboard
         // 註：在 C# 中，若 Intent 改為 Property 會因為結構體值複製機制導致無法直接修改內部成員
         // (例如 data.Intent.JumpRequested = true 會編譯失敗)。因此依規格書維持公開欄位。
         public IntentData Intent;
+
+        // === Movement 意圖區（🆕 ADR-003 D1，Migration Stage 1）===
+        // domain-partitioned intents 的第一個 region：連續型意圖，**每幀由 active producer 重算覆寫**，
+        // 不參與 ResetTransientState() 的單幀復位（那是上方 IntentData 的 trigger 邊沿語意）。
+        // 註：同 Intent，維持公開欄位而非 Property，避免 struct 值複製導致無法直接修改內部成員。
+        // 寫入者（唯一）：當下 active 的 IMovementIntentSource（Stage 1＝PlayerLocomotionPolicy）。
+        // 讀取者：Locomotion dynamics（Stage 1＝Runner 持有的 LocomotionSpeedSmoother，Stage 2 遷入 model）。
+        public MovementIntentData MovementIntent;
+
         // === 仲裁區 ===
         // 每幀由仲裁管線統一覆寫，表現層下游只讀不寫
         // 註：同 Intent，維持公開欄位而非 Property，避免 struct 值複製導致無法直接修改內部旗標
         public ArbiterData Arbitration;
 
-        // === 參數區（持續存在，每帧更新，公開屬性採用 PascalCase）===
+        // === Movement Output 區（持續存在，每帧更新，公開屬性採用 PascalCase）===
+        // 🆕（ADR-003 Stage 2，2026-07-25）以下三欄的語意已重定義：
+        // **不再是管線維護的 locomotion state，而是「當下 active Movement Model 發布的運動輸出」**。
+        // 寫入者唯一且恆為一個 model（順序 3 Tick）；換 model 就換這組值的產生者，欄位形狀不變。
+        /// <summary>
+        /// 本帧移動強度 [0-1]（Locomotion 時＝B9 平滑後的值）。
+        /// ⚠️（ADR-003 §13.4）**衍生值，不是獨立真相**——恆由 <see cref="MovementIntent"/> 經
+        /// active model 的 dynamics 導出，**禁止任何路徑繞過 MovementIntent 直寫**（防「兩個真相來源」病）。
+        /// </summary>
         public float MoveSpeed { get; set; }
+
+        /// <summary>
+        /// 有效移動方向（2D 輸入座標系）。同 <see cref="MoveSpeed"/>，為 <see cref="MovementIntent"/>
+        /// 的下游衍生值（含減速滑行期保留最後方向的 dynamics），非獨立真相。
+        /// </summary>
         public Vector2 MoveDirection { get; set; }
+
+        /// <summary>上半身動畫混合權重。同上，由 active model 於順序 3 一併發布。</summary>
         public float UpperBodyWeight { get; set; }
         public Transform CameraTransform { get; set; }
 
@@ -64,6 +88,9 @@ namespace Project.Core.Blackboard
         /// 🆕（M2）統一復位所有單幀瞬態：意圖旗標 + 落地/離地邊沿事件。
         /// 呼叫者：CharacterPipelineRunner.LateUpdate 順序 7（管線最末端），
         /// 確保所有單幀事件遵守「當幀生、當幀死」的一致生命週期。
+        /// ⚠️（ADR-003）<see cref="MovementIntent"/> **刻意不在此復位**——它是連續型 domain intent
+        /// （每幀由 producer 整體覆寫），不是 trigger 邊沿事件；若在此清零，會在 producer 缺席的幀
+        /// 產生「意圖瞬間歸零」的假訊號。兩類 intent 的語意區別見 docs/04 §14.2。
         /// </summary>
         public void ResetTransientState()
         {

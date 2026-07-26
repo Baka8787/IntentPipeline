@@ -14,7 +14,11 @@ namespace Project.Presentation.Motion
     [CreateAssetMenu(fileName = "MotionBakeData", menuName = "Project/Motion/BakeData")]
     public class MotionBakeData : ScriptableObject
     {
-        [Header("來源資訊")]
+        // ⚠️（2026-07-26）本欄位為 **Editor-side provenance／烘焙來源**，執行期**不得**讀取。
+        // 執行期需要的動畫長度請讀 <see cref="BakedDuration"/>（烘焙時快照的序列化值）。
+        // 誠實揭露：欄位保留序列化引用，因此 clip 仍會被打包進 build、並隨本資產一起載入；
+        // 要連「載入」都斷開需改成 Editor-only 序列化（sidecar），屬另一個決定，本輪不做。
+        [Header("來源資訊（Editor-side provenance；執行期不讀）")]
         public AnimationClip SourceClip;
         public float SampleRate = 60f;
 
@@ -84,8 +88,23 @@ namespace Project.Presentation.Motion
         [Tooltip("代表移動速度 (m/s)：SpeedCurve 平均值，烘焙時寫入。最高速 clip 的此值可作 MotionDriver 滿速來源／Mixer 門檻推導。")]
         public float AutoAverageSpeed;
 
-        // 便利擴充：取得動畫總長度
-        public float Duration => SourceClip != null ? SourceClip.length : 0f;
+        /// <summary>
+        /// 🆕（2026-07-26）動畫總長度（秒），**烘焙時從 `SourceClip.length` 快照的序列化值**。
+        ///
+        /// **為什麼不直接讀 clip**：`Duration` 原本是 `SourceClip.length`，那是全專案唯一一條
+        /// 「執行期 gameplay 邏輯讀 `AnimationClip`」的耦合——動畫資產一旦缺席或 GUID 變動
+        /// （fresh clone、重匯入、換動畫來源），`Duration` 會靜默變 0，而 `RollState` 的 fallback
+        /// 只檢查「Bake 資產是否為 null」、檢查不到「clip 是否為 null」，於是翻滾第一帧就結束。
+        /// 改為序列化快照後，Bake Data 成為自足的純資料資產，與 <see cref="AutoAverageSpeed"/> 同一個 pattern。
+        ///
+        /// ⚠️ **快照語意**：clip 長度日後若變動，需**重跑烘焙**才會同步——這與其他 Auto* 特徵一致，
+        /// 也正是「MotionBakeData 才是動畫真實運動值的來源」（CLAUDE.md）的直接體現。
+        /// </summary>
+        [Tooltip("動畫總長度（秒）：烘焙時自 SourceClip.length 快照。執行期一律讀本欄位，不讀 clip。")]
+        public float BakedDuration;
+
+        // 便利擴充：取得動畫總長度（**純序列化值，不觸碰 AnimationClip**）
+        public float Duration => BakedDuration;
 
         /// <summary>
         /// 取得特定時間點的理論「瞬時速度」

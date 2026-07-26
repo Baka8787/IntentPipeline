@@ -1,4 +1,5 @@
 using Project.Core.Blackboard;
+using Project.Core.Movement;
 using Project.Presentation.Animation;
 using Project.Presentation.Motion;
 using UnityEngine;
@@ -35,9 +36,9 @@ namespace Project.Core.StateMachine
         /// 🆕（ADR-002）從 Config 以泛型安全查表拿取 JumpStateParams，逐段預算 JumpLaunchData 與起跳前搖。
         /// 物理量全部來自各段 MotionBakeData（單一真相）；查無綁定或該段無可信資料時安全退化。
         /// </summary>
-        public override void Initialize(StateMachineConfigSO config)
+        public override void Initialize(StateMachineConfigSO config, IMovementModel movementModel)
         {
-            base.Initialize(config);
+            base.Initialize(config, movementModel);
 
             var jumpParams = config != null ? config.GetStateParams<JumpStateParams>(Type) : null;
 

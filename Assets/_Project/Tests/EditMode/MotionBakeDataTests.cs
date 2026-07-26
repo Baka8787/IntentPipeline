@@ -80,6 +80,30 @@ namespace Project.Tests.EditMode
             Assert.AreEqual(0f, bake.GetRepresentativeSpeed());
         }
 
+        // === Duration：Runtime 不得依賴 AnimationClip（🆕 2026-07-26）===
+
+        [Test]
+        public void Duration_ReadsBakedDuration_WithoutAnySourceClip()
+        {
+            var bake = NewBake();          // SourceClip 恆為 null（EditMode 不指派任何 clip）
+            bake.BakedDuration = 1.25f;    // 烘焙時自 clip.length 快照的序列化值
+
+            Assert.AreEqual(1.25f, bake.Duration, 1e-4f,
+                "Duration 必須完全來自序列化的 BakedDuration——一旦它回頭讀 SourceClip.length，" +
+                "動畫資產缺席或 GUID 變動時 Duration 會靜默歸零（Roll 秒退的根因）");
+        }
+
+        [Test]
+        public void Duration_StaleAsset_ReturnsZero_SoConsumersCanDetectIt()
+        {
+            var bake = NewBake();          // 模擬 BakedDuration 導入前烘焙的舊資產
+
+            Assert.AreEqual(0f, bake.Duration,
+                "未重烘的舊資產應如實回傳 0，而不是偷偷回退去讀 clip——" +
+                "消費端（RollState）據此走 FallbackDuration 並發出『請重烘』警告，" +
+                "回退讀 clip 會讓這個遷移缺口永遠隱形");
+        }
+
         // === GetFootPhaseAt（🆕）：連續腳相查詢；曲線缺退回單點 EndPhase ===
 
         [Test]

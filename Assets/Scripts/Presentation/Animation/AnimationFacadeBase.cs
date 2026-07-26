@@ -7,9 +7,11 @@ namespace Project.Presentation.Animation
     {
         // === 參數鍵常數 ===
         /// <summary>
-        /// Locomotion 混合參數的動畫圖參數鍵。管線順序 5 每幀以 <see cref="SetFloat"/> 送入黑板
-        /// MoveSpeed（0~1 輸入強度）；訂閱者由 Transition 資產內的 ParameterName（StringAsset，
-        /// 名稱須與此常數一致）自行綁定，呼叫端與 Facade 都不需要認識具體 Mixer。
+        /// Locomotion 混合參數的動畫圖參數鍵。🆕（ADR-003 D4 Stage 2）由 **Locomotion model 自己**
+        /// 在管線順序 3 每幀以 <see cref="SetFloat"/> 送入其平滑後的移動強度（0~1）——
+        /// 「每個 model 驅動自己的參數」，Facade 維持通用 sink、不認識任何 model。
+        /// 訂閱者由 Transition 資產內的 ParameterName（StringAsset，名稱須與此常數一致）自行綁定，
+        /// 呼叫端與 Facade 都不需要認識具體 Mixer。
         /// </summary>
         public const string ParamMoveSpeed = "MoveSpeed";
 

@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using Project.Core.Blackboard;
+using Project.Core.Movement;
 
 namespace Project.Core.StateMachine
 {
@@ -10,14 +11,22 @@ namespace Project.Core.StateMachine
         private BaseState _currentState;
         private StateMachineConfigSO _config;
 
+        // 🆕（ADR-003 Stage 2）active Movement Model 的**唯一持有點**。狀態機不使用它，
+        // 只負責把同一個實例發給每一顆 state——「一份平滑狀態」因此是結構保證而非紀律。
+        private IMovementModel _movementModel;
+
         public BaseState CurrentState => _currentState;
 
         /// <summary>
         /// 💡 修正安全性合約：要求傳入初始化完成的 data，杜絕 OnEnter(null) 隱性風險
+        ///
+        /// 🆕（ADR-003 Stage 2）新增 <paramref name="movementModel"/>：當下 active 的 Movement Model，
+        /// 由 <c>CharacterPipelineRunner</c> 解析後注入（DIP——狀態機只認識 <see cref="IMovementModel"/> 介面）。
         /// </summary>
-        public void Initialize(StateMachineConfigSO config, PlayerRuntimeData data)
+        public void Initialize(StateMachineConfigSO config, PlayerRuntimeData data, IMovementModel movementModel)
         {
             _config = config;
+            _movementModel = movementModel;
             _config.Initialize();
 
             RegisterState(new IdleState());
@@ -31,7 +40,7 @@ namespace Project.Core.StateMachine
 
         private void RegisterState(BaseState state)
         {
-            state.Initialize(_config);
+            state.Initialize(_config, _movementModel);
             _stateRegistry[state.Type] = state;
         }
 

@@ -1,4 +1,5 @@
 using Project.Core.Blackboard;
+using Project.Core.Movement;
 using Project.Presentation.Animation;
 using Project.Presentation.Motion;
 
@@ -9,12 +10,23 @@ namespace Project.Core.StateMachine
         public abstract StateType Type { get; }
         protected StateMachineConfigSO Config;
 
+        /// <summary>
+        /// 🆕（ADR-003 Stage 2）當下 active 的 Movement Model。**全狀態共用同一實例**——
+        /// 由 <see cref="FullBodyStateMachine"/> 在註冊時統一發放，沒有任何 state 自行建立的路徑。
+        /// 這條注入鏈是「跨幀平滑狀態全域唯一」的結構性保證（見 <see cref="IMovementModel"/> remarks）。
+        ///
+        /// ambient 狀態（Idle／Move）用它 delegate 位移與取得門檻信號（D3）；
+        /// intrinsic-motion 狀態（Jump／Roll）維持既有 override 自帶位移，可不理會。
+        /// </summary>
+        protected IMovementModel MovementModel { get; private set; }
+
         // 🆕 預設用 enum 名稱當動畫鍵，對應 AnimancerFacade 的 ClipMapping.StateKey
         public virtual string AnimationKey => Type.ToString();
 
-        public virtual void Initialize(StateMachineConfigSO config)
+        public virtual void Initialize(StateMachineConfigSO config, IMovementModel movementModel)
         {
             Config = config;
+            MovementModel = movementModel;
         }
 
         public abstract bool CanEnter(PlayerRuntimeData data);
@@ -24,6 +36,10 @@ namespace Project.Core.StateMachine
 
         /// <summary>
         /// 💡 新增：由當前狀態決定本影格在 LateUpdate 該如何結算物理位移
+        ///
+        /// 🆕（ADR-003 D3）三種歸屬：**ambient 狀態**（Idle／Move）override 成 delegate 給
+        /// <see cref="MovementModel"/>；**intrinsic-motion 狀態**（Jump／Roll）override 成自帶位移；
+        /// 下方預設實作是**兩者皆非時的保底**（也是 model 未注入時的降級路徑）。
         /// </summary>
         public virtual void OnUpdateMotion(MotionDriver motionDriver, AnimationFacadeBase animationFacade, PlayerRuntimeData data)
         {

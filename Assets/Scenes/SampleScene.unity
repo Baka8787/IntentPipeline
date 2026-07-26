@@ -3992,6 +3992,10 @@ PrefabInstance:
       propertyPath: settings.FootGroundedHeightMin
       value: 0.08
       objectReference: {fileID: 0}
+    - target: {fileID: 4074466034556624722, guid: 1166b9756cdbe5b49a34559de0988bf0, type: 3}
+      propertyPath: moveSpeedSource
+      value: 
+      objectReference: {fileID: 11400000, guid: 7c253da4ed9248b4fa1485ea300fb6ef, type: 2}
     - target: {fileID: 5885071440779706115, guid: 1166b9756cdbe5b49a34559de0988bf0, type: 3}
       propertyPath: playerCamera
       value: 
@@ -4039,6 +4043,22 @@ PrefabInstance:
     - target: {fileID: 8480833622433434003, guid: 1166b9756cdbe5b49a34559de0988bf0, type: 3}
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8897448281995936255, guid: 1166b9756cdbe5b49a34559de0988bf0, type: 3}
+      propertyPath: WalkAction.m_SingletonActionBindings.Array.size
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 8897448281995936255, guid: 1166b9756cdbe5b49a34559de0988bf0, type: 3}
+      propertyPath: WalkAction.m_SingletonActionBindings.Array.data[0].m_Id
+      value: ea6ee4e9-edb4-4b9d-9749-c1a35d93fb46
+      objectReference: {fileID: 0}
+    - target: {fileID: 8897448281995936255, guid: 1166b9756cdbe5b49a34559de0988bf0, type: 3}
+      propertyPath: WalkAction.m_SingletonActionBindings.Array.data[0].m_Path
+      value: <Keyboard>/leftCtrl
+      objectReference: {fileID: 0}
+    - target: {fileID: 8897448281995936255, guid: 1166b9756cdbe5b49a34559de0988bf0, type: 3}
+      propertyPath: WalkAction.m_SingletonActionBindings.Array.data[0].m_Action
+      value: Walk
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []

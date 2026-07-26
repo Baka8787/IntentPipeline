@@ -1,4 +1,6 @@
 using Project.Core.Blackboard;
+using Project.Presentation.Animation;
+using Project.Presentation.Motion;
 using UnityEngine;
 
 namespace Project.Core.StateMachine
@@ -7,7 +9,16 @@ namespace Project.Core.StateMachine
     {
         public override StateType Type => StateType.Move;
 
-        public override bool CanEnter(PlayerRuntimeData data) => data.MoveSpeed >= 0.1f;
+        // 🆕（ADR-003 Stage 2）與 IdleState 互補的同一個門檻信號（見該檔註解）。
+        public override bool CanEnter(PlayerRuntimeData data)
+            => MovementModel != null && MovementModel.IsProducingMotion;
+
+        // 🆕（ADR-003 D3）ambient 狀態：位移結算 delegate 給 active model。
+        public override void OnUpdateMotion(MotionDriver motionDriver, AnimationFacadeBase animationFacade, PlayerRuntimeData data)
+        {
+            if (MovementModel != null) MovementModel.UpdateMotion(motionDriver, data);
+            else base.OnUpdateMotion(motionDriver, animationFacade, data);
+        }
 
         public override void OnEnter(PlayerRuntimeData data)
         {

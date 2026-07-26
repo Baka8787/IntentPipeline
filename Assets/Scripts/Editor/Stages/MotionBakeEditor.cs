@@ -322,6 +322,11 @@ namespace Project.Editor
             if (!isNewAsset) Undo.RecordObject(asset, "Update Motion Bake Data");
 
             asset.SourceClip = sourceClip;
+
+            // 🆕（2026-07-26）動畫長度改為**烘焙期快照**：執行期的 MotionBakeData.Duration 自此讀本欄位，
+            // 不再觸碰 SourceClip.length——切斷全專案最後一條「執行期邏輯讀 AnimationClip」的耦合。
+            // 與 AutoAverageSpeed 同一個 pattern：Bake Data 是自足的純資料資產。
+            asset.BakedDuration = sourceClip.length;
             asset.SampleRate = sampleRate;
             asset.SpeedCurve = speedCurve;
             asset.RotationCurve = rotationCurve;
