@@ -428,5 +428,45 @@ namespace Project.Tests.EditMode
                 "多於一個＝平滑狀態被切分，Idle↔Move 切換會重置收步；" +
                 $"零個＝B9 平滑遺失。實際找到：{(holders.Count == 0 ? "（無）" : string.Join("、", holders))}");
         }
+
+        // =====================================================================
+        // A11 — Pose 管道的 lifetime owner ＝ 它的唯一 Writer（🆕 M3.x-A）
+        // =====================================================================
+
+        /// <summary>
+        /// <c>FootIKPoseData</c> 是**單寫多讀**管道：唯一 Writer 是 <c>FootIKRig</c>，
+        /// 讀取方（<c>FootIKController</c>、未來的 Foot Contact 偵測器）向它取得同一份引用。
+        ///
+        /// 本測試守的是**擁有權**而非寫入權：建構點只准有一個，且必須在唯一 Writer 檔案內。
+        /// 多於一個＝有人自己 new 了一份，讀到的將是永遠不會被寫入的空快照
+        /// （症狀是「IK 沒反應」或「偵測器收不到腳步」，而且完全不會報錯）；
+        /// 零個＝管道消失。
+        ///
+        /// ⚠️ **刻意不採 A5 那種「以成員名做賦值型 regex」的寫法**：
+        /// <c>FootIKTargetData</c> 與 <c>FootIKPoseData</c> **成員同名**（皆有 <c>LeftFootPosition</c> 等），
+        /// 成員名掃描會把 Controller 對 Target 的合法寫入誤判為違規。建構點掃描不受同名干擾。
+        /// </summary>
+        [Test]
+        public void A11_FootIKPoseData_HasExactlyOneConstructionSite_InItsSoleWriter()
+        {
+            // 兩種建構寫法都要抓：`new FootIKPoseData(` 與欄位初始式的 target-typed `= new(`。
+            var construction = new Regex(@"new\s+FootIKPoseData\s*\(|FootIKPoseData\s+_?\w+\s*=\s*new\s*\(");
+
+            var sites = new List<string>();
+            foreach (string path in RuntimeScriptPaths())
+            {
+                if (construction.IsMatch(StripComments(File.ReadAllText(path)))) sites.Add(RelativePath(path));
+            }
+
+            Assert.AreEqual(1, sites.Count,
+                "FootIKPoseData 的建構點必須恰好一個（它的唯一 Writer FootIKRig）。" +
+                "多於一個＝有 Reader 自己 new 了一份，會靜默讀到永不更新的空快照；" +
+                $"零個＝管道消失。實際找到：{(sites.Count == 0 ? "（無）" : string.Join("、", sites))}");
+
+            StringAssert.EndsWith("FootIKRig.cs", sites[0],
+                "FootIKPoseData 的 lifetime owner 必須是它的唯一 Writer（FootIKRig）。" +
+                "擁有權跟著寫入權走——擁有者不是 Writer 時，新增第二個 Reader 就會被迫向其他 Controller 要引用，" +
+                "違反 IPresentationController 的『Controller 彼此不得互相引用』契約。");
+        }
     }
 }

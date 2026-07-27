@@ -62,6 +62,30 @@
 
 ---
 
+## 🔴 待使用者操作：v0.28（M3.x-A Pose 管道擁有權）
+
+> 輪 3 Footstep 的前置。**調查結論：ADR-003 D4 完全未被觸及**（維持 Accepted、不修改、不新增 ADR）。真正要修的只有 `FootIKPoseData` 的擁有權。
+> **接線：無。** 本輪不新增元件、不新增 Inspector 欄位。
+
+### A. 驗收（Play 模式，重點是「行為必須零變化」）
+
+| # | 驗收項 | 預期 |
+| --- | --- | --- |
+| 1 | 平地／斜坡走跑，觀察雙腳貼地 | 與變更前**無可感知差異**（本輪只搬擁有權，演算法一行未改） |
+| 2 | 跳躍／翻滾中的腳部 | 同上，無抽搐、無黏地 |
+| 3 | Console | 無 `FootIKController 找不到 FootIKRig` 之類的新錯誤 |
+
+### B. 回歸
+
+* **EditMode**：96 ＋ 3 → **99 條**（A11 ＋ `FootIKTests` 兩條擁有權測試）
+* 既有 `FootIKTests` 8 條純函數測試**必須維持全綠**（演算法未動）
+
+### C. 這輪唯一的行為差異（誠實記錄，目前不可觀察）
+
+場上沒有 `FootIKController` 時，`FootIKRig` 現在**仍會寫入** Pose 快照（先前兩條管道共用一個 `return`，缺 Controller 時連 Pose 都不寫）。目前 Pose 的唯一讀取方正是 Controller 本身，所以**看不出差別**；這麼改是為了讓 M3.x-B 的偵測器不會因為「場上剛好沒有 IK Controller」就靜默收不到資料。
+
+---
+
 ## 🔴 待使用者操作：v0.27（兩個互相抵銷的 bug）
 
 > 這一輪是 M8 ⑤ 追查出來的。**根因一個、症狀兩個**：暫停時 `Move(finalMovement * 0)` ＝ `Move(Vector3.zero)`，而 Unity 的 `isGrounded` 由「上一次 Move 有沒有向下撞到東西」決定 ⇒ 零位移回報 false。於是①解除暫停時 `JustLanded` 假觸發（落地聲）②暫停中 `IsGrounded` 恆 false 讓 `JumpState.CanEnter` 失敗（那個「不知道為何存在的保護」）。**修掉①會讓②的保護消失**，故兩件同批修。完整推導見 changelog v0.27。

@@ -9,9 +9,13 @@ namespace Project.Presentation.IK
     /// Foot IK 決策端——第二個 <see cref="IPresentationController"/> 實例，由 PresentationPipeline
     /// 於管線順序 6.5（LateUpdate、MotionDriver 之後）驅動，Runner 零改動。
     ///
-    /// 雙管道資料流（M3.1 裁決，各自單寫單讀）：
+    /// 雙管道資料流（M3.1 裁決；🔄 M3.x-A 修正擁有權）：
     /// 黑板（IsGrounded／BlockIK）─讀→ 本類別 ─寫→ <see cref="FootIKTargetData"/> ─讀→ FootIKRig
     /// FootIKRig ─寫→ <see cref="FootIKPoseData"/>（動畫原始 pose 快照）─讀→ 本類別
+    ///
+    /// **擁有權規則（M3.x-A）：管道的 lifetime owner ＝ 該管道的唯一 Writer。**
+    /// Target 由本類別寫故由本類別擁有、注入給 Rig 讀；Pose 由 Rig 寫故**由 Rig 擁有**，本類別只是 Reader。
+    /// Target 維持單寫單讀；**Pose 自此為單寫多讀**——新增 Reader 向 owner 取得引用即可，零改動。
     ///
     /// 演算法（M3.1）：每腳「快照 goal → raycast → 目標（命中點＋沿法線抬腳底高）＋法線對齊旋轉 →
     /// 單因子 Pose 權重（二態系統：窄帶外恆 0 或 1）→ MoveTowards 平滑」＋骨盆補償（低腳差夾限）。
@@ -31,6 +35,13 @@ namespace Project.Presentation.IK
 
         /// <summary>供除錯／測試檢視。執行期 Target 唯一 Writer 是本類別、Pose 唯一 Writer 是 Rig。</summary>
         public FootIKTargetData TargetData => _targetData;
+
+        /// <summary>
+        /// 供除錯／測試檢視。🔄（M3.x-A）本類別只是 Pose 的 **Reader**——
+        /// 其 lifetime owner 是唯一 Writer <c>FootIKRig</c>，此處僅持有引用。
+        /// ⚠️ 其他 Reader **不應**從這裡取得實例（那會構成 Controller 互相引用，違反
+        /// <c>IPresentationController</c> 契約）；正確途徑是向 owner 取：<c>FootIKRig.PoseData</c>。
+        /// </summary>
         public FootIKPoseData PoseData => _poseData;
 
         // 單幀採樣暫存（struct，棧上語義、零 GC）。
@@ -44,8 +55,11 @@ namespace Project.Presentation.IK
 
         private void Awake()
         {
-            _targetData = new FootIKTargetData(); // 兩條管道皆一次性配置，執行期零 GC
-            _poseData = new FootIKPoseData();
+            // 🔄（M3.x-A）**只建立自己寫的那條管道**。擁有權跟著寫入權走：
+            //     Target 由本類別寫 → 本類別擁有其生命週期，注入給 Rig 讀；
+            //     Pose 由 Rig 寫 → **Rig 擁有其生命週期**，本類別只是它的 Reader 之一。
+            //     先前本類別同時 new 出 Pose（一份自己不寫的資料），是加第二個 Reader 時才浮現的所有權錯置。
+            _targetData = new FootIKTargetData(); // 一次性配置，執行期零 GC
 
             // === 組裝期注入（僅此一次）：此後 Controller 與 Rig 之間只剩兩條單向共享數據，無任何方法呼叫 ===
             // Humanoid Avatar 的有效性由 AnimancerFacade.ValidateHierarchy 的既有 Fail-Fast 防線把關，此處不重複。
@@ -57,8 +71,14 @@ namespace Project.Presentation.IK
             }
             else
             {
-                rig.Bind(_targetData, _poseData);
+                rig.Bind(_targetData);
+
+                // Pose 是向 owner 取得引用，不是自己建立。Rig 以欄位初始式持有它，
+                // 早於所有 Awake，故此處不需要關心 Rig 的 Awake 有沒有先跑。
+                _poseData = rig.PoseData;
             }
+
+            // 缺 Rig 時 _poseData 維持 null，由 Tick 開頭的既有防禦線接住（行為與變更前一致）。
         }
 
         private void Start()

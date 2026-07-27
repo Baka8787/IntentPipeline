@@ -14,7 +14,17 @@
 > 範圍＝腳部貼合＋骨盆補償（Q2，一體不拆）。
 > 🔒 **v1 凍結（2026-07-21，收案輪；roadmap `docs/03` §1）**：架構層全部健康、剩餘問題全屬「已知限制」（§3.5.2 L1~L6，各有不改架構的升級路徑），品質升級改由整體 Animation Runtime Roadmap 承載、不再單點深挖。**設計哲學**（使用者裁決，全文 design-doc §4.6）：**Natural Pose > Terrain Adaptation > Perfect Foot Contact**——禁再加 Fade／Gate／權重修正修穿模，貼地改善走 Ground Sampling 升級（Heel/Toe 雙點、CapsuleCast）。**旋轉公式定形**：`FromToRotation(worldUp, hit.normal) × poseRot`（保留俯仰式，動畫腳踝俯仰原樣保留；A/B 軸對齊式「主動壓平」實測無感差已歸檔，changelog v0.18.7）。
 
-#### 3.5.1 資料流（🆕 M3.1：雙管道、各自單寫單讀）
+#### 3.5.1 資料流（M3.1：雙管道；🔄 M3.x-A 修正擁有權）
+
+> 🔄 **M3.x-A（2026-07-27）擁有權規則**：**管道的 lifetime owner ＝ 該管道的唯一 Writer。**
+> * `FootIKTargetData`：`FootIKController` 寫 → **Controller 擁有**，注入給 Rig 讀。維持**單寫單讀**。
+> * `FootIKPoseData`：`FootIKRig` 寫 → **Rig 擁有**（以欄位初始式持有），Controller 向它取引用。自此為**單寫多讀**。
+>
+> ⚠️ **owner 的語意限定**：`FootIKRig` owns the *lifetime* of the pose snapshot **because it is the sole writer** of that snapshot。這是**生命週期／權威的擁有權**，**不是業務擁有權**——Rig 不解讀這份資料、不判定 plant/lift、不認識任何消費端，兩個方向依然是純轉接、零決策分支。解讀屬各 Reader 自己的事。
+>
+> **為什麼要改**：先前 Controller 同時 `new` 出兩份資料，等於**擁有一份自己不寫的資料**。單讀時只是輕微味道；一出現第二個 Reader，新 Reader 就被迫向另一個 Controller 要引用——直接違反 `IPresentationController` 的「Controller 彼此不得互相引用」。改成「擁有權跟著寫入權走」後，新增 Reader 只需向 owner 取引用，**管道與既有 Reader 皆零改動**。
+>
+> **為什麼用欄位初始式而非 `Awake`**：欄位初始式在元件建構時執行、**早於所有 `Awake`**，所以「拿得到同一份有效實例」從時序紀律變成**結構保證**，讀取方不必關心元件間的 Awake 順序。由 `§7.1-A11` 與 `FootIKTests` 守住。
 
 ```
 Blackboard（IsGrounded／BlockIK）
@@ -39,12 +49,12 @@ FootIKController ────寫──→ FootIKTargetData ────讀──
 
 | 類別 | 位置 | 職責（允許） | 禁止 |
 | --- | --- | --- | --- |
-| `FootIKController` | Root | 讀黑板、讀 Pose 快照（`FootIKPoseData` 唯一 Reader）、雙腳 raycast（地面點＋法線）、權重計算（Q3 Pose Heuristic：動畫 goal 高度 `min~max` 線性帶）、權重／骨盆平滑（MoveTowards）、骨盆補償計算；`FootIKTargetData` 唯一 Writer | **對 Animator 零依賴**（M3.1：不持骨骼 Transform、不呼叫 `GetBoneTransform`）、呼叫任何 `SetIK*` |
+| `FootIKController` | Root | 讀黑板、讀 Pose 快照（🔄 M3.x-A：**Reader 之一**，不再是擁有者也不再是唯一 Reader）、雙腳 raycast（地面點＋法線）、權重計算（Q3 Pose Heuristic：動畫 goal 高度 `min~max` 線性帶）、權重／骨盆平滑（MoveTowards）、骨盆補償計算；`FootIKTargetData` 唯一 Writer | **對 Animator 零依賴**（M3.1：不持骨骼 Transform、不呼叫 `GetBoneTransform`）、呼叫任何 `SetIK*` |
 | `FootIKTargetData` | 純 C# 資料 | Target 管道（Controller→Rig）：雙腳目標（位置／旋轉／雙權重）＋`PelvisOffsetY`。值語義（權重 0＝不生效），Reader 零布林判斷 | 不進 `PlayerRuntimeData`；不與 Pose 混入同一結構 |
-| `FootIKPoseData` | 純 C# 資料 | Pose 管道（Rig→Controller）：動畫原始 IK goal（雙腳位置／旋轉，IK 套用前）＋Avatar 常數 `FeetBottomHeight`＋`IsWarm` 初始化標記 | 不存 Animator／Transform／MonoBehaviour／Physics 引用 |
+| `FootIKPoseData` | 純 C# 資料 | Pose 管道（Rig→各 Reader，**單寫多讀**）：動畫原始 IK goal（雙腳位置／旋轉，IK 套用前）＋Avatar 常數 `FeetBottomHeight`＋`IsWarm` 初始化標記。🔄 lifetime owner ＝ 唯一 Writer `FootIKRig` | 不存 Animator／Transform／MonoBehaviour／Physics 引用；Reader 不得寫入 |
 | `FootIKRig` | Model（`[RequireComponent(Animator)]`） | **Presentation Adapter**（動畫系統邊界雙向轉接，各方向單寫單讀）：OnAnimatorIK **開頭** `GetIKPosition/GetIKRotation`＋`FeetBottomHeight` 寫入 Pose 快照（唯一 Writer）→ 接著原樣套用 TargetData（唯一 Reader）→ SetIK*／bodyPosition | Raycast、讀黑板、`IsGrounded`／狀態判斷、權重演算法、地面採樣、任何額外判斷 |
 
-* **組裝**：`FootIKController.Awake` 建立兩份資料 → `rig.Bind(targetData, poseData)` 一次性注入；此後兩者僅透過兩條單向共享數據溝通，執行期**無任何方法呼叫／事件／回呼**（M3 裁決明禁 Event Bus／Message System／Callback）。Humanoid Avatar 有效性由 `AnimancerFacade.ValidateHierarchy` 既有 Fail-Fast 防線把關，IK 模組不重複驗。
+* **組裝**（🔄 M3.x-A）：`FootIKController.Awake` **只建立自己寫的 `FootIKTargetData`** → `rig.Bind(targetData)` 一次性注入 → 再由 `rig.PoseData` **取得** Pose 引用（Rig 以欄位初始式持有，故不需要等 Rig 的 `Awake`）。⚠️ 未來新增的 Pose Reader 一律**向 owner 取**（`FootIKRig.PoseData`），**不得**向 `FootIKController.PoseData` 要——後者構成 Controller 互相引用；此後兩者僅透過兩條單向共享數據溝通，執行期**無任何方法呼叫／事件／回呼**（M3 裁決明禁 Event Bus／Message System／Callback）。Humanoid Avatar 有效性由 `AnimancerFacade.ValidateHierarchy` 既有 Fail-Fast 防線把關，IK 模組不重複驗。
 * **IK pass 開啟**：`FootIKController.Start` 經 `AnimationFacadeBase.SetApplyAnimatorIK(0, true)`（🆕 基底 virtual no-op；`AnimancerFacade` 覆寫為 `Layers[i].ApplyAnimatorIK`）。放 Start＝確保 Facade 的 Awake 已完成，不賭同幀 Awake 順序。
 * **Q4（Roll／Jump）**：不特判狀態——空中 `IsGrounded=false` 自然關閉；Roll 中腳部蜷起由 pose 權重自然降低。`BlockIK` 讀取契約先行——🆕 **writer 已於輪 4 落地**（`ArbiterPipeline`，順序 4.5），但目前沒有任何 `IArbiterSource` 要求 `BlockIK`，旗標仍恆 `false`，`FootIKController` **零改動**（契約先行的代價在此兌現）。實測若 Roll 吸地明顯，回 Arbiter Pipeline 解決（Future Work）——屆時作法是新增一顆讀 FSM 狀態的來源，而非改本檔。
 * **零 GC**：RuntimeData 一次配置；`Physics.Raycast`（單一命中 out 版）無堆配置；熱路徑無 `new`。
