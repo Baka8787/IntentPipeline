@@ -1,5 +1,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using Project.Core.Arbitration;
+using Project.Core.Blackboard;
 
 namespace Project.App
 {
@@ -32,7 +34,7 @@ namespace Project.App
     ///   故暫停中按跳躍可能在解除暫停時才「補跳」一下。屬已知缺口，見 dev-spec §7.3。
     /// * **不做 Pause Menu／Canvas／EventSystem／UI navigation**。
     /// </remarks>
-    public class GamePauseController : MonoBehaviour
+    public class GamePauseController : MonoBehaviour, IArbiterSource
     {
         [Header("Pause Action")]
         [Tooltip("切換暫停的按鍵。🔄 現行控制方案＝Esc（獨立鍵，不與 UI 模式共用）。\n" +
@@ -102,5 +104,28 @@ namespace Project.App
 
         /// <summary>切換暫停。供未來 UI 按鈕直接綁定。</summary>
         public void TogglePause() => SetPaused(!_isPaused);
+
+        /// <summary>
+        /// 【管線順序 4.5】🆕（2026-07-27）暫停期間要求封鎖角色輸入。
+        ///
+        /// **為什麼需要**：`timeScale = 0` 讓位移與動畫全停，但**不會**阻止 trigger 意圖被寫入黑板，
+        /// 也不會阻止 FSM 轉移——`JumpState.CanEnter` ＝ `JumpRequested && IsGrounded`，兩者皆與時間無關。
+        /// 更糟的是它的落地判定靠 `_airborneTimer += deltaTime`，暫停時恆加 0 ⇒ `IsLanded` 永遠 false
+        /// ⇒ 一旦切進 `JumpState` 就**退不出來**，解除暫停後才起跳。
+        ///
+        /// ⚠️ 這個缺口先前之所以「看起來沒事」，是因為另一個 bug 剛好抵銷了它：暫停時
+        /// `Move(Vector3.zero)` 讓 `isGrounded` 變 false，`CanEnter` 因此失敗。
+        /// 那個 bug 已由 `MotionDriver.IsTimeFrozen` 修掉（它同時是「站著暫停再解除會聽到落地聲」的根因），
+        /// **修掉之後保護就消失了**，所以缺口必須在此正式關閉——
+        /// 依賴一個不知道為何存在的保護，比沒有保護更危險。
+        ///
+        /// **架構方向**：本元件屬應用層，但封鎖是**每角色**的狀態，所以走「低層擁有、高層提供來源」——
+        /// 由角色的 `CharacterPipelineRunner` 以 Inspector 引用把本元件收為 `IArbiterSource`（DIP），
+        /// **而不是**讓角色去查詢全域。與游標的方向相反、兩者都對，判準見 design-doc §4.9。
+        /// </summary>
+        public ArbiterData Evaluate(PlayerRuntimeData data)
+        {
+            return new ArbiterData { BlockInput = _isPaused };
+        }
     }
 }

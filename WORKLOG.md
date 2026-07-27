@@ -58,7 +58,34 @@
 | 3 | **按住** Alt 超過 0.25s | 進 UI 模式（游標出現、相機停轉、角色 B9 收步），**且不會順便暫停** |
 | 4 | 放開 Alt | UI 模式全部復原 |
 | 5 | 🆕 **先按 Esc 暫停 → 再按住 Alt → 放開 Alt** | 游標**必須仍然可見**。這是單一游標擁有者的實證（其一收手不得解除另一個的要求）。<br>⚠️ **順序不可顛倒**：`Alt`+`Esc` 是 Windows 系統快捷鍵（切換視窗），OS 層就攔截、Unity 收不到，實測會被丟出遊戲視窗——**鍵位與 OS 撞號，非程式問題**（2026-07-27 實測確認） |
-| 6 | 已知缺口複驗 | 暫停中按跳躍 → 解除後是否會「補跳」（暫停刻意不封鎖輸入，見 §7.3） |
+| 6 | ✅ 暫停中的 trigger 意圖 | **已結案（v0.27）**：追查發現「暫停中按跳躍不會跳」靠的是另一個 bug 的副作用（見下方 v0.27 專段），已改由 `GamePauseController` 的 `BlockInput` 正式關閉 |
+
+---
+
+## 🔴 待使用者操作：v0.27（兩個互相抵銷的 bug）
+
+> 這一輪是 M8 ⑤ 追查出來的。**根因一個、症狀兩個**：暫停時 `Move(finalMovement * 0)` ＝ `Move(Vector3.zero)`，而 Unity 的 `isGrounded` 由「上一次 Move 有沒有向下撞到東西」決定 ⇒ 零位移回報 false。於是①解除暫停時 `JustLanded` 假觸發（落地聲）②暫停中 `IsGrounded` 恆 false 讓 `JumpState.CanEnter` 失敗（那個「不知道為何存在的保護」）。**修掉①會讓②的保護消失**，故兩件同批修。完整推導見 changelog v0.27。
+
+### A. 接線（🔴 缺這步跳躍缺口仍開著）
+
+1. 角色 Root 的 `CharacterPipelineRunner`，新欄位 **`External Arbiter Sources`** 陣列 Size 設 **1**
+2. 拖入場景中的 **`GamePauseController`**
+
+> 沒拖的話：暫停中按 Space 會**真的**切進 `JumpState` 並卡住（`_airborneTimer` 在 `deltaTime = 0` 時不前進 ⇒ `IsLanded` 永遠 false ⇒ 退不出來），解除暫停後起跳。
+
+### B. 驗收（＝dev-spec §7.2-M8 ⑥⑦⑧）
+
+| # | 驗收項 | 預期 |
+| --- | --- | --- |
+| 1 | **站在地上**按 Esc 暫停 → 解除 | **不得聽到落地聲**（修復前必響） |
+| 2 | 站在地上暫停 → 按 Space | Inspector 的 **`[Current State]` 必須維持 IDLE**；解除後也不得起跳。⚠️ 看狀態欄不要看畫面 |
+| 3 | 跳到最高點暫停 → 解除 | 角色從原地續墜，落地聲在**看得見的下墜之後**才響（這是正確行為，不是 bug） |
+| 4 | 一般移動、跳躍、翻滾 | 手感與 v0.26 完全一致（`IsTimeFrozen` 只在 `deltaTime <= 0` 生效，正常遊玩永不觸發） |
+
+### C. 回歸
+
+* **EditMode**：95 ＋ 1 → **96 條**
+* ⚠️ `MotionDriver.IsTimeFrozen` **無法自動測**（需控制 `Time.deltaTime` 與真實 `CharacterController`），只能靠上表 1・3
 
 **游標擁有權（＝dev-spec §7.2-M9，輪 4.2 新增）**
 

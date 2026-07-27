@@ -6,6 +6,72 @@
 
 ---
 
+## [v0.27] - 兩個 bug 互相抵銷：`Move(Vector3.zero)` 與那個「不知道為何存在的保護」（2026-07-27）
+
+> v0.26 的暫停留下一條記錄在案的缺口：「暫停不封鎖角色輸入，理論上按跳躍可能補跳」。人工驗收時它變成兩個**看起來無關**的回報，追下去發現是同一個根因，而且**其中一個 bug 正在掩蓋另一個**。
+
+### 1. 兩個觀察
+
+1. 暫停中站在地上按跳躍，解除後**不會**跳（＝文件預測的缺口沒發生）
+2. **只要站在地上，解除暫停都會聽到落地聲**（＝角色根本沒離地）
+
+第 2 條顯然是 bug。第 1 條看起來是好消息——但 §7.3 當時寫了一句話：
+
+> 「若沒轉移，**要查出是什麼擋住的**——依賴一個不知道為何存在的保護，比沒有保護更危險。」
+
+### 2. 根因：零位移的 `Move` 會毀掉 `isGrounded`
+
+位移出口是 `characterController.Move(finalMovement * Time.deltaTime)`。暫停時 `deltaTime = 0` ⇒ 等同 `Move(Vector3.zero)`。而 Unity 的 `CharacterController.isGrounded` 是由**上一次 `Move` 有沒有向下撞到東西**決定的——零位移沒有向下推，於是回報 **false**。
+
+逐帧展開：
+
+| 帧 | `isGrounded` | 後果 |
+| --- | --- | --- |
+| 暫停第 1 帧 | true（暫停前那次真實 Move 的殘值） | — |
+| 暫停第 2 帧 | **false** | `JustLeftGround` 假觸發、`_wasGrounded = false` |
+| 暫停期間 | false | `data.IsGrounded` 恆 false |
+| 解除後第 2 帧 | true | **`JustLanded` 假觸發 → 落地聲** |
+
+**兩個觀察同時被解釋**：落地聲是假的 `JustLanded`；而「不會跳」是因為 `JumpState.CanEnter = JumpRequested && IsGrounded`，暫停中 `IsGrounded` 是 false 所以直接失敗。
+
+**擋住跳躍的不是任何設計，是另一個 bug 的副作用。**
+
+### 3. 為什麼必須同批修
+
+修掉落地聲 ⇒ `IsGrounded` 在暫停期間正確地維持 true ⇒ `CanEnter` 成立 ⇒ **跳躍缺口當場打開**。而且缺口比原本預測的嚴重：`JumpState` 的落地判定靠 `_airborneTimer += deltaTime`，暫停時恆加 0 ⇒ `IsLanded` 永遠 false ⇒ `CanTransitionAway` 永遠 false ⇒ **進得去、退不出來**。
+
+所以兩件一起做：
+
+* **`MotionDriver.IsTimeFrozen`**：`Time.deltaTime <= 0` 時整段跳過——不 `Move`、不重算觸地與邊沿旗標。⚠️ 守衛刻意表述為「**沒有時間流逝**」而不是「暫停」：`MotionDriver` 不認識暫停，它只知道沒有時間就沒有東西要積分。這讓守衛對任何造成 `deltaTime == 0` 的原因都成立，也不引入對應用層的依賴。
+* **`GamePauseController` 實作 `IArbiterSource`**，暫停期間要求 `BlockInput`；由 Runner 新增的 `externalArbiterSources` 以 Inspector 引用注入。此後「暫停中不能跳」是**被設計出來的**，不是副作用。
+
+### 4. Runner 為什麼需要「階層外來源」這個新欄位
+
+`ArbiterPipeline` 的來源本來是 `GetComponentsInChildren<IArbiterSource>()`——只掃角色階層。而 `GamePauseController` 依定義**不掛在角色上**（它是應用層的全域狀態，v0.26 §1）。
+
+解法是 Runner 加一個 `[SerializeField] MonoBehaviour[] externalArbiterSources`，沿用它既有的三個介面注入欄位的同款 pattern。方向是**角色收外部給的 source**，而不是角色去查詢全域——不需要 Singleton，也不需要讓 `Core` 認識 `App`。
+
+這正好對上 v0.26 §5 記下的那條判準：**游標是「高層擁有、低層回報意圖」，封鎖是「低層擁有、高層提供來源」；方向相反，因為那兩個狀態的 scope 不同。**
+
+### 5. 這一輪真正的收穫
+
+不是修好兩個 bug，是**驗證了那句話**：「依賴一個不知道為何存在的保護，比沒有保護更危險」。
+
+如果當初滿足於「實測沒事，收案」，那麼未來任何人修好 `isGrounded`（一個看起來完全無關、而且顯然正確的修復）都會**無預警地讓跳躍缺口重現**，且沒有任何線索指向關聯。這種 bug 會在半年後以「為什麼暫停完角色會跳一下」的形式回來，而且沒人找得到。
+
+**把「為什麼它現在沒壞」查清楚，和把壞掉的東西修好一樣重要。**
+
+### 6. 檔案與檢核
+
+* `MotionDriver`：新增 `IsTimeFrozen` 守衛，三個位移出口各一道早退
+* `GamePauseController`：實作 `IArbiterSource`
+* `CharacterPipelineRunner`：新增 `externalArbiterSources` 欄位與 `CollectArbiterSources()`（一次性收集、純索引迴圈、無 LINQ）
+* **新增測試 1 條**（`[Test]` 95 → **96**）：暫停時要求 `BlockInput`、解除後立即停止、且**不得順手抬別人的旗標**
+* ⚠️ `MotionDriver` 的守衛**無法自動測**（需要控制 `Time.deltaTime` 與真實 `CharacterController`），走人工驗收 §7.2-M8 ⑥⑦⑧
+* 🔴 **需要接線**：Runner 的 `External Arbiter Sources` 要拖入 `GamePauseController`，否則缺口仍開著
+
+---
+
 ## [v0.26] - Hold／Tap 分流、應用層暫停、游標擁有權歸位：一顆鍵、兩個 scope（2026-07-27）
 
 > 輪 4.1。v0.25 的 UI 模式是「按一下切換」，實際用起來想要的是兩件事：**按住** Alt 臨時放開滑鼠去點畫面上既有的 UI（遊戲繼續跑），**短按** Alt 開介面並暫停。同一顆鍵、兩種行為——聽起來像個小需求，實際上逼出了一層新的東西。

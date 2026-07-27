@@ -25,6 +25,14 @@ namespace Project.Core.Pipeline
         [Tooltip("實作 IMovementModel 的元件（預設＝同物件上的 LocomotionModel）。留空時自動 GetComponent。")]
         [SerializeField] private MonoBehaviour movementModelComponent;
 
+        // 🆕（2026-07-27）角色階層**之外**的仲裁來源注入點（DIP）：應用層的全域狀態
+        // （首例＝GamePauseController 的暫停要求封鎖輸入）依定義不掛在角色階層上，
+        // Start 的 GetComponentsInChildren 掃不到它。以 Inspector 明確引用收進來——
+        // 方向正確（**角色收外部給的 source**，而非角色去查詢全域），也不需要 Singleton。
+        [Tooltip("角色階層外、實作 IArbiterSource 的元件（首例＝場景中的 GamePauseController）。\n" +
+                 "留空＝只用角色身上的仲裁來源，行為與加入本欄位前完全等價。")]
+        [SerializeField] private MonoBehaviour[] externalArbiterSources;
+
         [SerializeField] private Transform playerCamera;
 
         private IInputSource _inputSource;
@@ -161,7 +169,7 @@ namespace Project.Core.Pipeline
             //    「缺狀態機就 return」那條防線一併擋下，**不是**真的完全獨立於狀態機配置。
             //    這可接受：同一條防線也擋掉了順序 1～3，整條輸入管線都沒在跑，此時「封鎖輸入」本無意義。
             // ⚠️ 收集只在此處發生——執行期 Tick 不得再 GetComponents／配置任何集合（零 GC 熱路徑紀律）。
-            _arbiterPipeline = new ArbiterPipeline(GetComponentsInChildren<IArbiterSource>());
+            _arbiterPipeline = new ArbiterPipeline(CollectArbiterSources());
 
             if (stateMachineConfig == null)
             {
@@ -290,6 +298,48 @@ namespace Project.Core.Pipeline
             // =================================================================
             // 🆕（M2）【順序 7】統一復位所有單幀事件（意圖 + JustLanded/JustLeftGround），一致生命週期。
             _runtimeData.ResetTransientState();
+        }
+
+        /// <summary>
+        /// 🆕（2026-07-27）一次性收集所有仲裁來源：角色階層內的 ＋ Inspector 指定的階層外來源。
+        /// ⚠️ **只在 Start 呼叫**——執行期 Tick 不得再 `GetComponents` 或配置任何集合（零 GC 熱路徑紀律）。
+        /// 刻意不用 LINQ（§7-A3 禁令），純索引迴圈。
+        /// </summary>
+        private IArbiterSource[] CollectArbiterSources()
+        {
+            IArbiterSource[] local = GetComponentsInChildren<IArbiterSource>();
+
+            int externalCount = 0;
+            if (externalArbiterSources != null)
+            {
+                for (int i = 0; i < externalArbiterSources.Length; i++)
+                {
+                    if (externalArbiterSources[i] == null) continue;
+
+                    if (externalArbiterSources[i] is IArbiterSource)
+                    {
+                        externalCount++;
+                    }
+                    else
+                    {
+                        Debug.LogError($"[{gameObject.name}] externalArbiterSources[{i}]" +
+                                       $"（{externalArbiterSources[i].GetType().Name}）沒有實作 IArbiterSource，已略過。", this);
+                    }
+                }
+            }
+
+            if (externalCount == 0) return local; // 常見情況：沒有外部來源，直接沿用原陣列、不多配置
+
+            var combined = new IArbiterSource[local.Length + externalCount];
+            for (int i = 0; i < local.Length; i++) combined[i] = local[i];
+
+            int next = local.Length;
+            for (int i = 0; i < externalArbiterSources.Length; i++)
+            {
+                if (externalArbiterSources[i] is IArbiterSource source) combined[next++] = source;
+            }
+
+            return combined;
         }
 
         /// <summary>

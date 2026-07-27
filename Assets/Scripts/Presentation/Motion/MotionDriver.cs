@@ -41,6 +41,29 @@ namespace Project.Presentation.Motion
         // （JustLanded / JustLeftGround 的唯一觸發源比較基準）。
         private bool _wasGrounded;
 
+        /// <summary>
+        /// 🆕（2026-07-27）本帧沒有時間流逝（實務上＝<c>Time.timeScale == 0</c> 的暫停）。
+        /// 為 true 時**整個位移結算跳過**：不呼叫 <c>Move</c>、不重算觸地與單幀邊沿旗標。
+        ///
+        /// **為什麼需要這道守衛（真實 bug，非防禦性程式碼）**：
+        /// 位移出口是 <c>Move(finalMovement * Time.deltaTime)</c>，<c>deltaTime = 0</c> 時等同
+        /// <c>Move(Vector3.zero)</c>。而 Unity 的 <c>CharacterController.isGrounded</c> 是由
+        /// **上一次 Move 有沒有向下撞到東西**決定的——零位移沒有向下推，於是回報 **false**。
+        /// 症狀是連鎖的：暫停第 2 帧 <c>JustLeftGround</c> 假觸發、暫停期間 <c>IsGrounded</c> 恆 false、
+        /// 解除暫停後角色「重新著地」→ **<c>JustLanded</c> 假觸發 → 站在地上暫停再解除就會聽到落地聲**
+        /// （2026-07-27 實測確認）。
+        ///
+        /// ⚠️ 本守衛刻意表述為「**沒有時間流逝**」而不是「暫停」——<c>MotionDriver</c> 不認識暫停，
+        /// 它只知道「沒有時間就沒有東西要積分、沒有位移要結算、也沒有邊沿可偵測」。
+        /// 這讓守衛對任何造成 <c>deltaTime == 0</c> 的原因都成立，且不引入對應用層的依賴。
+        ///
+        /// 📌 **連帶效應（已知且刻意）**：修好之後 <c>IsGrounded</c> 在暫停期間會正確地維持 true，
+        /// 於是 <c>JumpState.CanEnter</c>（＝<c>JumpRequested &amp;&amp; IsGrounded</c>）會成立。
+        /// 原本「暫停中按跳躍不會跳」靠的正是上述 bug 的副作用，**不是任何設計**。
+        /// 該缺口改由 <c>GamePauseController</c> 以 <c>IArbiterSource</c> 要求 <c>BlockInput</c> 正式關閉。
+        /// </summary>
+        private static bool IsTimeFrozen => Time.deltaTime <= 0f;
+
         private void Awake()
         {
             _activeGravity = gravity; // 預設重力，之後可被單次跳躍發射覆寫
@@ -91,6 +114,8 @@ namespace Project.Presentation.Motion
         /// </summary>
         public void ExecuteBaseMovement(PlayerRuntimeData data)
         {
+            if (IsTimeFrozen) return; // 見 IsTimeFrozen 的說明：零位移的 Move 會毀掉 isGrounded
+
             Vector3 horizontalVelocity = Vector3.zero;
 
             // 只有在玩家有推搖桿(WASD)且相機引用存在時，才計算轉向與 procedural 速度
@@ -132,6 +157,7 @@ namespace Project.Presentation.Motion
         public void ExecuteBakedCurveMovement(MotionBakeData bakeData, float normalizedTime, PlayerRuntimeData data)
         {
             if (bakeData == null) return;
+            if (IsTimeFrozen) return; // 同 ExecuteBaseMovement，見 IsTimeFrozen 的說明
 
             // 1. 將 0~1 的進度還原為實際時間（秒）
             float currentTime = normalizedTime * bakeData.Duration;
@@ -162,6 +188,7 @@ namespace Project.Presentation.Motion
         public void ApplyBakedCompensation(MotionBakeData bakeData, Vector3 actualTarget, float normalizedTime, PlayerRuntimeData data)
         {
             if (bakeData == null) return;
+            if (IsTimeFrozen) return; // 同 ExecuteBaseMovement，見 IsTimeFrozen 的說明
 
             float currentTime = normalizedTime * bakeData.Duration;
             float remainingTime = bakeData.Duration - currentTime;

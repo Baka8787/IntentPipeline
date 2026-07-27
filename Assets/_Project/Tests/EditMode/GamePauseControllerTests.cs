@@ -3,6 +3,8 @@ using System.Reflection;
 using NUnit.Framework;
 using UnityEngine;
 using Project.App;
+using Project.Core.Arbitration;
+using Project.Core.Blackboard;
 
 namespace Project.Tests.EditMode
 {
@@ -122,6 +124,33 @@ namespace Project.Tests.EditMode
             controller.TogglePause();
             Assert.IsFalse(controller.IsPaused, "第二次切換應解除暫停");
             Assert.AreEqual(1f, Time.timeScale, 1e-6f);
+        }
+
+        [Test]
+        public void Evaluate_RequestsBlockInput_OnlyWhilePaused()
+        {
+            // 🎯 這條守的是「暫停中按跳躍不會跳」**是被設計出來的**，而不是別的 bug 的副作用。
+            // 背景：timeScale = 0 不會阻止 trigger 意圖寫入黑板，也不會阻止 FSM 轉移——
+            // JumpState.CanEnter ＝ JumpRequested && IsGrounded，兩者皆與時間無關；
+            // 而它的落地判定靠 _airborneTimer += deltaTime，暫停時恆加 0 ⇒ 進得去退不出來。
+            // 先前之所以「看起來沒事」，是因為 Move(Vector3.zero) 讓 isGrounded 變 false 剛好擋住；
+            // 那個 bug 修掉後保護就消失了，所以缺口必須由本來源正式關閉。
+            GamePauseController controller = CreateController();
+            var data = new PlayerRuntimeData();
+
+            Assert.IsFalse(controller.Evaluate(data).BlockInput, "未暫停時不得要求封鎖輸入");
+
+            controller.SetPaused(true);
+            Assert.IsTrue(controller.Evaluate(data).BlockInput, "暫停時必須要求封鎖輸入");
+
+            controller.SetPaused(false);
+            Assert.IsFalse(controller.Evaluate(data).BlockInput, "解除暫停後必須立即停止要求封鎖");
+
+            // 本來源只管輸入：封鎖 IK／音效／表情是別人的決定，不得順手抬別人的旗標
+            ArbiterData request = controller.Evaluate(data);
+            Assert.IsFalse(request.BlockIK, "暫停來源不得順手要求封鎖 IK");
+            Assert.IsFalse(request.BlockAudio, "暫停來源不得順手要求封鎖音效");
+            Assert.IsFalse(request.BlockExpression, "暫停來源不得順手要求封鎖表情");
         }
 
         [Test]
