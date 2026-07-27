@@ -12,10 +12,21 @@
 
 ---
 
-## 🔴 待使用者操作：輪 4.1 落地後的 Unity 端驗收（2026-07-27）
+## 🟡 驗收結果：輪 4／4.1／4.2（2026-07-27，**剩一項**）
 
-> 程式／測試／文件已全部寫完（changelog v0.26）。以下**只能由你在 Unity 做**（AI 不碰 `.prefab`／`.asset`／`.meta`／場景）。
-> ✅ 輪 4 本體（ArbiterPipeline ＋ UI 模式 toggle 版）已驗收通過，本段只列**輪 4.1 新增／變更**的部分。
+> 程式／測試／文件已全部寫完（changelog v0.25–v0.26）。
+>
+> **✅ 已通過**：EditMode **95 條全綠**／UI 模式（M7）／暫停與解除（M8 ①②）／Alt 不會誤觸暫停（③）／兩模式交錯時游標不被誤鎖（④）／游標自癒（M9 ⑤）／**§7.4 零 GC 複驗＝0 B**（已記入 §7.4.6）。
+>
+> **🛑 已知限制（非程式問題）**：`Alt`+`Esc` 是 **Windows 系統快捷鍵**，交錯按會被 OS 攔截並丟出遊戲視窗。M8 ④ 已改測等價的反向順序（先 Esc 後 Alt）。選 modifier 型持續按鍵前務必先查 OS 保留組合——詳見 dev-spec §1.4。
+>
+> **⬜ 唯一未結項 → M8 ⑤ 的後半**：暫停中按 **Space**，看 Inspector 監視器最上方的 **`[Current State]`** 是否由 `IDLE` 變 `JUMP`。
+> * **移動不會排隊已確認且屬結構保證**（連續型意圖每帧覆寫 ＋ B9 吃 `deltaTime = 0` 推不動），這半已結案。
+> * **trigger 意圖是另一回事**：`FullBodyStateMachine.Tick` 沒有 deltaTime 閘門，`JumpState.CanEnter` ＝ `JumpRequested && IsGrounded`，兩者皆與時間無關——**程式碼層面沒有任何東西阻止暫停中切進 JumpState**。
+> * ⚠️ **看狀態欄，不要看畫面**：解除暫停後那一下跳躍可能不顯眼，肉眼會漏。
+> * **若沒轉移，要查出是什麼擋住的**——依賴一個不知道為何存在的保護，比沒有保護更危險。
+>
+> 以下接線步驟保留備查（AI 不碰 `.prefab`／`.asset`／`.meta`／場景）。
 
 ### A. Inspector 綁定
 
@@ -46,7 +57,7 @@
 | 2 | ⚠️ **關鍵項**：再按 Esc | 必須能解除，且 `timeScale` 回到暫停前的值。這條驗證 `Update` 在 `timeScale == 0` 下照跑——若失敗，暫停將無法解除，回報我處理 |
 | 3 | **按住** Alt 超過 0.25s | 進 UI 模式（游標出現、相機停轉、角色 B9 收步），**且不會順便暫停** |
 | 4 | 放開 Alt | UI 模式全部復原 |
-| 5 | 🆕 按住 Alt → 按 Esc 暫停 → 放開 Alt | 游標**必須仍然可見**。改綁 Esc 後這個交錯情境才成立（共用 Alt 時物理上做不到），是單一游標擁有者的實證 |
+| 5 | 🆕 **先按 Esc 暫停 → 再按住 Alt → 放開 Alt** | 游標**必須仍然可見**。這是單一游標擁有者的實證（其一收手不得解除另一個的要求）。<br>⚠️ **順序不可顛倒**：`Alt`+`Esc` 是 Windows 系統快捷鍵（切換視窗），OS 層就攔截、Unity 收不到，實測會被丟出遊戲視窗——**鍵位與 OS 撞號，非程式問題**（2026-07-27 實測確認） |
 | 6 | 已知缺口複驗 | 暫停中按跳躍 → 解除後是否會「補跳」（暫停刻意不封鎖輸入，見 §7.3） |
 
 **游標擁有權（＝dev-spec §7.2-M9，輪 4.2 新增）**
@@ -64,7 +75,7 @@
 ### C. 回歸
 
 * **EditMode 全綠**：83 條 ＋ `GamePauseControllerTests` 6 條 ＋ `CursorModeControllerTests` 6 條 → **95 條**
-* **零 GC 複驗**（§7.4 SOP）：`UiModeArbiterSource` 的 `Evaluate` 改了邊沿判定但仍無 new／無字串；`GamePauseController` 的 `Update` 只在按鍵當帧做事。仍建議重驗 Development Build 穩態 `PlayerLoop` `GC Alloc` = **0 B**
+* ✅ **零 GC 複驗已完成**（2026-07-27）：本輪三處新增熱路徑（順序 4.5 `ArbiterPipeline.Tick`、`GamePauseController.Update`、`CursorModeController.Update`）實測維持 **0 B**，明細記入 **dev-spec §7.4.6**
 * **Editor 錯誤複驗**：`CharacterPipelineRunnerEditor` 已改用 `RequiresConstantRepaint()`。確認 `GUIClips` 失衡與 `SerializedProperty has been Disposed` 兩條是否消失；**若仍出現**，把 `PlayerInputSource` 與 `UiModeArbiterSource` 兩顆元件在 Inspector 摺疊起來再測一次（可確認是否為 InputAction drawer），並考慮把 `UiModeArbiterSource` 移到角色的**子物件**（`GetComponentsInChildren` 照樣找得到）
 
 ---
@@ -73,13 +84,26 @@
 
 > 📍 開場照舊：`docs/00-map.md` → 本段 → 只讀任務對應的 ADR／章節。
 
-**先確認上面 🔴 那段的 Unity 驗收有沒有過**；沒過就先修那裡，不要開新輪次。
+**先結掉上面 🟡 那段剩下的 M8 ⑤**（暫停中按 Space 看 `[Current State]`）；那一項會決定要不要順手補「暫停封鎖輸入」。
 
-驗收過了之後，下一輪的候選（**依然沒有預設答案，由你選**）：
+### 主推薦：輪 3 Footstep（**建議不照 roadmap 的 5 → 6 順序走**）
 
-* **輪 3 Footstep**：`FootPhaseCurve` 在 v0.19 已烘進 4 支 loop，**至今沒有任何消費者**——會是它的第一個真實使用者，並驗證「烘焙曲線 → 表現層事件」這條資料流。已有 `AudioController` 可擴充（它也已經在讀 `BlockAudio`，本輪起那顆旗標終於是活的），規模小。
-* **Phase C 停步分腿姿勢**：動畫品質收益最大，但也最大輪、會動到 locomotion 核心手感。
-* **README 的 D 項**：What works today／控制列表／gait 數值來源鏈／**GIF**。控制方案這一輪才真正補完（Alt 是最後一顆），現在寫控制列表才是完整的。**GIF 仍是作品集首頁最大的單一缺口。**
+`docs/03-animation-roadmap.md` 排的是輪 5 Upper Body → 輪 6 Combat。**建議跳過輪 5，先做輪 3**，理由是這個專案自己的紀律：
+
+* **輪 5 Upper Body Layer 現在沒有消費者。** 它的存在理由是「Combat 需要」，但 Combat 是輪 6。**先蓋基礎設施再等使用者，正是本專案一路刻意避開的事**——輪 4 的 `BlockInput` 讀取契約足足等了兩輪才等到真實 writer，等到時形狀是清楚的；Upper Body 沒有這個條件，現在做等於憑空決定「第二個 StateMachine vs Facade API」（roadmap §4-4 的未決點）。
+* **輪 3 反而有一個已經在等的消費者**：`FootPhaseCurve` 在 v0.19 就烘進 4 支 loop（401·61·47·39 keys），**至今零消費者**。烘出來的資料沒人用，等於專案最核心的差異化敘事「自研烘焙管線 → 執行期表現」**還沒閉環過一次**。
+* **附帶收益**：`AudioController` 的 Event → Definition → Library 三層目前只有落地音一個實例；Footstep 是第二個——就像輪 4 驗證了「讀取契約先行」，這會驗證三層查表是否真的可擴充。
+
+**輪 3 要先裁決的點**（roadmap §4-2，不預答）：Animation Event 的承載選擇——`TransitionAsset` 序列化事件 vs 黑板單幀事件擴充，**哪類事件走哪條**。這條線畫錯會讓兩套機制長期混用。
+
+### 順手可做，不需獨立輪次
+
+**README 的 D 項 ＋ GIF。** 現在是寫「控制列表」最好的時機——控制方案這兩輪才真正補完（WASD／Ctrl／Shift／Space／Alt／Esc 六項齊了），在此之前寫都會過時。**GIF 仍是作品集首頁最大的單一缺口**，而素材已齊（0 GC 已驗、locomotion 手感已調、UI 模式與暫停可展示）。
+
+### 明確不建議現在動
+
+* **輪 5 Upper Body**：等 Combat 帶著真實需求進場（理由同上）
+* **Phase C 停步分腿**：動畫品質收益最大，但會動 locomotion 核心手感，且要重烘——建議跟 🐛 `ComputeAverageSpeed` 0 值哨兵偏差（低估 1.6~2.6%）綁一起做，反正都要重烘一次
 
 ⛔ **明確沒做、也不要順手做**的（都是刻意延後，理由見 changelog v0.25 §6 與 v0.26 §7）：死亡 ArbiterSource、優先級／強制解封、鏡頭跳動抑制器、**Pause Menu／Canvas／EventSystem／UI navigation**、**暫停時封鎖角色輸入**、把 `CursorModeController` 的來源一般化成介面集合。
 

@@ -302,7 +302,12 @@ public interface IArbiterSource
 >
 > **分流方式＝Input System 原生 interaction，不是自刻計時器**（輪 4.1 裁決）：`Hold`／`Tap` 門檻在 Inspector 可調。理由同 `GaitProfileSO.walkIsToggle`——**操作語意是 per-game 差異，應該住在資產而不是程式碼**。
 >
-> 🔄 **輪 4.2：暫停改綁獨立的 Esc**，兩者不再共用 Left Alt。連帶影響兩點：①原本「**Tap 門檻必須 ≤ Hold 門檻**」的相依**已解除**，`PauseToggleAction` 也不再需要 `Tap` interaction（獨佔一顆鍵，一般 Button 綁定即可）；②⚠️ **「按住 Alt 時按 Esc 暫停、再放開 Alt」變成做得到的操作**——共用同一顆鍵時它物理上不可能。這正是游標必須有**單一擁有者**（而非各模式自己存○還原）的實證情境，見 changelog v0.26 §5。
+> 🔄 **輪 4.2：暫停改綁獨立的 Esc**，兩者不再共用 Left Alt。連帶影響兩點：①原本「**Tap 門檻必須 ≤ Hold 門檻**」的相依**已解除**，`PauseToggleAction` 也不再需要 `Tap` interaction（獨佔一顆鍵，一般 Button 綁定即可）；②**兩個滑鼠模式變成可以同時開著**（暫停中再按住 Alt），這正是游標必須有**單一擁有者**（而非各模式自己存○還原）的實證情境，見 changelog v0.26 §5。
+>
+> 🛑 **鍵位選擇的既有地雷：OS 保留組合鍵**（2026-07-27 實測）。`Alt`+`Esc` 是 **Windows 系統快捷鍵**（切換視窗），在 OS 層就被攔截，Unity 完全收不到——實測「按住 Alt 再按 Esc」會直接把使用者丟出遊戲視窗。同族還有 `Alt`+`Tab`／`Alt`+`F4`／`Alt`+`Space`。
+> **這是鍵位與作業系統撞號，不是程式問題**，任何架構都擋不住；只能靠選鍵避開。
+> **現況為已知限制**：「按住 Alt 時按 Esc」不可用；反向順序（先 Esc 暫停、再按住 Alt）完全正常，且測得到同一個不變量（見 §7.2-M8 ④）。
+> ⚠️ **選 modifier 型持續按鍵時務必先查 OS 保留組合**——`Alt` 尤其危險，它在 Windows 上參與多組系統快捷鍵。
 >
 > ⚠️ **刻意接受的 UX 取捨（使用者裁決）**：因為「放開之前無法知道它是不是 tap」，要嘛 tap 會先閃一下 UI 模式，要嘛 hold 要等門檻。本專案選**後者**——Tap **不**先觸發 Hold，代價是按住後約 0.25s 游標才出現。日後調整的是**門檻數值**，不是新增更複雜的判定機制。
 >
@@ -1149,7 +1154,7 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | **M4** | 🆕 **改為兩段**：①**Mixer threshold 必須**等於 `speed_i / speed_max`（不可協商的校準，錯了必滑步）；②`GaitProfileSO` 的 gait intensity 以該公式為**基準參考**，允許依手感偏離（不會滑步，見 §3.1 釐清），但偏離時要知道自己選的是混合姿態 | 數值來源的正確性無法從程式碼判定（B11 決策：公式文件化、設計師手填）；「姿態好不好看」更是純人為判斷 | 建立／調整 gait 資產、或更換 locomotion clip 時 |
 | **M5** | ✅ **已結案（輪 4，2026-07-27）**：`BlockInput` ＝「**本帧管線看不到任何輸入**」，實作為在順序 2 閘門把 `InputData` 整份歸零，順序 2 與 2.5 照常執行。**裁決理由**（三段，缺一不可）：①**不能只是跳過 2.5**——`MovementIntent` 是連續型意圖、不參與順序 7 復位，跳過 ≠ 歸零而是**凍結在最後一帧**（封鎖瞬間若正全速跑，角色會以全速無限前進且放不下來）；②**不能改為歸零 `MovementIntent`**——那需要它的第二寫入者，直接違反 A5，且會逼 producer 認識「封鎖」而破壞 ADR-003 D2 的 context-free；③**歸零 `InputData` 三者兼得**——單一寫入者不變、producer 零改、且順序 2 與 2.5 收斂成同一個語意。**手感**（使用者裁決）：意圖歸零 → B9 減速時間常數收步，與「放開 WASD」完全同款，零新增機制、不動 `IMovementModel` 介面 | — | — |
 | **M7** 🆕 | **UI 模式行為驗收**（Play 模式）。🔄（輪 4.1）語意已由「按一下切換」改為「**按住生效**」，下列各項的觸發方式隨之改為**按住 Left Alt 超過 Hold 門檻**：①游標解鎖並顯示、相機**同帧**停止吃 Mouse Delta；②**下一帧**輸入封鎖生效（一帧延遲屬設計，見 §2.1 脆弱點第 7 條）；③封鎖時按著 W，角色**滑行收步**至停止而非瞬間定格；④封鎖期間 Ctrl 的 Walk 型態不被誤翻，解除後型態原樣保留；⑤**放開** Alt 後恢復輸入／相機／移動。⚠️ **附帶觀察項**：重新鎖定游標的當帧可能有一次小幅鏡頭跳動（Unity 的 `Mouse.delta` 在解鎖期間照常回報）。觸發時手在按鍵、滑鼠通常靜止，預估風險低，**刻意不預先做抑制器**；若實測明顯再處理 | 邊沿輸入與游標狀態需要真實 Input System 更新迴圈，EditMode 無法確定性重現（管線側的 OR 合併／零輸入語意已由 `ArbiterPipelineTests` 自動守住） | 輪 4 落地後首次進 Editor；每次動仲裁來源 |
-| **M8** 🆕 | **Hold 分流 ＋ 暫停驗收**（Play 模式，輪 4.1；🔄 4.2 起暫停鍵＝Esc）：①按 **Esc** → 世界凍結（角色、動畫全停）；②再按 Esc → 恢復，且恢復後的 `timeScale` 是暫停前的值——⚠️ **這條是關鍵**：它驗證暫停中輸入仍能被處理（`Update` 在 `timeScale == 0` 下照跑）。若失敗，暫停將無法解除；③**按住** Alt 超過門檻 → 進 UI 模式（游標出現），**且不會順便觸發暫停**；④🆕（4.2）**按住 Alt → 按 Esc 暫停 → 放開 Alt** → 游標**必須仍然可見**（共用按鍵時此情境不可能發生，改綁 Esc 後才成立，見 M9 ③）；⑤已知缺口複驗：暫停中按跳躍，解除後是否會「補跳」（見 §7.3） | interaction 與 `timeScale` 的互動需要真實 Input System 更新迴圈，EditMode 無法確定性重現（暫停器的狀態機／還原／防呆已由 `GamePauseControllerTests` 自動守住） | 輪 4.1 落地後首次進 Editor；每次動 Hold 門檻或暫停綁定 |
+| **M8** 🆕 | **Hold 分流 ＋ 暫停驗收**（Play 模式，輪 4.1；🔄 4.2 起暫停鍵＝Esc）：①按 **Esc** → 世界凍結（角色、動畫全停）；②再按 Esc → 恢復，且恢復後的 `timeScale` 是暫停前的值——⚠️ **這條是關鍵**：它驗證暫停中輸入仍能被處理（`Update` 在 `timeScale == 0` 下照跑）。若失敗，暫停將無法解除；③**按住** Alt 超過門檻 → 進 UI 模式（游標出現），**且不會順便觸發暫停**；④🆕（4.2）**先按 Esc 暫停 → 再按住 Alt 進 UI 模式 → 放開 Alt** → 游標**必須仍然可見**。⚠️ **順序不可顛倒**：`Alt`+`Esc` 是 Windows 系統快捷鍵（切換視窗，同族還有 Alt+Tab／F4／Space），在 OS 層就被攔截、Unity 收不到，實測會直接丟出遊戲視窗。**這不是程式問題，是鍵位與 OS 撞號**；此順序測到的不變量與顛倒順序完全相同（兩個滑鼠模式交錯時，其一收手不得解除另一個的游標要求）；⑤已知缺口複驗（🔬 2026-07-27 部分完成）：**移動不會排隊已確認**（結構保證，見 §7.3）；**尚待確認 trigger 意圖**——暫停中按 Space，看 Inspector 監視器的 **`[Current State]`** 是否由 IDLE 變 JUMP。⚠️ **看狀態欄而不是看畫面**：解除暫停後那一下跳躍可能不顯眼，肉眼判斷會漏。若確實轉移＝缺口為真；**若沒轉移，要查出是什麼擋住的**——依賴一個不知道為何存在的保護，比沒有保護更危險 | interaction 與 `timeScale` 的互動需要真實 Input System 更新迴圈，EditMode 無法確定性重現（暫停器的狀態機／還原／防呆已由 `GamePauseControllerTests` 自動守住） | 輪 4.1 落地後首次進 Editor；每次動 Hold 門檻或暫停綁定 |
 | **M9** 🆕 | **游標唯一擁有者驗收**（Play 模式，輪 4.2）：①開場游標即被鎖住、相機正常轉動（＝`CursorModeController` 有接上，且它接手了原本 `ThirdPersonCamera.Start` 的初始鎖定）；②**暫停期間游標常駐可見**；③**關鍵回歸**：暫停中按住 Alt 進 UI 模式、再放開 → **游標必須仍然可見**（舊架構在此會把游標鎖回去，正是本輪修的 bug；合併邏輯已由 `CursorModeControllerTests` 自動守住，這裡驗的是實際套用到 `Cursor` 的那一段）；④兩個模式都退出後游標回到鎖定；⑤🆕 **外力改動後要自癒**：Play 模式中讓視窗失焦再切回（或任何會被 Unity 內建解鎖游標的操作），游標必須在下一帧被拉回鎖定——**這條是初版 bug 的回歸**：初版快取「自己上次寫了什麼」，一旦 Unity Editor 在背後解鎖（按 Esc、視窗失焦都會），就永遠認為已套用而不再修正，游標永久可見。現版比對 `Cursor` 現值，故自癒 | `Cursor.lockState` 是全域且與編輯器視窗焦點互動的狀態，EditMode 斷言它既不穩定又會污染測試回合（連還原都不可靠），故只自動測合併政策（`WantsFreeCursor`），套用行為人工驗 | 輪 4.2 落地後首次進 Editor；每次新增滑鼠模式 |
 | **M6** | ADR-003 契約語意複驗：新 domain 是否開**兄弟 region**（非擴脹 `MovementIntent`）；新 producer 是否 context-free；新 model 是否自驅動畫參數 | 屬設計意圖層面，靜態掃描只能守 import 邊界（A4） | 每次新增 domain／producer／model |
 
@@ -1165,7 +1170,7 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | 🆕（輪 4）**多來源封鎖只做 OR，無優先級／強制解封** | `ArbiterPipeline` 對所有 `IArbiterSource` 的請求做純 OR；任一來源要求即封鎖，沒有任何來源能否決他人的封鎖 | **刻意的 YAGNI**：優先級需要真實的競爭情境（死亡 vs 過場誰贏？無敵幀該不該壓過 CC？）才能裁決語意，現在決定＝在沒有壓力測試下把介面定死。⚠️ 但**擴充成本已預先壓到最低**：來源回傳自己的請求、合併政策獨佔於管線一個迴圈——屆時改一個檔案，所有來源零改動。§2.4 舊規格提過的「優先級疊加」正式歸入本列 |
 | 🆕（輪 4）**`Cursor.lockState` 兼任相機的 Mouse Delta 閘門** | `ThirdPersonCamera` 以 `Cursor.lockState == CursorLockMode.Locked` 決定要不要吃滑鼠位移，而非讀黑板 `Arbitration` | **刻意的現階段取捨，不是「`Cursor.lockState` 永遠是全域權威」的宣告**。成立前提：全專案目前只有 UI Mode **一個**滑鼠模式，且相機不是 `IPresentationController`、不持有黑板——用既有游標狀態當判準是零新增依賴的最小解。⚠️ **失效條件明確**：一旦出現 Pause／Inventory／Dialogue／Cutscene 等**多個**滑鼠模式（它們對相機的期望未必一致），就要重新裁決是否需要一份更上游的 camera-input contract。在那之前不預造。<br>🔄 **輪 4.2 複驗結論：這條仍然成立，但成立的理由換了。** 現在確實有**兩個**滑鼠模式（UI 模式、暫停），兩者也**都會**放開游標——失效條件的前半段已觸發。但後半段沒有：兩個模式對相機的期望**一致**（都要停轉），所以「以 `Cursor.lockState` 判斷該不該吃 Mouse Delta」依然是對的答案。⚠️ **真正的失效條件因此收窄為**：出現一個「游標自由**但相機仍該轉**」（或反之）的模式。在那之前不動相機閘門 |
 | ~~（輪 4.1）暫停刻意不碰 `Cursor`~~ | ✅ **已結案（輪 4.2，2026-07-27）** | 輪 4.1 記錄的是「等真實壓力再裁決 Cursor 擁有權」，壓力在**同一個工作階段內**就到了（需求：暫停時游標常駐）。解法＝把 `Cursor` API 從 `UiModeArbiterSource` 整組移交 `App/CursorModeController`，**OR 合併所有「想要自由游標」的來源後套用一次**（形狀與 `ArbiterPipeline` 同源）。⚠️ **不採「存○還原」的替代方案**：那在現行綁定下也正確（兩模式共用 Left Alt，按住中無法再短按），但埋了一個 LIFO 假設——暫停日後改綁 Esc 就會壞。回歸由 `CursorModeControllerTests` 守（其中一條專門重現舊 bug），套用行為由 §7.2-M9 人工驗 |
-| 🆕（輪 4.1）**暫停不封鎖角色輸入** | `GamePauseController` 只切 `Time.timeScale`，未要求 `BlockInput` | **刻意的缺口**：`timeScale = 0` 已讓 `deltaTime` 歸零、位移與動畫全停，但 trigger 意圖仍會寫入黑板、FSM 仍以 `deltaTime = 0` Tick——**已知症狀是暫停中按跳躍可能在解除時「補跳」**（由 §7.2-M8 ⑥ 人工複驗）。真要修時，正解是讓暫停器實作 `IArbiterSource` 並由角色以 Inspector 引用（DIP），**不是**讓角色去查詢全域。⚠️ 注意這與上一列的 Cursor 解法**方向相反**且兩者都對：游標是「高層擁有、低層回報意圖」（App 讀角色），封鎖是「低層擁有、高層提供來源」（角色收 App 給的 source）——判準是**那個狀態的 scope 屬於誰** |
+| 🆕（輪 4.1）**暫停不封鎖角色輸入** | `GamePauseController` 只切 `Time.timeScale`，未要求 `BlockInput` | **刻意的缺口**。🔬 **2026-07-27 實測拆成兩半**：<br>✅ **連續型意圖（移動）不會排隊——這是結構保證**：`MovementIntent` 每帧整體覆寫，而 B9 平滑吃 `deltaTime = 0` 推不動，`MoveSpeed` 恆為 0；放開按鍵後意圖直接歸零。此半已結案。<br>⚠️ **trigger 意圖（Jump／Roll）仍是開口**：`FullBodyStateMachine.Tick` **沒有 deltaTime 閘門**（每帧無條件 `EvaluateTransitions`），而 `JumpState.CanEnter` ＝ `JumpRequested && IsGrounded`，兩者皆與時間無關——**程式碼層面沒有任何機制阻止暫停中切入 `JumpState`**。待 §7.2-M8 ⑤ 以 Inspector 的 `[Current State]` 確認實際是否轉移。真要修時，正解是讓暫停器實作 `IArbiterSource` 並由角色以 Inspector 引用（DIP），**不是**讓角色去查詢全域。⚠️ 注意這與上一列的 Cursor 解法**方向相反**且兩者都對：游標是「高層擁有、低層回報意圖」（App 讀角色），封鎖是「低層擁有、高層提供來源」（角色收 App 給的 source）——判準是**那個狀態的 scope 屬於誰** |
 | 🆕（輪 4）**`BlockInput` 有一帧延遲** | 仲裁在順序 4.5 評估、輸入閘門在順序 2，故封鎖旗標第 N 帧寫入、第 N+1 帧生效 | **刻意的時序取捨**（§2.1 脆弱點第 7 條）：4.5 卡在狀態機之後是為了讀到當幀更新後的 state。提前並不能消除延遲，只會把「旗標晚一帧生效」換成「旗標依過期狀態計算」。若未來出現無法容忍一帧的封鎖情境，正解是讓它走 **FSM 狀態**而非仲裁旗標 |
 | `MovementContext`（context 軸）未實作 | 只有 Locomotion 一個 model | **ADR-003 §9-L2／Stage 3**：第二個 model（Strafe／Swim）進場時才落地，並以它複驗 context 軸是否真的零改核心 |
 
@@ -1233,4 +1238,16 @@ Profiler 連線目標為 `<機器名> - CharacterController`（非 `Play Mode`�
 ![Development Build（Player 連線）穩態移動下 PlayerLoop 的 GC Alloc = 0 B](images/profiler/gc-alloc-zero-walk.png)
 
 **結論：達標。** 零 GC 自此可在 README／design-doc 寫成「**已驗證（Player 實測）**」，但措辭須限定範圍：**穩態移動**下 0 B；狀態切換幀的 Editor-only `Debug.Log`（§7.4.4）在 Release build 已被編譯移除，不在此量測範圍內亦不影響結論。
+
+#### 7.4.6 ✅ 複驗（2026-07-27，輪 4／4.1／4.2 後）
+
+熱路徑本輪新增三處，故依 §7.4 SOP 重驗，結果 **維持 0 B**：
+
+| 新增的熱路徑 | 為什麼可能帶進配置 | 設計上如何守住 |
+| --- | --- | --- |
+| 順序 4.5 `ArbiterPipeline.Tick` | 每帧迭代來源集合 | 陣列於 `Start` 一次性收集；`Tick` 為**索引 for**，不對介面型集合 `foreach`（§7.1-A3 的實測教訓）；`Evaluate` 回傳 4 bool 的 struct，值複製無配置 |
+| `GamePauseController.Update` | 每帧輪詢 `InputAction` | 只在按鍵當帧做事，無 new／無字串 |
+| `CursorModeController.Update` | 每帧比對並可能寫 `Cursor` | 只在與現值不一致時才寫；比較與屬性設值皆無配置 |
+
+**紀律重申**：每次新增管線階段或自帶 `Update` 的元件都要重跑本 SOP——A3 的靜態掃描抓不到裝箱類配置（§7.1-A3 能力邊界），只有 Profiler 抓得到。
 

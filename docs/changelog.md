@@ -91,6 +91,14 @@ else if (_uiMode && !UiModeAction.IsPressed()) SetUiMode(false);  // 鍵已不�
 
 連帶：`Tap` 門檻 ≤ `Hold` 門檻的相依解除，`PauseToggleAction` 也不再需要 `Tap` interaction。
 
+#### 5.3 驗收時撞到的第三件事：`Alt`+`Esc` 是 Windows 系統快捷鍵
+
+M8 ④ 原本寫「按住 Alt → 按 Esc 暫停 → 放開 Alt」。實測結果是**直接被丟出 Unity 視窗**——因為 `Alt`+`Esc` 在 Windows 是切換視窗的系統快捷鍵（等同不帶浮層的 Alt+Tab），OS 層就攔截了，Unity 根本收不到。同族還有 `Alt`+`Tab`／`Alt`+`F4`／`Alt`+`Space`。
+
+**這不是程式問題，任何架構都擋不住**，只能靠選鍵避開。處理方式是**改測相反順序**（先 Esc 暫停、再按住 Alt、再放開）——它測到的不變量完全相同（兩個滑鼠模式交錯時，其一收手不得解除另一個的游標要求），而且不碰 OS 快捷鍵。
+
+**記下來當紀律**：選 modifier 型的「持續按住」鍵位時，要先查作業系統保留了哪些組合。`Alt` 在 Windows 上特別危險——它參與多組系統快捷鍵，而遊戲業界又習慣用它做「放開滑鼠」。兩者相安無事的前提是**不要再跟其他鍵組合**。
+
 ### 6. 順手修掉的 Editor 錯誤（與本輪功能無關）
 
 ```
@@ -122,6 +130,8 @@ Pause Menu／Canvas／EventSystem／UI navigation、暫停時封鎖角色輸入�
   * `CursorModeControllerTests` 6 條：OR 合併／來源留空安全／**其中一個來源收手時另一個仍在要求則不得解除**（＝本輪 bug 的回歸測試）／全部收手才回到鎖定
 * ⚠️ 兩個測試檔都會動到全域狀態（`Time.timeScale`），**`SetUp` 記錄、`TearDown` 無條件還原**——否則一條測試失敗會讓整個測試回合在 `timeScale = 0` 下跑
 * `CursorModeControllerTests` 刻意**只測 `WantsFreeCursor` 不測 `Cursor` 本身**：游標是全域且與編輯器視窗焦點互動的狀態，EditMode 斷言它既不穩定、連還原都不可靠。套用行為屬人工驗收（§7.2-**M9**）
+* ✅ **零 GC 複驗通過**（2026-07-27，§7.4.6）：本輪新增三處熱路徑——順序 4.5 的 `ArbiterPipeline.Tick`（索引 for、`Evaluate` 回傳 struct 值複製）、`GamePauseController.Update`、`CursorModeController.Update`——實測維持 **0 B**
+* ✅ **一個原本擔心的缺口，有一半是結構保證的**：暫停中「移動不會排隊」不是運氣——連續型意圖每帧整體覆寫，而 B9 平滑吃 `deltaTime = 0` 推不動，`MoveSpeed` 恆為 0。⚠️ 但 **trigger 意圖（Jump／Roll）不同**：`FullBodyStateMachine.Tick` 沒有 deltaTime 閘門，`JumpState.CanEnter` ＝ `JumpRequested && IsGrounded` 亦與時間無關，**程式碼層面沒有任何東西阻止暫停中切進 `JumpState`**。待 M8 ⑤ 以 Inspector 的 `[Current State]` 確認（§7.3 已拆成兩半記錄）
 * 📌 最後那條刻意用**反射直接呼叫 `OnDisable`**，而不是靠 `DestroyImmediate` 觸發：EditMode 下 Unity 是否派送生命週期訊息不在測試的掌控範圍內，依賴它會讓成敗取決於引擎行為而非我們的程式。**要驗的是那段防禦碼寫對了沒有，就直接驗它**
 * ⚠️ 測試自身的紀律：`Time.timeScale` 是全域狀態，`SetUp` 建立確定性基準、`TearDown` 無條件還原——否則一條測試失敗會讓**整個測試回合**在 `timeScale = 0` 下跑
 * 人工驗收見 §7.2-**M8**，其中 ④「暫停中能否再短按解除」是關鍵項：它驗證 Input System 的 Tap 判定用的是不受 `timeScale` 影響的真實時間。**若該條失敗，暫停將無法解除**，必須改用 `Time.unscaledTime` 自行計時
