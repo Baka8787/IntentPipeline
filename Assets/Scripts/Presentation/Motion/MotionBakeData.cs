@@ -154,17 +154,27 @@ namespace Project.Presentation.Motion
         }
 
         /// <summary>
-        /// 計算速度曲線的平均瞬時速度（對關鍵影格值取算術平均）。烘焙採等距取樣、關鍵影格均勻分布，
-        /// 故算術平均即時間平均。曲線為 null／空時回傳 0。供烘焙工具寫入 <see cref="AutoAverageSpeed"/>
-        /// 與執行期回退共用同一套定義，杜絕兩處計算不一致。
+        /// 計算速度曲線的平均瞬時速度（對有效關鍵影格值取算術平均）。烘焙採等距取樣、關鍵影格均勻分布，
+        /// 故算術平均即時間平均。<c>MotionBakeEditor</c> 為了建立曲線起點，會在尚無前一帧可計算速度的
+        /// time=0 寫入 value=0 哨兵；曲線還有後續實際樣本時，此哨兵不參與平均，避免代表速度被系統性低估。
+        /// 曲線為 null／空時回傳 0。供烘焙工具寫入 <see cref="AutoAverageSpeed"/> 與執行期回退共用同一套定義，
+        /// 杜絕兩處計算不一致。
         /// </summary>
         public static float ComputeAverageSpeed(AnimationCurve speedCurve)
         {
             if (speedCurve == null || speedCurve.length == 0) return 0f;
 
+            int firstSampleIndex = 0;
+            if (speedCurve.length > 1)
+            {
+                Keyframe firstKey = speedCurve[0];
+                if (firstKey.time == 0f && firstKey.value == 0f)
+                    firstSampleIndex = 1;
+            }
+
             float sum = 0f;
-            for (int i = 0; i < speedCurve.length; i++) sum += speedCurve[i].value;
-            return sum / speedCurve.length;
+            for (int i = firstSampleIndex; i < speedCurve.length; i++) sum += speedCurve[i].value;
+            return sum / (speedCurve.length - firstSampleIndex);
         }
     }
 }

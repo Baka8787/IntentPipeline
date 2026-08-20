@@ -162,7 +162,11 @@ namespace Project.Core.Pipeline
             // 🆕（M2）建立表現層驅動骨架：一次性收集角色階層下所有 IPresentationController。
             // 放在狀態機檢查之前——表現管線獨立於狀態機配置，不因缺 Config 連坐停擺。
             // GetComponentsInChildren 僅在 Start 配置一次（預設不含未啟用物件），執行期零 GC。
-            _presentationPipeline = new PresentationPipeline(GetComponentsInChildren<IPresentationController>());
+            // 🆕（M3.x-B）第二個陣列＝表現層事件來源。收集點與時機與 Controller 完全相同，
+            // **不新增管線階段**——發布發生在既有順序 6.5 的末尾（見 PresentationPipeline.Tick）。
+            _presentationPipeline = new PresentationPipeline(
+                GetComponentsInChildren<IPresentationController>(),
+                GetComponentsInChildren<IPresentationEventSource>());
 
             // 🆕（輪 4）仲裁來源同樣一次性收集，同樣放在狀態機檢查之前——缺 Config 時**建構**仍會完成。
             // ⚠️ 但與 PresentationPipeline 不同，仲裁的 Tick（順序 4.5）住在 Update 內，會被上方

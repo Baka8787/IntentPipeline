@@ -254,22 +254,22 @@ _analyzers = new List<IMotionFeatureAnalyzer>
 - `MotionDriver.ExecuteBaseMovement`：`currentSpeed = data.MoveSpeed × moveSpeed`（正規化 [0,1] × m/s）。
 - 黑板 `MoveSpeed` = `input.MoveInput.magnitude` ∈ **[0,1]**（`CharacterPipelineRunner.ProcessParameters`）。
 - `AnimancerFacade` 無 Mixer 引用，只 `SetFloat("MoveSpeed", MoveSpeed)`；Mixer 結構全在資產、由資產內 ParameterName 綁定驅動。
-- **自洽性**：門檻ᵢ = speedᵢ / speed_max、實際速度 = speed_max × MoveSpeed → 當 MoveSpeed 到達門檻ᵢ 時，實際速度 = speedᵢ = 該 clip 天生腳速 → **不滑步**。
+- **自洽性**：Threshold `tᵢ` 由手感決定；子動畫播放倍率依 `tᵢ × speed_max / speedᵢ` 派生。於門檻點，動畫循環平均速度即為 `tᵢ × speed_max`，與 procedural 速度一致；持續同步關閉時，Linear Mixer 的混合區間亦維持此等式。
 - ∴ Facade／Runner／MotionDriver 皆不改一行——**驗證「速度段數由資產決定、不改架構」原則**（§8.1 第 2 點）。
 
 ### 10.2 Mixer 資產（`Assets/ScriptableObjects/Animation/Locomotion.asset`，Animancer 1D LinearMixer）
 現行 2 children（M1 Idle/Move）→ 擴充為 **4 children**：
 
-| # | Child Clip（FBX 子 clip 直引） | Threshold | Sync |
-| --- | --- | --- | --- |
-| 0 | `Idle`（`MovementAnimsetPro.fbx`）| **0** | ✗（非步態循環，不參與相位同步）|
-| 1 | `WalkFwdLoop` | **0.265**（1.617 / 6.101）| ✓ |
-| 2 | `RunFwdLoop` | **0.574**（3.502 / 6.101）| ✓ |
-| 3 | `SprintFwdLoop`（`_SprintFixed.fbx`）| **1.0**（6.101 / 6.101）| ✓ |
+| # | Child Clip（FBX 子 clip 直引） | Threshold | PlaybackSpeed | Sync |
+| --- | --- | ---: | ---: | ---: |
+| 0 | `Idle`（`MovementAnimsetPro.fbx`）| **0** | 1 | ✗ |
+| 1 | `WalkFwdLoop` | **0.35** | 1.3327742 | ✗ |
+| 2 | `RunFwdLoop` | **0.75** | 1.3124558 | ✗ |
+| 3 | `SprintFwdLoop`（`_SprintFixed.fbx`）| **1.0** | 1 | ✗ |
 
 - ParameterName 綁定維持 **`MoveSpeed`**（`MoveSpeed.asset` StringAsset，M1 已接，不動）。
-- Sync：Walk/Run/Sprint 開 `SynchronizeChildren`（步態相位對齊，換速不跳腳）；Idle 不開。
-- 播放速度（`_Speeds`）維持預設 1——門檻已用**天生速度**校準，不需再調 playback speed（B11：門檻是可調表現參數，設計師依公式手填）。
+- Sync：目前四支全部關閉，讓派生 PlaybackSpeed 不被 Animancer 的持續腳相同步逐幀覆寫；代價是混合時不再由同步器保證腳相。
+- Threshold 是手感輸入；PlaybackSpeed 是由 Bake 代表速度派生的結果，兩者不得各自獨立手調。目前固定四個 tier，直接配置資產，不建立一次性 Editor 工具。
 
 ### 10.3 MotionDriver（角色 Prefab 上）
 - `moveSpeedSource` → **`Bake_SprintFwdLoop.asset`**（最高速 clip，6.101 m/s）。啟動時覆寫 `moveSpeed = 6.101`，滿速＝Sprint 天生速度、根除滑步。
@@ -333,7 +333,7 @@ Foundation 主幹（Catalog → Import → Bake → Motion Features → Mixer �
 **三層分離**：
 1. **Input Mapping（Engine ＋ Unity Input System）**：physical → 中性訊號。Unity Input System 已處理 physical→action（可 rebind、control scheme：鍵盤 Shift / 手把 L3 / trigger）。`InputData` 新增**中性 modifier 通道**（如 `[Flags] MovementModifier`，2~3 個 generic slot：Mod0/Mod1…，int-backed enum ＝零 GC）；`PlayerInputSource` 由具名 InputAction 的 held 狀態填入。**`InputData` 不認識「Sprint/Walk」語意**，保持遊戲無關。
 2. **Movement Policy（Profile ＝資料）**：`MovementProfileSO`（ScriptableObject）定義——
-   - **modes**：一組模式，各有正規化速度（對映 mixer tier）：Walk 0.265 / Run 0.574 / Sprint 1.0（值由資產決定，延續「速度段數由資產決定」原則）。
+   - **modes**：一組模式，各有正規化速度（對映 mixer tier）：Walk 0.35 / Run 0.75 / Sprint 1.0（手感值由資產決定，延續「速度段數由資產決定」原則）。
    - **base mode**：無 modifier 時預設（A=Walk、B/C=Run、D=單速）。
    - **modifier bindings**：每個 modifier signal → mode 覆寫 ＋ 互動（Hold/Toggle）。例 B：Mod0(Shift,Hold)→Sprint、Mod1(Ctrl)→Walk。
    - **analog 行為**：analog stick → magnitude 連續映射（或在當前 mode 上限內縮放）；digital → modifier 選離散 tier。**一份 profile 兼容鍵鼠與手把**。
@@ -605,3 +605,147 @@ flowchart TD
 **補的 nuance（非裂縫，既有機制已涵蓋）**：**不是每個 gameplay state 都 delegate 給 model**——**ambient 狀態**（Idle/Move）delegate 給 active model；**intrinsic-motion 狀態**（Roll/Jump/Attack-lunge）本就 override `OnUpdateMotion` 自帶位移（現有設計即如此，Roll 走 baked curve）。若某 action 需 context 感知（水下攻擊 vs 陸上攻擊），該 state 讀 env（黑板）自選——讀 env 非讀 raw input，合法。
 
 **結論：v3 通過複驗，設計已收斂**（核心契約穩定；唯一已知遷移項＝B9→Locomotion model，列為 ADR 的 known-migration）。**→ ADR-003 就緒，待你點頭即開寫。**
+
+---
+
+## 15. Phase C 執行規格——Locomotion Transition Foundation（2026-08-20 重排）
+
+> **Planning / Execution Spec，非目前 Runtime 架構。**本章給下一會話直接執行，取代「左右腳停步＝孤立功能」的窄化 framing。Accepted ADR-003 不修改；本章暫稱不是 API 承諾。
+
+### 15.1 Problem：只解 Stop 會把後續切碎
+
+已知未來還有 Start／急停／90°與180° Turn in Place／Moving Pivot／Distance Matching／Motion Warping／Foot Lock／Warp compensation／Foot IK v2。若現在建 `FootStopSelector`，Pivot 會再造一套角度選片，Warp 再造一套位移執行，IK 再回頭猜 planted foot。根因是三種責任混在一起：**Transition Selection／Motion Execution／Pose Post Process**。
+
+### 15.2 四層責任假設（待代表資產驗證）
+
+```text
+Gameplay Authority（允許什麼）
+  → Locomotion Transition Selection（選哪段表現）
+  → Motion Execution（如何套用位移／旋轉／時間）
+  → Animation Post Process（Foot IK／Foot Lock／Pelvis／Terrain）
+```
+
+| 層 | 負責 | 不負責 | 現有承載／候選 seam |
+| --- | --- | --- | --- |
+| Gameplay Authority | 允許、封鎖、優先級、中斷、intrinsic action | 左右腳／clip／IK 權重 | Gameplay FSM／`ArbiterPipeline`／`MovementIntent` |
+| Transition Selection | Cycle／Start／Stop／Pivot／Turn＋速度／方向／角度／腳相 variant | 直接移動 CharacterController／寫 IK pose | 暫稱 `LocomotionTransitionResolver` 與 data set（未定案） |
+| Motion Execution | Procedural／BakedCurve／DistanceMatched／Warped 之中的當前執行策略 | 決定 gameplay 是否允許／選左右腳 | `MotionDriver`／`MotionBakeData`／`BaseState.OnUpdateMotion` |
+| Animation Post Process | 地形貼合、planted-foot lock、warp 後腿部補償 | 作為 Stop/Pivot 的選片權威 | Foot IK 雙管道模式，Foot Lock 待建 |
+
+**邊界紀律：**
+
+1. Ability／Gameplay State 可產生「不可移動」，但不得選 `LeftFootStop`。
+2. `FootPhaseCurve` 是 authored data，可供 Selection 查詢；不改成 gameplay 黑板跨帧狀態。
+3. Foot IK v1 是 ground adaptation，Foot Lock 是 contact preservation；相同腳骨不代表同一責任。
+4. Motion Warping 處理已選定動畫對齊 world target；一般 Stop 先用程序減速／Distance Matching。
+
+### 15.3 Phase C 技術樹（不是一輪全做）
+
+```text
+C0 Catalog + Representative Bake Gate
+  ↓
+C1 Transition Selection seam + Forward Stop vertical slice
+  ├─ C2 Turn in Place（90/180）
+  ├─ C3 Moving Pivot
+  └─ C4 Start animations
+       ↓
+C5 Distance Matching（Stop/Pivot 距離對齊）
+  └─ C6 Foot Lock（planted foot 保持）
+
+Combat / Traversal 出現真實 world target
+  → Motion Warping
+  → Warp compensation / Foot IK v2
+```
+
+下一會話必做只有 **C0 → C1**；C2+ 是 seam 的壓力方向，不是現在預建的類別清單。
+
+### 15.4 C0：Catalog
+
+Start／Stop／Pivot／Turn 每支至少記錄：
+
+| 欄位 | 目的 |
+| --- | --- |
+| FBX／Sub-clip／GUID provenance | 保持 FBX 子 clip 直引，不複製 AnimationClip |
+| Transition kind | Start／Stop／MovingPivot／TurnInPlace |
+| Speed tier | Walk／Run／Sprint／Any |
+| Direction / angle | 以資產真實覆蓋為準，不預補全矩陣 |
+| Foot token | `_LU/_RU` 原樣記錄，先不解讀 |
+| Root displacement / yaw | 決定 Import preset 與 Motion Execution 候選 |
+| Loop / duration | Transition 結束與中斷驗證 |
+| Expected interrupt | 新移動輸入／Jump／Roll／Attack（只記需求，不先寫規則） |
+
+**代表四支**：Left Stop／Right Stop／90° Pivot／180° Turn。若資產集沒有恰好角度，選最接近的真實資產，不為滿足文件虛構 clip。
+
+### 15.5 C0：Import + Bake Gate
+
+1. 依 §3 套 preset；Start／Stop／Pivot 從「烘焙曲線驅動」開始，但不把 Roll 小角度成功當成大角度正確性證據。
+2. 以 `Assets/Prefabs/X Bot.prefab`、60 FPS 走既有 Motion Bake 工具。
+3. ✅ 程式端已修 `MotionBakeData.ComputeAverageSpeed` 第 0 帧人造 0 值偏差；待代表資產進入專案後，與當前 locomotion clips 同批重烘，不分成兩次全面重烘。
+4. 每支檢查 `SpeedCurve`、`RotationCurve`、`RotationFinishedTime`、`EndPhase`、`TargetLocalDirection`、`FootPhaseCurve`、`BakedDuration`。
+5. ✅ Unity Preview／Play 已確認 `_LU/_RU` 語意：`WalkFwdStop_LU`＝左腳先停住、右腳隨後跟上；`WalkFwdStop_RU`＝右腳先停住、左腳隨後跟上。這是 **First Stop／First Plant Foot**，不得解讀成抬腳或直接拿片尾 `EndPhase` 代替。
+
+**通用批次烘焙（2026-08-20）**：批次功能整合於既有
+`Tools/Project/動畫根運動物理烘焙工具 v4.0`，使用者以拖放或 Project 選取明確加入多支 AnimationClip；
+清單內所有動作共用視窗上方的採樣角色、FPS 與進階參數，逐支走同一套 `MotionBakeEditor` 演算法與
+`Bake_<Clip>.asset` 寫入路徑。工具只接受明確的 AnimationClip 子資產，不自動展開 FBX 本體，避免誤烘整包 takes。
+
+通用批次**不修改 Import 設定**：Idle／Locomotion Loop／Jump／BakedCurve 的 preset 不同，仍先由
+`Assets/Project 動畫匯入 SOP` 明確套用，再加入 Bake 清單。Phase C 的一次性具名選單與 4＋3 硬編碼在 C0
+機械操作完成後移除，不留下 feature-specific Editor menu 債。資產沒有 90° Moving Pivot 的 Catalog 結論仍保留：
+以同類型最接近的真實 `RunFwdTurn180_R_LU` 代表，**不得以 `*Start90*` 冒充 Pivot**。
+
+採樣角色契約為「傳入的 Root 或其子階層中，恰好有一個綁定有效 Humanoid Avatar 的 Animator」，不是
+「Animator 必須掛在 Gameplay Root」。X Bot 的實際 Animator 位於 `Model` 子物件；單支視窗與 Phase C 批次入口
+共用 `MotionBakeEditor.TryResolveHumanoidAnimator`，並對 Animator 所在 GameObject 執行 Humanoid Sample。
+
+Motion Bake 視窗只保留可重複使用的單支／批次烘焙職責，並支援小視窗捲動。Locomotion 四個 tier 的 Threshold／PlaybackSpeed 屬低頻資產配置，直接依 `docs/06-animation-presentation.md` SOP 處理，不擴建 Editor UI。
+
+**Gate：**大角度曲線正確才進 Runtime；旋轉累積／收斂時間／方向語意錯就先修 Bake 與純數學測試；`_LU/_RU` 無法證實就停下請使用者播放比對。
+
+### 15.6 Architecture Gates（C0 通過後）
+
+| Gate | 問題 | 裁決準則 |
+| --- | --- | --- |
+| **G1 承載** | Model 內部 phase／Presentation FSM／Gameplay State？ | 純選片且可隨時取消＝Presentation 候選；有 gameplay 禁止、不可取消窗、authoritative motion 或 net snapshot 需求＝Gameplay State 候選 |
+| **G2 Selection seam** | Request／Definition／Selection 需哪些維度？ | 只收 Catalog 證明的 speed／direction／angle／foot；不預建全方向 enum |
+| **G3 Motion seam** | 如何不把 Stop 綁死為單一執行法？ | Selection 回答哪段資料，Motion 回答如何套用；初版可只有一種執行，但不用 `StopMover` 封死路徑 |
+| **G4 ownership** | 腳相、停止邊沿、transition runtime time 誰擁有？ | Bake Data 擁有 authored facts；active Movement Model 擁有 locomotion-local dynamics；Gameplay FSM 不為選片擴寫黑板 |
+
+G1–G4 若只產生 locomotion 子系統加法，實作後更新 Living Docs 與子系統 spec，不開 ADR。若轉移 PlayerRuntimeData ownership、改 Gameplay FSM hierarchy、改跨層依賴或推翻 ADR-003，才停下提新 ADR。
+
+### 15.7 C1：Forward Stop Vertical Slice
+
+> **2026-08-20 落地狀態**：C1 Walk 已完成資產接線與 Play 驗收；C1.1 Run 程式已依 `docs/07-locomotion-transitions.md` 擴充，待 Run Transition／Prefab 接線與 Play 驗收。腳相依 active tier 查 Walk／Run loop Bake Data，不讀 IK Pose、不進黑板；Sprint 無 Stop 資產，維持 B9。
+
+1. 先只做 Walk Forward Left／Right；左右是 data variant，不是兩個 Gameplay State。
+2. 上一帧正在產生前進運動，本帧 `MovementIntent` 歸零，才提 Stop request。
+3. 依 C0 證實 mapping 查當下 FootPhase；初版不加 direction/angle 假泛化。
+4. 經 `AnimationFacade`／TransitionAsset 播放，Core 不直接依賴 Animancer。
+5. 新移動輸入、Jump、Roll 都有明確中斷結果，不依賴 clip 剛好很短。
+6. 結束後回 Idle presentation，不留私有狀態汙染下一次播放。
+7. Walk 通過後只加 Catalog 已證實的 Run 集合；先以強度選集合，再共用原腳相 selector。Sprint 無資產，不加假 fallback。
+
+### 15.8 C1 驗收
+
+| 類別 | 驗收 |
+| --- | --- |
+| Selection | 不同腳相停止時選到相容 Stop；除錯可顯示 request 與 selection，不只看畫面猜 |
+| Motion | 停止位移與播放異常可分別追到 Motion Execution 或 Selection，不混成一個 method |
+| Interrupt | Stop 中重新移動／Jump／Roll 皆有決定性行為，無排隊輸入與殘留旗標 |
+| Ownership | 不新增 PlayerRuntimeData 寫入者；如真需新欄位，先更新 WriterRules／權限表與理由 |
+| Dependency | Core 不直接碰 Animancer；Presentation 不回讀 StateMachine；不以檔名串特判 |
+| Performance | 熱路徑無 LINQ／boxing／字串／每帧 `new`；索引與陣列在配置期建立 |
+| Regression | Idle／Walk／Run／Sprint／Jump／Roll／Footstep／Landing／Pause 不退化；Stop 不造成腳步音重複發報 |
+
+### 15.9 明確延後
+
+- Distance Matching：等基本 Stop／Pivot 選片、曲線與中斷穩定。
+- Foot Lock：等 planted-foot 資料與 Stop/Pivot 滑腳可量測；不吞入 Foot IK v1。
+- Motion Warping：等 Combat 貼靶或 Traversal 有真實 target／window／中斷需求。
+- Foot IK v2／Warp compensation：等 Motion Execution 穩定再做 pose 補償。
+- Upper Body／Strafe：等 Combat vertical slice 產生真實並行／鎖定移動需求。
+- Motion Matching：仍為 v2.0 研究支線；採納會取代現行 locomotion presentation selection，必須新 ADR。
+
+### 15.10 下一會話的停止點
+
+C0 Gate、G1–G4、C1 Walk 驗收與 C1.1 Run 程式擴充已完成。現在停在 **Run Transition／Prefab 接線＋Play 驗收**；通過前不擴充 Turn、Pivot 或 Distance Matching。

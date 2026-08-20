@@ -187,6 +187,7 @@ namespace Project.Editor
             {
                 Debug.LogWarning("[動畫匯入 SOP] 選取範圍內沒有可套用的 Humanoid FBX／子 clip。請在 Project 視窗選取動畫 FBX 或其子 clip 後再執行。");
             }
+
         }
     }
 }

@@ -6,6 +6,115 @@
 
 ---
 
+## [v0.33] - Walk Pending Stop 相位等待（2026-08-21，已驗收）
+
+Walk LU／RU Fade `0.15 → 0.25 s` 後全身瞬間變動仍明顯，確認問題是固定起點 pose mismatch，繼續加長淡入只會讓錯誤混合更久。放開 Walk 現在先進入 `LocomotionStopRuntime` 私有 Pending 階段：用 Stop 入場 `FootPhaseCurve` 的連續值比對 Walk loop 烘焙鍵，選下一個最近的 authored 入場時刻，到點才播放。
+
+Pending 期間暫停 B9 smoother、維持 release-entry 速度與方向並走既有 Procedural 位移，避免先減速再被 Stop 曲線重新加速。重新輸入、離地、Jump／Roll 接管仍走既有中斷；child clock 失效或超過 0.5 秒立即播放，避免卡死。此行為只套 Walk，已驗收 Run 零改動。
+
+新增純函式最近相位測試、Pending runtime 階段測試與 model 整合測試。沒有手填 0／0.5 相位、沒有新增黑板、Gameplay State、Facade、MotionDriver、Mixer 或 AnimationClip 修改；ownership／hierarchy 不變，不開 ADR。明確代價是停止反應距離最多增加約四分之一 Walk 週期，換取完整姿勢在 authored 接點銜接。
+
+最終 Unity EditMode＋Play 驗收通過：任意 Walk 腳相放開能自然走到匹配點再 Stop，無全身瞬跳、無先慢後衝；Pending 期間重新輸入、Jump、Roll 均能立即取消且不補播舊 Stop。本節正式收案。
+
+## [v0.32] - Walk Stop 主導子動作時鐘（2026-08-21，待 Play 複驗）
+
+Walk 偶發同腳連踩不是速度接縫：穩態 `0.3651` 下 Stop 曲線沒有前衝峰值，問題集中在腳相交越附近。根因是初版以 Locomotion Mixer root 的加權 `NormalizedTime` 查 Walk Bake Data；Mixer 未同步、各 gait 的相位原點又不同，少量 Run 權重也可能在零交越附近把符號推到另一側。
+
+Facade 新增通用、唯讀的 `TryGetDominantChildNormalizedTime`；Animancer 實作以零配置索引迴圈取得最高權重直接 child，同權重固定取前者。`LocomotionModel` 改用該時鐘查已選 tier 的 loop Bake Data，Stop 播放進度仍走原本主層時間。補 model-level 回歸測試，刻意讓 Mixer root 與主導 child 落在相反腳相，鎖住必須依 child 選片。
+
+沒有開啟 `SynchronizeChildren`，避免改寫子 playable 速度並破壞已驗收的門檻／PlaybackSpeed 校正；也沒有新增黑板、Gameplay State、Clip 引用或 MotionDriver 契約。此為既有 Facade 的通用唯讀查詢擴充，不改 ownership／hierarchy，故不開 ADR。符號選片約 0.24 週期的理論誤差仍如實保留，待腳相交越點 Play 複驗後再決定是否需要相位起始對齊。
+
+Play 複驗隨即證實剩餘的固定起點 pose mismatch 會造成全身瞬間些微跳動。先依 Data／Presentation 優先序把 Walk LU／RU 的 Fade `0.15 → 0.25 s`；其他資產與 Runtime 零改動。若仍明顯，不再加長 Fade，而是另案設計等待最近 authored 入場相位的 pending Stop。
+
+## [v0.31] - Phase C1.1 Run Forward Stop（2026-08-20，待 Play 驗收）
+
+C1 Walk 驗收通過後，依既定觸發條件加入 Run Stop。新增的只有入場強度 tier 選擇：`0.75–0.875` 命中 Run，之後逐字共用 authored FootPhase 選片、單一 `LocomotionStopRuntime`、通用 Facade callback 與 MotionDriver 曲線位移。兩帶重疊時 fail closed 回 B9；Sprint 因 Catalog 無 Stop 資產維持原路徑。
+
+Run LU／RU 已用 X Bot 60 FPS 重烘，來源非 Loop。Play 驗收抓到 RU 在 `t≈0.117 s` 的峰值會造成小暴衝，因此 RU playback 調為 `1.2588`，峰值對齊 Run 錨點 `4.696 m/s`；Walk／Run 下界同步收緊為 `0.35／0.75`，避免加速途中放開時用較快 Stop 曲線反推角色。`LocomotionModel` 增加 Run loop Bake Data 與兩支明確變體配置，但不加黑板、不加 Gameplay State、不改 Facade／MotionDriver 契約。功能測試鎖住 tier、Run 腳相、60 FPS 與非循環資產前提。
+
+下界收緊後的首輪 Play 發現 Run Stop 消失：根因是 tier 原先讀取本幀已被 SmoothDamp 衰減的值，穩定 `0.75` 在 60 FPS 首幀即成為 `0.7388`。改為在 Tick 前快照放開入場速度；B9 輸出仍用 Tick 後值。這是取樣時序修正，不新增狀態或第二真相，並以 model-level 回歸測試鎖住。
+
+第二輪 Play 仍未觸發，進一步確認 SmoothDamp 穩態本身是 `0.74999994` 而非精確 `0.75`；第一版測試手塞精確值，未忠實模擬 dynamics。Band 比較改沿用既有 `Epsilon=0.001`，測試也改為實際跑 120 幀 SmoothDamp。有效下界僅到 `0.749`，速度容差 0.13%，不回到 `0.70` 的暴衝範圍。
+
+## [v0.30] - Phase C1 Walk Forward Stop（2026-08-20，待 Play 驗收）
+
+Walk Stop 以 `LocomotionModel` 私有 phase 落地：release edge 只在 Walk 帶觸發，依 authored FootPhase 選 LU／RU，播放走通用 Facade，位移仍收斂到 MotionDriver。Run／Sprint 未命中時維持 B9。
+
+否決初稿的 `LocomotionModel → FootIKPoseData` 回讀；改以 Facade 主層時間查單一 `Bake_WalkFwdLoop.FootPhaseCurve`，A4 守住 IK 不回流 Core。新增 Stop runtime／selector、播放頭差值曲線多載、功能測試與 A12～A15。世代持續遞增，callback 只設旗標，避免 Jump／Roll 被舊回調蓋回 Locomotion；Roll 舊多載算法不變。
+
+Unity 序列化資產未由 AI 修改：V1 `moveSpeedSource`、兩份 Stop Transition、Facade mapping 與 Model refs 待 Inspector 接線。
+
+## [v0.29] - M3.x-B：Footstep 落地，順帶示範「契約不放寬也能解」（2026-07-28）
+
+> 輪 3 的主體。需求一句話：腳踩地時播腳步聲。卡住的從來不是偵測演算法，是**「誰能寫黑板」**。
+
+### 1. 契約擋在路上，而正解是不去動它
+
+`FootstepDetector` 要發事件、`AudioController` 要收，中間需要一個與 Hierarchy 順序無關的 seam。最直覺的做法是讓 Detector 寫黑板——但 `IPresentationController` 的契約白紙黑字：**對 `PlayerRuntimeData` 只讀不寫**。
+
+放寬它、開 Footstep 特例、或讓 Detector 直接寫，三條路都被否決。最後的形狀是：
+
+```
+FootstepDetector ──value struct──▶ PresentationPipeline ──▶ PlayerRuntimeData ──▶ AudioController
+   （偵測，不寫）                    （唯一寫入者）           （廣播快照）          （只讀不清）
+```
+
+**偵測器回傳值、管線負責寫。**「誰能寫黑板」與「誰負責偵測」由**型別**分開，而不是靠紀律分開——契約一個字都不用改。
+
+這個設計不是新發明：`IArbiterSource` 在輪 4 就是這樣做的（來源回傳 `ArbiterData`、`ArbiterPipeline` 合併後獨佔寫入）。**同一個問題出現第二次時，能直接套上第一次的答案，這件事本身就是架構有在收斂的證據。**
+
+### 2. 發布必須卡在所有 Controller Tick 之後——這是唯一的正確性依據
+
+`PresentationPipeline.Tick` 拆成兩步：①依序驅動 Controller ②收集來源 → 合併 → 整體覆寫。
+
+**順序不可調換。** 若發布混在迭代中途，同窗口的 consumer 讀不讀得到就取決於 `GetComponentsInChildren` 的回傳順序——也就是**階層裡誰在上面**。拖動一個物件會改變腳步聲的正確性，而且完全看不出關聯。
+
+拆成兩步之後：Controller 在①讀到的永遠是**上一帧**發布的快照，發布在②固定發生。代價是固定一帧延遲（約 16ms，聽不出來），換到的是「每個事件恰好被每個 consumer 看到一次」的**結構保證**——不需要 sequence number、frame identity、consumer acknowledgement 這三樣通常讓 event 系統開始長胖的東西。
+
+### 3. 廣播快照，不是可消費佇列
+
+consumer **只讀不清除**。若做成「讀了就消費掉」，第一個 consumer 會吃掉事件，未來的 VFX／鏡頭震動就收不到——而且症狀是「有時候有、有時候沒有」，取決於誰先跑。
+
+整體覆寫本身就是復位機制，所以 **`ResetTransientState()` 完全不用改**。這一點特別值得記：順序 7 是 dev-spec 脆弱點警告的第 1 條，任何要為它加例外的方案都在替下一個人埋雷。這裡不需要例外，因為復位是發布的副作用（與 `Arbitration` 同源）。
+
+### 4. 偵測：速度雙門檻 ＋ 最小垂直行程，不用時間閘
+
+腳底高度 ＝ `FootPosition.y − FootBottomHeight`，取 **pre-IK** pose。不 raycast、不問地面。
+
+* **速度雙門檻（Schmitt trigger）**：下降速度達 `ArmDescentSpeed` 才「上膛」，回升到慢於 `FireDescentSpeed` 才「擊發」。兩個門檻不同值，所以速度在 0 附近抖動時**永遠回不到上膛狀態**——打的是時間軸上的抖動。
+* **最小垂直行程**：距上次落腳之後腳底必須先抬高 `MinLiftExcursion`，下一步才算數——打的是空間上的微幅假動作（Idle 呼吸、腳貼地晃動）。
+
+**刻意不用「最小間隔時間」當主要去抖手段**：時間閘的門檻必須依最快步頻反推，估錯就會把 sprint 的真實腳步濾掉。兩道機制各打一種雜訊，比一道時間閘準確得多。
+
+**語意是「動畫落腳事件」，不是物理 ground contact。** 所以讀 IK 套用**前**的 pose——斜坡上 IK 會把腳修到別處，但落腳的**時機**不變，而玩家聽到的聲音要對齊看到的動畫。
+
+### 5. Landing 抑制：抑制的是「報告」，不是「發生」
+
+落地那一帧 `JustLanded == true` 時不報腳步（落地是更高階的語意）。但**抑制發生在 tracker 推進之後**——跨帧狀態照常前進。
+
+若順手把 tracker 一起回滾，落地後的第一步會因為行程基準錯亂而漏報或誤報，而這種 bug 只在「跳完之後走第一步」時出現，極難重現。測試裡專門有一條對照組守這件事。
+
+### 6. 可測性逼出來的一個小拆分
+
+`Time.deltaTime` 在 EditMode 不可控。若把它藏在偵測方法內部，所有演算法不變量都只能靠 Play 模式肉眼驗。
+
+所以偵測拆成兩層：`FootPlantTracker.Advance(height, deltaTime, settings)`（單腳純推進）與 `FootstepDetector.Detect(pose, justLanded, deltaTime)`（雙腳＋抑制），兩者都收顯式時間步長。`Evaluate` 退化成三行轉接。
+
+先例是 `FootIKController.ComputeFootWeight`——把純判定公開成可測單元，是這個專案已經在用的手法。`FootPlantTracker` 做成值型別跨帧狀態，同 `LocomotionSpeedSmoother`。
+
+### 7. 檔案與檢核
+
+* 新增 4 檔：`Core/Blackboard/PresentationEventData.cs`（必須住 Core.Blackboard——`LayerRules` 禁 `Core/Blackboard` 認識 `Project.Presentation`）、`Presentation/IPresentationEventSource.cs`、`Presentation/Footstep/FootPlantTracker.cs`、`Presentation/Footstep/FootstepDetector.cs`
+* 修改 6 檔：`PlayerRuntimeData`（加欄位）、`PresentationPipeline`（第二陣列＋發布步驟）、`CharacterPipelineRunner`（建構子多一個陣列，**未動 pipeline phase**）、`AudioController`（消費）、`AudioEventId`（`LeftFootstep = 1`／`RightFootstep = 2`，只增不改）、`ArchitectureRegressionTests`（A5 白名單）
+* **測試 99 → 120**（+21）。既有 `PresentationPipelineTests` 3 條因建構子簽名改變一併更新——**沒有為了讓舊測試繼續編譯而加多載**，測試該反映真實 API
+* A5 新增的那一列同時是 **`IPresentationController` 契約的機器化守衛**：任何 Controller 想寫這一區都會變紅，契約不再需要靠人記得
+
+### 8. 沒做的事
+
+沒有 EventBus、沒有 event queue、沒有 sequence／frame identity、沒有 consumer acknowledgement、沒有 surface／material variation framework、沒有新增管線階段、沒有動 ADR。`PresentationEventData` 今天只有兩個 bool。
+
+---
+
 ## [v0.28] - M3.x-A：擁有權跟著寫入權走（2026-07-27）
 
 > 輪 3 Footstep 的**前置**。調查階段確認 Foot Contact 偵測完全不需要 `AnimationFacadeBase` 暴露 Model／Clip／Mixer／normalized time，**ADR-003 D4 一條契約都沒被觸及**（維持 Accepted、不修改、不新增 ADR）。真正卡住的只有一件事：`FootIKPoseData` 的擁有權。

@@ -4,6 +4,7 @@
 > 任何項目實際落地前，仍走既定路由（`CLAUDE.md`）：非架構變更 → 直接寫 Living Docs（`01-design-doc.md`／`02-dev-spec.md`）；系統性破壞式變更 → 開新 ADR。
 > **緣起**（2026-07-20）：Foot IK 多輪實測後，使用者裁決停止單點細節修補、確立設計哲學（Natural Pose > Terrain Adaptation > Perfect Foot Contact），並要求以整體 Animation Runtime 演進取代單一 IK 深挖。本檔為該裁決的產物。
 > **編號註記**：本檔以「輪次」排序，避免與 WORKLOG 的 M4（購入資產）／dev-spec §3.5.3 的「M4+ 品質升級」兩處編號語義衝突。
+> 🔄 **2026-08-20 排程修訂**：§2–§4 保留原始評估與舊輪次作為決策脈絡；**當前主線、依賴與待裁決點以 §6 為準**。Footstep v1 已於 v0.29 落地並完成 Unity 驗證；下一輪改以 Locomotion Transition Foundation 而非孤立 Stop 為單位。
 
 ---
 
@@ -161,3 +162,67 @@
 
 - 牆壁 collider 過胖（2026-07-20 發現：身體碰不到牆，視覺與碰撞邊界差距過大）。
 - CapsuleFitter Apply Prefab 確認；floor Scale Z 翻正（-25.153 → +25.153）若未做。
+
+---
+
+## 6. 2026-08-20 主線修訂（取代 §3／§4 的排程）
+
+### 6.1 重排原則
+
+1. 不以「左右腳停步」當架構邊界；Stop 只是第一個壓測案例。
+2. 先分開 Transition Selection／Motion Execution／Animation Post Process，再讓 Stop／Pivot／Warp／IK 各自落位。
+3. 以真實資產維度決定 schema，不預建全方向、全角度、全 motion mode 的萬用表。
+4. Upper Body／Strafe 等 Combat 產生消費者；Motion Warping 等真實 world target；Foot IK v2 等 motion 與選片穩定。
+
+### 6.2 新依賴樹
+
+```text
+已完成地基
+  Foot IK v1 凍結 → Locomotion Foundation（4-tier／FootPhase／B9）
+  → ArbiterPipeline → Footstep v1（v0.29，Unity 已驗證）
+│
+├─ Phase C Foundation：Locomotion Transition Foundation
+│    ├─ Catalog：Start / Stop / Moving Pivot / Turn in Place
+│    ├─ 4 支代表資產 Import + Bake Gate
+│    ├─ Selection ≠ Motion Execution ≠ IK Post Process 責任裁決
+│    └─ Forward Stop Left/Right vertical slice（Walk → Run/Sprint）
+│          ├─ Turn in Place（90/180）
+│          ├─ Moving Pivot
+│          ├─ Start animations
+│          ├─ Distance Matching（吃 Stop/Pivot 與距離資料）
+│          └─ Foot Lock（與 Foot IK ground adaptation 分開）
+│
+├─ Combat vertical slice（真實 Attack 需求）
+│    ├─ 依需求才加 Upper Body Layer／Strafe 2D
+│    └─ Motion Warping（第一個真實 world target）
+│
+├─ Presentation Quality：Foot IK v2／Warp compensation／Look At
+│
+└─ AAA 選修：Inertialization／Stride Warping／Ragdoll
+     ⚠ Motion Matching 仍是 v2.0 研究支線，不進主線
+```
+
+### 6.3 重排後順序
+
+| 步驟 | 內容 | 進入條件／意義 |
+| --- | --- | --- |
+| 0 | 已完成：Foot IK v1／Locomotion Foundation／Arbiter／Footstep v1 | v0.29 已 Unity 驗證，不再重複規劃 |
+| 1 | **Phase C C0：Catalog／4-clip Bake Gate／責任裁決** | 下一輪；先證明資產語意與 Bake 能力，不先寫 Runtime |
+| 2 | **Phase C C1：Forward Stop Left/Right vertical slice** | 驗證 Selection → Facade → Motion → Interrupt；Stop 是案例非邊界 |
+| 3 | Turn in Place／Moving Pivot／Start | 依代表資產結果逐項加法，不一次展開全矩陣 |
+| 4 | Distance Matching／Foot Lock | 分別等待穩定 Stop/Pivot 與 planted-foot 語意 |
+| 5 | Combat 最小垂直切片 | 用真實攻擊決定 Upper Body／Strafe，不預建 framework |
+| 6 | Motion Warping | 以 Combat 貼靶或 Traversal 對齊為第一個 world-target 案例 |
+| 7 | Foot IK v2／Warp compensation／Look At | motion 與 selection 穩定後才收割 Post Process 品質 |
+| 8+ | Inertialization／Stride Warping／Ragdoll | 專門輪；Motion Matching 仍不進主線 |
+
+### 6.4 待裁決 Gate
+
+1. **G1 承載**：`LocomotionModel` 內部 phase、獨立 Presentation FSM，還是 Gameplay State？判準是否擁有 gameplay 禁止／不可取消窗／authoritative motion，不是是否有 clip。
+2. **G2 Selection seam**：Request／Definition／Selection 需哪些真實維度，只能從 Catalog 推導。
+3. **G3 Motion seam**：Selection 回答「哪段資料」，Motion 回答「如何套用」；不把 Stop 寫死為單一 execution mode。
+4. **G4 Bake / ownership**：現有曲線能否表達大角度運動；Bake Data 擁有 authored facts，active Movement Model 擁有 locomotion-local dynamics，Gameplay FSM 不為選片擴寫黑板。
+5. **Distance Matching**：等 Stop 基礎穩定後，再裁決停止距離 Owner／Writer 與 SpeedCurve 積分 vs 專用 DistanceCurve。
+6. **Foot Lock / IK**：等 planted-foot 語意被真實資產證明，再裁決與 Foot IK 的權重／執行順序。
+
+完整下一會話任務、停止點與驗收見 `docs/04-locomotion-foundation.md` §15。

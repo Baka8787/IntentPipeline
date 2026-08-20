@@ -24,6 +24,7 @@
 | 管線 Runner | `Core/Pipeline/`：`CharacterPipelineRunner`／`IInputSource`／`PlayerInputSource` | dev-spec §2.1 順序表＋生命週期脆弱點警告 |
 | Movement 意圖層（producer） | `Core/Movement/`：`IMovementIntentSource`／`PlayerLocomotionPolicy`／`GaitProfileSO`／`LocomotionSpeedSmoother` | **ADR-003**；dev-spec §1.5／§3.1；design-doc §4.8 |
 | Movement Model（dynamics） | `Core/Movement/Models/`：`IMovementModel`／`LocomotionModel`（B9 平滑＋運動輸出＋自驅動畫參數） | **ADR-003 D3／D4**；dev-spec §3.1／§2.1 順序 3；design-doc §4.8 |
+| Locomotion 過渡段（Phase C1/C1.1） | `Core/Movement/Models/`：`LocomotionStopRuntime`／`LocomotionStopSelector`；`Presentation/Motion/MotionDriver` | **`docs/07-locomotion-transitions.md`**；`docs/04-locomotion-foundation.md` §15 |
 | 狀態機 | `Core/StateMachine/`（＋`States/`） | dev-spec §3.1（`BaseState`）／§3.2（Config／Params）／§3.3 State Matrix |
 | 跳躍物理 | `Core/StateMachine/JumpStateParams`＋`Presentation/Motion/JumpLaunchData` | **ADR-002**；dev-spec §3.2 跳躍注入 API |
 | 仲裁層（順序 4.5） | `Core/Arbitration/`：`ArbiterData`／`IArbiterSource`／`ArbiterPipeline`／`Sources/UiModeArbiterSource` | dev-spec §1.4（含來源契約）／§2.1 順序 4.5；design-doc §2.5／§4.5 |

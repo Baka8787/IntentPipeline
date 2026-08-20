@@ -49,6 +49,16 @@ namespace Project.Presentation.Animation
         /// </summary>
         public abstract bool IsPlaying(string stateKey);
 
+        /// <summary>
+        /// 嘗試取得指定狀態中權重最高之直接子狀態的播放進度。
+        /// 這是通用、唯讀的動畫圖查詢；沒有子狀態概念的後端維持預設 false。
+        /// </summary>
+        public virtual bool TryGetDominantChildNormalizedTime(string stateKey, out float normalizedTime)
+        {
+            normalizedTime = 0f;
+            return false;
+        }
+
         /// <summary>查詢目前主層播放進度（0~1）</summary>
         public abstract float GetNormalizedTime();
     }

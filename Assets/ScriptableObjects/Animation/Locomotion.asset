@@ -31,12 +31,16 @@ MonoBehaviour:
         - {fileID: 7400012, guid: 6844dcb6a866ab34fa96c67e39eab693, type: 3}
         - {fileID: 7400036, guid: 6844dcb6a866ab34fa96c67e39eab693, type: 3}
         - {fileID: 7400002, guid: e1a10e208460bd04ba003bff821cac3f, type: 3}
-        _Speeds: []
-        _SynchronizeChildren: 00
+        _Speeds:
+        - 1
+        - 1.3327742
+        - 1.3124558
+        - 1
+        _SynchronizeChildren: 00000000
         _Thresholds:
         - 0
-        - 0.265
-        - 0.574
+        - 0.35
+        - 0.75
         - 1
         _DefaultParameter: 0
         _ExtrapolateSpeed: 1

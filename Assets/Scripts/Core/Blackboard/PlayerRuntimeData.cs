@@ -27,6 +27,13 @@ namespace Project.Core.Blackboard
         // 讀取者：Locomotion dynamics（Stage 1＝Runner 持有的 LocomotionSpeedSmoother，Stage 2 遷入 model）。
         public MovementIntentData MovementIntent;
 
+        // === 表現層事件區（🆕 M3.x-B）===
+        // 每帧由 PresentationPipeline 於順序 6.5 的**末尾**整體覆寫（發布），各 Controller 於**下一帧**讀取。
+        // 廣播快照語意：consumer 只讀不清除，彼此不會吃掉事件；整體覆寫即是復位機制，
+        // 故 ResetTransientState()（順序 7）**刻意不認識本欄位**，不需要任何例外。
+        // 註：同 Intent，維持公開欄位而非 Property，避免 struct 值複製導致無法直接修改內部旗標。
+        public PresentationEventData PresentationEvents;
+
         // === 仲裁區 ===
         // 每幀由仲裁管線統一覆寫，表現層下游只讀不寫
         // 註：同 Intent，維持公開欄位而非 Property，避免 struct 值複製導致無法直接修改內部旗標

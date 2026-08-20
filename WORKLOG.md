@@ -7,8 +7,82 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
-> ⬆️ **最新狀態（2026-07-27）＝輪 4.1 Hold／Tap 分流＋應用層暫停已落地，等待 Unity 端驗證**（輪 4 本體已驗收通過：測試全綠、UI 模式正常）。見緊接的專段；再往下依序是 v0.19 里程碑／v0.23／README・LICENSE／v0.22／Stage 2／Stage 1 的交辦。
+> ⬆️ **最新狀態（2026-08-21）＝Phase C1／C1.1 Walk＋Run Stop 已完成驗收；Walk Pending Stop 的相位銜接、速度連續與重新輸入／Jump／Roll 中斷皆通過。**Stop 仍由 `LocomotionModel` 單一私有 runtime 承載；不加黑板、不加 State。Run 行為不變，Sprint 無 Stop 資產、維持 B9。
 > 📍 **會話開場請先讀 `docs/00-map.md`**（單頁索引：模組 → 檔案 → 治理章節），再讀本段。
+
+---
+
+## 🎯 下一會話：Phase C Locomotion Transition Foundation（2026-08-20 重排）
+
+> **任務定位：先驗證資產與責任 seam，再實作。**禁止先寫 `LeftStopState` / `RightStopState`，也不得為了未來項目一次建出萬用 Animation Action framework。
+
+### 開場必讀（僅這些）
+
+1. `docs/00-map.md`
+2. 本段
+3. `docs/04-locomotion-foundation.md` §3／§4／§6／**§15**
+4. `docs/ADR/003-movement-intent-layering.md` §3 D3／D4 與 §13.2
+5. 需查權限時，只讀 `ArchitectureRegressionTests.cs` 的 `LayerRules` / `WriterRules`
+
+### 本會話進度（2026-08-20）
+
+- [x] `MotionBakeData.ComputeAverageSpeed` 只排除烘焙器產生的 `time=0/value=0` 第 0 帧哨兵；為空、單鍵與非哨兵零值補回歸測試。
+- [x] 同步 `docs/02-dev-spec.md` 與 `docs/06-animation-presentation.md` 的代表速度定義；無黑板、ownership、FSM 或依賴方向變更，不開 ADR。
+- [x] Kubold 來源 FBX 已回到 `Assets/MovementAnimsetPro/`；確認 Stop／Turn／Start 與 `RunFwdTurn180_*` 真實覆蓋，且沒有 90° Moving Pivot。代表 Pivot 改採 `RunFwdTurn180_R_LU`，缺口如實保留。
+- [x] Phase C 4＋3 批次機械操作已完成；一次性具名選單隨即移除，不留下 Kubold／Phase C Editor menu 債。
+- [x] 修正首次操作抓到的採樣前提錯誤：Animator 可位於 Root 子階層；單支與批次共用唯一 Humanoid Animator 解析器，Sample 對 Animator 所在 GameObject 執行。批次按鈕整合進既有 Motion Bake 視窗；新增 2 條解析回歸測試。
+- [x] 將既有 Motion Bake 視窗改為通用批次烘焙：明確 Clip 清單／拖放／Project 選取加入／去重與空值驗證；共用採樣設定與既有 Bake 演算法，不修改 Import preset。
+- [x] 使用者在 Unity Preview／Play 證實 `_LU/_RU`：`WalkFwdStop_LU` 左腳先停、`WalkFwdStop_RU` 右腳先停（First Stop／First Plant Foot）。
+- [x] `Locomotion.asset` 直接配置手感門檻 `0 / 0.35 / 0.75 / 1`＋派生 PlaybackSpeed；不留下低頻一次性校正 UI。
+- [x] Motion Bake 視窗補完整 ScrollView 與合理最小尺寸，批次清單在小視窗仍可操作。
+- [x] 使用者 Play 驗收 Walk↔Run↔Sprint 基礎校正（主觀差異不大，但既有路徑可接受）。
+- [x] Claude 規格完成；Codex 複核並否決 Presentation IK → Core 回流。
+- [x] C1 程式垂直切片、功能測試與 A12～A15 架構守衛完成。
+- [x] 使用者完成 Walk Transition／Mapping／Model 接線、修正 V1 `moveSpeedSource`，並通過 C1 檢查與 Play 驗收。
+- [x] Run Stop LU／RU 套用曲線驅動 Import preset 並以 X Bot、60 FPS 烘焙；來源、Loop、速度與腳相 Gate 通過。
+- [x] C1.1 Run 以「強度選集合 → 共用腳相選片」擴充既有 Stop runtime；無黑板／State／Facade／MotionDriver 契約變更。
+- [x] Stop 速度接縫首輪修正：Walk／Run 下界收緊為 `0.35／0.75`；`RunStop_RU` playback `1.2588`，將 `t≈0.117 s` 峰值壓至 Run 錨點速度。相位連踩另案處理，不混入本次數值修正。
+- [x] 修正下界收緊後 Run Stop 不觸發：tier 使用 SmoothDamp 前的 release-entry 快照；輸出仍用 Tick 後速度，消除 60／120 FPS 首幀衰減造成的 Gate 漏判。
+- [x] 補正 SmoothDamp 漸近邊界：Band 比較沿用 `Epsilon=0.001`，實際穩態 `0.74999994` 可命中 Run；回歸測試改跑真實 smoother，不再手塞理想 `0.75`。
+- [x] 建立 Run Transition、Facade mapping 與 Model refs，執行 Unity EditMode＋Run Stop Play 驗收；速度接縫與觸發邊界已確認完成。
+- [x] Walk 連踩根因修正：不再以 Mixer root 加權時間查腳相；Facade 通用唯讀查主導 child clock，Locomotion 依已選 tier 的 loop Bake Data 選片。無 Mixer 同步、黑板、State 或 MotionDriver 變更。
+- [x] 主導 child clock Play 複驗：不再以錯 gait 時鐘選片，但固定起點仍造成明顯全身姿勢跳動；確認 R2 的 ≈0.24 週期殘餘誤差已達必須處理的程度。
+- [x] WalkStop LU／RU Fade `0.15 → 0.25 s` Play A/B：全身瞬間變動仍明顯，確認停止調 Fade，固定起點 pose mismatch 必須由相位等待處理。
+- [x] Walk Pending Stop：以 Stop 起始 FootPhase 連續值比對 Walk loop 烘焙鍵，等待下一個最近 authored 入場點；等待期維持 release-entry 移動，0.5 s fail-safe。只套 Walk，Run 零改動。
+- [x] Unity EditMode＋Play 驗收完成：任意 Walk 腳相放開會先自然走到匹配點再 Stop；無全身瞬跳、無先慢後衝；重新輸入／Jump／Roll 均可立即取消。
+
+### 本輪固定順序
+
+1. **Catalog**：盤點 Kubold Start／Stop／Moving Pivot／Turn in Place；記錄 clip、速度級、方向、角度、`_LU/_RU`、位移與旋轉。
+2. **Representative Import + Bake**：只先選 Left Stop／Right Stop／90° Pivot／180° Turn 四支代表資產。同批修正 `ComputeAverageSpeed` 第 0 帧哨兵值偏差，再重烘受影響 locomotion clips，避免第二次全面重烘。
+3. **Bake Gate**：檢查 `SpeedCurve`、`RotationCurve`、`RotationFinishedTime`、`EndPhase`、`TargetLocalDirection`、`FootPhaseCurve`、`BakedDuration`。大角度不正確就先修 Bake，不寫 Runtime 補丁。
+4. **Semantic Gate**：在 Unity 播放確認 `_LU/_RU` 是抬腳、支撐腳、移動腳或最後落定腳；不准以檔名猜 mapping。
+5. **Architecture Review**：以真實資產表回答 §15 G1–G4，再裁決 `LocomotionModel` 內部 phase／獨立 Presentation FSM／Gameplay State。
+6. **Minimal seam**：只定義足以讓第一個 Stop 案例跑通的 Request → Selection → Motion Execution 邊界；`LocomotionTransition*` 仍是暫稱。
+7. **Forward Stop vertical slice**：先 Walk Left／Right，驗證停止邊沿、腳相選片、Facade 播放、重新輸入／Jump／Roll 中斷與回 Idle；通過後才加 Run／Sprint。
+8. **Fold back**：實測後才同步 design-doc、子系統 spec、State Matrix／架構測試與 changelog。若改 ownership／hierarchy／cross-cutting contract 才提新 ADR。
+
+### 待驗證的責任邊界
+
+```text
+Gameplay Authority（允許什麼）
+  → Locomotion Transition Selection（Start / Cycle / Stop / Pivot / Turn）
+  → Motion Execution（Procedural / Baked / Distance-Matched / Warped）
+  → Animation Post Process（Foot IK / Foot Lock / Pelvis / terrain adaptation）
+```
+
+- Ability／Gameplay FSM 管允許、封鎖與中斷；**不管左右腳選片**。
+- Transition Selection 管選哪段資料；Motion Execution 管如何套用運動，不得綁死。
+- Foot IK v1 是 ground adaptation，**不等於 Foot Lock**；IK 在選片與位移決策之後。
+- Motion Warping 只在 Combat／Traversal 有真實 world target 時進場，不替代一般 Stop 的 Distance Matching。
+
+### 本輪明確不做
+
+- 不一次建完 Start／Stop／Pivot／Turn 全部 Runtime。
+- 不預建 Motion Warping／Distance Matching／Foot Lock 完整 framework。
+- 不新增 `LeftStopState`／`RightStopState`，不把 FootPhase 寫成 gameplay 黑板跨帧狀態。
+- 不改 Accepted ADR-003；新結論若與它衝突，先停下評審。
+- 不導入 Motion Matching；它仍是 v2.0 研究支線。
 
 ---
 
@@ -59,6 +133,46 @@
 | 4 | 放開 Alt | UI 模式全部復原 |
 | 5 | 🆕 **先按 Esc 暫停 → 再按住 Alt → 放開 Alt** | 游標**必須仍然可見**。這是單一游標擁有者的實證（其一收手不得解除另一個的要求）。<br>⚠️ **順序不可顛倒**：`Alt`+`Esc` 是 Windows 系統快捷鍵（切換視窗），OS 層就攔截、Unity 收不到，實測會被丟出遊戲視窗——**鍵位與 OS 撞號，非程式問題**（2026-07-27 實測確認） |
 | 6 | ✅ 暫停中的 trigger 意圖 | **已結案（v0.27）**：追查發現「暫停中按跳躍不會跳」靠的是另一個 bug 的副作用（見下方 v0.27 專段），已改由 `GamePauseController` 的 `BlockInput` 正式關閉 |
+
+---
+
+## 🔴 待使用者操作：v0.29（M3.x-B Footstep 落地）
+
+> 程式／測試／文件已寫完。**我沒有跑過 Unity，也沒有實測任何場景**——下列全部待你驗。
+
+### A. 接線
+
+1. 角色 **Root** 掛上 **`FootstepDetector`**（它會自己 `GetComponentInChildren<FootIKRig>()` 取 pose 管道）
+2. `AudioLibrarySO` 資產新增兩列：**`LeftFootstep`** 與 **`RightFootstep`** → 各自綁 `AudioDefinitionSO`
+   * ⚠️ 未註冊不會報錯，只會靜默無聲（`AudioLibrarySO.Get()` 回 null）——所以「沒聲音」的第一個懷疑對象是這裡
+
+### B. 驗收（都需要實際聽）
+
+| 分類 | 項目 |
+| --- | --- |
+| 地形 | 平地／斜坡／階梯——腳步聲時機是否跟得上動畫落腳 |
+| 速度 | Walk／Run／Sprint——**Sprint 的高步頻不得漏拍**（這是刻意不用時間閘的理由） |
+| 靜止 | Idle 站著不得有腳步聲；**原地轉向應該有** |
+| 跳躍 | 落地只聽到落地聲、**不得同時有腳步聲**；落地後走第一步聲音正常（抑制不得破壞跨帧狀態） |
+| 翻滾 | ⚠️ **本輪未特別處理 Roll**——腳蜷起時高度劇烈變化，可能誤觸發。若實測明顯，回報我處理 |
+| 空中 | ⚠️ 同上，**未加 `IsGrounded` 閘門**（未經裁決的東西我不自行加）。若空中有腳步聲，回報 |
+| 左右 | 左右腳是否分別觸發（可先給兩個明顯不同的音效分辨） |
+| 順序 | 在 Hierarchy 把 `FootstepDetector` 與 `AudioController` 上下對調 → **行為必須完全不變** |
+
+### C. 需要調的參數（`FootstepDetector` 的 Inspector）
+
+三個數字都是**我猜的初值**，必然要依實際動畫調：
+
+* `ArmDescentSpeed = 0.35`（上膛：腳底下降速度門檻 m/s）
+* `FireDescentSpeed = 0.05`（擊發：下降慢於此值即落腳）⚠️ **必須明顯小於上膛值**，否則 Schmitt trigger 失效
+* `MinLiftExcursion = 0.03`（最小抬腳行程 m）
+
+漏拍 → 調低 `ArmDescentSpeed`；多餘的聲音 → 調高 `ArmDescentSpeed` 或 `MinLiftExcursion`。
+
+### D. 回歸
+
+* **EditMode**：99 ＋ 21 → **120 條**
+* **零 GC**：新增了順序 6.5 的第二段迴圈，建議依 §7.4 SOP 複驗（設計上已守：陣列 Start 收集、索引迴圈、struct 值複製、無 LINQ／無字串／無 new）
 
 ---
 
@@ -206,7 +320,7 @@ InputAction → InputData(ref struct) → PlayerLocomotionPolicy(+GaitProfileSO)
   → FSM(問 IsProducingMotion) → MotionDriver → CharacterController
 ```
 
-**磁碟驗證的收案狀態**：`Locomotion.asset` 4-tier（`0/0.265/0.574/1`）／`moveSpeedSource`→`Bake_SprintFwdLoop`（6.100843）／4 支 loop 的 `FootPhaseCurve` 已補（401·61·47·39 keys）／`Gait_ActionRPG`（0.75／1.0／0.3651／toggle）／`Bake_Stand To Roll.BakedDuration` 2.3666668／**EditMode 76 綠**。
+**磁碟驗證的收案狀態（門檻於 2026-08-20 依手感再校正）**：`Locomotion.asset` 4-tier（`0/0.35/0.75/1`）／`moveSpeedSource`→`Bake_SprintFwdLoop`／4 支 loop 的 `FootPhaseCurve` 已補（401·61·47·39 keys）／`Gait_ActionRPG`（0.75／1.0／0.3651／toggle）／`Bake_Stand To Roll.BakedDuration` 2.3666668／**EditMode 76 綠（歷史實測值，本輪尚待重跑）**。
 
 **仍未達成（勿當成已完成）**：`SourceClip` 欄位仍讓 clip 被打包載入（只是邏輯不讀）／0 GC 無 Profiler 存證／`MovementContext` 未實作／7 顆 Bake 的 `BakedDuration` 為 0（刻意延後）／`ComputeAverageSpeed` 低估 1.6~2.6%。
 
@@ -349,7 +463,7 @@ InputAction → InputData(ref struct) → PlayerLocomotionPolicy(+GaitProfileSO)
 4. **（可選，行為等價驗收通過後再做）啟用 gait 方案「預設 Run／Shift=Sprint／Ctrl=Walk」**：
    - `PlayerInputSource` 新增的 `Sprint Action`／`Walk Action` 綁 Left Shift／Left Ctrl。
    - 建 `GaitProfile.asset`（`Assets/ScriptableObjects/Movement/`，選單 `Project/Core/Movement/GaitProfile`），拖進 `PlayerLocomotionPolicy`。
-   - **數值一律用公式 `intensity_i = speed_i / speed_max` 從 Bake Data 換算**（§7-M4；程式預設一律 1＝無 gait 差異，刻意不硬編實測值）。以目前四段速度真相（Walk 1.62／Run 3.50／Sprint 6.10）換算即 default≈0.574、sprint=1.0、walk≈0.265——**填之前請以重烘焙後的 Bake 值複核**。
+   - Gait intensity 是手感輸入，不再強制等於動畫天生速度比；目前採 default=0.75、sprint=1、walk=0.3651。Mixer Threshold 另採 0.35／0.75／1，並以派生 PlaybackSpeed 對齊實際速度。
 5. **Profiler 0 GC 複驗（§7-M2）**：熱路徑新增的是值型別運算，預期 0 B，但仍請實測確認。
 
 ### 下一步（擇一）

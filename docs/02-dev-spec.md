@@ -47,7 +47,8 @@ Assets/
                          #    「想要自由游標」的來源）
                          # ⚠️ 與角色層的分界：本層放「跨角色／全域」的狀態，不掛在角色階層上、
                          #    不由 CharacterPipelineRunner 管理、不進黑板。非 Singleton（見 design-doc §4.9）
-    Presentation/        # IPresentationController, PresentationPipeline（表現層驅動骨架，順序 6.5）
+    Presentation/        # IPresentationController, IPresentationEventSource（🆕 M3.x-B）,
+                         # PresentationPipeline（表現層驅動骨架＋事件發布，順序 6.5）
       Animation/         # AnimationFacadeBase, AnimancerFacade
       Motion/            # MotionDriver, MotionBakeData, JumpLaunchData
       Camera/            # ThirdPersonCamera
@@ -55,6 +56,8 @@ Assets/
                          # AudioEventId, AudioDefinitionSO, AudioLibrarySO（Event→Definition→Library 三層）
       IK/                # FootIKController（Root，決策端）, FootIKRig（Model，Presentation Adapter）,
                          # FootIKTargetData / FootIKPoseData（兩條單向管道）, FootIKSettings
+      Footstep/          # 🆕（M3.x-B）FootstepDetector（IPresentationEventSource 首個實作）,
+                         # FootPlantTracker ＋ FootstepDetectionSettings（單腳跨帧偵測狀態，值型別）
     Editor/
       Project.Editor.asmdef  # Editor 組件（引用 Project.Runtime）
       Pipeline/          # CharacterPipelineRunnerEditor（Inspector 除錯擴充）
@@ -196,6 +199,7 @@ public class PlayerRuntimeData
 | **MoveSpeed**／**MoveDirection**／**UpperBodyWeight**（＝**Movement Output**） | `float`／`Vector2`／`float` | 🆕（Stage 2）當下 active 的 `IMovementModel`（順序 3 `Tick`；Locomotion 時＝`LocomotionModel`） | `MotionDriver.ExecuteBaseMovement`（位移結算，含 `JumpState` 空中控制）；Editor 監視器 | 🆕 **語意（2026-07-25 裁決）**：這三欄不再是 Runner 維護的 locomotion state，而是**當下 active Movement Model 發布的 Movement Output**——換 model 就換這組值的產生者，欄位形狀不變。B9 平滑（`SmoothDamp`，加/減速不同時間常數＋減速保留方向）與 0.1 ambient 門檻皆已內化為 model 私有。⚠️ **ADR-003 §13.4**：輸出恆可由 `MovementIntent` ＋ model dynamics 重新導出，禁止繞過 intent 直寫。⚠️ 動畫參數已**不再**由此欄位經 Runner 轉送——model 於順序 3 自行 `SetFloat`（D4）。D4 的最終形態（欄位完全內化、不經黑板）目標不變，見 §7.3 |
 | **CurrentWeapon** | `ItemInstance` | EquipmentDriver | 多處 | 唯讀引用，禁止外部修改內容 |
 | **Arbitration** | `ArbiterData` (struct) | 🆕（輪 4）`ArbiterPipeline`（順序 4.5）——**全專案唯一執行期寫入者** | 順序 2 的輸入閘門（`BlockInput`）／各表現層 Controller（`BlockIK`／`BlockAudio`） | 每帧**從 `default` 重算後整體覆寫**（不以現值為起點，否則旗標只會愈疊愈多、永遠關不掉）。⚠️ 唯一寫入者是**管線**而非任何 `IArbiterSource`：來源只回傳自己的請求（值複製），合併與寫黑板由管線獨佔——**多來源進場時 §7-A5 白名單不會跟著變長**。合併政策目前為**純 OR**（見 §1.4） |
+| **PresentationEvents** 🆕 | `PresentationEventData` (struct) | 🆕（M3.x-B）`PresentationPipeline`（順序 6.5 的**末尾**）——**全專案唯一執行期寫入者** | 各表現層 Controller（首個消費者＝`AudioController` 的腳步音；未來 VFX／鏡頭震動同窗口讀） | **廣播快照**：每帧從 `default` 重算後整體覆寫；**consumer 只讀不清除**，彼此不會吃掉事件。⚠️ 唯一寫入者是**管線**而非任何 `IPresentationEventSource`：來源只回傳自己的 value struct（回傳值設計讓「Controller 對黑板只讀不寫」的契約**一個字都不用改**）。⚠️ **刻意不參與順序 7 復位**——整體覆寫即是它的復位機制，且它必須活過順序 7 才能在**下一帧** 6.5 被消費（見 §2.1 順序 6.5） |
 | **IsGrounded** | `bool` | MotionDriver（於 `GetGravityThisFrame(data)` 內部統一寫入，所有移動路徑最終都會呼叫此方法，來源 `CharacterController.isGrounded`） | 狀態機（如 `JumpState.IsLanded`） | ✅ v0.7 規劃、v0.8 實作完成；已取代 `JumpState` 內部原本的固定計時器落地判定 |
 | **VerticalVelocity** | `float`（`internal set`） | MotionDriver、`Project.Core` 內的狀態類別 | 各表現層 Controller（唯讀） | ⏸ v0.10 定案 → **ADR-002 §6-1 延後**：等第二個垂直速度消費者（wall-slide／擊飛／電梯）再落地；目前垂直速度仍封裝於 `MotionDriver` |
 | **JustLanded / JustLeftGround** | `bool` | MotionDriver（於 `GetGravityThisFrame(data)` 內比較前後兩幀 `IsGrounded`，**唯一觸發源**；順序 7 `ResetTransientState()` 的統一復位屬生命週期管理，不視為第二寫入者） | PresentationPipeline 驅動的表現層 Controller（✅ M2 首個消費者：`AudioController` 落地音；未來鏡頭震動／特效同窗口讀取） | ✅ v0.10 定案 → 2026-07-14 定調延後 → **M2 落地**（第一個下游消費者出現，YAGNI 閘門通過）；單幀生命週期：順序 6 生 → 6.5 消費 → 7 死 |
@@ -364,7 +368,7 @@ public struct MovementIntentData
 | **5** | AnimationFacade 同步 | 當前狀態 | 動畫播放指令 | 狀態變更時提交播放請求（`Play(AnimationKey)`）。🆕（Stage 2）**參數同步已遷出**：每個 model 於順序 3 驅動自己的參數（Locomotion→`MoveSpeed`、未來 Swim→`StrokeRate`），共用同一支通用 Facade（D4）。此處只剩「狀態 → 動畫鍵」的通用映射。 |
 | **6a** | MotionDriver 基礎運動 | `RuntimeData`（Movement Output）＋單幀快取重力積分 | `CharacterController.Move` | **必須在 LateUpdate**，由當前狀態的 `OnUpdateMotion` 選擇移動路徑。🆕（Stage 2，D3）**ambient 狀態**（Idle／Move）在此 **delegate 給 active model** 的 `UpdateMotion`；**intrinsic-motion 狀態**（Jump／Roll）維持既有 override 自帶位移。v0.9 起全程式碼驅動，**不再讀取 `OnAnimatorMove` 根運動增量**（見 §3.2 風險註記）。<br>🆕（v0.27）**`Time.deltaTime <= 0` 時整段跳過**（`MotionDriver.IsTimeFrozen`）：不呼叫 `Move`、不重算 `IsGrounded` 與單幀邊沿旗標。理由是 `Move(Vector3.zero)` 會讓 Unity 的 `isGrounded` 回報 false（它由「上一次 Move 有沒有向下撞到東西」決定），連鎖出假的 `JustLeftGround`／`JustLanded`。⚠️ 守衛刻意表述為「**沒有時間流逝**」而非「暫停」——MotionDriver 不認識暫停，只知道沒有時間就沒有東西要積分。 |
 | **6b** | MotionDriver 烘焙曲線/補償 | `MotionBakeData`（＋補償目標點） | `CharacterController.Move` | **與 6a 同幀 LateUpdate 執行**。現行 Roll 走 `ExecuteBakedCurveMovement`（純曲線）；`ApplyBakedCompensation`（動態吸附）屬 Warping 階段，尚無呼叫端。 |
-| **6.5** | PresentationPipeline Tick | `RuntimeData`（含單幀事件 `JustLanded` 等） | 各表現層 Controller 的表現輸出（M2：落地音；未來 IK／特效） | 🆕（M2）**LateUpdate，MotionDriver 之後**——單幀事件由順序 6 觸發、順序 7 復位，此處是唯一保證可讀到的時間窗。Runner 只呼叫 `PresentationPipeline.Tick`，不認識具體 Controller（見 §3.4）。 |
+| **6.5** | PresentationPipeline Tick | `RuntimeData`（含單幀事件 `JustLanded` 等） | 各表現層 Controller 的表現輸出（M2：落地音；未來 IK／特效） | 🆕（M2）**LateUpdate，MotionDriver 之後**——單幀事件由順序 6 觸發、順序 7 復位，此處是唯一保證可讀到的時間窗。Runner 只呼叫 `PresentationPipeline.Tick`，不認識具體 Controller（見 §3.4）。<br>🆕（M3.x-B）**本階段拆成兩個子步驟，順序不可調換**：**①依序驅動所有 `IPresentationController`**（它們讀到的是**上一帧**發布的事件快照）→ **②詢問所有 `IPresentationEventSource` → OR 合併 → 整體覆寫 `PresentationEvents`**。⚠️ **發布必須在①全部跑完之後**——這是「事件正確性與 Hierarchy 順序無關」的**唯一依據**：若在迭代中途發布，同窗口的 consumer 讀不讀得到就取決於 `GetComponentsInChildren` 的回傳順序（＝階層裡誰在上面），拖動物件會變成正確性條件。代價是固定一帧延遲（約 16ms）。 |
 | **7** | ResetTransientState() | — | `RuntimeData.Intent` ＋ `JustLanded`／`JustLeftGround` 清空 | **LateUpdate 末尾**執行，確保所有讀取方已消耗。🆕（M2）由 `IntentData.Reset()` 擴充為統一復位所有單幀瞬態。 |
 
 > ⚠️ **生命週期脆弱點警告**：
@@ -474,7 +478,7 @@ public struct LocomotionSpeedSmoother
 | 類別 | 定位 | 紀律 |
 | --- | --- | --- |
 | `PlayerLocomotionPolicy` | 「移動控制方案」（per-game Movement Policy）的家。**唯一**寫 `MovementIntent` 的執行期元件 | 不得回讀 gameplay state／不得判斷「這顆 Shift 是否給移動用」（§13.3 屬 Input 層） |
-| `GaitProfileSO` | **只管 on-foot gait**（範圍刻意收窄，ADR-003 §6.2 的教訓：泛用 movement profile 會 overfit 到 1D speed）。換玩法控制方案＝換這顆資產 | 三個強度值以 `intensity_i = speed_i / speed_max` 從 MotionBakeData 換算為**基準參考值**（CLAUDE.md B11 documented-formula 決策）；**程式碼預設一律 1＝無 gait 差異**，不硬編實測值。<br>🆕 **釐清（2026-07-25）——公式綁的是 threshold，不是 intensity**：Mixer 門檻**必須**等於 `speed_i / speed_max`（那是不可協商的校準，決定動畫速度與位移速度的對應）；但 gait intensity 是**自由的手感參數**，因為對任意 `p`，混合後的動畫速度恆為 `p × speed_max`（推導見 changelog v0.22 §3），與位移速度**恆等**。所以偏離基準值（如把 Run 從 0.574 調到 0.75）＝**刻意選一個混合姿態**，不是校準錯誤、不會滑步；代價只有「姿態不再是純 Run，而是 Run/Sprint 的混合」。Walk 型態與 Sprint 同時成立時 **Walk 優先**（固定規則，非可調欄位）。🆕 `walkIsToggle`：hold／toggle 屬 **per-game 控制方案差異**，故住在資產而非 policy 程式碼——否則「換玩法＝換一顆資產」的承諾即破。目前只有 Walk 有實體按鍵（Sprint 規劃為 buff 驅動），故用 bool 而非 per-modifier enum，**不預造** |
+| `GaitProfileSO` | **只管 on-foot gait**（範圍刻意收窄，ADR-003 §6.2 的教訓：泛用 movement profile 會 overfit 到 1D speed）。換玩法控制方案＝換這顆資產 | Gait intensity 與 Mixer Threshold 都是**自由的手感參數**，目前分別以 profile 與 `Locomotion.asset` 保存；程式碼預設一律 1＝無 gait 差異，不硬編專案實測值。若 Threshold `t_i` 偏離動畫天生比例，必須以 `playback_i = t_i × speed_max / speed_i` 派生子動畫播放倍率，使錨點視覺速度與 procedural 速度一致；關閉 `SynchronizeChildren` 時，Linear Mixer 的整個混合區間亦保持循環平均速度一致。Walk 型態與 Sprint 同時成立時 **Walk 優先**（固定規則，非可調欄位）。`walkIsToggle`：hold／toggle 屬 **per-game 控制方案差異**，故住在資產而非 policy 程式碼——否則「換玩法＝換一顆資產」的承諾即破。目前只有 Walk 有實體按鍵（Sprint 規劃為 buff 驅動），故用 bool 而非 per-modifier enum，**不預造** |
 | `LocomotionSpeedSmoother` | B9 平滑的純運算單元。🆕（Stage 2 已遷移）持有者自 `CharacterPipelineRunner` 換為 `LocomotionModel`，**計算邏輯一字未改** | 輸入**只有** `MovementIntentData`；`deltaTime` 由呼叫端傳入（不隱式取 `Time.deltaTime`）以維持純運算與可測性；所有狀態顯式在 struct 內、無隱藏靜態態（ADR-003 §9-L5 snapshot-able 前提）。**執行期持有者恆為一個**（由 §7 A10 守）——多於一個＝平滑被切分，Idle↔Move 切換會重置收步 |
 
 #### IMovementModel／LocomotionModel（Movement Model，🆕 ADR-003 D3／D4 Stage 2）
@@ -592,6 +596,8 @@ public abstract class AnimationFacadeBase : MonoBehaviour
     public abstract void SetFloat(string key, float value);   // v0.16（F2）由空殼轉正：寫入動畫圖參數字典
     public abstract void SetBool(string key, bool value);
     public abstract bool IsPlaying(string stateKey);          // 語意：多鍵可映射同一資產（Idle/Move → Locomotion），結果一致
+    public virtual bool TryGetDominantChildNormalizedTime(string stateKey, out float normalizedTime);
+    // 通用唯讀圖查詢；無 child 概念的後端預設 false。Animancer 實作以最高權重直接子狀態為準，零配置。
     public abstract float GetNormalizedTime();
 }
 
@@ -865,14 +871,27 @@ public interface IPresentationController
     void Tick(PlayerRuntimeData data);
 }
 
-// 集中驅動：Runner Start() 以 GetComponentsInChildren<IPresentationController>() 一次性收集，
-// LateUpdate 順序 6.5 統一 Tick。陣列建構時一次配置，執行期純 for 迴圈零 GC。
+// 🆕（M3.x-B）表現層事件來源契約：回報「本來源自己」這一帧偵測到的事件。
+// **刻意回傳值**——來源因此結構上不可能寫黑板，上面那條「只讀不寫」契約不需要為事件發布放寬任何一個字。
+public interface IPresentationEventSource
+{
+    PresentationEventData Evaluate(PlayerRuntimeData data);
+}
+
+// 集中驅動：Runner Start() 以 GetComponentsInChildren<T>() 一次性收集兩組，
+// LateUpdate 順序 6.5 統一處理。陣列建構時一次配置，執行期純索引 for 迴圈＋struct 值複製，零 GC。
+// 🆕（M3.x-B）兼任 PresentationEvents 的**唯一黑板寫入者**（見 §1.1 權限表）。
 public class PresentationPipeline
 {
-    public PresentationPipeline(IPresentationController[] controllers);
-    public void Tick(PlayerRuntimeData data);
+    public PresentationPipeline(IPresentationController[] controllers, IPresentationEventSource[] eventSources);
+    public void Tick(PlayerRuntimeData data);   // ①驅動 Controller → ②收集來源 → OR 合併 → 整體覆寫黑板
 }
 ```
+
+> 🔄 **定位更新（M3.x-B）**：本類別自此**多了一件事**——除了「依序驅動」，還是**表現層事件的唯一黑板發布者**。
+> 這是刻意的：把發布權交給管線（而非各偵測器），才能在**不動 `IPresentationController` 契約**的前提下讓事件進黑板。
+> 兩種擁有權因此明確分離：**偵測的跨帧狀態屬各來源，事件的發布與生命週期屬管線。**
+> ⚠️ 它仍然**不做輸出仲裁**（多個 Controller 競爭同一個 AudioSource／骨骼）——那條預留未兌現，見 design-doc §4.6。
 
 **規則**：
 * Controller **不得自帶 `Update`／`LateUpdate`**——時序由管線統一保證（順序 6.5），否則單幀事件的讀取窗口不可控。
@@ -1003,9 +1022,9 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 
 **已知限制**：(1) 蹬伸期腳跟先離地會讓踝骨提早上升，深蹲推蹬類動畫的起跳時刻可能提早約 1 影格（容忍度 0.03m 已吸收大部分；未來可選配腳趾骨骼精化）。(2) 跳上高台類不對稱拋物線不符 `g = 8h/t²` 的對稱假設，一律誠實退化（廣義解 `g = 2(√h_up + √h_down)²/t²` 需另偵測落地面高度，暫不落地）。(3) 演算法全程為絕對值逐幀比較，無積分項、無累積誤差；量測精度受採樣率限制的部分已由子影格插值消除主要量化誤差。(4) 即使 `Root Transform Position (Y) → Bake Into Pose` 被誤勾，腳的世界 Y 仍隨姿勢升降，起跳／落地時刻照樣可量測，僅最高點（root 基準）退化、重力安全退回標準值。
 
-#### 代表速度（AutoAverageSpeed，v0.16.2）——曲線聚合類特徵
+#### 代表速度（AutoAverageSpeed，v0.16.2；2026-08-20 修正第 0 帧哨兵偏差）——曲線聚合類特徵
 
-特徵分兩類，資料依賴不同：**採樣提取類**（跳躍前搖／最高點／滯空）需原始逐影格採樣（foot/root 世界 Y），走 `JumpFeatureAnalyzer`（吃 `MotionFeatureContext.Samples`）；**曲線聚合類**（代表速度）是對「已提取的 `SpeedCurve`」再做的統計量，天然屬 `MotionBakeData` 自身，故由 `MotionBakeEditor.SaveAsset` 在寫入 `SpeedCurve` 後直接呼叫 `MotionBakeData.ComputeAverageSpeed` 填入 `AutoAverageSpeed`，不繞經 analyzer（analyzer 契約吃 `Samples`，而 `Samples` 不含水平位移／速度）。定義：`SpeedCurve` 關鍵影格值算術平均（等距採樣＝時間平均）。消費見 §3.2「動畫數據 → 配置資料流」。未來若新增同屬「曲線聚合類」的特徵（如 Stride Length 由位移曲線積分），沿用此處分工即可。
+特徵分兩類，資料依賴不同：**採樣提取類**（跳躍前搖／最高點／滯空）需原始逐影格採樣（foot/root 世界 Y），走 `JumpFeatureAnalyzer`（吃 `MotionFeatureContext.Samples`）；**曲線聚合類**（代表速度）是對「已提取的 `SpeedCurve`」再做的統計量，天然屬 `MotionBakeData` 自身，故由 `MotionBakeEditor.SaveAsset` 在寫入 `SpeedCurve` 後直接呼叫 `MotionBakeData.ComputeAverageSpeed` 填入 `AutoAverageSpeed`，不繞經 analyzer（analyzer 契約吃 `Samples`，而 `Samples` 不含水平位移／速度）。定義：排除烘焙器為建立曲線起點而寫入的第 0 帧 `time=0/value=0` 哨兵（僅在曲線尚有後續實際樣本時排除），其餘 `SpeedCurve` 關鍵影格值取算術平均（等距採樣＝時間平均）。消費見 §3.2「動畫數據 → 配置資料流」。未來若新增同屬「曲線聚合類」的特徵（如 Stride Length 由位移曲線積分），沿用此處分工即可。
 
 #### 動畫長度（BakedDuration，🆕 2026-07-26）——切斷執行期對 AnimationClip 的最後一條依賴
 
@@ -1143,6 +1162,7 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | **A8** | 未指派 `GaitProfileSO` 時，producer 輸出＝原始推桿量（Stage 1 行為等價保證）；gait 解析規則（Walk 優先、零輸入不生意圖、Clamp01）；🆕 **hold／toggle 兩種 Walk 型態語意**（toggle 只看邊沿不看 Held、放開後閂住、再按翻回）；🆕 **toggle 狀態必須存在黑板**——同一顆 producer 換一塊新黑板時型態須從乾淨狀態開始（＝producer 無私有殘留，ADR-003 D5／§9-L5） | 行為等價／資料驅動／Ownership | `MovementIntentTests.ProduceIntent_*`／`ResolveIntensity_*` | 行為測試 |
 | **A9** 🆕 | **通用管線不得認識 locomotion 概念**：`CharacterPipelineRunner` 原始碼不得出現 `MoveSpeed`／`MoveDirection`／`UpperBodyWeight`／`LocomotionSpeedSmoother`／`SmoothDamp`／`GaitProfile`／`LocomotionModel` | DIP／ADR-003 D4（Stage 2 完成判準本身） | `ArchitectureRegressionTests.A9_*` | 掃描去註解**且去字串常值**後的 Runner（Tooltip／LogError 指名預設元件屬設定指引，非型別依賴） |
 | **A10** 🆕 | **跨帧平滑狀態全域唯一**：Runtime 內宣告 `LocomotionSpeedSmoother` 的持有者**恰好一個**（＝active model） | Ownership／行為等價（B9 收步不斷） | `ArchitectureRegressionTests.A10_*` | 宣告形 regex 掃描 Runtime；0 個＝平滑遺失，>1 個＝Idle↔Move 切換重置收步 |
+| **A5 補充** 🆕（M3.x-B） | `PresentationEvents`→`PresentationPipeline`。⚠️ 這條同時是 **`IPresentationController`「對黑板只讀不寫」契約的機器化守衛**：任何 Controller 想寫這一區都會在此變紅，契約不需要靠人記得 | Ownership／Single Writer | `ArchitectureRegressionTests.A5_*` | 同 A5 |
 | **A11** 🆕 | **Pose 管道的 lifetime owner ＝ 它的唯一 Writer**：`FootIKPoseData` 的建構點**恰好一個**且必須位於 `FootIKRig.cs`（＝唯一 Writer） | Ownership（單寫**多**讀管道） | `ArchitectureRegressionTests.A11_*` | **建構形** regex 掃描 Runtime（涵蓋 `new FootIKPoseData(` 與欄位初始式 `= new(`）。>1 個＝有 Reader 自己 new 了一份，會**靜默**讀到永不更新的空快照（症狀「IK 沒反應」且不報錯）；0 個＝管道消失。⚠️ **刻意不用 A5 那種成員名賦值掃描**——`FootIKTargetData` 與 `FootIKPoseData` **成員同名**（皆有 `LeftFootPosition` 等），成員名掃描會把 Controller 對 Target 的合法寫入誤判為違規 |
 
 > **掃描法的已知精度（誠實記錄，非缺陷）**：①只掃 Runtime（`Core`／`Presentation`）——單一寫入者是**執行期**契約，`Editor/` 的除錯 Inspector 可手動改寫黑板意圖屬合法例外；②掃描前移除註解，避免文件性文字造成假陽性；字串常值內含 `//` 會被一併截斷，此偏差只會讓檢查**變寬鬆**（漏報），不會假陽性；③token 採子字串比對，刻意保守。

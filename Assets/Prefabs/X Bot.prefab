@@ -2071,6 +2071,7 @@ GameObject:
   - component: {fileID: 8591615603802138020}
   - component: {fileID: 2274902780729010716}
   - component: {fileID: 8740204725354185545}
+  - component: {fileID: 8311950216700404644}
   m_Layer: 0
   m_Name: X Bot
   m_TagString: Untagged
@@ -2109,6 +2110,7 @@ MonoBehaviour:
   inputSourceComponent: {fileID: 8897448281995936255}
   movementIntentSourceComponent: {fileID: 0}
   movementModelComponent: {fileID: 0}
+  externalArbiterSources: []
   playerCamera: {fileID: 8097198700277537437, guid: a854bf73576c1db4694c741a78789aca, type: 3}
   stateMachineConfig: {fileID: 11400000, guid: c34d4d25d9c9268429d2ece56255761b, type: 2}
   animationFacade: {fileID: 5884176032741337020}
@@ -2290,6 +2292,14 @@ MonoBehaviour:
     Transition: {fileID: 11400000, guid: e699a25893c624947ae20c583020753f, type: 2}
   - StateKey: Roll
     Transition: {fileID: 11400000, guid: d204aa5b80b94a2438234e86cd6c4910, type: 2}
+  - StateKey: RunStop_LU
+    Transition: {fileID: 11400000, guid: 3ccf4b10cfab9044492b7e8868424296, type: 2}
+  - StateKey: RunStop_RU
+    Transition: {fileID: 11400000, guid: 803c76bc9f17cae45bfd8f88af4c5c4f, type: 2}
+  - StateKey: WalkStop_RU
+    Transition: {fileID: 11400000, guid: 949f4654d622a0944ae82f9a3545cffd, type: 2}
+  - StateKey: WalkStop_LU
+    Transition: {fileID: 11400000, guid: 52d726cd0dd53d340a8e31c3e6062a55, type: 2}
 --- !u!114 &4074466034556624722
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2304,7 +2314,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Project.Presentation.Motion.MotionDriver
   characterController: {fileID: 7600688329978809718}
   moveSpeed: 5.66
-  moveSpeedSource: {fileID: 11400000, guid: 7c253da4ed9248b4fa1485ea300fb6ef, type: 2}
+  moveSpeedSource: {fileID: 11400000, guid: 672fae5c3d8711247a958cefd2234e25, type: 2}
   overrideMoveSpeed: 0
   gravity: -9.81
   reboundForce: -2
@@ -2509,6 +2519,24 @@ MonoBehaviour:
   m_EditorClassIdentifier: Project.Runtime::Project.Core.Movement.LocomotionModel
   moveSpeedAccelTime: 0.12
   moveSpeedDecelTime: 0.18
+  walkLoopBakeData: {fileID: 11400000, guid: c168624b83aacd642bb0d17a8561f704, type: 2}
+  walkStopVariants:
+  - bakeData: {fileID: 11400000, guid: 727128432b3f50f46bc7cf1ffb7417e5, type: 2}
+    animationKey: WalkStop_LU
+  - bakeData: {fileID: 11400000, guid: c0a0b8a82fdff66419d7e542bbfce797, type: 2}
+    animationKey: WalkStop_RU
+  runLoopBakeData: {fileID: 11400000, guid: 7c253da4ed9248b4fa1485ea300fb6ef, type: 2}
+  runStopVariants:
+  - bakeData: {fileID: 11400000, guid: 6c802fe389aeedb4d9fe6b023f213f7b, type: 2}
+    animationKey: RunStop_LU
+  - bakeData: {fileID: 11400000, guid: 1ab60b9008b962846970b6c488927c6e, type: 2}
+    animationKey: RunStop_RU
+  locomotionAnimationKey: Idle
+  walkStopMinIntensity: 0.35
+  walkStopMaxIntensity: 0.5
+  runStopMinIntensity: 0.75
+  runStopMaxIntensity: 0.875
+  stopTimeoutMargin: 0.25
 --- !u!114 &8591615603802138020
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2581,6 +2609,22 @@ MonoBehaviour:
   m_EditorClassIdentifier: Project.Runtime::Project.App.CursorModeController
   uiModeSource: {fileID: 8591615603802138020}
   pauseController: {fileID: 2274902780729010716}
+--- !u!114 &8311950216700404644
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7356619014195126258}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4761560614726ed419d0c5a02e268bac, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Footstep.FootstepDetector
+  settings:
+    ArmDescentSpeed: 0.35
+    FireDescentSpeed: 0.05
+    MinLiftExcursion: 0.03
 --- !u!1 &7481699873517314820
 GameObject:
   m_ObjectHideFlags: 0

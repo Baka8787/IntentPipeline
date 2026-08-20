@@ -50,6 +50,22 @@ namespace Project.Presentation.Audio
             {
                 Play(AudioEventId.Landing);
             }
+
+            // 🆕（M3.x-B）腳步音：讀黑板的表現層事件廣播快照。
+            // ⚠️ 讀到的是**上一帧**由 PresentationPipeline 發布的快照（發布在所有 Controller Tick 之後），
+            //    這正是「事件正確性與 Hierarchy 順序無關」的代價與保證，見 PresentationPipeline.Tick。
+            // ⚠️ **只讀不清除**——這是廣播快照不是佇列，未來的 VFX／鏡頭震動要讀到同一份。
+            //    復位由發布端的整體覆寫負責，本類別不得插手。
+            // Landing 與 Footstep 的互斥已由事件源處理（JustLanded 當帧抑制腳步），此處不重複判斷。
+            if (data.PresentationEvents.LeftFootPlanted)
+            {
+                Play(AudioEventId.LeftFootstep);
+            }
+
+            if (data.PresentationEvents.RightFootPlanted)
+            {
+                Play(AudioEventId.RightFootstep);
+            }
         }
 
         private void Play(AudioEventId eventId)

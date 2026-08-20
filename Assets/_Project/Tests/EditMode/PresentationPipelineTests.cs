@@ -36,7 +36,7 @@ namespace Project.Tests.EditMode
             var a = new RecordingController(order);
             var b = new RecordingController(order);
             var data = new PlayerRuntimeData();
-            var pipeline = new PresentationPipeline(new IPresentationController[] { a, b });
+            var pipeline = new PresentationPipeline(new IPresentationController[] { a, b }, null);
 
             pipeline.Tick(data);
 
@@ -50,15 +50,15 @@ namespace Project.Tests.EditMode
         [Test]
         public void Tick_WithNullControllerArray_IsSafe()
         {
-            var pipeline = new PresentationPipeline(null);
+            var pipeline = new PresentationPipeline(null, null);
             Assert.DoesNotThrow(() => pipeline.Tick(new PlayerRuntimeData()),
-                "null 控制器陣列應被建構子正規化為空管線，Tick 不得拋例外");
+                "null 控制器／事件來源陣列應被建構子正規化為空管線，Tick 不得拋例外");
         }
 
         [Test]
         public void Tick_WithEmptyControllerArray_IsSafe()
         {
-            var pipeline = new PresentationPipeline(new IPresentationController[0]);
+            var pipeline = new PresentationPipeline(new IPresentationController[0], new IPresentationEventSource[0]);
             Assert.DoesNotThrow(() => pipeline.Tick(new PlayerRuntimeData()),
                 "角色身上一個 Controller 都沒掛（如測試場景）是合法情境，Tick 必須安全");
         }

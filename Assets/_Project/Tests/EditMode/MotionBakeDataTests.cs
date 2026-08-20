@@ -52,6 +52,24 @@ namespace Project.Tests.EditMode
         public void ComputeAverageSpeed_KnownValues_ReturnsArithmeticMean()
             => Assert.AreEqual(4f, MotionBakeData.ComputeAverageSpeed(Curve(2f, 4f, 6f)), 1e-4f);
 
+        [Test]
+        public void ComputeAverageSpeed_BakeSentinel_ExcludesSyntheticFirstZero()
+            => Assert.AreEqual(4f, MotionBakeData.ComputeAverageSpeed(Curve(0f, 2f, 4f, 6f)), 1e-4f);
+
+        [Test]
+        public void ComputeAverageSpeed_OnlyZeroKey_ReturnsZero()
+            => Assert.AreEqual(0f, MotionBakeData.ComputeAverageSpeed(Curve(0f)), 1e-4f);
+
+        [Test]
+        public void ComputeAverageSpeed_ZeroAtNonSentinelTime_RemainsARealSample()
+        {
+            var curve = new AnimationCurve(
+                new Keyframe(0.1f, 0f),
+                new Keyframe(0.2f, 2f));
+
+            Assert.AreEqual(1f, MotionBakeData.ComputeAverageSpeed(curve), 1e-4f);
+        }
+
         // === GetRepresentativeSpeed 雙路徑 ===
 
         [Test]

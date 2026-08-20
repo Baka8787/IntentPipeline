@@ -243,8 +243,8 @@ namespace Project.Tests.EditMode
             new LayerRule
             {
                 Folder = "Core/Movement/Models",
-                Forbidden = new[] { "Project.Core.StateMachine", "StateType", "Project.Core.Pipeline", "CharacterPipelineRunner" },
-                Reason = "ADR-003 D3：model 由 state delegate 呼叫、不得反向認識狀態機或管線（model 正交於 gameplay FSM）"
+                Forbidden = new[] { "Project.Core.StateMachine", "StateType", "Project.Core.Pipeline", "CharacterPipelineRunner", "Project.Presentation.IK" },
+                Reason = "model 可驅動通用 Animation/Motion seam，但不得回讀 IK post-process 輸出"
             },
             // 🆕（輪 4）仲裁層：design-doc §4.5「不該直接呼叫任何表現層 Controller 的方法
             //    （只能透過寫黑板旗標溝通）」的機器化。刻意**不**禁 StateMachine——
@@ -325,6 +325,12 @@ namespace Project.Tests.EditMode
             //    合併與寫黑板由 ArbiterPipeline 獨佔——多來源進場時本白名單**不會**跟著變長。
             new WriterRule { Member = "Arbitration", AllowedFiles = new[] { "ArbiterPipeline.cs" },
                              Owner = "ArbiterPipeline（順序 4.5；OR 合併所有 IArbiterSource 後整體覆寫）" },
+            // 🆕（M3.x-B）表現層事件廣播快照。唯一寫入者是**管線**而非任何 IPresentationEventSource：
+            //    來源只回傳自己的 value struct，合併與寫黑板由 PresentationPipeline 獨佔。
+            // ⚠️ 這條同時是 IPresentationController「對黑板只讀不寫」契約的機器化守衛：
+            //    任何 Controller 想寫這一區都會在此變紅，契約不需要靠人記得。
+            new WriterRule { Member = "PresentationEvents", AllowedFiles = new[] { "PresentationPipeline.cs" },
+                             Owner = "PresentationPipeline（順序 6.5 末尾；OR 合併所有 IPresentationEventSource 後整體覆寫）" },
         };
 
         [Test]
@@ -467,6 +473,60 @@ namespace Project.Tests.EditMode
                 "FootIKPoseData 的 lifetime owner 必須是它的唯一 Writer（FootIKRig）。" +
                 "擁有權跟著寫入權走——擁有者不是 Writer 時，新增第二個 Reader 就會被迫向其他 Controller 要引用，" +
                 "違反 IPresentationController 的『Controller 彼此不得互相引用』契約。");
+        }
+
+        [Test]
+        public void A12_StopAndFootPhase_DoNotExpandGameplayBlackboard()
+        {
+            string[] forbidden = { "Foot", "Stop", "Phase" };
+            var violations = new List<string>();
+            var members = typeof(Project.Core.Blackboard.PlayerRuntimeData).GetMembers(
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            foreach (var member in members)
+            {
+                foreach (string token in forbidden)
+                    if (member.Name.Contains(token)) violations.Add(member.Name);
+            }
+            CollectionAssert.IsEmpty(violations);
+        }
+
+        [Test]
+        public void A13_Stop_DoesNotAddGameplayState()
+        {
+            CollectionAssert.AreEqual(
+                new[] { "None", "Idle", "Move", "Jump", "Roll" },
+                Enum.GetNames(typeof(Project.Core.StateMachine.StateType)));
+        }
+
+        [Test]
+        public void A14_AnimationFacade_RemainsLocomotionAgnostic()
+        {
+            string[] forbidden = { "Stop", "Locomotion", "Walk" };
+            var violations = new List<string>();
+            var members = typeof(Project.Presentation.Animation.AnimationFacadeBase).GetMembers(
+                System.Reflection.BindingFlags.Public |
+                System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.Static |
+                System.Reflection.BindingFlags.DeclaredOnly);
+            foreach (var member in members)
+            {
+                foreach (string token in forbidden)
+                    if (member.Name.Contains(token)) violations.Add(member.Name);
+            }
+            CollectionAssert.IsEmpty(violations);
+        }
+
+        [Test]
+        public void A15_LocomotionStopRuntime_HasExactlyOneRuntimeHolder()
+        {
+            var declaration = new Regex(@"\bLocomotionStopRuntime\s+_?\w");
+            var holders = new List<string>();
+            foreach (string path in RuntimeScriptPaths())
+            {
+                if (string.Equals(Path.GetFileName(path), "LocomotionStopRuntime.cs", StringComparison.Ordinal)) continue;
+                if (declaration.IsMatch(StripComments(File.ReadAllText(path)))) holders.Add(RelativePath(path));
+            }
+            Assert.AreEqual(1, holders.Count);
         }
     }
 }

@@ -159,15 +159,50 @@ namespace Project.Presentation.Motion
             if (bakeData == null) return;
             if (IsTimeFrozen) return; // 同 ExecuteBaseMovement，見 IsTimeFrozen 的說明
 
-            // 1. 將 0~1 的進度還原為實際時間（秒）
             float currentTime = normalizedTime * bakeData.Duration;
             float previousTime = Mathf.Max(0f, currentTime - Time.deltaTime);
+            ExecuteBakedCurveMovementAtTimes(bakeData, currentTime, previousTime, false, data);
+        }
 
-            // 2. 透過曲線評估當前瞬時速度，生成水平速度向量
+        /// <summary>
+        /// 以前後播放頭驅動烘焙曲線；TransitionAsset 的播放倍率已包含在 playhead delta 內。
+        /// </summary>
+        public void ExecuteBakedCurveMovement(
+            MotionBakeData bakeData,
+            float normalizedTime,
+            float previousNormalizedTime,
+            PlayerRuntimeData data)
+        {
+            if (bakeData == null) return;
+            if (IsTimeFrozen) return;
+
+            float currentTime = Mathf.Max(0f, normalizedTime * bakeData.Duration);
+            float previousTime = Mathf.Clamp(previousNormalizedTime * bakeData.Duration, 0f, currentTime);
+            ExecuteBakedCurveMovementAtTimes(bakeData, currentTime, previousTime, true, data);
+        }
+
+        private void ExecuteBakedCurveMovementAtTimes(
+            MotionBakeData bakeData,
+            float currentTime,
+            float previousTime,
+            bool usePlayheadDeltaSpeed,
+            PlayerRuntimeData data)
+        {
             float currentSpeed = bakeData.GetSpeedAt(currentTime);
-            Vector3 horizontalVelocity = transform.forward * currentSpeed;
+            float worldSpeed = currentSpeed;
 
-            // 3. 計算這一影格與上一影格的「累計角度差 (Delta Yaw)」並套用旋轉
+            if (usePlayheadDeltaSpeed)
+            {
+                float clipDeltaTime = Mathf.Max(0f, currentTime - previousTime);
+                float previousSpeed = bakeData.GetSpeedAt(previousTime);
+                float averageClipSpeed = 0.5f * (previousSpeed + currentSpeed);
+                worldSpeed = clipDeltaTime > 0f
+                    ? averageClipSpeed * (clipDeltaTime / Time.deltaTime)
+                    : 0f;
+            }
+
+            Vector3 horizontalVelocity = transform.forward * worldSpeed;
+
             float currentYaw = bakeData.GetRotationAt(currentTime);
             float previousYaw = bakeData.GetRotationAt(previousTime);
             float deltaYaw = currentYaw - previousYaw;
@@ -177,7 +212,6 @@ namespace Project.Presentation.Motion
                 transform.Rotate(Vector3.up, deltaYaw, Space.World);
             }
 
-            // 4. 曲線特殊狀態同樣疊加世界物理重力結算，打包送出（同時同步觸地狀態回黑板）
             Vector3 finalMovement = horizontalVelocity + GetGravityThisFrame(data);
             characterController.Move(finalMovement * Time.deltaTime);
         }

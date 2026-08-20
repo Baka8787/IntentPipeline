@@ -262,6 +262,39 @@ namespace Project.Presentation.Animation
             return false;
         }
 
+        public override bool TryGetDominantChildNormalizedTime(string stateKey, out float normalizedTime)
+        {
+            normalizedTime = 0f;
+            if (!_stateCache.TryGetValue(stateKey, out var state) ||
+                !state.IsPlaying ||
+                !(state is ParentState parentState))
+            {
+                return false;
+            }
+
+            // Mixer root 的 NormalizedTime 是子狀態時間的加權聚合；腳相查詢需要實際主導 pose
+            // 的 child clock。索引迴圈不產生配置；權重相同時保留較前的 child，結果可重現。
+            AnimancerState dominantState = null;
+            float dominantWeight = 0f;
+            int childCount = parentState.ChildCount;
+            for (int i = 0; i < childCount; i++)
+            {
+                AnimancerState child = parentState.GetChild(i);
+                if (child == null || child.Weight <= dominantWeight) continue;
+
+                dominantState = child;
+                dominantWeight = child.Weight;
+            }
+
+            if (dominantState == null) return false;
+
+            float value = dominantState.NormalizedTime;
+            if (float.IsNaN(value) || float.IsInfinity(value)) return false;
+
+            normalizedTime = value;
+            return true;
+        }
+
         public override float GetNormalizedTime()
         {
             // ✨ 修正點 2：將 animancer.States.CurrentState 改為 animancer.Layers[0].CurrentState
