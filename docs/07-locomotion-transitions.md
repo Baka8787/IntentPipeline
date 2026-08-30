@@ -203,28 +203,18 @@ Distance Matching（§13.2 延後項）。**用兩支資產 ＋ 符號選片，�
 | `_SynchronizeChildren` | 全關（速度精確模式，見 `docs/06`） |
 | `Gait_ActionRPG.asset` | `default 0.75`／`sprint 1`／`walk 0.3651`／`walkIsToggle 1` |
 | `LocomotionModel`（prefab） | `moveSpeedAccelTime 0.12`／`moveSpeedDecelTime 0.18` |
-| `MotionDriver`（prefab） | `moveSpeedSource → Bake_RunFwdLoop`（3.5780573 m/s）／`overrideMoveSpeed false` |
+| `MotionDriver`（prefab） | `moveSpeedSource → Bake_SprintFwdLoop`（6.2613893 m/s）／`overrideMoveSpeed false` |
 | `AnimancerFacade.transitionMappings` | `Idle`→`Locomotion.asset`、`Move`→**同一份** `Locomotion.asset`、`Jump`、`Roll` |
 
-### 3.4 🔴 V1：`moveSpeedSource` 與 Mixer 推導基準不一致（實作前必須先解決）
+### 3.4 ✅ V1 已解決：`moveSpeedSource` 與 Mixer 共用 Sprint 基準
 
-`Locomotion.asset` 的 `_Speeds` 只有在 `speed_max = 6.2613893`（Sprint 的代表速度）時才自洽——
-逐項驗算：`0.35 × 6.2614 / 1.6443 = 1.3328` ✓、`0.75 × 6.2614 / 3.5781 = 1.3125` ✓、`1 × 6.2614 / 6.2614 = 1` ✓
-（公式見 `docs/06`「Mixer 校正」）。但 prefab 的 `MotionDriver.moveSpeedSource` 指向 **`Bake_RunFwdLoop`（3.5781）**，
-於是執行期 `moveSpeed = 3.5781`。兩者相差 1.75×。
+`Locomotion.asset` 的 `_Speeds` 以 `speed_max = 6.2613893`（Sprint 代表速度）推導：
+`0.35 × 6.2614 / 1.6443 = 1.3328`、`0.75 × 6.2614 / 3.5781 = 1.3125`、`1 × 6.2614 / 6.2614 = 1`。
+Prefab 的 `MotionDriver.moveSpeedSource` 已由錯誤的 `Bake_RunFwdLoop` 改接 `Bake_SprintFwdLoop`，
+`overrideMoveSpeed` 維持 false；Mixer 門檻、child playback 與世界速度現在使用同一基準。
 
-**對 C1 的直接後果（這是必須先解決的原因，不是順帶提醒）：**
-
-| 假設 | 走路世界速度 `0.3651 × moveSpeed` | Stop 入場速度（`SpeedCurve(0⁺) × p`，p 見 §8.5） | 銜接落差 |
-| --- | ---: | ---: | --- |
-| `moveSpeed = 3.5781`（**目前 prefab**） | 1.306 m/s | LU 1.941／RU 2.154 m/s | **+49% / +65%：放開的瞬間角色會往前竄** |
-| `moveSpeed = 6.2614`（Mixer 推導基準） | 2.286 m/s | LU 1.941／RU 2.154 m/s | −15.1% / −5.8%：可接受的小落差 |
-
-在目前的接線下，**任何**以 Stop 曲線驅動位移的實作都會在放開的瞬間加速前衝。
-這不是本規格的設計缺陷，是資產接線與 Mixer 推導基準不同步（`moveSpeedSource` 早於本次 Kubold 換片與門檻重設）。
-
-> **AI 不碰 `.prefab`／`.asset`。** 這一項列為 §11.3-V1，需使用者在 Editor 內確認並修正接線後再進 C1 實作。
-> 附帶好處：這條落差同時也是使用者手上待驗的「Walk↔Run↔Sprint 滑步」驗收項（WORKLOG）的根因候選。
+修正前 Walk 世界速度只有 `0.3651 × 3.5781 = 1.306 m/s`，Stop 入場為 LU `1.941`／RU `2.154 m/s`，
+放開會前衝 `+49%/+65%`。修正後 Walk 為 `2.286 m/s`，入場落差收斂為 `−15.1%/−5.8%`，已完成 Play 驗收。
 
 ---
 
@@ -469,9 +459,7 @@ SelectVariant(variants, runtimePhaseValue):
    | `walkStopMaxIntensity` | 0.50 | Walk 錨點 0.35 與 Run 錨點 0.75 的中點 | 用 Walk Stop 收 Run 速度：0.665 m 停止距離不夠，會急煞 |
    | `walkStopMinIntensity` | 0.35 | 取兩變體較高峰值：RU `2.1535 / 6.2614 = 0.344`，向上收斂至 Walk 錨點 0.35 | **低於此值時至少一支 Stop 曲線會比角色當前速度快 ⇒ 放開反而前衝**。下界必須看全部變體峰值，不只看 LU 首帧 |
 
-   > ⚠️ 兩個預設值都是 **`moveSpeed = 6.2614` 前提下**的推導。若 §11.3-V1 的接線維持 3.5781，
-   > 下界需為 `1.941 / 3.5781 = 0.542`，而 Walk 強度只有 0.3651——**整個 Walk 帶都落在下界以下，Stop 恆不觸發**。
-   > 這正是 V1 必須先解決的量化理由。
+   > 兩個預設值都以 **`moveSpeed = 6.2614`** 推導；§3.4 的 V1 已修正，Prefab 現在以 `Bake_SprintFwdLoop` 提供此基準。
 
 3. **越界＝走既有路徑，不是走「另一種 Stop」**。閘門不命中時完全不產生 request，
    位移與動畫逐字回到今天的 B9 行為 ⇒ **Run／Sprint／慢速釋放的既有手感是結構性不變的**（§11.2 回歸項因此可證）。
@@ -492,7 +480,7 @@ SelectVariant(variants, runtimePhaseValue):
 | 軸 | A 曲線驅動 | B Distance Matching | C 純表現 | D A＋入場校正 |
 | --- | --- | --- | --- | --- |
 | **速度連續性** | 入場有一次落差：−15.1%（LU）／−5.8%（RU）（Sprint 基準）。之後連續 | **最佳**：位移完全不變，天然連續 | **完美**（位移沒動） | 好（第一段被拉平），但引入一個看不見的 warp 係數 |
-| **停止距離** | **固定 0.665 m／0.715 m**，authored，無法調（§8.3） | **可控**：以 B9 預測距離為準，動畫去配合 | 0.235 m／0.411 m（依 V1），**與動畫脫鉤 1.6×–2.8×** | 固定，同 A |
+| **停止距離** | **固定 0.665 m／0.715 m**，authored，無法調（§8.3） | **可控**：以 B9 預測距離為準，動畫去配合 | 0.235 m／0.411 m（Sprint 世界速度基準），**與動畫脫鉤 1.6×–2.8×** | 固定，同 A |
 | **滑步** | **結構上為零**：世界速度恆等於曲線的 root 速度（§8.4） | 低，但取決於距離曲線取樣密度與剩餘距離預測品質 | **嚴重**：距離差 1.6×–2.8×，全程滑 | 校正段內必然滑（那正是校正的定義） |
 | **複雜度** | **最低**：既有 API ＋ 一個 playhead 多載；無新烘焙特徵 | 高：需累積距離曲線（新烘焙特徵）＋距離→時間反查＋Facade 需要「設定播放時間」的新 API＋B9 剩餘距離預測 | 最低（等於不做） | 中：多一組 warp 參數與它的失效條件 |
 | **未來擴充成本** | 低：Pivot／Turn 同族（`RotationCurve` 已在，`ExecuteBakedCurveMovement` 已支援 yaw） | **最終目的地**，但 `docs/04` §15.3／§15.9 明文排在 **C5**、且前提是「基本 Stop／Pivot 選片、曲線與中斷穩定」 | 無（它不是一個可擴充的答案） | 低但會留下一個沒人敢動的魔術係數 |
@@ -593,7 +581,7 @@ C1 採用：p_stop = 1.3327742（＝ Locomotion.asset 的 Walk 子動作倍率�
 
 - **B**：不是不對，是**順序不對**——它需要穩定的選片與中斷做地基（`docs/04` §15.9 明文）。C5 見。
 - **C**：唯一完全無風險的選項，但它不解 §1 的任何一條問題（距離差 1.6×–2.8× ⇒ 全程滑步）。
-- **D**：warp 係數是一個看不見的第二真相，且它想解的「入場落差」在 §11.3-V1 修好後只有 −5.8%–−15%。
+- **D**：warp 係數是一個看不見的第二真相，且它想解的「入場落差」在 §3.4 的速度基準修正後只有 −5.8%–−15%。
   用一個永久機制換 6%–15%，不划算；真要解就直接走 B。
 
 ---
@@ -785,10 +773,10 @@ Stop 起始帧允許出現上表那一筆已知配置，且必須能對上數量
 
 | # | 待驗項 | 為什麼現在無法定案 | 阻塞性 |
 | --- | --- | --- | --- |
-| **V1** | `MotionDriver.moveSpeedSource` 應指向哪一支 | prefab 指 `Bake_RunFwdLoop`（3.5781），但 `Locomotion.asset` 的 `_Speeds` 只有在 `speed_max = 6.2614` 時自洽（§3.4）。兩者不可能同時對 | **阻塞實作**：不修則 Walk Stop 恆前衝或恆不觸發 |
+| **V1 ✅** | `MotionDriver.moveSpeedSource` 應指向哪一支 | 已改接 `Bake_SprintFwdLoop`（6.2614），與 Mixer 推導基準一致（§3.4） | **已解決並通過 Play** |
 | **V2** | `p_stop` 取 1.3327742（步頻連續）或理論值 1.569／1.415（速度連續） | 純手感，資產側一行設定即可切換 | 不阻塞（先用 1.3327742） |
 | **V3** | `Facade.GetNormalizedTime()` 在「Mixer → Clip」交叉淡入期間是否可靠回報 Stop clip 的進度 | `RollState` 已依賴同一假設（Clip → Clip），但**Mixer → Clip 尚未驗證** | 不阻塞（逾時保護兜底），但 P6 距離不準時第一個要查這裡 |
-| **V4** | Stop 可能發生的所有情境下 `FootIKPoseData.IsWarm` 是否為 true | 取決於 IK pass 是否開啟、Rig 是否在階層上 | 不阻塞（有交替退化＋Editor 警告） |
+| **V4 ✅** | 腳相來源是否需要回讀 `FootIKPoseData` | 實作評審否決 Presentation IK → Core；現行以主導 child clock＋對應 loop Bake Data 取 authored phase | **已由 A4 禁令與 EditMode／Play 驗收關閉** |
 | **V5** | 淡出中的 Animancer state 是否真的會觸發 End Event（＝世代檢查是否真的會被用到） | Animancer 內部行為，不讀它的私有實作（CLAUDE.md Gate B） | 不阻塞（世代檢查無論如何都正確） |
 | **V6** | `BlockInput`（UI 模式／暫停）時啟動 Stop 是否可接受 | 這會改變 dev-spec §7.2-M7 ③ 已驗收過的行為 | 不阻塞，但需使用者點頭 |
 | **V7** | 收勢段（LU ≈0.33 s／RU ≈0.58 s 速度為 0 但仍在 MOVE）手感是否可接受 | 純感知 | 不阻塞；若不行，備案是「Motion 完成即結束 Stop、讓片尾由 fade 吸收」 |
@@ -825,7 +813,7 @@ Stop 起始帧允許出現上表那一筆已知配置，且必須能對上數量
 3. `AnimancerFacade.transitionMappings` 加兩列：`WalkStop_LU`／`WalkStop_RU` → 對應資產。
    **不得**與 `Idle`／`Move`／`Jump`／`Roll` 共用資產（§9.2 共用 `AnimancerState` ⇒ End Event 互蓋）。
 4. `LocomotionModel`（角色 Root）填 `walkStopVariants` 兩筆（Bake 資產 ＋ 動畫鍵）、`locomotionAnimationKey = "Idle"`。
-5. **V1**：確認 `MotionDriver.moveSpeedSource` 與 Mixer 推導基準一致（§3.4）。
+5. **V1 已完成**：`MotionDriver.moveSpeedSource` 已接 `Bake_SprintFwdLoop`，與 Mixer 推導基準一致（§3.4）。
 
 ### 12.4 文件同步（實測通過後才寫，遵循 §15.8 Fold back）
 
@@ -846,7 +834,7 @@ Stop 起始帧允許出現上表那一筆已知配置，且必須能對上數量
 
 | # | 風險 | 影響 | 處置 |
 | --- | --- | --- | --- |
-| R1 | **V1 接線不一致**（§3.4） | Walk Stop 恆前衝或恆不觸發 | **實作前必須先解決**；§7.4 的兩個閘門預設值直接依賴它 |
+| R1 | **已關閉：V1 接線不一致**（§3.4） | 修正前 Walk Stop 前衝 | Prefab 已接 `Bake_SprintFwdLoop`，並由 Play 驗收 |
 | R2 | Walk 已等待最近 authored 入場相位；Bake 的單一腳相值仍不是完整骨架 pose 距離 | 理論相位誤差收斂至烘焙取樣／每幀跨越量，但仍需 Play 證實全身連續 | 驗收 §0.4／P11；若仍跳動，下一步是離線完整 pose 特徵，不再調 Fade 或改速度 |
 | R3 | 停止距離是 authored constant，且 LU／RU 差 7.4% | 停止距離不可調、且因腳而異 | §8.3 已證明這是 A 方案的本質限制；可控距離＝走 C5 |
 | R4 | `LocomotionModel` 職責變重 | 走向 God Class | 選片（純函式）與跨帧狀態（struct）已外移；若 C2/C3 再加兩種過渡，屆時把「過渡段」整組抽成 model 的協作者並回到 G1 重新裁決 |
@@ -878,7 +866,7 @@ Stop 起始帧允許出現上表那一筆已知配置，且必須能對上數量
 | Animancer Mixer Synchronization | 「同步是改寫子 Playable 速度」這件事解釋了為何 loop 腳相可被解讀，也解釋了為何 §7.2-② 的 Mixer `NormalizedTime` 不可直接當相位 | **不讓 Core 讀 Animancer Mixer**；不把同步當成 Stop 選片依據 |
 | Epic Stride／Pose Warping | 姿勢後處理可降滑步的認識 | 明確列為延後；不得取代 Request／Selection／Motion Execution |
 
-### 13.4 是否需要新 ADR？——**結論：不需要**，但有一條邊界要記名
+### 13.4 是否需要新 ADR？——**結論：不需要，且不新增 Presentation IK → Core 資料邊**
 
 **不需要的依據（逐條對照 CLAUDE.md 路由規則）：**
 
@@ -890,17 +878,9 @@ Stop 起始帧允許出現上表那一筆已知配置，且必須能對上數量
 
 ⇒ 屬「非架構性的子系統加法」，依規則寫 Living Docs（§12.4），**不開新 ADR、不修改既有 ADR**。
 
-**要記名的一條邊界（提出，不自行裁決）：**
+初稿提出的 `Core/Movement/Models → Project.Presentation.IK.FootIKPoseData` 回讀已被實作評審否決。
+既有放行是讓 model **驅動**通用 Animation／Motion seam，不代表 Core 可回讀 IK post-process；
+`ArchitectureRegressionTests.LayerRules` 已加入 `Project.Presentation.IK` 精確禁令。
 
-> `Core/Movement/Models` **讀取** `Project.Presentation.IK.FootIKPoseData`（§7.2-①）。
-> A4 的層級規則**允許**（`Core/Movement/Models` 只禁 StateMachine／Pipeline，刻意放行 Presentation，因為 D4 要求 model 驅動 Facade）。
-> 但既有的放行理由是「model **驅動** Presentation」，本規格新增的是「model **讀取** Presentation 的輸出」——
-> **這是一種新方向的邊**，雖然合乎字面規則，卻不在當初放行時被考慮過。
->
-> 我的判斷是**不構成 breaking change**：`FootIKPoseData` 被其擁有者明文定位為「混合後動畫 Pose 的唯一無污染來源」，
-> 且 owner「不解讀這份資料」——它是資料管道而非 IK 邏輯，讀它等於讀「動畫這一帧算出來的姿勢」，
-> 而那正是相位對齊唯一正確的輸入。加上退化路徑存在（§7.2-③），不會產生硬相依。
->
-> **若使用者認為這條邊不可接受**，替代方案有二，皆需另行裁決：
-> (a) 走 §7.2-② 的 authored 相位（代價：需先解決 V3，且需要 tier→bake 表 ⇒ 提前建 Run／Sprint 框架）；
-> (b) 把「腳相量測」正式化為一條 Presentation → Core 的具名資料管道 ⇒ **那才需要新 ADR**（新增跨層契約）。
+現行只使用兩項既有資料：Facade 的通用唯讀主導 child clock，以及已選 tier 的 loop／Stop `MotionBakeData`。
+因此黑板、FSM、ownership、hierarchy 與跨層契約皆未變，維持「非架構性的子系統加法」結論，不開新 ADR。

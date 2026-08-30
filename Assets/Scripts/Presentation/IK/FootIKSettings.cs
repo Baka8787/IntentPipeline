@@ -5,7 +5,7 @@ namespace Project.Presentation.IK
 {
     /// <summary>
     /// Foot IK 可調參數的集中容器（Serializable，嵌入 FootIKController 的 Inspector）。
-    /// 🆕（M3.5 最終形）僅保留 M3.1 基線所需的 8 個參數——M3.2~M3.4 的實驗參數
+    /// M3.5 基線參數＋L1 v4 Heel/Ankle/Toe Ground Sampling——M3.2~M3.4 的實驗參數
     /// （fade 閾值／Slope Gate／濾波速率／ReachRatio）已隨實驗機制一併移除，
     /// 實驗結論與復刻指引見 changelog v0.18.2~v0.18.6 與 WORKLOG「Foot IK 品質路線圖」。
     /// 純數據容器（比照 MotionBakeData 的 public 欄位慣例），不含任何邏輯。
@@ -22,6 +22,22 @@ namespace Project.Presentation.IK
 
         [Tooltip("raycast 總長度（公尺）。至少涵蓋 RaycastUpOffset＋預期最大向下落差（斜坡／台階）。")]
         public float RaycastDistance = 1.1f;
+
+        [Tooltip("Heel 端點在腳自身座標系中，腳踝沿 local -forward 到腳跟的距離（公尺）。不決定腳踝基礎高度或法線。")]
+        [Min(0f)]
+        public float HeelOffset = 0.1f;
+
+        [Tooltip("Toe 端點在腳自身座標系中，腳踝沿 local +forward 到腳尖的距離（公尺）。不決定腳踝基礎高度或法線。")]
+        [Min(0f)]
+        public float ToeOffset = 0.15f;
+
+        [Tooltip("僅切換 Heel/Toe 戳穿殘差抬升；關閉後仍使用 ankle ray 與泰勒斯修正。執行期品質不得依地形動態切換。")]
+        public bool UseTwoPointSampling = true;
+
+        [Header("Foot Alignment Limit（L1 v3：踝關節角度上限）")]
+        [Tooltip("腳底對齊地面法線的最大角度（度）。超過此值時腳保持較自然的姿勢，改由戳穿殘差抬升，形成『一端接觸、另一端浮空』的真人行為。設為 180 等同完全貼合（A/B 對照用）。")]
+        [Range(0f, 180f)]
+        public float MaxFootAlignAngle = 15f;
 
         [Header("Foot Weight（Q3：Runtime Pose Heuristic，單因子二態系統）")]
         [Tooltip("動畫腳部 goal 相對 Root 平面的高度 ≤ 此值 → 目標權重 1（踩地相，IK 全接管）。")]

@@ -8,13 +8,157 @@ namespace Project.Tests.EditMode
 {
     /// <summary>
     /// M3 Foot IK 純函數的確定性 EditMode 單元測試（不需場景／Animator／Physics）。
-    /// 驗證 docs/02-dev-spec.md §3.5 的兩個決策核心：
-    /// Q3 Pose Heuristic 權重曲線（ComputeFootWeight）與 Q2 骨盆補償（ComputePelvisOffset）。
+    /// 驗證 docs/05-foot-ik.md §3.5 的決策核心：Q3 Pose Heuristic 權重曲線、Q2 骨盆補償，
+    /// 以及 L1 v4 的 ankle 泰勒斯修正與 Heel/Toe 真實端點戳穿殘差。
     /// IK 的視覺效果（貼地／法線對齊／一幀延遲平滑）屬 Play 實測範疇，不在此涵蓋。
     /// </summary>
     public class FootIKTests
     {
         private const float Epsilon = 1e-5f;
+
+        // === L1 v3：踝關節角度夾限 ===
+
+        [Test]
+        public void ClampGroundNormal_WithinLimit_ReturnsOriginalExactly()
+        {
+            Vector3 normal = Quaternion.AngleAxis(10f, Vector3.right) * Vector3.up;
+
+            Vector3 actual = FootIKController.ClampGroundNormal(normal, 15f);
+
+            Assert.AreEqual(normal, actual,
+                "夾限內必須原樣回傳，確保坡度未超限時與 v2 完全相同。");
+        }
+
+        [Test]
+        public void ClampGroundNormal_AboveLimit_ClampsToMaximumAngle()
+        {
+            Vector3 normal = Quaternion.AngleAxis(40f, Vector3.right) * Vector3.up;
+
+            Vector3 actual = FootIKController.ClampGroundNormal(normal, 15f);
+
+            Assert.AreEqual(15f, Vector3.Angle(Vector3.up, actual), Epsilon,
+                "超限法線應連續停在踝關節最大對齊角度。");
+            Assert.Greater(Vector3.Dot(actual, normal), Vector3.Dot(Vector3.up, normal),
+                "夾限後仍應朝命中法線方向旋轉，而不是回到錯誤方向。");
+        }
+
+        [Test]
+        public void ClampGroundNormal_AtLimit_ReturnsOriginalExactly()
+        {
+            Vector3 normal = Quaternion.AngleAxis(15f, Vector3.forward) * Vector3.up;
+
+            Vector3 actual = FootIKController.ClampGroundNormal(normal, 15f);
+
+            Assert.AreEqual(normal, actual,
+                "閾值本身不應切換路徑或引入數值擾動。");
+        }
+
+        [Test]
+        public void ClampGroundNormal_ZeroNormal_ReturnsWorldUp()
+        {
+            Vector3 actual = FootIKController.ClampGroundNormal(Vector3.zero, 15f);
+
+            Assert.AreEqual(Vector3.up, actual, "退化法線必須安全回退到世界 up。");
+        }
+
+        [Test]
+        public void ClampGroundNormal_FullAlignment_ReturnsOriginalExactly()
+        {
+            Vector3 normal = Quaternion.AngleAxis(120f, Vector3.right) * Vector3.up;
+
+            Vector3 actual = FootIKController.ClampGroundNormal(normal, 180f);
+
+            Assert.AreEqual(normal, actual, "180° 必須成為逐值等同 v2 的 A/B 對照模式。");
+        }
+
+        [Test]
+        public void ClampGroundNormal_NegativeLimit_ClampsSafelyToWorldUp()
+        {
+            Vector3 normal = Quaternion.AngleAxis(30f, Vector3.forward) * Vector3.up;
+
+            Vector3 actual = FootIKController.ClampGroundNormal(normal, -10f);
+
+            Assert.AreEqual(Vector3.up, actual,
+                "程式呼叫繞過 Inspector Range 時，負上限不得讓 RotateTowards 反向旋轉。");
+        }
+
+        // === L1 v4（ankle 泰勒斯修正＋Heel/Toe 真實端點戳穿殘差）===
+
+        [Test]
+        public void AnkleTarget_FlatGround_DegeneratesToNormalOffset()
+        {
+            Vector3 rayStart = new Vector3(2f, 1f, 3f);
+            Vector3 hitPoint = new Vector3(2f, 0f, 3f);
+            Vector3 expected = hitPoint + Vector3.up * 0.1f;
+
+            Vector3 actual = FootIKController.ComputeAnkleTarget(rayStart, hitPoint, Vector3.up, 0.1f);
+
+            Assert.AreEqual(expected.x, actual.x, Epsilon,
+                "平地退化路徑的 X 必須等同既有法線位移式");
+            Assert.AreEqual(expected.y, actual.y, Epsilon,
+                "平地退化路徑的 Y 必須等同既有法線位移式");
+            Assert.AreEqual(expected.z, actual.z, Epsilon,
+                "平地退化路徑的 Z 必須等同既有法線位移式");
+        }
+
+        [Test]
+        public void AnkleTarget_Slope_KeepsHorizontalComponentsOnRayLine()
+        {
+            Vector3 rayStart = new Vector3(2f, 2f, 3f);
+            Vector3 hitPoint = new Vector3(2f, 0f, 3f);
+            Vector3 normal = new Vector3(-0.5f, Mathf.Sqrt(3f) * 0.5f, 0f);
+
+            Vector3 actual = FootIKController.ComputeAnkleTarget(rayStart, hitPoint, normal, 0.1f);
+
+            Assert.AreEqual(rayStart.x, actual.x, Epsilon, "斜坡修正後 ankle X 必須留在原垂直 ray 上");
+            Assert.AreEqual(rayStart.z, actual.z, Epsilon, "斜坡修正後 ankle Z 必須留在原垂直 ray 上");
+            Assert.AreEqual(0.1f / normal.y, actual.y - hitPoint.y, Epsilon,
+                "垂直高度應是保持法線腳底間隙所需的 footBottomHeight / normal.y");
+        }
+
+        [Test]
+        public void PenetrationLift_FlatGroundToeUp_LiftsPenetratingHeel()
+        {
+            const float footBottomHeight = 0.1f;
+            const float heelOffset = 0.1f;
+            Quaternion finalRotation = Quaternion.AngleAxis(-20f, Vector3.right);
+            Vector3 ankleTarget = Vector3.up * footBottomHeight;
+            Vector3 worldHeel = ankleTarget + finalRotation *
+                (Vector3.forward * -heelOffset - Vector3.up * footBottomHeight);
+            Vector3 worldToe = ankleTarget + finalRotation *
+                (Vector3.forward * 0.15f - Vector3.up * footBottomHeight);
+
+            float lift = FootIKController.ComputePenetrationLift(
+                worldHeel, new Vector3(worldHeel.x, 0f, worldHeel.z),
+                worldToe, new Vector3(worldToe.x, 0f, worldToe.z));
+
+            float expected = heelOffset * Mathf.Sin(20f * Mathf.Deg2Rad) -
+                footBottomHeight * (1f - Mathf.Cos(20f * Mathf.Deg2Rad));
+            Assert.AreEqual(expected, lift, Epsilon,
+                "toe-up 必須保留最終旋轉，同時只抬起真實腳跟穿地的約 2.8cm");
+        }
+
+        [Test]
+        public void PenetrationLift_SlopeEndpointsAboveGround_ReturnsZero()
+        {
+            float lift = FootIKController.ComputePenetrationLift(
+                new Vector3(0f, 0.12f, -0.1f), new Vector3(0f, 0.1f, -0.1f),
+                new Vector3(0f, 0.28f, 0.15f), new Vector3(0f, 0.25f, 0.15f));
+
+            Assert.AreEqual(0f, lift, Epsilon,
+                "兩端點都在斜坡地面上方時不得下壓腳踝");
+        }
+
+        [Test]
+        public void PenetrationLift_ToeDeeperThanHeel_UsesToeArgmax()
+        {
+            float lift = FootIKController.ComputePenetrationLift(
+                new Vector3(0f, 0.08f, -0.1f), new Vector3(0f, 0.1f, -0.1f),
+                new Vector3(0f, 0.19f, 0.15f), new Vector3(0f, 0.25f, 0.15f));
+
+            Assert.AreEqual(0.06f, lift, Epsilon,
+                "Heel 穿 2cm、Toe 穿 6cm 時必須由 Toe argmax 決定抬升量");
+        }
 
         // === ComputeFootWeight（Q3：腳骨高度 → 貼地權重）===
 

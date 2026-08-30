@@ -1,0 +1,43 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 94c495cc6bed08f46935a4f2a0a4c7d6, type: 3}
+  m_Name: EnemyStateMachineConfig
+  m_EditorClassIdentifier: Assembly-CSharp::Project.Core.StateMachine.StateMachineConfigSO
+  rules:
+  - State: 1
+    Priority: 0
+    CanBeInterruptedBy: 040000000300000005000000
+    ValidTransitions: 02000000
+  - State: 2
+    Priority: 0
+    CanBeInterruptedBy: 030000000400000005000000
+    ValidTransitions: 01000000
+  - State: 3
+    Priority: 10
+    CanBeInterruptedBy: 
+    ValidTransitions: 0200000001000000
+  - State: 4
+    Priority: 20
+    CanBeInterruptedBy: 
+    ValidTransitions: 0200000001000000
+  - State: 5
+    Priority: 10
+    CanBeInterruptedBy: 
+    ValidTransitions: 0200000001000000
+  bakeMappings:
+  - State: 4
+    BakeData: {fileID: 11400000, guid: a489df0f65c4c32438f39e9fa9cce8bf, type: 2}
+  paramsMappings:
+  - State: 3
+    Params: {fileID: 11400000, guid: a3c1461acedafba499451adcce40d749, type: 2}
+  - State: 5
+    Params: {fileID: 11400000, guid: f662023934bbb5e4d887242d6df1b9e9, type: 2}

@@ -258,6 +258,8 @@ flowchart LR
 - ✅ **殘餘耦合已收尾（2026-07-25）**：B9 平滑＋`MoveSpeed` 導出＋動畫參數驅動已整組遷入 `LocomotionModel`，通用 Runner 不再認識任何 locomotion 概念（ADR-003 §9-L1 消解，由 dev-spec §7-A9／A10 自動守住不回流）。**唯一刻意保留的中間態**：Movement Output 仍走黑板欄位（消費端含 `MotionDriver` 與 Jump 空中控制），D4 的「完全內化」待第二個 model 進場時一併處理（dev-spec §7.3）
 - **Stage 2 學到的時序課**：「把 dynamics 併進 `OnUpdateMotion`、讓 model 只有一個進入點」看起來更乾淨，實測會壞兩件事——Jump／Roll 期間平滑凍結（空中控制吃的正是這組輸出，落地滑步），以及 `SetFloat` 落到 LateUpdate 後動畫參數比位移晚一帧（Animator 評估卡在 Update 與 LateUpdate 之間）。**「乾淨的形狀」必須先通過時序驗證**，這條寫進 dev-spec §2.1 脆弱點警告第 6 條
 
+- 🆕 **第二個 producer 壓測（2026-08-29 P1，待 Play 驗收）**：`AIMovementSource` 證明 `IMovementIntentSource(ref InputData, data)` 不必改簽名——AI 可忽略 raw input；真正露餡的是 Runner 把 `IInputSource` 存在與否誤當成整條管線前置條件。修正後無 input ＝ default input，FSM／model／presentation 仍完整運作。NavMeshAgent 只提供 path direction 並關閉 Transform authority，故 gait／stop／Foot IK／footstep 全部沿用既有角色管線。
+
 ### 4.9 應用層（Application Layer，🆕 輪 4.1 落地：`Assets/Scripts/App/`）
 
 - **這一層為什麼存在**：輪 4.1 要做「Tap Left Alt ＝ 暫停」時，第一個直覺是把它做成 `ArbiterData` 的第 5 個旗標。**那是錯的**——`PlayerRuntimeData`／`ArbiterData` 是**單一角色**的黑板與仲裁旗標，而 `Time.timeScale` 是**應用全域**狀態。把全域狀態放進 per-character 結構，第二隻角色進場立刻露餡：兩塊黑板都會聲稱自己擁有暫停。**這是「哪個 scope 擁有這個狀態」的問題，不是「哪個模組比較方便」的問題**
@@ -269,6 +271,7 @@ flowchart LR
   - ⚠️ **`ThirdPersonCamera.Start` 的初始鎖定已一併移除**：留著就是第二個寫入者，「唯一擁有者」會變成只是文件上的說法。代價是這顆元件缺席時開場游標不會鎖、連帶相機不轉（相機以 `Cursor.lockState` 為閘門）——**刻意讓它大聲壞掉**，而不是靜默漂移
 - **這一層的兩個方向，都對**：游標是「**高層擁有、低層回報意圖**」（App 讀角色元件的 `IsUiModeActive`）；而若未來暫停要封鎖角色輸入，則是「**低層擁有、高層提供來源**」（角色的 `ArbiterPipeline` 收一顆 App 給的 `IArbiterSource`）。看起來相反，判準其實同一個：**那個狀態的 scope 屬於誰，就由誰擁有**
 - **與角色層的溝通方式（尚未需要，先記下界線）**：若未來暫停真的必須讓角色 `BlockInput`，正解**不是**讓角色去查詢全域，而是讓暫停器實作 `IArbiterSource`、由角色以 Inspector 引用（DIP，同 `IMovementIntentSource` 的注入形態）。在真的需要之前不預先接線
+- 🆕 **第二隻角色的首次實證（2026-08-29 P1，待 Play 驗收）**：敵人擁有自己的 `PlayerRuntimeData`、Runner、FSM 與角色內元件；它不複製也不宣稱擁有 `Time.timeScale`／`Cursor`。程式組裝因此符合本節的 scope 判準；最終證據待 Unity 中同場跑玩家＋敵人確認。
 
 ---
 

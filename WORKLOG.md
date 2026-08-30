@@ -7,12 +7,462 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
-> ⬆️ **最新狀態（2026-08-21）＝Phase C1／C1.1 Walk＋Run Stop 已完成驗收；Walk Pending Stop 的相位銜接、速度連續與重新輸入／Jump／Roll 中斷皆通過。**Stop 仍由 `LocomotionModel` 單一私有 runtime 承載；不加黑板、不加 State。Run 行為不變，Sprint 無 Stop 資產、維持 B9。
+> ### 📍 2026-08-31 交接（最新，請先讀這段）
+>
+> **一句話**：Foot IK 軌 A 已結案；主線仍卡在 **ADR-004 的 Unity 資產側與 Play 驗收**（使用者側），程式面沒有待辦。
+>
+> **① 本輪完成了什麼**
+> - **Foot IK L1 → Level 1 rigid sole approximation，視覺驗收暫時通過**（`MaxFootAlignAngle = 23°`）。經歷四版迭代（取較高者 → 泰勒斯＋殘差 → 踝角夾限 → 真實端點 residual），順帶修掉 M3.3 就存在的腳踝水平漂移舊 bug。**durable 紀錄在 `docs/05` §3.5.5**，`docs/03` §1.3 的 L1 已結案、殘餘誤差降級為 L7。
+> - **Scope 收斂**：軌 A ＋ WP1–WP4 四個工作包、九段影片對照表、Codex 交辦邊界、git commit 切點 —— 全在下一節「Scope 收斂與後續四包」。
+> - FU-1／FU-2／FU-3（Action→Action 中斷不可能／一角色一份 Definition／mailbox 無身分）已寫入 `docs/08` §11.1；ADR-004 §8 補 **L4**。
+>
+> **② 現在該做什麼**
+> - **不要動 Foot IK**。重開條件見 `docs/05` §3.5.5（五條，任一成立才重開）。繼續調之前**必須先做 FU-IK-2 可視化**。
+> - **主線的停止線沒有變**：ADR-004 `Trial → Accepted`。等使用者完成資產接線與 Play 驗收，程式面無事可做。
+> - 使用者說要開 **WP1（鏡頭 ＋ Aim ＋ Throw 依 AimPoint）** 時：先出 `docs/09-camera-aim.md` 規格，再派 Codex。**WP1 不開 ADR**（純 Presentation、黑板 schema 零改動）。
+>
+> **③ 環境與工具（本輪新增）**
+> - **Codex 可直接呼叫**：`.mcp.json` 已設定（`cmd /c codex mcp-server`，`sandbox_mode=workspace-write`／`approval_policy=never`），工具為 `mcp__codex__codex` ／ `mcp__codex__codex-reply`。⚠️ **thread 會過期**（實測掉過一次），過期就開新 session 並補完整脈絡。
+> - **Codex 沙箱與批准權在它那側**，MCP 層無法強制紀律 ⇒ 「不碰 git、不碰資產、檔案白名單」**必須每次寫進 prompt**，光靠 `AGENTS.md` 不夠。
+> - 使用者**已授權**直接調用 Codex。
+>
+> **④ 工作樹狀態（未 commit，git 全由使用者執行）**
+> - Foot IK v4（3 檔）、ADR-004 Trial 的 P1／P2 程式與資產、Free Sword Animations 素材、本輪全部文件。
+> - commit 切點建議見下方「🌱 Git commit 切點」一節。
+>
+> **⑤ 這輪學到的、值得下一個會話沿用的做法**
+> - **先形式化約束模型再改程式**。Foot IK 繞了四版，前三版都是因為沒把「誰決定位置／誰決定旋轉／誰決定接觸」講清楚就動手。
+> - **要求可否證的預測**：改動前先算出「若這個假設成立，你會看到 X cm 的偏差」，Play 才是測試而不是觀感投票。
+> - **觀測條件 ≠ 交付條件**。Scene 視窗貼著腳看到的瑕疵，在 3–4m 鏡頭下不存在。判斷是否值得修時先問這個。
+
+> ⬆️ **最新狀態（2026-08-29）＝優先順序已改變：「完善作品集」升為最高優先，高於 `docs/03-animation-roadmap.md` 的工程路線圖。**
+> 進行中的工作＝下方「作品集最低限度衝刺」。Phase C1／C1.1（Walk＋Run Stop）已完成驗收並歸檔；`docs/08-skill-system.md` 設計稿已完成但**展示題材已改**（Punch → Throw，理由見下）。
 > 📍 **會話開場請先讀 `docs/00-map.md`**（單頁索引：模組 → 檔案 → 治理章節），再讀本段。
+> 📍 敘事與展示策略見 `LearningNotes/portfolio-framing.md`（不納入 `docs/00–NN` 工程編號）。
+> 🆕 **2026-08-30 scope 收斂**：見下一節「Scope 收斂與後續四包」。**當前輪次的唯一任務是讓 ADR-004 拿到 `Accepted`**；
+> 該節同時載明軌 A（可立即並行）、WP1–WP4、影片段落對照、Codex 交辦邊界與 git commit 切點。
+> 原「作品集最低限度衝刺」的 P1／P2 仍是現行工作；**P3／P4／P5 已被拆進 WP2／WP3／WP4 與軌 A**（見該表下方註記）。
 
 ---
 
-## 🎯 下一會話：Phase C Locomotion Transition Foundation（2026-08-20 重排）
+## 🧭 Scope 收斂與後續四包（2026-08-30 planning review）
+
+> **為什麼有這一節**：實作過程持續暴露新問題，出現「發現一個問題就順手解下一個」的漂移。本節把問題分桶、
+> 把後續切成**可獨立 qualification** 的工作包，並明確寫下**停止線**。
+> **兩條評估軸並用**（缺一不可）：
+> - **🏗 Architecture Qualification**：這包證明什麼技術能力？驗收＝測試／不變量／零 GC／「加第三個 X 是零程式」。
+> - **🎬 Portfolio Qualification**：觀眾實際看到什麼？沒有它，影片缺哪一段？驗收＝錄影段落／外行能否複述。
+>
+> ⚠️ **分類規則**：一個項目只要在**任一條軸**上是必要的，就**不得**進 polish 桶。
+> 只有兩條軸都只是加分的才是 polish（現存 5 項：震屏、hit stop、aim friction 微調、相機碰撞避讓、projectile 物件池）。
+
+### 🎬 展示規格（取代舊的「15–20 秒 demo」）
+
+- **主展示：約 1:45–2:00**，重點是**讓觀眾有時間理解「這套系統在實際遊戲中帶來什麼」**，不是塞更多功能。
+- **Teaser：15–30 秒 ＝ 主展示的剪輯輸出**（段落 2／3／6／8 各取數秒），**不是額外工作包、不需要新內容**。
+
+| # | 段落 | 秒數 | 交付者 | 沒有它，觀眾看不到 |
+| --- | --- | --- | --- | --- |
+| 1 | 探索移動（地形／tier／Stop 選片／腳步音／Foot IK／探索鏡頭） | 0:00–0:15 | **軌 A ＋ WP1** | 專案最厚的既有工作。這是唯一能把「隱形的正確」變可見的機會 |
+| 2 | 鏡頭切換／瞄準 | 0:15–0:25 | **WP1** | 「這是個有戰鬥的遊戲」的第一個訊號 |
+| 3 | 遠程 Throw ＋ soft target | 0:25–0:35 | **WP1** | 球會飛 ≠ 會瞄；缺這段投擲看起來像亂射 |
+| 4 | 敵人接近 → Telegraph → 近戰出手 | 0:35–0:52 | **WP3** | 敵人是威脅而不是靶子 |
+| 5 | 玩家閃避 | 0:52–0:58 | 既有 Roll ＋ WP3 | Roll 早就做完了，但沒有攻擊可閃時它只是翻滾動畫 |
+| 6 | 玩家近戰揮劍 | 0:58–1:10 | **WP2** | **遠程／近戰對比**；缺它整個 demo 就是 projectile prototype |
+| 7 | Action Mapping／不同角色動作 ＋ 改 SO 即改行為 | 1:10–1:30 | **WP2** | 架構價值唯一能被**看見**的一段（全片最重要的 20 秒） |
+| 8 | 受擊與中斷（Throw 斷 Telegraph／揮劍被打斷） | 1:30–1:45 | **WP2 機制 ＋ WP3 Play** | 雙向互動成立 |
+| 9 | 遭遇結束 | 1:45–2:00 | **WP3 ＋ WP4** | 有結局的遭遇 vs 沒剪完的錄影 |
+
+### 🛑 當前輪次的停止 checkpoint（**這是硬線**）
+
+**停在 ADR-004 `Trial → Accepted` 的那一刻。** 全部成立才算到線，一件不多：
+
+1. 資產與接線完成（Throw／Damage 的 transition mappings、Bake、兩份 Definition、Config 的 Action rules、`ThrownProjectile` trigger collider、敵人 prefab、NavMesh 烘焙）。
+2. ⚠️ **`playerCamera` 欄位或 MainCamera tag 必須確認存在**——`AIMovementSource` 在 `data.CameraTransform == null` 時**直接 return**，症狀是「敵人靜止不動」且**沒有任何錯誤訊息**。這條放進驗收清單，不要現場 debug。
+3. G1／G2／G3／G6 打勾。
+4. ADR-004 §10 的 **A–F 逐條回填**，特別是 **F（實作沒有逼出第二套 authority 或明顯 workaround）**。
+
+**停止線之後、WP1 開工之前不做**：任何相機改動、任何 aim、任何第二份 Definition、任何敵人攻擊。
+**新發現一律只登記不處理** → FU-1／FU-2／FU-3 已寫入 [`docs/08` §11.1](08-skill-system.md)；FU-4～FU-10 見下方登記表。
+
+### 🅰️ 並行軌 A（舞台）——**現在就能開始**，不佔 sequential 順位
+
+不 gate 也不被 gate，且大部分是使用者側資產工作，可與 ADR-004 收尾同時進行。
+**做它的理由**：段落 1 的唯一來源；而且 P1／P2 的 Play 驗收在有斜坡／樓梯的場地上做，比在空地上做有意義得多。
+
+- **🏗** 無（唯一程式項＝Foot IK L1 Heel/Toe 雙點採樣，**只准動 `SampleGround`／`ResolveFoot` 內部＋Settings**）。
+- **🎬** G7 場景像關卡、G4 Foot IK 可 A/B。**沒有斜坡與樓梯，Foot IK 整塊工作在影片裡等於不存在。**
+- **Scope**：斜坡／樓梯／障礙／一個明確目標點；Foot IK L5 調參；Foot IK L1 雙點採樣。
+- **Non-goals**：關卡美術、光照打磨、導航以外的互動物件。
+- 🛑 **停止條件**：Foot IK L1 需要動到 `SampleGround`／`ResolveFoot` 以外的任何東西 ⇒ 停並回報（`docs/05` §3.5.1／A11 邊界）。
+
+#### 🎫 Ticket 軌A-IK-L1：Heel/Toe 雙點採樣 —— ✅ **結案（2026-08-31）**
+
+> **結論：Level 1 rigid sole approximation，視覺驗收暫時通過。本輪 Foot IK 停在此狀態，不再繼續修。**
+>
+> - `MaxFootAlignAngle` **暫定 23°**（原 15°，調整後視覺明顯自然）
+> - toe-up 姿態**有保留**
+> - 嚴重穿模**已消失**
+> - 剩餘 heel／sole 浮空**不明顯**（近距離側視才可見），**低於 must-fix 門檻**
+> - Walk／Run 若無明顯跳動即視為 Level 1 驗收通過
+> - ⛔ **不再為了追 0 浮空繼續提高 clamp 或擴大模型**
+>
+> 📄 **durable 紀錄已落到 [`docs/05` §3.5.5](05-foot-ik.md)**：約束模型三層分工、三次推翻的教訓、Level 1 已知限制、
+> Level 1／2／3 升級階梯、FU-IK-1～3 follow-up、以及**重開 Foot IK 的五條條件**。
+> `docs/03` §1.3 的 **L1 已結案**，殘餘誤差降級為新增的 **L7（設計接受）**。
+>
+> **後續待辦（follow-up，不現在實作）**：**FU-IK-1** 量準 `HeelOffset`／`ToeOffset`（現值非正式量測值；它們是**腳底幾何常數，不是手感旋鈕**）／
+> **FU-IK-2** 最小 Foot contact 可視化（Gizmo ／ `Debug.DrawRay`，⛔ 不建 Debug Framework）／
+> **FU-IK-3** 有可視化後重新量測並**只准再調一次** clamp。⚠️ **繼續調 Foot IK 之前必須先做 FU-IK-2，不要再靠 Scene 視窗肉眼猜。**
+>
+> ⏭️ **軌 A 的 Foot IK 部分到此結束；回主線 WP1（鏡頭 ＋ Aim ＋ Throw 依 AimPoint）。**
+
+**問題**（`docs/03` §1.3-L1）：ray 只打腳踝下方、命中該踏面；腳掌前段（~25 cm）跨入上一階體積時系統無從得知 ⇒ 階梯上腳掌中段穿入上一階。**單點採樣的資訊量天花板**，不是參數沒調好。
+
+**不可違反（設計哲學鐵律，優先於本 ticket 的一切目標）**
+- **Natural Pose > Terrain Adaptation > Perfect Foot Contact。接受少量腳尖穿模，不接受為修穿模讓動作僵硬。**
+- ⛔ **不得**用 Fade／Gate／降權重解決——貼地品質一律走 **Ground Sampling 升級**。
+- 檢核問句必須答「否」：**這個機制會不會縮小角色原本的活動空間（抬腿／跨步／轉向）？**
+
+**做法（建議；細節屬實作自由）**
+1. `SampleGround` 由 1 條 ray 改為 **2 條**：heel＝`posePosition - footForward * HeelOffset`、toe＝`posePosition + footForward * ToeOffset`，`footForward` 取 `poseRotation * Vector3.forward` 水平化。
+2. **`FootSample` 的對外形狀盡量不變**——`GroundY` 取**兩點中較高者**（防穿模）。如此 `ResolveFoot` 的目標式與 `ComputePelvisOffset` 的骨盆邏輯**零改動**。
+   - 🔧 **2026-08-30 實作裁決（原文有歧義，已定案）**：`HitPoint` **只取較高命中的 Y 與法線，XZ 保留動畫 pose goal**。照搬較高命中的完整 XZ 會把腳踝水平拉向 heel 或 toe，**平地就會違反「逐字不變」**，也違反 Natural Pose 優先。
+3. **旋轉：完全不動，逐字保留 M3.1 的 `FromToRotation(Vector3.up, sample.Normal) * poseRotation`。**
+   - 🔴 **2026-08-30 Play 驗收後的設計更正（原文第 3 點「由兩點高度差求 pitch」已作廢）**：
+     實測樓梯上整隻腳被扳斜近 40°。根因是 heel 與 toe 打在**兩個不連續的平面**（上階／下階踏面），
+     程式把高差當成坡度：`span = 0.25m`、踢面 `0.2m` ⇒ `atan2(0.2, 0.25) ≈ 39°`。
+     **兩個踏面各自都是平的、法線都是 up，卻被合成出一個不存在的斜面。**
+   - 更根本的問題：**連續斜面上 pitch 早已由命中法線提供**（`FromToRotation(up, normal)` 就是在做這件事），
+     heel/toe 高差只是把同一資訊算第二遍；而在階梯上它算的根本不是坡度。
+     ⇒ **pitch 這個來源在兩種地形上，一種多餘、一種錯誤。**
+   - ✅ **裁決（使用者，2026-08-30）：雙點採樣只決定「高度」，不決定「旋轉」。**
+     `GroundY`／`HitPoint.Y`／`Normal` 取**較高命中**——**穿模由「把腳抬到較高的面」解決，不由旋轉解決**。
+     這與既有骨盆規則同一哲學：**地面只能把腳往上頂，不能把腳往下拉**（`ComputePelvisOffset` 的「只下沉不上頂」）。
+   - 📌 **代價（已接受）**：上樓梯時腳尖不會主動翹起去貼上一階；腳尖懸空時保持平貼較高踏面。
+     依鐵律 **Natural Pose > Terrain > Contact**，這正是預期行為，不是缺陷。
+   - 📌 **本輪 L1 沒有 EditMode 覆蓋**（取兩者較高＝`Mathf.Max`，不值得為了「有東西可測」而抽純函數）。
+     驗證誠實地落在 Play。
+4. **退化路徑**：任一 ray 落空 ⇒ **退回現行單點行為**。⛔ 不得因落空而關閉 IK 或降權重（那就是被禁的 Gate）。
+5. `FootIKSettings` 新增 `HeelOffset`／`ToeOffset`（公尺）＋一顆 `UseTwoPointSampling` 布林。**該布林只用於 A/B 展示與退回基線，不得成為執行期的品質開關。**
+
+> 🔄 **以上 1–5 為初版構想，已被實作推翻兩次。以下是現行設計（v3，🟡 待 Play 驗證）。**
+
+#### ~~現行設計 v3（2026-08-30，三輪迭代後）~~ —— 已被 v4 取代，僅存演進紀錄
+
+> 🔄 **v4（2026-08-31）取代 v3 的 residual**：v3 仍以「地面 vs 假想平面」求穿透，算式裡沒有腳的幾何，
+> 因此任何動畫 pitch 對該約束都是**隱形**的（平地 ＋ toe-up 20° 時腳跟穿地 2.8cm 而 residual 恆回 0）。
+> v4 改為由最終旋轉 `R` 算出 heel／toe **真實端點世界座標**、在該處打 ray、點對點比較。
+> **完整的現行設計見 [`docs/05` §3.5.5](05-foot-ik.md)**；以下保留 v3 內容僅為演進脈絡。
+
+**演進**：v1「雙點取較高者當高度」→ 斜坡浮空（誤差＝上坡側取樣距離×tanθ，30° 約 8.7cm，且隨朝向擺動）
+→ v2「泰勒斯 ＋ 戳穿殘差」→ 幾何正確但**強制整面貼地**，不像真人
+→ **v3「＋ 踝關節角度夾限」**。
+
+| # | 機制 | 作用 |
+| --- | --- | --- |
+| **① 泰勒斯修正** | `ComputeAnkleTarget(rayStart, hitPoint, soleNormal, footBottomHeight)` | 腳踝抬升後仍落在**原本那條垂直 ray 上**，保住動畫 XZ。移植自 [ozz-animation `foot_ik`](https://guillaumeblanc.github.io/ozz-animation/samples/foot_ik/)，它明文點名舊寫法之誤：*"ankle position cannot be simply be offseted by foot offset"*。⚠️ **順帶修掉一個 M3.3 就存在的舊 bug**：`hit + n·fbh` 在 30° 坡會讓腳踝水平漂移 5cm 且坐得太低 |
+| **② 戳穿殘差抬升** | `ComputePenetrationLift(...)` → `Max(0, 各取樣點戳穿量)` | 防穿模。**連續平面上恆等於 0**（腳底已與平面平行）⇒ 不需要「這是斜坡還是台階」的判別式——而那正是最容易寫成被禁 Gate 的地方。只抬不壓，同 `ComputePelvisOffset` 的「只下沉不上頂」哲學 |
+| **③ 踝關節角度夾限** | `ClampGroundNormal(hitNormal, MaxFootAlignAngle)`，預設 **15°** | **腳底不強制整面貼地**（設計哲學明文）。超過夾限時腳保持較自然姿勢，②自動把腳抬到上坡側接觸、下坡側浮空＝真人行為。浮空高度 ≈ `span × tan(θ − 夾限)` |
+
+**正確性關鍵**：夾限後的 `SoleNormal` 必須**一致地**用於①②③與 `GroundY` 四處——它們描述的是同一個腳底平面。只改旋轉不改殘差，抬升量就會對不上實際腳底。
+
+**哲學檢核（三條全過）**：權重系統零改動，腳全程由 IK 接管；夾限是**連續**的，無二態切換、無震盪源；角度上限屬哲學第 3 條明文允許的「Reach Clamp 類」，**不是**被禁的 Fade／Gate／降權重。活動空間檢核答「否」——只限制地面對齊造成的踝角，不限制抬腿／跨步／轉向。
+
+**`GroundY` 語意變更**：由「ray 原始命中高度」改為「最終腳踝目標對應的接觸高度」，使骨盆補償與殘差抬升後的實際落點一致。副作用：斜坡上骨盆下沉量略減（30° 約少 3cm）。⚠️ Play 時留意骨盆有沒有變得太挺。
+
+**A/B 對照**：`UseTwoPointSampling = false` ⇒ 去掉②（①仍生效，幾何正確性不是可選項）；`MaxFootAlignAngle = 180` ⇒ 去掉③，回到 v2 的完全貼合。
+
+**已知破綻（接受，不在本 ticket 解）**：陡下坡整個踩地相維持腳跟接觸，真人會隨步態滾向前腳掌——需要 Foot Contact／Foot Phase 與背屈／蹠屈不對稱角度才能表達；橫坡的腳掌左右邊緣未被採樣；heel/toe 任一 ray 落空時無殘差保護。**這些屬 `docs/03` 輪 7 品質輪，不是 L1 範圍。**
+
+**驗收（DoD）**
+- **EditMode**：pitch 計算抽成 `static` 純函數並附測試（比照既有 `ComputeFootWeight`／`ComputePelvisOffset` 先例）。
+- **Play ①（回歸）**：**平地行為逐字不變**——雙點在平面上等高，必須退化為與現行完全一致。
+- **Play ②（目標）**：樓梯上腳掌不再插入上一階；斜坡表現**不比現在差**。
+- **Play ③（哲學）**：抬腿／跨步／轉向的活動範圍**無縮小**；未出現半 IK 常態化或抖動。
+- **Play ④（觀察項，非驗收條件）**：兩點命中高度**非常接近**時，「取較高者」可能在幀間翻轉，帶動 `Normal` 與目標高度跳變（既有權重平滑只平滑權重，不平滑目標）。⚠️ **若真的看到跳動，不得用 gate／降權重處理**——那是被禁的路線；正解是往 Ground Sampling 再升級（遲滯取樣、SphereCast／CapsuleCast）。先觀察，不預先處理。
+- **零 GC**：每腳 2 次 `Physics.Raycast`（每帧 2→4 條，非 alloc 多載），穩態 `0 B/frame`。
+- **G4 可展示**：`UseTwoPointSampling` 開關能在樓梯上錄出 A/B 對照。
+
+**檔案邊界**
+- ✅ 只准動：`Presentation/IK/FootIKController.cs`（`SampleGround`／`ResolveFoot`／新純函數）、`Presentation/IK/FootIKSettings.cs`。
+- ⛔ 不准動：`FootIKRig`／`FootIKPoseData`／`FootIKTargetData`／雙管道與 Ownership／`IPresentationController` 契約／`CharacterPipelineRunner`／權重系統。
+- **Commit**：獨立一筆 `fix(ik): Foot IK L1 Heel/Toe 雙點採樣`，不與任何工作包混（由使用者執行）。
+
+### 📦 四個 sequential 工作包（摘要；細節在各包開工時另立分卷）
+
+| 包 | 🏗 Architecture Qualification | 🎬 Portfolio Qualification | 交付段落 | ADR 路由 |
+| --- | --- | --- | --- | --- |
+| **WP1** 鏡頭 ＋ Aim ＋ Throw 依 AimPoint | 「相機／瞄準是純 Presentation 關切」——交付時**黑板 schema 零改動、架構測試條數不變**。這是個**負面證明**：不是每個新功能都要動核心契約 | 探索鏡頭讓既有 locomotion 終於好看；瞄準可信；miss 能歸因於自己 | 1／2／3 | **不開 ADR** → `docs/09-camera-aim.md` |
+| **WP2** Multi-Action ＋ Action Mapping ＋ 玩家揮劍 | 一顆 `ActionState`／六員 `StateType`／七階管線不變的前提下跑多 action；**加第四個 action ＝ 一份資產 ＋ 一列映射，零程式**；裁決 FU-1 | **遠程／近戰對比**；架構價值唯一能「演」出來的一段（改 SO 即改行為） | 6／7（並讓 8 成為可能） | **ADR-005（Trial）**，前提：ADR-004 已 Accepted |
+| **WP3** 敵人戰鬥遭遇 | **敵人攻擊不新增任何 runtime 程式**——Telegraph／Commit／Recovery 全由 `ActionPhase` 的逐 phase `Interruptible` ＋ `Cooldown` 表達 | 敵人是對手不是靶子；Roll 終於有存在理由；雙向互動 | 4／5／8／9 | 不開 ADR → Living Docs |
+| **WP4** 主展示 ＋ Teaser | **無新增；本包不得產生任何程式或架構改動** | 整片；節奏與呼吸 | 全部 | 無 |
+
+**WP2 補充（本包是重心，非「順便新增揮劍」）**：Action 身分化 → catalog／注入路徑（解 FU-2）→ 裁決 FU-1 → Action Mapping（`IntentData` 只有一顆 `FireRequested`，兩個動作必然要動它 ⇒ 這是走 ADR 的原因）→ 揮劍 ＋ `MeleeHitEmitter : IActionLifecycleSink`（Release 時一次 `OverlapSphereNonAlloc`，與 projectile 對稱）→ 玩家 `Damage` Definition（EditMode 證明 Action→Action 中斷）→ **命中回饋最小集**（材質閃白 ＋ 一顆命中音，走既有 `AudioController`／`AudioDefinitionSO`）→ **段落 7 的展示素材錄製**（原 G5／P4）。
+
+**WP3 補充**：敵人決策元件**不寫 `MovementIntent`**，而是設定 `AIMovementSource` 的期望距離／速度 ⇒ **A5 白名單不變**。含 **Look At**（`docs/03` §2.3 的管道模式；Telegraph 可讀性有一半來自「它看著我」）與**遭遇結束的最小處理**（一個整數計數，**不是 HP 系統**）。
+
+### 🧺 明確禁止現在擴張（不變，補一條界線）
+
+傷害數值／HP／死亡系統；Effect／Buff／Status Framework（**Slow 因此不進任何一包**）；combo／輸入緩衝／通用 cancel window；Behavior Tree／Utility AI／GOAP／aggression token；通用 targeting service／全域註冊表／singleton；上身層／aim IK；新的管線階段；通用 camera state machine；**動 `LocomotionModel`**（`docs/07` §13.1-R4）。
+🆕 **新界線**：命中回饋＝「一個材質參數 ＋ 一顆音效」。**一旦它開始需要註冊、查表或定義檔，就已經越線**——第二個使用者出現前不建 production abstraction。
+
+### 📇 Follow-up 登記表（只登記，不處理）
+
+| # | 發現 | 處理時機 |
+| --- | --- | --- |
+| **FU-1／FU-2／FU-3** | Action→Action 中斷不可能／一角色一份 Definition／mailbox 無身分 | **WP2**。全文已寫入 [`docs/08` §11.1](08-skill-system.md) |
+| **FU-4** | Throw 沿角色 root forward 發射（`ThrowProjectileEmitter` 的 `Instantiate(..., transform.rotation)`） | WP1 |
+| **FU-5** | 相機**旋轉雙權威**：`_yaw`／`_pitch` 只驅動位置軌道，最終 rotation 被 `LookAt` 整個覆寫 ⇒「滑但不好瞄」的根因是這個，不只是 damping 值 | WP1 |
+| **FU-6** | `AIMovementSource` 依賴 `data.CameraTransform`，把世界方向轉成相機空間只為了讓 `MotionDriver` 轉回世界；敵人的移動因此綁在玩家相機上 | **不排程**。正解是給 `MovementIntent` 座標基底語意或讓 producer 直接輸出世界方向（ADR-003 §9-L2 的延續），等第三個 producer 出現再談 |
+| **FU-7** | Cinemachine 2.10.7 在 manifest 但專案零使用（只有 `Assets/StarterAssets` 引用）＝決策債 | WP1 開包時一次裁決「用或不用」。⚠️ 若導入需掛 `CinemachineCore.GetInputAxis` 這類**靜態全域輸入 hook**，等於引入第二個輸入權威 ⇒ 停並回報 |
+| **FU-8** | `ThrownProjectile` 每次 `Instantiate`／`Destroy` | **不排程**。零 GC SOP 管的是穩態，投擲是事件型配置；Profiler 實測成為問題才做池 |
+| **FU-9** | `ActionState.CanEnter` 對 `FireRequested` 與 external mailbox 同權，無仲裁 | WP2 順帶（多來源必然要定義誰贏） |
+| **FU-10** | `LocomotionModel` 走向 God Class（`docs/07` §13.1-R4） | 不排程；**四個工作包都不得動它** |
+
+---
+
+## 🗡️ 素材登記：Free Sword Animations（2026-08-30 匯入，**WP2 才使用**）
+
+**位置**：`Assets/EEJANAI_Team/FreeSwordAnimations/`（`FBX/` 12 個 ＋ `Animations/` 抽出的 `.anim` ＋ `Animations/Animator/` 的 `.controller` ＋ `Models/SwordSample/` ＋ `Prefabs/`）。
+
+**現況更正**：**武器本體其實有**——`Models/SwordSample/Sword.obj` ＋ `swordmaterial.mat` ＋ 四張貼圖 ＋ `Prefabs/Sword.prefab`。
+**真正缺的是掛點**：右手骨骼 socket ＋ 相對 transform ＋ 收放策略。⇒ 屬**使用者側 prefab 工作**，不是素材缺口。
+
+**使用紀律（現在就定，避免 WP2 開工時漂移）**
+
+1. ✅ **一律引用 `FBX/slash*.fbx` 的 sub-clip**。❌ **不要用 `Animations/*.anim`**——那是抽出的複本，違反 CLAUDE.md「Animation Assets: Immutable by Default」（FBX sub-clip 是唯一真相）。
+2. ❌ **`Animations/Animator/*.controller` 一律不使用**。專案走 Animancer ＋ `AnimancerFacade.transitionMappings`，Mecanim controller 會是第二套播放權威。
+3. ⚠️ **9 個 slash 只取 1**。取多個是 combo 的滑坡，而 combo 在禁止清單裡。WP2 需要的是「**第二個 action**」，不是「第二套攻擊系統」。
+4. ⚠️ **掛點只做「永久掛在手上」**（最簡）。**不做 sheath／draw 拔劍收劍切換**——那是第二個 Action lifecycle 的偽裝，會把 WP2 的題目從「Action Mapping」偷換成「武器狀態管理」。
+5. 🔍 **需先驗證**：這些 clip 是否為 Humanoid、能否 retarget 到 X Bot（不同 rig）。🛑 **若不能 retarget，停下來回報**——處置是換素材或換載體動作，**不是編輯 clip 內容**（CLAUDE.md 的四階升級順序：資料 → 表現層 → 換 clip → 才是改 clip 內容）。
+6. `Scenes/Sample.unity`（素材附的展示場景）**不納入專案場景管理**，看完即可忽略。
+
+---
+
+## 🤝 Codex 交辦與交付邊界（2026-08-30 更新）
+
+**檔案擁有權不變**（以擁有權切分，避免兩個 agent 改同一檔）：
+
+| 角色 | 擁有 |
+| --- | --- |
+| **Claude** | `docs/**`、`LearningNotes/**`、`ArchitectureRegressionTests.cs`、`WORKLOG.md` |
+| **Codex** | `Assets/Scripts/**`（新檔）、`Assets/_Project/Tests/EditMode/*Tests.cs`（**除** `ArchitectureRegressionTests.cs`） |
+| **使用者** | 全部 `.prefab`／`.asset`／`.meta`／場景／Import 設定／NavMesh 烘焙／**全部 Git 操作**／全部 Play 驗收 |
+
+**交付單元的規矩（適用每一包）**
+
+1. **文件先行**：Claude 的規格／ADR 進 Trial **先落地並 commit**，Codex 才開始寫程式。這樣 review 時有對照基準，也符合 Trial-first 的「先修文件再驗證」。
+2. **Codex 一次交付一個工作包的完整程式 ＋ 對應 EditMode 測試**，不做半包交付。允許交接過程短暫紅燈，**但交回給使用者驗收時必須全綠**。
+3. **Codex 需要新的架構不變量時，提出需求由 Claude 落地**（`ArchitectureRegressionTests.cs` 是 Claude 獨佔，避免兩邊同時改同一張規則表）。
+4. **Codex 不碰任何 Unity 資產、不碰 git。** 程式寫完即停，接線與驗收交還使用者。
+
+**各包給 Codex 的紅線（撞到就停下來回報，不要自行擴 scope）**
+
+| 包 | 🛑 停止條件 |
+| --- | --- |
+| **WP1** | ① 發現 aim 狀態**必須進黑板** ⇒ ADR 判準①，不得順手加欄位；② Cinemachine 需要靜態全域輸入 hook；③ soft target 開始需要目標列表／切換／跨系統查詢；④ 想改 `AIMovementSource` 或 `MovementIntent` 的座標基底（FU-6 是獨立議題） |
+| **WP2** | ① FU-1 的候選解需要動 ADR-004 §3 的 D1–D7 任一條；② 出現「每個 Action 一個 `StateType`」的念頭（§5.2 已否決，A13′ 會紅）；③ **為 sword 建立 `ActionState` 子類別**（A19 會紅）；④ 命中判定開始需要起始幀／結束幀／多段／無敵幀；⑤ 命中回饋長出任何共用抽象；⑥ 同時出現兩個 Trial ADR |
+| **WP3** | ① 敵人節奏**寫不進資產**、必須加程式分支 ⇒ 回頭修 WP2 規格，**不是在敵人身上補 `if`**；② 決策元件需要自己的狀態機；③ 決策元件想直接寫 `MovementIntent`（A5 會紅）；④「命中計數」開始長出血量／傷害值／死亡狀態／UI |
+| **全部** | 任何包想動 `LocomotionModel`（`docs/07` §13.1-R4） |
+
+---
+
+## 🌱 Git commit 切點（**由使用者執行**；AI 一律不碰 git）
+
+> 判準是「**能不能單獨 revert**」，**不是歷史好不好看**。為了漂亮的歷史去做 `git add -p` 拆同一個檔案，
+> 代價高於收益——**檔案混在一起就合成一筆，並在 message 裡誠實說明**。
+
+**A. 現在（工作樹已累積 P1＋P2＋治理文件，尚未 commit）**
+
+| 順序 | 建議切點 | 內容 | 為什麼單獨一筆 |
+| --- | --- | --- | --- |
+| **C0-a** | `chore(assets): 匯入 Free Sword Animations（EEJANAI_Team）` | 只有 `Assets/EEJANAI_Team/**` ＋ `.meta` | 第三方素材單獨一筆 ⇒ 日後換版或移除可乾淨 revert，不與自己的程式糾纏 |
+| **C0-b** | `feat: 敵人管線重用 ＋ Action in FSM（ADR-004 Trial，待 Play 驗收）` | `Assets/Scripts/**`、`ArchitectureRegressionTests.cs`、以及 P1／P2 的資產（Throw／Damage 動畫資產、Bake、`Actions/`、`EnemyStateMachineConfig`、`ThrownProjectile.prefab`、`Y Bot`、場景與 `X Bot.prefab` 改動） | ⚠️ **P1 與 P2 在 `CharacterPipelineRunner.cs` 內混在同一個檔**（D1 守衛拆解 ＋ Action 組裝），拆兩筆需要 hunk 級手術 ⇒ **合成一筆**。message 必須標 **Trial／待驗收**，不得寫成已完成 |
+| **C0-c** | `docs: Trial-first 治理 ＋ ADR-004 ＋ scope 收斂與後續四包` | `CLAUDE.md`、`WORKLOG.md`、`docs/**` | 文件與程式分開 ⇒ 程式若 revert，治理決策不會跟著消失 |
+
+**B. Play 驗收通過之後**
+
+| 順序 | 建議切點 | 內容 |
+| --- | --- | --- |
+| **C1** | `docs: ADR-004 Trial → Accepted（A–F 回填）` | ADR-004 §10／§11、`docs/08` 狀態欄、`docs/changelog.md`、G1–G3／G6 打勾 |
+
+⚠️ **`Trial → Accepted` 必須是獨立一筆，且晚於程式那一筆**——Accepted 是**驗收結果**，把它跟程式塞進同一個 commit 等於宣稱「寫完即通過」。
+
+**C. 之後每個工作包的固定節奏（四筆）**
+
+1. `spec:` / `docs:` — 規格與 ADR 進 Trial（**Codex 動程式之前**）
+2. `feat:` — Codex 的程式 ＋ EditMode 測試（**全綠才交**）
+3. `feat(assets):` / `chore(assets):` — 使用者側資產與接線（`.prefab`／`.asset`／`.meta`／場景）
+4. `docs:` — Play 驗收後的 **fold-back**（Living Docs 對齊實況；如有 Trial 則轉 Accepted）
+
+**為什麼程式與資產要分開**：Play 驗收失敗時可以單獨 revert 程式而**不丟掉資產工作**——`.meta` 的 GUID 重建代價遠高於重寫一次程式。
+
+**軌 A 獨立 commit**：`feat(scene): 關卡地形（斜坡／樓梯／障礙）` 與 `fix(ik): Foot IK L1 Heel/Toe 雙點採樣` 各一筆，**不與任何工作包混**——它是並行軌，混進去會讓工作包的 revert 邊界失效。
+
+---
+
+## 🎯 作品集最低限度衝刺（2026-08-29 排定，**優先於一切工程路線圖**）
+
+> **任務定位**：把專案從「一個人在空地上走路的 demo」推到「一個看起來像遊戲、且能證明架構價值的最小完成品」。
+> **為什麼優先順序改變**：投遞卡在 HR／外行關卡，架構深度沒機會被技術面試官看到。根因診斷與敘事策略見
+> `LearningNotes/portfolio-framing.md` §1–§2：**現有展示項的成功標誌都是「隱形」**（做對了外行只看到「角色正常走路」），
+> 因此必須補上「外行看得出這很難做」的項目。
+> **紀律不變**：本輪所有工作都必須是**既有路線圖的兌現**（ADR-003 §11 的 AI producer、dev-spec §1.4 的死亡來源、
+> `docs/03` §1.3-L1 的「穿模觀感無法忍受時可提前」條款），**不得**為了作品集新造路線圖上沒有的系統。
+
+### ✅ 完成定義（DoD）：作品集最低限度 Gate
+
+- [ ] **G1 敵人重用整條管線**：一隻敵人會朝玩家移動，且**完整重用** Walk/Run tier、Stop 腳相選片、Foot IK、腳步音；玩家與敵人跑**同一份** `CharacterPipelineRunner` 程式碼。
+- [ ] **G2 技能無可爭議**：玩家可發動 Throw（`Throw_Start`→`ThrowLoop`→`ThrowEnd*`）並丟出一顆會飛的投射物，命中敵人會有反應（播 `Damage`）。
+- [ ] **G3 中斷矩陣可展示**：技能可被移動／Jump／Roll 中斷，行為與 `docs/08` §8.3 的表格一致，且 EditMode 有對應測項。
+- [ ] **G4 Foot IK 可 A/B**：斜坡／樓梯上開關 IK 的差異外行可見，且 L1（跨階腳掌穿模）已修。
+- [ ] **G5 資料配置可展示**：改一份 ScriptableObject 的值 → Play 立刻看到行為改變，**至少三個可 demo 的參數**（速度 tier／跳躍高度／打斷規則）。
+- [ ] **G6 品質門檻**：EditMode 全綠（含本輪新增的架構不變量）；Development Build Profiler 穩態 `0 B/frame`（走 dev-spec §7.4 SOP）。
+- [ ] **G7 場景像關卡**：demo 場景有斜坡／樓梯／障礙與明確目標，不是空地。
+
+> 🔔 **交辦指令（不是提醒）**：**當最後一項打勾時，該會話必須主動告知使用者「已達作品集最低限度」**，
+> 並附上七項的逐項驗收證據（哪個測試／哪張截圖／哪次 Play 驗收）。不得默默完成後繼續往下做。
+
+---
+
+### 🔴 兩顆必須先處理的架構地雷
+
+**地雷 1：`CharacterPipelineRunner` 的入口守衛會讓敵人整條管線不跑**
+
+```csharp
+// CharacterPipelineRunner.Update() 第一行
+if (_inputSource == null || _stateMachine == null) return;
+```
+
+敵人沒有 `IInputSource` ⇒ 順序 1～5 一行都不執行。這不是 bug，是**結構性假設**：Runner 目前假設「有輸入源」是管線運作的前提，
+而 ADR-003 D2 的賣點正是「換掉 producer，Runner 零改動」。
+⇒ **這是 ADR-003 §9-L2（「介面可能設計得不夠貼實需求，待第二個 model／producer 壓測」）的第一個實證。**
+處理方式屬裁決點 **D1**（見下）。
+
+**地雷 2：NavMesh 絕對不能擁有位移**
+
+`NavMeshAgent` 預設自己搬 transform，違反「`CharacterController.Move` 是唯一位移出口」（`docs/07` §10.1）。
+**正確接法**：`updatePosition = false` / `updateRotation = false`，只當**路徑查詢服務**用（取下一個 corner），
+把方向交給 `AIMovementSource` 寫成 `MovementIntent`，位移仍全程走 `LocomotionModel → MotionDriver → CharacterController.Move`。
+好處：Locomotion 平滑、tier、Stop 選片、Foot IK、腳步音**全部免費重用**。
+
+> 順帶：敵人＝第二個 `PlayerRuntimeData` ＋第二個 Runner。design-doc §4.9 當初把 `Time.timeScale`／`Cursor` 判給應用層的理由
+> 正是「第二隻角色進場立刻露餡」——**敵人是那個判斷的第一次真實驗收**，驗收結果請回填 design-doc §4.9。
+
+---
+
+### 工作包與順序
+
+| 順位 | 工作包 | 內容 | 對應 Gate |
+| --- | --- | --- | --- |
+| **P1** | **敵人（適配控制器＋尋路）** 🟡 程式已落地、待 Unity 接線／Play 驗收 | ✅ Runner 無 input 仍跑完整 pipeline；✅ `AIMovementSource : IMovementIntentSource`；✅ NavMesh 關閉 Transform authority、只供 path direction。⏳ 使用者側 prefab／NavMesh 烘焙與 G1 Play 證據；受擊入口已落成 single-slot external Action request seam | G1 |
+| **P1 平行** | **Foot IK L5 調參** | `RaycastUpOffset`／`RaycastDistance` 在乾淨 collider 基線上調參（`docs/03` §1.3-L5：**tuning 域，非程式問題**） | G4 |
+| **P2** | **Throw → Projectile → Enemy Damage** 🟡 Runtime／EditMode 測項已落地，待 Unity 編譯與 Play 驗收 | ✅ 單一 `ActionState`；✅ Player Fire／Enemy external mailbox；✅ Player Throw／Enemy Damage 各一份 Definition；✅ phase-authored exactly-once release sink；✅ projectile 只提交 request；✅ A13′／A19–A22 與 T13–T15。⏳ 使用者建立 Transition／Bake／Definition／prefab 與 Config 規則後 Play 驗收；ADR-004 仍為 Trial | G2, G3 |
+| **P3** | **Look At ＋ Foot IK L1** | ①Look At（`docs/03` §2.3：「複製 M3.1 Controller＋Rig 管道模式；零 Runner 改動」，有敵人後才有目標）②Foot IK L1 Heel/Toe 雙點採樣（**只動 `SampleGround`／`ResolveFoot` 內部＋Settings，雙管道／Ownership 全不動**） | G4 |
+| **P4** | **資料配置展示（client 端）** | **先做零程式版**：錄影展示改 `GaitProfileSO`／`JumpStateParams`／`PlayerStateMachineConfig` → Play 立刻生效。只有證明「這樣還是看不懂」才做工具（裁決點 D3） | G5 |
+| **P5** | **場景收尾** | 斜坡／樓梯／障礙＋一個明確目標，讓場景看起來像關卡 | G7 |
+
+> **為什麼敵人排在技能之前**（與最初構想相反）：敵人是**舞台**——技能要打誰、Look At 要看誰、配置要配什麼，都等它。
+> 而且兩顆地雷會影響後面所有設計，越早撞越好。
+
+> 🔄 **2026-08-30 重排（見上方「Scope 收斂與後續四包」）**：
+> **P1／P2 不變**，仍是現行工作，停止線＝ADR-004 `Accepted`。
+> **P3 拆解**：Look At → **WP3**（Telegraph 可讀性的一半）；Foot IK L1 → **軌 A**。
+> **P4（資料配置展示）→ WP2 段落 7**——它不是最後的加分項，是**架構價值唯一能「演」出來的一段**。
+> **P5（場景收尾）→ 軌 A，現在就能開始**——它是影片段落 1 的唯一來源，且能讓 P1／P2 的 Play 驗收在像樣的場地上進行。
+> ⚠️ **上一版把這三項當成 polish 是分類錯誤**：它們不 gate 任何技術 qualification，但**每一項都是觀眾必需品**。
+> 判準已改為「**任一條軸必要即非 polish**」。
+
+---
+
+### 任務分配（Claude ／ Codex ／ 使用者）
+
+> **分配原則：以檔案擁有權切分，避免兩個 agent 同時改同一個檔。** 跨界的檔案在下表明確標註協調方式。
+
+| 角色 | 負責 | 檔案擁有權 |
+| --- | --- | --- |
+| **Claude** | 架構裁決與規格（D1／D2 兩案比較與建議）、新增架構不變量的定義、Foot IK L1 規格（守住「不動雙管道」邊界）、全部文件同步 | `docs/**`、`LearningNotes/**`、`ArchitectureRegressionTests.cs`、`WORKLOG.md` |
+| **Codex** | 實作與功能測試：`AIMovementSource`、NavMesh 路徑查詢、投射物、`ActionState`＋Throw／Damage vertical slice、Look At 的 Controller／Rig、Foot IK 的 `SampleGround`／`ResolveFoot` 內部 | `Assets/Scripts/**`（新檔）、`Assets/_Project/Tests/EditMode/*Tests.cs` |
+| **使用者** | 全部 Unity 資產側與驗收：`.prefab`／`.asset`／`.meta`／場景／Import 設定／`AnimancerFacade.transitionMappings`／NavMesh 烘焙；所有 Play 驗收；**全部 Git 操作** | 同左（**AI 一律不碰**） |
+
+**需要協調的交界（先講好再動）**
+
+| 檔案 | 誰動 | 條件 |
+| --- | --- | --- |
+| `Core/Pipeline/CharacterPipelineRunner.cs` | **Codex 實作** | **必須等 D1 裁決後**；同一次由 Claude 同步 dev-spec §2.1 與 §7.1 的對應條目 |
+| `Core/Movement/Models/LocomotionModel.cs` | **本輪不動** | 若某工作包宣稱需要改它，先停下來提裁決——`docs/07` §13.1-R4 已預警它正走向 God Class |
+| `Presentation/IK/**` | **Codex 實作**，Claude 出規格 | 只准動 `SampleGround`／`ResolveFoot` 內部與 Settings；**動到雙管道或 Ownership 即為越界**（`docs/05` §3.5.1／A11 守） |
+| `ArchitectureRegressionTests.cs` | **Claude 獨佔** | Codex 若需要新不變量，提出需求由 Claude 落地，避免兩邊同時改同一張規則表 |
+
+---
+
+### ✅ 已裁決（2026-08-29，使用者拍板）
+
+| # | 裁決 | 內容與後續 |
+| --- | --- | --- |
+| **D1** | ✅ **選 (a)：拆守衛，輸入源缺席時管線照跑**；🟡 程式已落地待 Play | 守衛只留 `_stateMachine != null`；取樣改 `_inputSource?.FetchRawInput(ref inputData)`，後續沿用輪 4 既有的「無輸入＝輸入歸零，管線照跑」語意。`MovementIntent` 的唯一寫入者語意是「每隻角色當下 active 的 `IMovementIntentSource`」；P1 合法實作現為 Player／AI 二選一，A5 白名單與 dev-spec 已同步。ADR-003 為 Accepted immutable log，壓測結果回填 Living Docs，不改寫該 ADR。 |
+| **D2** | ✅ **選 (a)：敵人完整使用既有 `FullBodyStateMachine`** | **但 P1 只重用既有 Idle／Move，不為敵人新增任何 `StateType`**（A13 在 P1 範圍內零改動）。敵人與玩家跑同一份 FSM 程式與同一份 `StateMachineConfigSO` 拓撲 ⇒ 這是「一套 FSM 撐兩個角色」的第一次驗收 |
+| **D3** | ✅ **先不做專屬工具** | 照 P4 的零程式版（錄影展示改既有 SO → Play 立刻生效）先驗證展示效果。**不足時才回頭談工具**，屆時須在文件寫明正當性來自作品集需求而非 Gate A／B |
+
+| **D4** | ✅ **選 (a)：Action 併入 `FullBodyStateMachine`** | `StateType` 加**恰好一個**成員 `Action` ＋一顆資料驅動的 `ActionState`（動作＝`ActionDefinitionSO` 資產）。lifecycle／animation／interrupt 三者回歸 FSM 單一來源；順序 4.6 **不新增**。**Trial 期暫停 A13 → A13′（六員）＋ A19**。<br>📄 決策：[`docs/ADR/004-action-in-fsm.md`](ADR/004-action-in-fsm.md)（🟡 **Trial**）／實作規格：[`docs/08-skill-system.md`](08-skill-system.md)<br>🔧 **使用者修正兩點（已寫入 ADR）**：①`Priority` 是**競爭排序**不是打斷資格，G5 要展示 `CanBeInterruptedBy`／transition policy（ADR §3-D6、§5.4）；②A19 不是永久禁令，改為「禁止**為每個 Action** 建立獨立 subclass；差異優先資料化」，以 allowlist ＋書面理由實作（ADR §3-D3）。 |
+| **D5** | ✅ **治理方式改為 Trial-first**（2026-08-29） | 見下方「🧪 治理原則」。ADR-004 是第一個適用者 |
+
+---
+
+## 🧪 治理原則：Trial-first（2026-08-29 起適用）
+
+> **「Architecture decision 可以先成為 Trial implementation baseline；第一個真實 vertical slice 是架構驗證的一部分。
+> 只有經實作與 Play／Test 驗證後才 `Accepted`。」**
+
+```text
+Design → Trial → Implement → Observe → Revise → Accept      ← 現行
+Design → Freeze → Implement                                  ← 已棄用
+```
+
+**為什麼改**：原流程對單人開發產生壞誘因——ADR 一旦 `Accepted` 就凍結，實作撞到問題時**補 workaround 比修文件便宜**（修文件要開新 ADR）。結果是文件整潔、程式歪斜。
+
+**規則**
+
+1. **`Trial` 狀態的 ADR 是實作基線，但可被修改**，不必為每次修正開新 ADR；修改一律記入該 ADR 的「修訂紀錄」。
+2. **實作暴露問題時：先修 Trial ADR ／ Living Spec → 再驗證。不得為了維護舊文字而補 workaround。**
+3. ADR 只保留「**改錯會造成架構污染**」的決策；具體欄位、計時方式、冷卻細節等實作項一律下放 Living Spec，並在 ADR 內**明列哪些不凍結**（ADR-004 §9 為範本）。
+4. **架構回歸測試驗證「目前有效的 baseline」**，該 baseline 可來自 Accepted ADR，**也可來自已正式進入 Trial 的 ADR**。因此 Trial 取代舊 invariant 時**不是「暫停」而是「取代」**，同一工作包內把測試換成新 baseline。⛔ **不建立 generic 的測試暫停／停用機制。** 允許 agent 交接過程短暫紅燈，**但交付使用者驗收時必須全綠**。
+5. **Fold-back**：Trial／Spike 期間允許短暫 code-first，**但同一工作包結束、交付驗收之前，Living Docs／WORKLOG 必須 fold back 到實際程式狀態**；不得把未實證的內容寫成已完成事實。
+6. **使用者已裁決 ≠ 工程上已驗證。** 引用 Trial 文件時必須註明其狀態。
+7. `Accepted` 之後回到 Immutable Log 規則（要改決策就開新 ADR 取代）。
+
+> 📌 **完整治理條文已提升至 `CLAUDE.md`**（「ADR Lifecycle」／「Code / Documentation Fold-back」／「Architecture Invariants Track the Effective Baseline」／「Spike / Probe Exception」四節）。本段只是本輪的操作摘要。
+
+### ⏳ ADR-004 Acceptance Review（Throw vertical slice 完成後執行）
+
+- [ ] **A** Throw 在 Unity Play 實際跑通（Start → Loop → End／Cancel 全程）
+- [ ] **B** 三個權威與設計一致（動畫只由順序 5 播；打斷只由 FSM ＋資產決定；lifecycle 只有 `BaseState` 一套）
+- [ ] **C** 既有 Idle／Move／Jump／Roll **無回歸**（動畫播放序列與位移路徑逐字不變）
+- [ ] **D** EditMode 全綠，含 A13′／A19／A20 與行為等價回歸
+- [ ] **E** 零 GC 通過（dev-spec §7.4 SOP，穩態 `0 B/frame`）
+- [ ] **F** **實作沒有逼出第二套 authority 或明顯 workaround** ← 本 Trial 的真正目的
+
+全通過 → 使用者確認 → ADR-004 `Trial → Accepted` ＋ 記入其 §11 ＋ 同步 changelog。
+未通過 → 依 ADR-004 §10 的處置順序（先修文件再驗證，必要時轉 `Rejected` 並復原 A13）。
+| **D1** | **Runner 入口守衛怎麼拆** | (a) 守衛改成「輸入源缺席時仍跑管線」——更誠實，兌現 ADR-003 D2 的宣稱，但動到跨領域契約（dev-spec §2.1）；(b) 給敵人掛一顆 null-object 輸入源——改動更小，但等於承認「Runner 需要一個假輸入源」，宣稱沒有真正被兌現。<br>**Claude 建議 (a)，且它其實比 (b) 更小**：輪 4 的 `BlockInput` 裁決（dev-spec §7.2-M5）已經確立「**沒有輸入＝輸入歸零，管線照跑**」這個語意，並實作為順序 2 閘門的 `inputData = default`。敵人是**同一個形狀**——守衛只需保留 `_stateMachine != null`，取樣改為 `_inputSource?.FetchRawInput(ref inputData)`，後面全部沿用既有歸零語意，`PlayerLocomotionPolicy` 依然是 `MovementIntent` 的唯一寫入者（A5 零改動）。⇒ 一行級改動，且**不是新機制，是既有裁決的第二個適用案例** |
+| **D2** | **敵人要不要完整的 `FullBodyStateMachine`** | (a) 要（Idle/Move 重用，受擊另議）；(b) 不要，敵人只跑 locomotion ＋一個受擊播放。⚠️ 選 (a) 時注意 `StateType` 不得為了敵人擴張（A13） |
+| **D3** | **資料配置要不要做專屬工具** | 先做零程式版（P4），只有證明不夠才做。⚠️ 若要做，**必須在文件裡誠實寫明：這顆工具的正當性來自作品集需求，不是 CLAUDE.md 的 Gate A／B** |
+
+---
+
+### 本輪明確不做
+
+- ❌ **撿東西／拉拉桿**（`PickUp_*`／`PullLever_*`）——`_LH/_RH`＋`_90` 的 selection 復用**只有工程師看得到**，屬 L2 素材，延後。
+- ❌ **傷害數值／血量系統**——受擊只播動畫。「受擊反應」與「傷害系統」是兩件事，後者無消費者（`docs/08` §3.3）。
+- ❌ **法術／VFX**——法術＝punch ＋粒子，架構上完全相同；且 VFX 是真正的素材缺口，廉價特效會拉低觀感（`LearningNotes/portfolio-framing.md` §8）。
+- ❌ **F4 Upper Body Layer**——本輪技能刻意選成不需要它的形狀。
+- ❌ **新 ADR**——除非 D1 選了會改動跨領域契約的方案，屆時再議。
+- ❌ **不得為了作品集新造路線圖上沒有的系統**（`LearningNotes/portfolio-framing.md` §5.3）。
+
+---
+
+## 🗂️ 已完成：Phase C Locomotion Transition Foundation（2026-08-20 重排，✅ 2026-08-21 全部驗收通過）
 
 > **任務定位：先驗證資產與責任 seam，再實作。**禁止先寫 `LeftStopState` / `RightStopState`，也不得為了未來項目一次建出萬用 Animation Action framework。
 
@@ -50,6 +500,7 @@
 - [x] WalkStop LU／RU Fade `0.15 → 0.25 s` Play A/B：全身瞬間變動仍明顯，確認停止調 Fade，固定起點 pose mismatch 必須由相位等待處理。
 - [x] Walk Pending Stop：以 Stop 起始 FootPhase 連續值比對 Walk loop 烘焙鍵，等待下一個最近 authored 入場點；等待期維持 release-entry 移動，0.5 s fail-safe。只套 Walk，Run 零改動。
 - [x] Unity EditMode＋Play 驗收完成：任意 Walk 腳相放開會先自然走到匹配點再 Stop；無全身瞬跳、無先慢後衝；重新輸入／Jump／Roll 均可立即取消。
+- [x] 完成學習復盤 `LearningNotes/phase-c-forward-stop.md`：彙整資料來源、Import／批次烘焙 SOP、Runtime 邏輯、最終數值、架構邊界與踩坑；並回填 `docs/07` 已解決的 V1 與被否決的 FootIK 回讀舊描述。學習筆記不納入 `docs/00–NN` 工程規格編號。
 
 ### 本輪固定順序
 

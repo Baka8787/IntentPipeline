@@ -302,8 +302,8 @@ namespace Project.Tests.EditMode
 
         private static readonly WriterRule[] WriterRules =
         {
-            new WriterRule { Member = "MovementIntent", AllowedFiles = new[] { "PlayerLocomotionPolicy.cs" },
-                             Owner = "當下 active 的 IMovementIntentSource（ADR-003 D2 single-writer）" },
+            new WriterRule { Member = "MovementIntent", AllowedFiles = new[] { "PlayerLocomotionPolicy.cs", "AIMovementSource.cs" },
+                             Owner = "每隻角色當下唯一 active 的 IMovementIntentSource（ADR-003 D2 single-writer）" },
             new WriterRule { Member = "Intent", AllowedFiles = new[] { "CharacterPipelineRunner.cs" },
                              Owner = "Intent Processor（管線順序 2）" },
             // 🆕（ADR-003 Stage 2）以下三欄自此為「active Movement Model 發布的 **Movement Output**」，
@@ -491,10 +491,10 @@ namespace Project.Tests.EditMode
         }
 
         [Test]
-        public void A13_Stop_DoesNotAddGameplayState()
+        public void A13Prime_ActionIsTheOnlyNewGameplayState()
         {
             CollectionAssert.AreEqual(
-                new[] { "None", "Idle", "Move", "Jump", "Roll" },
+                new[] { "None", "Idle", "Move", "Jump", "Roll", "Action" },
                 Enum.GetNames(typeof(Project.Core.StateMachine.StateType)));
         }
 
@@ -527,6 +527,86 @@ namespace Project.Tests.EditMode
                 if (declaration.IsMatch(StripComments(File.ReadAllText(path)))) holders.Add(RelativePath(path));
             }
             Assert.AreEqual(1, holders.Count);
+        }
+
+        [Test]
+        public void A16_AIMovementSource_UsesNavMeshForQueriesOnly()
+        {
+            string path = Path.Combine(ScriptsRoot, "Core", "Movement", "AIMovementSource.cs");
+            Assert.IsTrue(File.Exists(path), $"找不到 {path}");
+
+            string code = StripComments(File.ReadAllText(path));
+            StringAssert.Contains("updatePosition = false", code,
+                "AI 的 NavMeshAgent 不得取得 Transform 位移 authority");
+            StringAssert.Contains("updateRotation = false", code,
+                "AI 的 NavMeshAgent 不得取得 Transform 旋轉 authority");
+            StringAssert.DoesNotContain("CharacterController", code,
+                "AI producer 只能寫 MovementIntent，不得繞過 MotionDriver 直接位移");
+        }
+
+        [Test]
+        public void A19_ActionState_HasNoPerActionSubclasses()
+        {
+            var declaration = new Regex(@"\bclass\s+(\w+)\s*:\s*ActionState\b");
+            var subclasses = new List<string>();
+            foreach (string path in RuntimeScriptPaths())
+            {
+                MatchCollection matches = declaration.Matches(StripComments(File.ReadAllText(path)));
+                foreach (Match match in matches) subclasses.Add($"{match.Groups[1].Value} ({RelativePath(path)})");
+            }
+
+            CollectionAssert.IsEmpty(subclasses,
+                "禁止一個 Action 一個 State subclass；若 lifecycle 本質不同，須先在 A19 allowlist 留書面理由：\n" +
+                string.Join("\n", subclasses));
+        }
+
+        [Test]
+        public void A20_ActionLayer_DoesNotBypassMotionDriver()
+        {
+            string actionsRoot = Path.Combine(ScriptsRoot, "Core", "StateMachine", "Actions");
+            var paths = new List<string>(Directory.GetFiles(actionsRoot, "*.cs", SearchOption.AllDirectories))
+            {
+                Path.Combine(ScriptsRoot, "Core", "StateMachine", "States", "ActionState.cs")
+            };
+            var violations = new List<string>();
+            foreach (string path in paths)
+            {
+                if (StripComments(File.ReadAllText(path)).Contains("CharacterController"))
+                    violations.Add(RelativePath(path));
+            }
+            CollectionAssert.IsEmpty(violations, "Action 位移只能經 MotionDriver：\n" + string.Join("\n", violations));
+        }
+
+        [Test]
+        public void A21_ExternalActionSeams_HaveNoAnimationOrTransitionAuthority()
+        {
+            string[] paths =
+            {
+                Path.Combine(ScriptsRoot, "Core", "Actions", "ActionRequestTarget.cs"),
+                Path.Combine(ScriptsRoot, "Presentation", "Actions", "ThrowProjectileEmitter.cs"),
+                Path.Combine(ScriptsRoot, "Presentation", "Actions", "ThrownProjectile.cs")
+            };
+            string[] forbidden = { "AnimationFacadeBase", "TransitionTo", "IntentData", ".Intent", ".Play(" };
+            var violations = new List<string>();
+            foreach (string path in paths)
+            {
+                string code = StripComments(File.ReadAllText(path));
+                foreach (string token in forbidden)
+                    if (code.Contains(token)) violations.Add($"{RelativePath(path)} 出現 {token}");
+            }
+            CollectionAssert.IsEmpty(violations,
+                "External request／projectile 只能提交 request 或執行 side effect，不得取得 FSM／動畫 authority：\n" +
+                string.Join("\n", violations));
+        }
+
+        [Test]
+        public void A22_ActionState_DoesNotInstantiateUnityObjects()
+        {
+            string path = Path.Combine(ScriptsRoot, "Core", "StateMachine", "States", "ActionState.cs");
+            string code = StripComments(File.ReadAllText(path));
+            StringAssert.DoesNotContain("Instantiate", code);
+            StringAssert.DoesNotContain("Destroy", code);
+            StringAssert.Contains("IActionReleaseSink", code);
         }
     }
 }

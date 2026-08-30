@@ -1,0 +1,25 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1daa3d6a8c70ef9469b0feb6ae982ad3, type: 3}
+  m_Name: DamageDefinition
+  m_EditorClassIdentifier: Project.Runtime::Project.Core.StateMachine.Actions.ActionDefinitionSO
+  Phases:
+  - Phase: 1
+    AnimationKey: Damage
+    Bake: {fileID: 11400000, guid: 3bf1adb6a79e5c44bb0a178a07b7a288, type: 2}
+    FallbackDuration: 4.1
+    Interruptible: 0
+    WaitForTrigger: 0
+    EmitsRelease: 0
+  Cooldown: 0
+  RequiresGrounded: 0
+  CancelMoveIntentThreshold: 0.1

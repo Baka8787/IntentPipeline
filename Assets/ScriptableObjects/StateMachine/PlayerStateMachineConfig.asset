@@ -15,11 +15,11 @@ MonoBehaviour:
   rules:
   - State: 1
     Priority: 0
-    CanBeInterruptedBy: 0400000003000000
+    CanBeInterruptedBy: 040000000300000005000000
     ValidTransitions: 02000000
   - State: 2
     Priority: 0
-    CanBeInterruptedBy: 0300000004000000
+    CanBeInterruptedBy: 030000000400000005000000
     ValidTransitions: 01000000
   - State: 3
     Priority: 10
@@ -29,9 +29,15 @@ MonoBehaviour:
     Priority: 20
     CanBeInterruptedBy: 
     ValidTransitions: 0200000001000000
+  - State: 5
+    Priority: 10
+    CanBeInterruptedBy: 0400000003000000
+    ValidTransitions: 0200000001000000
   bakeMappings:
   - State: 4
     BakeData: {fileID: 11400000, guid: a489df0f65c4c32438f39e9fa9cce8bf, type: 2}
   paramsMappings:
   - State: 3
     Params: {fileID: 11400000, guid: a3c1461acedafba499451adcce40d749, type: 2}
+  - State: 5
+    Params: {fileID: 11400000, guid: a20f7f3f1e5eda04ea72741b8aba9314, type: 2}

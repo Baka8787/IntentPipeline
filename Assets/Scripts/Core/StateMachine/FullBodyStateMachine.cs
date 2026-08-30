@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using Project.Core.Actions;
 using Project.Core.Blackboard;
 using Project.Core.Movement;
 
@@ -14,6 +15,7 @@ namespace Project.Core.StateMachine
         // 🆕（ADR-003 Stage 2）active Movement Model 的**唯一持有點**。狀態機不使用它，
         // 只負責把同一個實例發給每一顆 state——「一份平滑狀態」因此是結構保證而非紀律。
         private IMovementModel _movementModel;
+        private ActionRequestTarget _actionRequestTarget;
 
         public BaseState CurrentState => _currentState;
 
@@ -23,16 +25,23 @@ namespace Project.Core.StateMachine
         /// 🆕（ADR-003 Stage 2）新增 <paramref name="movementModel"/>：當下 active 的 Movement Model，
         /// 由 <c>CharacterPipelineRunner</c> 解析後注入（DIP——狀態機只認識 <see cref="IMovementModel"/> 介面）。
         /// </summary>
-        public void Initialize(StateMachineConfigSO config, PlayerRuntimeData data, IMovementModel movementModel)
+        public void Initialize(
+            StateMachineConfigSO config,
+            PlayerRuntimeData data,
+            IMovementModel movementModel,
+            ActionRequestTarget actionRequestTarget = null,
+            IActionLifecycleSink actionLifecycleSink = null)
         {
             _config = config;
             _movementModel = movementModel;
+            _actionRequestTarget = actionRequestTarget;
             _config.Initialize();
 
             RegisterState(new IdleState());
             RegisterState(new MoveState());
             RegisterState(new JumpState());
             RegisterState(new RollState());
+            RegisterState(new ActionState(actionRequestTarget, actionLifecycleSink));
 
             _currentState = _stateRegistry[StateType.Idle];
             _currentState.OnEnter(data); // 💡 傳入實體數據
@@ -46,13 +55,18 @@ namespace Project.Core.StateMachine
 
         public void Tick(PlayerRuntimeData data, float deltaTime)
         {
-            if (_currentState == null) return;
+            try
+            {
+                if (_currentState == null) return;
 
-            _currentState.OnTick(data, deltaTime);
-
-            if (EvaluateInterrupts(data)) return;
-
-            EvaluateTransitions(data);
+                _currentState.OnTick(data, deltaTime);
+                if (!EvaluateInterrupts(data)) EvaluateTransitions(data);
+            }
+            finally
+            {
+                // External request 只取得本次 Tick 的一次仲裁機會；接受或拒絕都不排隊。
+                _actionRequestTarget?.ClearAfterEvaluation();
+            }
         }
 
         /// <summary>

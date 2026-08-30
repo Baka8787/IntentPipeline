@@ -1,0 +1,47 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1daa3d6a8c70ef9469b0feb6ae982ad3, type: 3}
+  m_Name: ThrowDefinition
+  m_EditorClassIdentifier: Project.Runtime::Project.Core.StateMachine.Actions.ActionDefinitionSO
+  Phases:
+  - Phase: 1
+    AnimationKey: Throw_Start
+    Bake: {fileID: 11400000, guid: d030c3e9b9551c5448a39322c4325f3f, type: 2}
+    FallbackDuration: 0.9
+    Interruptible: 0
+    WaitForTrigger: 0
+    EmitsRelease: 0
+  - Phase: 2
+    AnimationKey: Throw_Loop
+    Bake: {fileID: 11400000, guid: 3adac0d0d823f2446997be5da80f0b0d, type: 2}
+    FallbackDuration: 0.8333334
+    Interruptible: 1
+    WaitForTrigger: 1
+    EmitsRelease: 0
+  - Phase: 3
+    AnimationKey: Throw_End
+    Bake: {fileID: 11400000, guid: 0f5f3c1709041fb4f95bb0cf0bdd709d, type: 2}
+    FallbackDuration: 2.9
+    Interruptible: 0
+    WaitForTrigger: 0
+    EmitsRelease: 1
+    ReleaseNormalizedTime: 0.245
+  - Phase: 4
+    AnimationKey: Throw_Cancel
+    Bake: {fileID: 11400000, guid: 726b3b87630b7384994b250df0989a26, type: 2}
+    FallbackDuration: 2
+    Interruptible: 0
+    WaitForTrigger: 0
+    EmitsRelease: 0
+  Cooldown: 0.5
+  RequiresGrounded: 1
+  CancelMoveIntentThreshold: 0.1

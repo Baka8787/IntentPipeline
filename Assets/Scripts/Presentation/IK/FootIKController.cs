@@ -17,7 +17,8 @@ namespace Project.Presentation.IK
     /// Target 由本類別寫故由本類別擁有、注入給 Rig 讀；Pose 由 Rig 寫故**由 Rig 擁有**，本類別只是 Reader。
     /// Target 維持單寫單讀；**Pose 自此為單寫多讀**——新增 Reader 向 owner 取得引用即可，零改動。
     ///
-    /// 演算法（M3.1）：每腳「快照 goal → raycast → 目標（命中點＋沿法線抬腳底高）＋法線對齊旋轉 →
+    /// 演算法（M3.1＋L1 v4）：每腳「快照 goal → ankle ray → 泰勒斯修正後的腳踝目標＋法線對齊旋轉 →
+    /// Heel/Toe 真實世界端點採樣只補向上戳穿殘差（A/B 可關）→
     /// 單因子 Pose 權重（二態系統：窄帶外恆 0 或 1）→ MoveTowards 平滑」＋骨盆補償（低腳差夾限）。
     /// M3.2~M3.4 的實驗機制（fade 族／Slope Gate／濾波／Reach Clamp）已全數移除——實驗結論、
     /// 教訓與復刻指引見 changelog v0.18.2~v0.18.6 與 WORKLOG「Foot IK 品質路線圖」；
@@ -50,6 +51,9 @@ namespace Project.Presentation.IK
             public bool HasHit;
             public Vector3 HitPoint;
             public Vector3 Normal;
+            public Vector3 SoleNormal;
+            public Vector3 TargetPosition;
+            public Quaternion TargetRotation;
             public float GroundY;
         }
 
@@ -111,8 +115,10 @@ namespace Project.Presentation.IK
             bool ikAllowed = data.IsGrounded && !data.Arbitration.BlockIK;
 
             // === ① 各腳採樣 ===
-            FootSample left = SampleGround(_poseData.LeftFootPosition, ikAllowed);
-            FootSample right = SampleGround(_poseData.RightFootPosition, ikAllowed);
+            FootSample left = SampleGround(_poseData.LeftFootPosition, _poseData.LeftFootRotation,
+                _poseData.LeftFootBottomHeight, ikAllowed);
+            FootSample right = SampleGround(_poseData.RightFootPosition, _poseData.RightFootRotation,
+                _poseData.RightFootBottomHeight, ikAllowed);
 
             // === ② 骨盆補償：沉向較低的腳（夾限＋平滑）===
             float pelvisTarget = (ikAllowed && left.HasHit && right.HasHit)
@@ -132,21 +138,66 @@ namespace Project.Presentation.IK
                 ref _targetData.RightFootPositionWeight, ref _targetData.RightFootRotationWeight);
         }
 
-        /// <summary>① 單腳地面採樣：以動畫原始 goal 為基準向下 raycast，無條件接受命中（M3.1）。無堆配置。</summary>
-        private FootSample SampleGround(Vector3 posePosition, bool ikAllowed)
+        /// <summary>
+        /// ① 單腳地面採樣：ankle ray 是高度與法線的唯一權威；L1 v2 的 Heel/Toe ray
+        /// 只量測腳底平面的戳穿殘差。任一額外 ray 落空或 A/B 關閉時，保留 ankle ray 的幾何結果、
+        /// 不做殘差抬升。全部使用 Physics.Raycast out 多載，無堆配置。
+        /// </summary>
+        private FootSample SampleGround(Vector3 posePosition, Quaternion poseRotation,
+            float footBottomHeight, bool ikAllowed)
         {
             FootSample sample = default;
             if (!ikAllowed) return sample;
 
-            Vector3 origin = posePosition + Vector3.up * settings.RaycastUpOffset;
-            if (Physics.Raycast(origin, Vector3.down, out RaycastHit hit, settings.RaycastDistance, settings.GroundLayers, QueryTriggerInteraction.Ignore))
-            {
-                sample.HasHit = true;
-                sample.HitPoint = hit.point;
-                sample.Normal = hit.normal;
-                sample.GroundY = hit.point.y;
-            }
+            sample = SampleSingleGround(posePosition, poseRotation, footBottomHeight);
+            if (!sample.HasHit || !settings.UseTwoPointSampling) return sample;
+
+            float heelOffset = Mathf.Max(0f, settings.HeelOffset);
+            float toeOffset = Mathf.Max(0f, settings.ToeOffset);
+            Vector3 localHeel = Vector3.forward * -heelOffset - Vector3.up * footBottomHeight;
+            Vector3 localToe = Vector3.forward * toeOffset - Vector3.up * footBottomHeight;
+            Vector3 worldHeel = sample.TargetPosition + sample.TargetRotation * localHeel;
+            Vector3 worldToe = sample.TargetPosition + sample.TargetRotation * localToe;
+
+            bool heelHasHit = RaycastGround(
+                worldHeel + Vector3.up * settings.RaycastUpOffset, out RaycastHit heelHit);
+            bool toeHasHit = RaycastGround(
+                worldToe + Vector3.up * settings.RaycastUpOffset, out RaycastHit toeHit);
+
+            // 落空代表額外資訊不足，不是關 IK 的理由：保留已算好的 ankle-only 結果。
+            if (!heelHasHit || !toeHasHit) return sample;
+
+            float heelPenetration = heelHit.point.y - worldHeel.y;
+            float toePenetration = toeHit.point.y - worldToe.y;
+            float lift = ComputePenetrationLift(worldHeel, heelHit.point, worldToe, toeHit.point);
+            sample.TargetPosition.y += lift;
+
+            // 誰穿得最深誰就是抬升後的真實接觸端點；骨盆讀取該接觸高度。
+            sample.GroundY = heelPenetration >= toePenetration ? heelHit.point.y : toeHit.point.y;
             return sample;
+        }
+
+        private FootSample SampleSingleGround(Vector3 posePosition, Quaternion poseRotation,
+            float footBottomHeight)
+        {
+            FootSample sample = default;
+            Vector3 origin = posePosition + Vector3.up * settings.RaycastUpOffset;
+            if (!RaycastGround(origin, out RaycastHit hit)) return sample;
+
+            sample.HasHit = true;
+            sample.HitPoint = hit.point;
+            sample.Normal = hit.normal;
+            sample.SoleNormal = ClampGroundNormal(hit.normal, settings.MaxFootAlignAngle);
+            sample.TargetPosition = ComputeAnkleTarget(origin, hit.point, sample.SoleNormal, footBottomHeight);
+            sample.TargetRotation = Quaternion.FromToRotation(Vector3.up, sample.SoleNormal) * poseRotation;
+            sample.GroundY = (sample.TargetPosition - sample.SoleNormal * footBottomHeight).y;
+            return sample;
+        }
+
+        private bool RaycastGround(Vector3 origin, out RaycastHit hit)
+        {
+            return Physics.Raycast(origin, Vector3.down, out hit, settings.RaycastDistance,
+                settings.GroundLayers, QueryTriggerInteraction.Ignore);
         }
 
         /// <summary>
@@ -160,17 +211,18 @@ namespace Project.Presentation.IK
             float goalWeight = 0f;
             if (ikAllowed && sample.HasHit)
             {
-                // 目標＝地面命中點＋avatar 腳底高，沿地面法線抬升（M3.3 幾何正解，M3.5 保留；
-                // 平面上 normal=up 與 M3.1 世界 up 抬升等價）：腳掌對齊斜面後，腳踝到腳底的間隙
-                // 同樣垂直於斜面——沿 up 抬會使前腳掌在斜坡上幾何性插入坡面。
-                targetPosition = sample.HitPoint + sample.Normal * footBottomHeight;
+                // 位置由 ankle ray 的泰勒斯修正決定；Heel/Toe（若完整命中）只追加垂直戳穿殘差。
+                // 因此腳踝維持動畫 XZ，不會被斜面法線水平推離原本的垂直 ray。
+                targetPosition = sample.TargetPosition;
 
                 // 腳掌對齊地面法線；基準是動畫原始 goal 旋轉（非骨骼現值）——無反饋、不累積。
                 // 保留俯仰式（v1 凍結基線）：FromToRotation(worldUp, n) 只把世界 up 轉到法線，
                 // 動畫腳踝自身的俯仰／roll 原樣保留——契合設計哲學「腳踝自由旋轉、不強制壓平」（design-doc §4.6）。
                 // A/B 歸檔（v0.18.7）：軸對齊式（FromToRotation(poseUp, n)＝主動壓平腳底）實測與本式無感差
                 // （踩地相動畫俯仰本就小、平地夾角 ~2°），依哲學回歸本式、軸對齊式棄用（見 changelog v0.18.7／roadmap L6）。
-                targetRotation = Quaternion.FromToRotation(Vector3.up, sample.Normal) * poseRotation;
+                // L1 v3：soleNormal 只限制真正超出踝關節上限的地面對齊量；位置、腳底平面與旋轉共用
+                // 同一法線。超額坡度交由既有戳穿殘差抬升，形成一端接觸、另一端自然浮空。
+                targetRotation = sample.TargetRotation;
 
                 // 單因子權重＝Pose Heuristic（二態系統：窄帶外恆 0 或 1，腳不是全 IK 就是全動畫）。
                 goalWeight = ComputeFootWeight(posePosition.y - rootY, settings.FootGroundedHeightMin, settings.FootGroundedHeightMax);
@@ -191,6 +243,55 @@ namespace Project.Presentation.IK
         {
             if (groundedMax <= groundedMin) return footHeightAboveRoot <= groundedMin ? 1f : 0f;
             return 1f - Mathf.InverseLerp(groundedMin, groundedMax, footHeightAboveRoot);
+        }
+
+        /// <summary>
+        /// （純函數）把腳底對齊量限制在世界 up 起算的踝關節角度內。
+        /// 夾限內與 180° A/B 模式原樣回傳，避免對 v2 路徑引入不必要的數值誤差。
+        /// </summary>
+        public static Vector3 ClampGroundNormal(Vector3 hitNormal, float maxAngleDegrees)
+        {
+            if (hitNormal.sqrMagnitude <= Mathf.Epsilon) return Vector3.up;
+            if (maxAngleDegrees >= 180f) return hitNormal;
+
+            float clampedMaxAngle = Mathf.Max(0f, maxAngleDegrees);
+            if (Vector3.Angle(Vector3.up, hitNormal) <= clampedMaxAngle) return hitNormal;
+
+            return Vector3.RotateTowards(Vector3.up, hitNormal,
+                clampedMaxAngle * Mathf.Deg2Rad, 0f);
+        }
+
+        /// <summary>
+        /// （純函數）由 ankle ray 命中與腳底高計算腳踝目標。移植 ozz-animation foot_ik 的
+        /// UpdateAnklesTarget 幾何：沿法線保留腳底間隙，同時以泰勒斯修正抵消水平位移，
+        /// 使結果留在原本的垂直 ray 上。平地或退化幾何回到命中點沿法線抬升。
+        /// </summary>
+        public static Vector3 ComputeAnkleTarget(Vector3 rayStart, Vector3 hitPoint,
+            Vector3 hitNormal, float footBottomHeight)
+        {
+            float abLength = Vector3.Dot(rayStart - hitPoint, hitNormal);
+            Vector3 b = rayStart - hitNormal * abLength;
+            Vector3 ib = b - hitPoint;
+            float ibLength = ib.magnitude;
+
+            if (Mathf.Abs(abLength) <= Mathf.Epsilon || ibLength <= Mathf.Epsilon)
+                return hitPoint + hitNormal * footBottomHeight;
+
+            float ihLength = ibLength * footBottomHeight / abLength;
+            Vector3 h = hitPoint + ib * (ihLength / ibLength);
+            return h + hitNormal * footBottomHeight;
+        }
+
+        /// <summary>
+        /// （純函數）量測 Heel/Toe 真實世界端點相對各自地面高度的最大戳穿量。
+        /// 正值表示端點在地面下；只回傳向上的修正，不會因端點懸空而下壓。
+        /// </summary>
+        public static float ComputePenetrationLift(Vector3 worldHeel, Vector3 heelGroundPoint,
+            Vector3 worldToe, Vector3 toeGroundPoint)
+        {
+            float heelPenetration = heelGroundPoint.y - worldHeel.y;
+            float toePenetration = toeGroundPoint.y - worldToe.y;
+            return Mathf.Max(0f, Mathf.Max(heelPenetration, toePenetration));
         }
 
         /// <summary>

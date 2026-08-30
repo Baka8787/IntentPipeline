@@ -148,12 +148,44 @@ Whenever architecture changes, update:
 - ADR
 - Changelog (if necessary)
 
-Code and documentation should never diverge.
+## ADR Lifecycle：Proposed → Trial → Accepted（decided 2026-08-29）
+
+| Status | 意義 | 可否作為實作基線 | 可否修改 |
+|---|---|---|---|
+| **Proposed** | 已寫下、尚未裁決 | ❌ **不得**作為實作基線 | 自由修改 |
+| **Trial** | 已裁決為**目前的實作基線**，但**尚未由第一個 vertical slice 驗證** | ✅ 是 | ✅ **可依實作發現修訂**（記入該 ADR 的修訂紀錄，**不必開新 ADR**） |
+| **Accepted** | 已經實作 ＋ Play ＋ Test 驗證通過 | ✅ 是 | ❌ **凍結**（進入 Immutable Log） |
+
+- 🎯 **`Trial` 只適用於「會動到跨系統契約」的 ADR**（decided 2026-08-29）。判準：①黑板 schema ／ ownership 變更；②FSM 拓撲或 GameObject hierarchy 變更；③管線順序或核心驅動介面（`IInputSource`／`IMovementIntentSource`／`IMovementModel`／`AnimationFacadeBase`／`IPresentationController`／`IArbiterSource`）變更；④推翻既有架構不變量。**任一成立才需要 ADR，因而才需要 Trial。**
+  - 其餘一律走既有 routing rule **直接寫 Living Docs**（`docs/01`／`docs/02`／子系統分卷），**不開 ADR、也不進 Trial**。為單一子系統的加法套上 Trial 的三段開場（Acceptance Criteria／失敗處置／不凍結清單）只是多一層儀式，沒有換到任何保護——先例：Phase C1 Forward Stop（`docs/07`）與 Footstep 都是這樣落地的，兩者都沒有開 ADR。
+- **只有 `Accepted` 的 decision content 凍結；`Trial` 不凍結。**
+- **Trial 期間實作暴露問題時：先修 Trial ADR ／ Living Spec → 再驗證。不得為了維護舊文字而在程式裡補 workaround。**
+- Trial ADR **必須自帶 Acceptance Criteria**（通過條件）與**失敗處置**（含 revert 路徑）。
+- Trial ADR **應明列「哪些內容不凍結」**——ADR 只保留「改錯會造成架構污染」的決策，實作細節（欄位組成、計時方式、冷卻細節等）一律下放 Living Spec。範本：`docs/ADR/004-action-in-fsm.md` §9。
+- 引用 Trial 文件時**必須註明其狀態**：**使用者已裁決 ≠ 工程上已驗證。**
+- 流程為 `Design → Trial → Implement → Observe → Revise → Accept`，**取代**舊的 `Design → Freeze → Implement`。
+
+## Code / Documentation Fold-back（decided 2026-08-29，取代「never diverge」）
+
+- **`Accepted` contract 不得與程式長期分歧**——Living Docs 描述的是當前架構，必須與程式一致。
+- **Trial ／ Spike 期間允許短暫 code-first**：那正是驗證的一部分，不是失誤。
+- **但同一工作包結束、交付使用者驗收之前，Living Docs ／ `WORKLOG.md` 必須 fold back 到實際程式狀態。**
+- **不得把 Trial 中尚未實證的內容寫成已完成事實**——狀態欄、勾選框、changelog 條目皆適用。
+
+## Architecture Invariants Track the Effective Baseline（decided 2026-08-29）
+
+`Assets/_Project/Tests/EditMode/ArchitectureRegressionTests.cs` 驗證的是**「目前有效的 architecture baseline」**。
+該 baseline 可以來自 **Accepted ADR**，**也可以來自已正式進入 Trial 的 ADR**。
+
+- Trial 取代舊 invariant 時，**不是「暫停」舊 invariant，而是舊 invariant 已被新 baseline 正式取代**。**同一工作包內**把測試更新成新 baseline。
+- ⛔ **不建立 generic 的 test suspension／disable 機制**——那會讓架構測試退化成「擋到就繞過」的軟閘門，等於廢掉它存在的理由。
+- Trial **失敗** → **code ／ ADR ／ invariant 一起 revert**。Trial **通過** → 測試本身直接成為 Accepted baseline，**不需要恢復舊的**。
+- **允許 agent 交接過程短暫紅燈**（不需要為了讓每個中間 commit 全綠而增加 transitional bypass）；**但交付使用者驗收時必須全綠。**
 
 ## Living Documents vs Immutable Log
 
-- **Design Doc (`docs/01-design-doc.md`) and Dev Spec (`docs/02-dev-spec.md`) are Living Documents**: they describe the CURRENT architecture and API, and must be refactored in sync with the code. When code changes, update them so they never diverge.
-- **ADRs (`docs/ADR/`) are an Immutable Log**: once an ADR is Accepted, its decision content is frozen — do NOT rewrite it. To change a decision, open a NEW ADR that supersedes the old one (cross-link Supersedes / Superseded-by). (Purely mechanical maintenance, e.g. fixing a cross-reference path after a file move, is not a decision change and is allowed.)
+- **Design Doc (`docs/01-design-doc.md`) and Dev Spec (`docs/02-dev-spec.md`) are Living Documents**: they describe the CURRENT architecture and API, and must be refactored in sync with the code — subject to the Fold-back rule above.
+- **ADRs (`docs/ADR/`) are an Immutable Log — but only from `Accepted` onward**: once an ADR reaches **Accepted**, its decision content is frozen — do NOT rewrite it. To change a decision, open a NEW ADR that supersedes the old one (cross-link Supersedes / Superseded-by). (Purely mechanical maintenance, e.g. fixing a cross-reference path after a file move, is not a decision change and is allowed.) **A `Trial` ADR is explicitly NOT frozen** — see the ADR Lifecycle table above.
 - **Where a change goes (routing rule)**:
   - *Non-architectural new feature / new state* (does not change the architecture) → write it directly into the Living Documents (`docs/01-design-doc.md` / `docs/02-dev-spec.md`). Do **NOT** open a new ADR, and do **NOT** modify any existing (frozen) ADR.
   - *Truly disruptive architectural change* (ownership shifts, hierarchy changes, cross-cutting breaks) → open a **NEW** ADR following the Supersede principle; the old ADR file stays frozen.
@@ -183,7 +215,10 @@ Code and documentation should never diverge.
 
 Read Docs & Code
 ↓
-Discuss Architecture & Specs (Mandatory before making any file changes)
+Discuss Architecture & Specs (Mandatory before architectural file changes)
+  └─ **Exception (2026-08-29)**: trivial / local changes — typo, comment, tooltip, a single
+     tunable value, test-only edit, or anything confined to one file with no contract impact —
+     do NOT require a full architecture discussion. Just make them and say what you did.
 ↓
 Modify Files (Write changes directly to the local working tree)
 ↓
@@ -237,7 +272,16 @@ Default to a **documented process / SOP** over building a new Editor Tool. Only 
 - **Gate A — the investment is justified (at least ONE of):** high-frequency repetition (e.g. several times a week); human operation is error-prone (silent mistakes, easy to skip a step); it removes large amounts of repetitive input or ongoing maintenance cost.
 - **Gate B — it does NOT depend on a third party's internal serialization or private structure** (keeps us insulated from third-party upgrade breakage).
 
+⚠️ **兩道閘門只適用於「會留下來的工具」**；用完即丟的探針見下方 Spike / Probe Exception。
+
 If Gate A holds but Gate B fails, still prefer the documented process. This rule crystallizes the **B11** decision (Locomotion Mixer threshold automation): the threshold count is tiny (Gate A weak) and writing it would touch Animancer's internal `_Thresholds` serialization (Gate B fails), so the formula stays documented (`threshold = speed_i / speed_max`) and designers fill it by hand. A threshold is a tunable presentation parameter, not a value Bake Data must uniquely dictate. Re-evaluate only if the count grows sharply (Strafe 2D, multiple locomotion sets).
+
+## Spike / Probe Exception（decided 2026-08-29）
+
+**用完即丟的 spike／probe——為了回答一個問題而寫、答案拿到就刪——不算「提前建 framework」，也不需要通過 Editor Tool 的兩道閘門。**
+
+- 但它**必須明確不進 production path**：不被 runtime 程式引用、不當成功能交付、問題回答後即刪除或明確標記為 throwaway。
+- 維持有效的禁令是：**第二個使用者出現前不得建立 production abstraction**。**用完即丟的實驗探針不是 abstraction，不在禁令範圍內。**
 
 Unless explicitly requested, prefer:
 - Minimal changes

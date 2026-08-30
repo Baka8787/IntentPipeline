@@ -6,6 +6,7 @@ namespace Project.Core.StateMachine
         Idle,
         Move,
         Jump,
-        Roll
+        Roll,
+        Action
     }
 }

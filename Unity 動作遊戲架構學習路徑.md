@@ -12,6 +12,12 @@
 * 建立可擴充的角色控制架構
 * 完成一個可展示的 Demo 專案
 
+## 階段實作復盤
+
+這一區保存「實作時怎麼判斷、試錯與修正」的學習筆記，不屬於工程規格；當前架構仍以 `docs/` 為準。
+
+* [Phase C Forward Stop：資料、邏輯與踩坑](LearningNotes/phase-c-forward-stop.md)
+
 ---
 
 # 學習階段規劃

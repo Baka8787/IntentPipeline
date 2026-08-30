@@ -1,4 +1,6 @@
+using System;
 using UnityEngine;
+using Project.Core.Actions;
 using Project.Core.Arbitration;
 using Project.Core.Blackboard;
 using Project.Core.Movement;
@@ -44,8 +46,13 @@ namespace Project.Core.Pipeline
 
         [Header("StateMachine Setup")]
         [SerializeField] private StateMachineConfigSO stateMachineConfig;
+        [Tooltip("External gameplay event 的單格 Action request endpoint。留空時從同物件自動尋找；Player 可不掛。")]
+        [SerializeField] private ActionRequestTarget actionRequestTarget;
+        [Tooltip("實作 IActionLifecycleSink 的元件。Player Throw 指向 ThrowProjectileEmitter；Enemy Damage 留空。")]
+        [SerializeField] private MonoBehaviour actionReleaseSinkComponent;
 
         private FullBodyStateMachine _stateMachine;
+        private IActionLifecycleSink _actionLifecycleSink;
 
         // 🆕（M2）表現層驅動骨架：Start 一次性收集，LateUpdate 順序 6.5 集中 Tick。
         private PresentationPipeline _presentationPipeline;
@@ -75,7 +82,7 @@ namespace Project.Core.Pipeline
         public InputDebugSnapshot InputDebug => _inputDebug;
 
         // 🆕 記錄上一次播放的狀態，避免每幀重複 Play
-        private StateType _lastPlayedState = StateType.None;
+        private string _lastPlayedKey;
 
         // 🆕 改用 None 當哨兵值，不再借用 Idle
         public StateType CurrentState => _stateMachine?.CurrentState?.Type ?? StateType.None;
@@ -83,9 +90,24 @@ namespace Project.Core.Pipeline
         private void Awake()
         {
             _inputSource = inputSourceComponent as IInputSource;
-            if (_inputSource == null)
+            if (inputSourceComponent != null && _inputSource == null)
             {
                 Debug.LogError($"[{gameObject.name}] inputSourceComponent 沒有實作 IInputSource 介面！", this);
+            }
+
+            if (actionRequestTarget == null) actionRequestTarget = GetComponent<ActionRequestTarget>();
+
+            if (actionReleaseSinkComponent != null)
+            {
+                _actionLifecycleSink = actionReleaseSinkComponent as IActionLifecycleSink;
+                if (_actionLifecycleSink == null)
+                {
+                    Debug.LogError($"[{gameObject.name}] actionReleaseSinkComponent 沒有實作 IActionLifecycleSink 介面！", this);
+                }
+            }
+            else
+            {
+                _actionLifecycleSink = GetComponent<IActionLifecycleSink>();
             }
 
             // === 🆕（ADR-003 D2）Movement 意圖 producer 解析：明確指派優先，其次同物件自動尋找 ===
@@ -184,17 +206,20 @@ namespace Project.Core.Pipeline
             _stateMachine = new FullBodyStateMachine();
             // 🆕（ADR-003 Stage 2）連同 active model 一併注入：狀態機是 model 的**唯一持有點**，
             // 由它發給所有 state，確保跨幀平滑狀態全域唯一（Idle↔Move 切換不重置收步）。
-            _stateMachine.Initialize(stateMachineConfig, _runtimeData, _movementModel); // 安全送入黑板
+            _stateMachine.Initialize(
+                stateMachineConfig, _runtimeData, _movementModel, actionRequestTarget, _actionLifecycleSink);
         }
 
         private void Update()
         {
-            if (_inputSource == null || _stateMachine == null) return; // 🆕 補上 _stateMachine 的 null 檢查
+            // IInputSource 是可選的：AI／Replay 等非玩家角色可以直接由順序 2.5 producer
+            // 產生 domain intent。唯一會讓整條角色管線停下的是狀態機尚未完成組裝。
+            if (_stateMachine == null) return;
 
             // 【順序 1】InputPipeline - 在 Stack 上配置預設結構體體
             // 透過 ref 傳遞，讓輸入源直接改寫此 stack 變數，達成真正零 GC Alloc
             InputData inputData = default;
-            _inputSource.FetchRawInput(ref inputData);
+            _inputSource?.FetchRawInput(ref inputData);
             // === [新增：在此處將 ref struct 的資料複製一份給除錯快照] ===
             // ⚠️（輪 4）快照刻意留在 BlockInput 閘門**之前**＝永遠是**原始**輸入：
             //    封鎖期間 Inspector 仍看得到「我按著 W 但被擋下」，除錯資訊不失真。
@@ -263,10 +288,11 @@ namespace Project.Core.Pipeline
             if (animationFacade == null || _stateMachine.CurrentState == null) return;
 
             BaseState current = _stateMachine.CurrentState;
-            if (current.Type != _lastPlayedState)
+            string animationKey = current.AnimationKey;
+            if (!string.Equals(animationKey, _lastPlayedKey, StringComparison.Ordinal))
             {
-                animationFacade.Play(current.AnimationKey);
-                _lastPlayedState = current.Type;
+                animationFacade.Play(animationKey);
+                _lastPlayedKey = animationKey;
             }
 
             // 🆕（ADR-003 D4 Stage 2）**動畫參數同步已遷出本方法**：每個 model 驅動自己的參數

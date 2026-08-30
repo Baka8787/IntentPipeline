@@ -31,7 +31,8 @@
 
 | # | 症狀 | 根因 | 歸類 | 升級路徑（不改架構） |
 | --- | --- | --- | --- | --- |
-| L1 | 階梯上腳掌中段穿入上一階（2026-07-20 實測，collider 修正後仍存） | **單點採樣資訊量天花板**：ray 只打腳踝下方、命中所在踏面；腳掌前段（~25cm）跨入上一階體積，系統無從得知 | 已知限制 | Heel/Toe 雙點採樣（輪 7）：僅動 `SampleGround`／`ResolveFoot` 內部＋Settings，雙管道／Ownership 全不動 |
+| L1 | ~~階梯上腳掌中段穿入上一階（2026-07-20 實測，collider 修正後仍存）~~ **✅ 2026-08-31 已處理**（Level 1 rigid sole approximation，視覺驗收暫時通過） | **單點採樣資訊量天花板**：ray 只打腳踝下方、命中所在踏面；腳掌前段（~25cm）跨入上一階體積，系統無從得知 | ~~已知限制~~ → **已實作**，殘餘誤差降級為 L7 | **升級階梯（`docs/05` §3.5.5）**：**Level 1 ＝ Heel/Toe 兩點剛體腳底近似**（已完成）／Level 2 ＝完整 footprint（Heel/Toe/Medial/Lateral）／Level 3 ＝ Ball 或 Toe bone secondary plant。**Level 2／3 明確延後**，作品集展示不需要；重開條件見 `docs/05` §3.5.5 |
+| L7 🆕 | Level 1 的殘餘誤差：斜坡上少量 heel／sole 浮空（近距離側視才可見），量級 ≈ `ΔToeOffset × sin(該腳 pitch)`，前後腳不對稱（後腳 pitch 大 ⇒ 誤差大） | 兩點剛體近似的固有誤差 ＋ `HeelOffset`／`ToeOffset` 尚未正式量測 | **設計接受**（哲學 P1 > P5；3–4m 鏡頭距離下不可見） | 先量準腳底幾何常數（`docs/05` §3.5.5 FU-IK-1），仍不足才談 Level 2 |
 | L2 | toe-off 蹬地相腳尖少量穿模 | 動畫原生腳尖下壓 | **設計接受**（哲學 P1 > P5） | 不修 |
 | L3 | 左右腳高差 > `MaxPelvisOffset` 時低腳懸空 | 骨盆補償夾限的設計極限 | 已知限制 | 骨盆模型重評（腿長可達性直接建模，輪 7 選項） |
 | L4 | IK 結果一幀延遲 | Humanoid IK 快照架構本質（dev-spec §3.5.2 已文件化） | 已知限制 | 無需處理（60fps 不可察） |

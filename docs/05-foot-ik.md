@@ -115,3 +115,66 @@ FootIKController ────寫──→ FootIKTargetData ────讀──
 * `FootIKPoseData` 擴充（M3.2）：髖位置 ×2＋腿長 ×2（Rig 於 OnAnimatorIK 開頭寫入——髖取 IK 套用前值無污染、骨段長度恆定，純賦值無判斷），Controller 維持對 Animator 零依賴。
 * ⚠️ Inspector 遷移：既有序列化參數全數移入 `settings`（序列化路徑改變）——重編後需在 Inspector 重新確認（尤其 `GroundLayers`），預設值即上表。
 
+
+---
+
+#### 3.5.5 Level 1 rigid sole approximation（🆕 2026-08-31，L1 落地；**視覺驗收暫時通過**）
+
+> **狀態**：Level 1 完成，**不再繼續修**。剩餘誤差已降級為 `docs/03` §1.3-**L7**（設計接受）。
+> 本節取代 §3.5.3 路線圖中「M4+ 品質升級」對 Heel/Toe 雙點採樣的預告——那一項**已實作**。
+
+**約束模型（三層分工）**
+
+| 層 | 決定什麼 | 由什麼決定 |
+| --- | --- | --- |
+| **旋轉** | 腳的姿態 | `R = FromToRotation(up, SoleNormal) · poseRotation`。左乘世界旋轉 ⇒ **動畫自身的 pitch 原樣保留**（toe-up／toe-down 都不被壓平），契合哲學「腳踝自由旋轉、不強制壓平」 |
+| **水平位置** | 腳踝 XZ | **等式約束**：泰勒斯修正使腳踝維持在動畫 goal 的垂直線上。移植自 [ozz-animation `foot_ik`](https://guillaumeblanc.github.io/ozz-animation/samples/foot_ik/)，它明文點名舊寫法之誤：*"ankle position cannot be simply be offseted by foot offset"*。⚠️ **順帶修掉 M3.3 就存在的舊 bug**：`hit + n·fbh` 在 30° 坡會讓腳踝水平漂移 5cm 且坐得過低 |
+| **垂直位置** | 腳踝 Y | **不等式約束（只抬不壓）**：由 `R` 與 `footBottomHeight` 算出 heel／toe **真實端點世界座標**，在該處打 ray，`lift = Max(0, Max(各端點穿透量))`。**argmax 的端點即接觸點**，其餘端點自動獲得淨空 |
+
+**關鍵教訓（三次推翻的成因，寫下來避免重蹈）**
+
+1. **雙點取較高者當「高度」是錯的**——連續坡面上必然選到上坡側，浮空 = 上坡側取樣距離 × tanθ（30° 約 8.7cm），且隨角色朝向擺動。**雙點只該回答「有沒有戳穿」，不該回答「地面在哪」。**
+2. **由 heel/toe 高差合成 pitch 是錯的**——連續斜面上 pitch 早由命中法線提供（多餘），階梯上兩點高差根本不是坡度（錯誤）。**兩種地形沒有一種需要它。**
+3. **residual 必須含腳的幾何**——先前版本以「地面 vs 假想平面」求穿透，算式裡沒有 `poseRotation`，於是任何動畫 pitch 對該約束都是**隱形**的。平地 ＋ toe-up φ 時腳跟穿地 `HeelOffset·sinφ − fbh·(1−cosφ)`（φ=20° 約 2.8cm），而 residual 恆回 0。**位置解與旋轉必須用同一個 `R`。**
+
+**踝關節角度夾限（`MaxFootAlignAngle`，暫定 23°）**
+
+腳底**不強制整面貼地**。超過夾限時腳保持較自然姿勢，由 residual 抬到上坡側接觸、下坡側浮空 ＝ 真人行為。
+heel 淨空 = `span × (tanθ − tan c)`，`span = HeelOffset + ToeOffset`。
+⚠️ **夾限的視覺效果依賴 `span`**——重量 `HeelOffset`／`ToeOffset` 後必須重新確認此值。
+📌 屬哲學第 3 條明文允許的「Reach Clamp 類」，**不是**被禁的 Fade／Gate／降權重：權重系統零改動、夾限連續、無二態切換。
+📌 與 production 引擎同構：UE 的 ground orientation 亦非 100% 貼地，且備有 heel adjustment／heel lift 設定 ⇒ **heel 浮起是可調特性，不是缺陷；0 clearance 不是唯一正解。**
+
+**Level 1 已知限制（接受，不修）**
+
+* 斜坡上少量 heel／sole 浮空，量級 ≈ `ΔToeOffset × sin(該腳 pitch)`；**前後腳不對稱**（後腳 pitch 大 ⇒ 誤差大）。近距離側視才可見，3–4m 鏡頭距離下不可見。
+* **無 Medial／Lateral 取樣** ⇒ 側坡時腳底左右邊緣不受約束。
+* 陡下坡整個踩地相維持腳跟接觸（真人會隨步態滾向前腳掌）——需 Foot Contact／Foot Phase 與**不對稱**踝角上限（蹠屈 40–50° 遠大於背屈 10–20°）才能表達。
+* 階梯邊緣一端懸空、heel/toe 任一 ray 落空時退回 ankle-only（無殘差保護）。
+* `GroundY`（骨盆輸入）在雙點路徑與退化路徑語意不同（前者＝接觸端點下方實際地面高度，後者＝腳踝推導接觸高度）。
+
+**升級階梯（明確延後，作品集展示不需要）**
+
+| Level | 內容 | 狀態 |
+| --- | --- | --- |
+| **Level 1** | Heel ＋ Toe 兩點剛體腳底近似；保留動畫 pitch；有限 slope alignment；residual 防穿；允許 heel clearance | ✅ **完成** |
+| **Level 2** | 完整 foot footprint：Heel／Toe／**Medial／Lateral**（比照 UE 的 Foot/Floor Constraint 尺寸描述） | ⏸ 延後 |
+| **Level 3** | **Ball／Toe bone secondary plant**——不再把整隻腳當單一剛體（比照 UE 的 `BallBone`） | ⏸ 延後 |
+
+**Follow-up（不現在實作）**
+
+| # | 項目 | 說明 |
+| --- | --- | --- |
+| **FU-IK-1** | **`HeelOffset`／`ToeOffset` 幾何量測** | 現值（0.1／0.15）**不是正式量測值**。v4 後它們是**腳底幾何常數，不是手感旋鈕**——定義接觸候選集合，填錯即約束集合不完整，任何調參都救不了。⚠️ Heel 量到**腳跟後緣**、Toe 量到**蹠球**（不是腳尖尖端，該處上翹會導致 residual 過度抬升） |
+| **FU-IK-2** | **Foot contact debug visualization** | 繼續調 Foot IK **之前**必須先補：heel／toe 取樣點、兩條 ray、ground hit point 與 normal、最終 sole／contact plane、residual lift 量。**Gizmo ／ `Debug.DrawRay` 即可，⛔ 不建立 Debug Framework**（比照 Spike/Probe Exception） |
+| **FU-IK-3** | 有可視化後**重新量** `HeelOffset`／`ToeOffset` | 確認實際取樣點與鞋底幾何一致；量完後**只准再調一次** `MaxFootAlignAngle` |
+
+**⚠️ 重開 Foot IK 的條件（任一成立才重開，否則不動）**
+
+1. 平地仍**固定**穿模
+2. 斜坡有**明顯**懸空
+3. Walk／Run／Stop 有**明顯**跳動
+4. heel／toe ray 顯示接觸點**明顯不對**（需先有 FU-IK-2）
+5. 左右傾斜地形出現腳底**側邊明顯穿透**（且該地形確實出現在展示影片中）
+
+> ⛔ **不得為了追求 0 浮空繼續提高 `MaxFootAlignAngle` 或擴大模型**——那條路的終點是整片腳底吸附在坡面上，直接違反鐵律 **Natural Pose > Terrain Adaptation > Perfect Foot Contact**。
