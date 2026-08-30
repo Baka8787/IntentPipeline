@@ -15,6 +15,7 @@
 > - **Foot IK L1 → Level 1 rigid sole approximation，視覺驗收暫時通過**（`MaxFootAlignAngle = 23°`）。經歷四版迭代（取較高者 → 泰勒斯＋殘差 → 踝角夾限 → 真實端點 residual），順帶修掉 M3.3 就存在的腳踝水平漂移舊 bug。**durable 紀錄在 `docs/05` §3.5.5**，`docs/03` §1.3 的 L1 已結案、殘餘誤差降級為 L7。
 > - **Scope 收斂**：軌 A ＋ WP1–WP4 四個工作包、九段影片對照表、Codex 交辦邊界、git commit 切點 —— 全在下一節「Scope 收斂與後續四包」。
 > - FU-1／FU-2／FU-3（Action→Action 中斷不可能／一角色一份 Definition／mailbox 無身分）已寫入 `docs/08` §11.1；ADR-004 §8 補 **L4**。
+> - 🆕 **治理條文**：`CLAUDE.md`「Documents Live in the Repo, Not in a Session」——技術文件／架構圖／研究筆記／HTML artifact **一律先寫進 `docs/`**（HTML 類放 `docs/artifacts/`），repo 版為 source of truth，Artifact 只是發布副本，兩者必須同步；⛔ 不得只留在 scratchpad。使用者已授權此類 `docs/` 寫入。首個產物＝`docs/artifacts/foot-ik.html`（Foot IK 圖解導覽）。
 >
 > **② 現在該做什麼**
 > - **不要動 Foot IK**。重開條件見 `docs/05` §3.5.5（五條，任一成立才重開）。繼續調之前**必須先做 FU-IK-2 可視化**。

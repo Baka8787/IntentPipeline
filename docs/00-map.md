@@ -15,6 +15,7 @@
 | `docs/changelog.md` | 最近 4 版；更早在 `changelog-archive.md` | 查近期沿革；考古才開歸檔卷 |
 | `docs/03-animation-roadmap.md` | 動畫 Runtime 品質路線（輪次順序） | 規劃下一輪時 |
 | `docs/04-locomotion-foundation.md` | Kubold 資產盤點＋ADR-003 的四輪評審全紀錄（§11–14） | 需要 ADR-003 的推導過程時 |
+| `docs/artifacts/*.html` | **技術解說／架構圖／研究筆記的原始檔**（source of truth）。發布成 Claude Artifact 只是方便閱讀的副本，兩者必須同步 | 想快速理解某個子系統的全貌時；規格細節仍以對應的 `docs/NN-*.md` 為準 |
 
 ## 模組 → 檔案 → 治理章節
 
@@ -32,7 +33,7 @@
 | 位移驅動 | `Presentation/Motion/`：`MotionDriver`／`MotionBakeData` | dev-spec §2.1 順序 6／§3.2 MotionDriver |
 | 動畫門面 | `Presentation/Animation/`：`AnimationFacadeBase`（抽象）／`AnimancerFacade` | 抽象在 dev-spec §3.1；**實作／Mixer／資料流在 `docs/06-animation-presentation.md`** |
 | 表現層管線＋音效 | `Presentation/`：`IPresentationController`／`PresentationPipeline`／`Audio/` | dev-spec §3.4；design-doc §4.6 |
-| Foot IK（v1 凍結） | `Presentation/IK/` | **`docs/05-foot-ik.md`**（原 §3.5，編號原樣保留）；哲學在 design-doc §4.6 |
+| Foot IK（Level 1 rigid sole） | `Presentation/IK/` | **`docs/05-foot-ik.md`**（原 §3.5，編號原樣保留；§3.5.5＝Level 1 約束模型與升級階梯）；哲學在 design-doc §4.6；**圖解導覽在 `docs/artifacts/foot-ik.html`** |
 | 物件階層 | 角色 Prefab 的 Root／Model 兩層 | **ADR-001**；dev-spec §0.3 |
 | 動畫資產治理 | FBX 子 clip 直引、匯入 preset | dev-spec §0.4；CLAUDE.md「Animation Assets」 |
 | Editor 工具鏈 | `Editor/Stages/`（烘焙／特徵分析）、`Editor/Tools/`（Capsule／匯入 SOP） | dev-spec §4 |

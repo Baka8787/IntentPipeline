@@ -148,6 +148,22 @@ Whenever architecture changes, update:
 - ADR
 - Changelog (if necessary)
 
+## Documents Live in the Repo, Not in a Session（decided 2026-08-31，使用者明確裁決）
+
+**任何需要長期保留的產出——技術文件、架構圖、研究筆記、HTML artifact——一律先寫進 repo，再談發布。**
+
+| 規則 | 內容 |
+|---|---|
+| **1. 原始檔存 repo** | 原始檔寫入 `docs/`。HTML／圖解類放 `docs/artifacts/`（不佔 `docs/NN-*` 的工程編號序列）；純文字規格仍走既有的 `docs/NN-*.md` 分卷規則 |
+| **2. repo 版＝ source of truth** | `docs/` 內的版本是唯一真相 |
+| **3. Artifact 只是發布版** | Claude Artifact 僅作為方便閱讀／分享的副本，**不是**原始檔 |
+| **4. 更新必須雙向同步** | 更新 Artifact 時**同步更新 `docs/` 內的原始檔**；反之亦然。以同一個檔案路徑重新發布可保留原 URL |
+| **5. ⛔ 禁止只留在 session 目錄** | **不得**把需要長期保留的文件只留在 `%TEMP%`／scratchpad／worktree 等 session-specific 位置。scratchpad 只放用完即丟的中間產物 |
+| **6. 本類寫入已獲授權** | 使用者**已明確批准**為此類文件寫入 `docs/`，不需要每次再問。（仍不得碰 `.asset`／`.prefab`／`.meta`／場景，Git 仍全由使用者執行） |
+
+> **為什麼**：session scratchpad 會隨會話消失，Artifact 連結在 repo 之外——兩者都不是可以被 `git log` 追溯、可以被下一個會話讀到的地方。文件的價值來自「未來的人找得到它」，而不是「現在看得到它」。
+> **落地**：新增的文件要在 `docs/00-map.md` 留一行指標，否則等同不存在。
+
 ## ADR Lifecycle：Proposed → Trial → Accepted（decided 2026-08-29）
 
 | Status | 意義 | 可否作為實作基線 | 可否修改 |
