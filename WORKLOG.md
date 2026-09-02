@@ -57,18 +57,32 @@
 > **✅ A22 已轉綠**——它自 ADR-004 落地起一直是紅的（斷言 `IActionReleaseSink`，介面實名 `IActionLifecycleSink`）。
 > ADR-004 §11 已補上結案列；ADR-005 §4 的 **D 與 F 已打勾**（F 由 A24 機器守衛）。
 >
-> **⑥ ⛔ 仍未成立的事（不得視為完成）**
+> **⑥ 命名統一（2026-09-02 完成，已驗證）**
+> `ActionSlot` 改為「玩家觸發段依序編號（`Slot1/2/3`）＋ 保留段（`Reaction = 100`，非輸入驅動）」，
+> **輸入層同步對齊**：`FireAction`／`SecondaryAction`／`TertiaryAction` → `Slot1Action`／`Slot2Action`／`Slot3Action`，
+> `InputData` 的三顆 `*ButtonDown` 同理。原本同一排按鍵有**三種**命名法（語意名 ＋ 兩個拉丁序號），且都對不上 enum。
+> ✅ **`[FormerlySerializedAs]` 遷移成功，左鍵／Q／E 三個 binding 全部保住，EditMode 全綠。**
+> ⛔ 那三個 attribute 看起來像雜訊但**不得刪除**——欄位以名字序列化在 prefab，刪掉等於清空綁定。
+>
+> **⑦ ⛔ 仍未成立的事（不得視為完成）**
 > - **EditMode 綠 ≠ 功能成立。** ADR-005 §4 的 **A／B／C／E 全部未打勾**：
 >   A 缺資產接線 ＋ Play（程式面 T18–T21 已綠）／B 需真的加第三個 Action／C 需 Play 驗既有無回歸／E 需 Profiler。
 > - Play 未驗；Profiler 零 GC **未量測**（熱路徑動過 `ProcessIntents`、`EvaluateInterrupts`，必須複驗）。
-> - 資產接線未做：Q／E 兩顆 InputAction、兩份 Definition 填進 **`actionDefinitions`**（**不是** `paramsMappings`），
->   以及 `ThirdPersonCamera.aimResolver` 在**場景實例**上仍是 `None`（見下面 2026-08-31 段⑤）。
+> - `ThirdPersonCamera.aimResolver` 在**場景實例**上仍是 `None`（WP1 的尾巴，見下面 2026-08-31 段⑤）。
+>   跟 ADR-005 無關，但 Play 時會撞到。
 >
-> **⑦ 下一步**
-> 1. **資產接線**（使用者）：Q／E 兩顆 InputAction ＋ 兩份 `ActionDefinitionSO`（Slot 各設 Secondary／Tertiary）填進 Config 的 `actionDefinitions`
-> 2. **Play 驗收**：兩個技能可獨立觸發、冷卻不連坐、互相打斷、既有 Idle／Move／Jump／Roll／Throw 無回歸 ⇒ 結掉 A／C
-> 3. **Profiler**：穩態 0 B/frame ⇒ 結掉 E
-> 4. 全過之後 ADR-005 才可 `Trial → Accepted`
+> **⑧ 下一步（剩下的都在 Unity）**
+> 1. ✅ Q／E 兩顆 InputAction —— **已完成**（`76a19a7`）
+> 2. **三份 `ActionDefinitionSO` 填進 Config 的 `actionDefinitions`**（**不是** `paramsMappings`）：
+>    Slot2／Slot3 兩份新的，**外加現有的 Throw（Slot ＝ `Slot1`）**。
+>    🔴 `BuildActionSlotMap` 的相容退路是 **all-or-nothing**——只要 `actionDefinitions` 有任何一筆，
+>    `paramsMappings` 那條就整條不走 ⇒ **漏掉 Throw 它會安靜失效，不報錯**（詳見 `docs/11` §10）。
+>    冷卻刻意設不同值，Play 時才看得出 per-slot 獨立。
+> 3. `AnimancerFacade` 的 Transition Mappings 補上兩個新 `AnimationKey`。
+>    漏掉不會靜默失敗——`TryGetTransition` 會噴紅字，動作仍照 `FallbackDuration` 跑完，位移退回 base movement。
+> 4. **Play 驗收**：兩個技能可獨立觸發、冷卻不連坐、互相打斷、既有 Idle／Move／Jump／Roll／Throw 無回歸 ⇒ 結掉 A／C
+> 5. **Profiler**：穩態 0 B/frame ⇒ 結掉 E
+> 6. 全過之後 ADR-005 才可 `Trial → Accepted`
 >
 > ---
 

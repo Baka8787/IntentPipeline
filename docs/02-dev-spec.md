@@ -228,7 +228,12 @@ public ref struct InputData
     public Vector2 LookInput;
     public bool JumpButtonDown;   // 邊沿（WasPressedThisFrame）
     public bool RollButtonDown;
-    public bool FireButtonDown;
+    // Action 鍵位：一顆對應一個 ActionSlot（2026-09-02 命名統一，取代 Fire／Secondary／Tertiary）。
+    // 按鍵→slot 的映射在順序 2（ProcessIntents）；本 struct 是 ref struct、不序列化，改名無資產風險。
+    // ⚠️ PlayerInputSource 的同名欄位相反——以欄位名序列化在 prefab，改名須配 [FormerlySerializedAs]。
+    public bool Slot1ButtonDown;
+    public bool Slot2ButtonDown;
+    public bool Slot3ButtonDown;
 
     // 🆕（ADR-003 Stage 1）持續型中性 action（IsPressed），供 movement producer 解讀為 gait 強度。
     // ⚠️ 刻意**不**做成 [Flags] MovementModifier——那會把「這些輸入是為了 movement」的領域分類

@@ -163,9 +163,9 @@ Definition 不再於 `Initialize` 綁死，因此 `OnEnter` 必須**重新解析
 
 | 鍵 | Action | 備註 |
 |---|---|---|
-| **Q** | Quick Spell | 新增 InputAction |
-| **E** | Ice Spell | 新增 InputAction |
-| **滑鼠左鍵**（既有 `FireAction`） | Melee Slash | **P-0 結案前仍指向 Throw**；ADR-005 實作時才移交 |
+| **Q** | Quick Spell | ✅ 已綁（`Slot2Action`） |
+| **E** | Ice Spell | ✅ 已綁（`Slot3Action`） |
+| **滑鼠左鍵**（`Slot1Action`，原 `FireAction`） | Melee Slash | **P-0 結案前仍指向 Throw**；ADR-005 實作時才移交 |
 
 ### 5.2 各層的改動點
 
