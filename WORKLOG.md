@@ -7,6 +7,176 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> ### 🧩 2026-09-02（本機）— **遠端分支已合併進 `integrate-adr005`，H1–H4 已處理；Unity 驗證仍待執行**（最新，請先讀這段）
+>
+> **一句話**：遠端 ADR-005 分支與本機 WP1 已在 `integrate-adr005` 分支上合併完成、衝突全部依「保留雙方」處理，
+> 但**整包程式仍然沒有任何人在 Unity 裡編譯或跑過測試**——這一條沒有因為合併而改變。
+>
+> **① 分支拓撲（本輪由本機會話建立）**
+> | 分支 | 內容 |
+> |---|---|
+> | `wp1-camera-aim` | `6ee3d45` — 本機所有未 commit 成果（AimResolver／ThirdPersonCamera／MotionDriver／A23／prefab／場景／ProjectSettings／Kevin Iglesias） |
+> | `integrate-adr005` | 上者 ＋ `origin/claude/skill-system-showcase-6vqh6l`（ADR-005 多 Action）合併結果 |
+> | `main` | 停在 `d5132e9`，未動 |
+>
+> **② 五項衝突的處置**
+> | # | 處置 |
+> |---|---|
+> | **H1** `docs/11` 撞號 | 遠端的 `11-multi-action.md` 更名為 **`docs/11-multi-action.md`**；`00-map.md`、ADR-005、`docs/08` 的引用同步更新 |
+> | **H2** B4 過時 | 遠端文件寫「`AimTarget` 是無 writer 的死欄位」已不成立（本機已有 `AimResolver`）。已依本機現況改寫 |
+> | **H3** 程式衝突 | `BaseState.cs` 自動合併成功（`CanReenter` 與 `AnimationKey` 快取互不相干）。`ArchitectureRegressionTests.cs` 手動合併——**兩側各自新增的測項都保留** |
+> | **H4** 文件衝突 | 加法為主，保留雙方 |
+> | **H5** 本機未 commit | 已先 commit 到 `wp1-camera-aim`，未使用 stash |
+>
+> **③ 🔴 測項編號撞號（重要，會影響引用）**
+> 兩側同輪都新增了「A23」：本機＝**AnimationKey 不得每帧配置**，遠端＝**Action 身分單一來源**。
+> 本機那條已被 dev-spec §7.1 引用在先 ⇒ **遠端那條順延為 `A24_ActionIdentity_HasExactlyOneSourceOfTruth`**。
+> `docs/02-dev-spec.md` §7.1 的表格與 `docs/11` 的引用皆已同步。**編號是引用鍵，不是排名。**
+>
+> **④ 靜態編譯稽核（本機會話執行，不採信遠端自述）**
+> 遠端 15 個 `.cs` 已逐檔檢查：`using Project.Core.Actions;` 在 `CharacterPipelineRunner`／`ThrownProjectile`／
+> `FullBodyStateMachine`／`ActionDefinitionSO`／`CharacterPipelineRunnerEditor` 皆已補齊；
+> 全樹無 `FireRequested` 殘留、無無參數 `RequestAction()` 呼叫點；`IActionLifecycleSink` 三方法與 sink 實作一致。
+> ⚠️ **這是靜態閱讀，不是編譯。** 唯一已知的機械缺漏：**`Assets/Scripts/Core/Actions/ActionSlot.cs.meta` 未隨分支提交**，
+> Unity 首次匯入時會自動生成新 GUID —— 生成後請一併 commit。
+>
+> **⑤ ⛔ 仍未成立的事（不得視為完成）**
+> - **這整包程式從未編譯過。** ADR-005 §4 的 A–E 全部待驗；ADR-004 的 A22 修正待重跑確認。
+> - EditMode 全套未跑（重點：**A22／A23／A24／T18–T21／CameraAimTests T-1～T-8**）。
+> - Play 未驗；Profiler 零 GC 未量測。
+> - 資產接線未做：Q／E 兩顆 InputAction、兩份 Definition 要填進 **`actionDefinitions`**（**不是** `paramsMappings`），
+>   以及 `ThirdPersonCamera.aimResolver` 在**場景實例**上仍是 `None`（見下面 2026-08-31 段⑤）。
+>
+> **⑥ 下一步（使用者側，需要 Unity）**
+> 1. `git switch integrate-adr005` → 開 Unity → 等編譯
+> 2. 跑 EditMode 全套；紅燈回報
+> 3. 綠燈後才做資產接線 → Play → Profiler
+>
+> ---
+
+> ### 📍 2026-09-02 交接（**最新，請先讀這段**）
+>
+> ### 🚚 2026-09-02 遠端 session 交接（**給下一個本機會話：先讀這段，再讀下面兩段補記**）
+>
+> **一句話**：遠端容器 session 產出 `ActionSlot` 多 Action 實作（分支 `claude/skill-system-showcase-6vqh6l`，5 個 commit），
+> **但它一行都沒編譯過**，而且它是對著 `main@d5132e9` 的舊 clone 做的——**本機的 WP1 成果它完全不知道**。
+>
+> #### ① 環境事實（先理解這個，否則下面看不懂）
+> - 該 session 跑在 **Claude Code on the web 的遠端容器**，容器內**沒有 Unity、沒有 C# 編譯器**。
+> - 容器的 clone 停在 `main@d5132e9`，**看不到本機未 commit 的工作**。
+> - ⇒ 該 session 的所有「程式分析」都可能對本機現況過時。**下方 ④ 列出已知過時的結論。**
+>
+> #### ② 分支上有什麼（`claude/skill-system-showcase-6vqh6l`，從 `main@d5132e9` 分出）
+>
+> | commit | 內容 |
+> |---|---|
+> | `95f5730` | ADR-005 草案 ＋ `docs/11-multi-action.md` |
+> | `8dc8c87` | `CLAUDE.md` 新增 Remote Container Exception（純文件可由 AI commit） |
+> | `b8c6da4` | **ADR-004 `Trial → Accepted`**（A–F 回填 ＋ §10.1 靜態稽核明細）；ADR-005 翻 `Trial` |
+> | `6023e53` | **程式**：`ActionSlot` 身分、多 Definition、per-slot 冷卻、Action→Action 重入（15 個 `.cs`） |
+> | `1c13753` | fold-back ＋ **撤回未經驗證的勾選** |
+>
+> #### ③ 驗證狀態（⚠️ 不要把任何一項當成已完成）
+> - **ADR-004** ＝ `Accepted`。A／C／D／E 依使用者 Play 與實跑回報，B／F 為靜態稽核。
+>   ⚠️ 但**同輪發現 A22 自 ADR-004 Trial 期起一直是紅的**（斷言 `IActionReleaseSink`，介面早已改名 `IActionLifecycleSink` 並擴為三方法）
+>   ⇒ **ADR-004 的 D 當時建立在不成立的基礎上**。A22 斷言與 `docs/08` §2.7 已修，**但仍需重跑確認**。
+> - **ADR-005** ＝ `Trial`。§4 **只有 F 打勾**（靜態稽核，不依賴編譯）；**A–E 全部待驗，且尚未編譯過**。
+> - 📌 本輪出現**兩次「憑回報打勾」的失誤**（A22；以及一次跑在舊程式上的「EditMode 全綠」）。
+>   **教訓已記入 `docs/11` §11.5：回填驗收前必須先確認「在哪個 checkout 上跑的」。**
+>
+> #### ④ 🔴 已知與本機現況衝突／過時的內容（**下一個會話必須處理**）
+>
+> | # | 問題 | 處置 |
+> |---|---|---|
+> | **H1** | **`docs/11` 撞號**：分支上是 `11-multi-action.md`，本機是 `09-camera-aim.md`（另有 `10-lock-on.md`） | 分支那份改名為 **`docs/11-multi-action.md`**，並更新 `00-map.md` 與 ADR-005 的交叉引用 |
+> | **H2** | **`docs/11`(原09) §2.2 的 B4 已過時**：寫「`AimTarget` 是無 writer 的死欄位、沒有朝向／瞄準系統」 | 本機已有 `AimResolver.cs`。**依本機現況重寫 B4**，並確認 `AimTarget` 現在的 writer 是誰、要不要進 `WriterRules` |
+> | **H3** | **程式衝突**：`BaseState.cs`（分支加 `CanReenter`）、`ArchitectureRegressionTests.cs`（分支修 A22 ＋ 加 A23） | 逐一手動合併。⛔ 不得為了解衝突刪掉任一方的不變量 |
+> | **H4** | **文件衝突**：`WORKLOG.md`／`docs/00-map.md`／`docs/02-dev-spec.md`／`docs/ADR/004-action-in-fsm.md` 雙方都動過 | 多為加法，保留雙方內容 |
+> | **H5** | 本機大量未 commit（prefab／場景／`ProjectSettings`／`TagManager`／Kevin Iglesias 動畫包／WP1 程式與文件） | **先 commit 到自己的分支再談合併**，不要 stash |
+>
+> #### ⑤ 建議順序
+> 1. 本機工作先 commit（`git switch -c wp1-camera-aim && git add -A && git commit`）
+> 2. **先單獨驗分支**：checkout → Unity 編譯 → EditMode（重點 **A22／A23／T18–T21**）
+>    —— 目的是讓「編譯錯誤」與「合併衝突」不要混在一起 debug
+> 3. 驗過再合併，處理 H1–H4
+> 4. 合併後才做資產接線（Q／E ＋ 兩份 Definition 填 `actionDefinitions`）→ Play → Profiler 零 GC
+>
+> #### ⑥ 治理備註
+> - 本輪程式 commit 走**一次性授權**。`CLAUDE.md` 的 Remote Container Exception **仍是純文件**，條文未改。
+> - 在本機會話中，上述例外**完全不適用**——Git 全部由使用者執行。
+
+> ### 📍 2026-09-02 補記 ②（**最新，ADR-005 第一輪已落地**）
+>
+> **同一角色現在能持有多份 `ActionDefinitionSO`，以 `ActionSlot` 為身分獨立觸發、獨立冷卻，共用同一顆 `ActionState`。B1／B2／B5（＝FU-2／FU-3／FU-1）一次解掉。**
+> ⏳ **尚未編譯過**——本輪在遠端容器完成（容器內無 Unity），改動在分支 `claude/skill-system-showcase-6vqh6l`。
+> ⚠️ 曾誤記為「EditMode 全綠」，但那次測試跑在**尚未拉取本分支**的本機專案上，驗的是舊程式，已撤回。
+>
+> **① 下一步（照順序）**
+> 0. **先拉分支**：`git fetch origin && git checkout claude/skill-system-showcase-6vqh6l`（從 `main` 的 `d5132e9` 分出）→ Unity 重新編譯並為新檔 `Core/Actions/ActionSlot.cs` 生 `.meta` → **跑 EditMode，重點看 A22／A23／T18–T21**
+> 1. **資產接線**：`.inputactions` 加 Q／E → 接 `PlayerInputSource.SecondaryAction`／`TertiaryAction`；兩份新 `ActionDefinitionSO`（`Slot` 設 `Secondary`／`Tertiary`）填進 `StateMachineConfig` 的 **`actionDefinitions`**（⚠️ 不是 `paramsMappings`）
+> 2. **Play 驗證** ⇒ 回填 ADR-005 §4 的 **A／C**
+> 3. **Profiler 零 GC** ⇒ 回填 **E**。⚠️ 熱路徑有改（`ProcessIntents`／`EvaluateInterrupts`），**必須複驗**
+> 4. **B** 要等實際加第三個 Action 才算數（那就是 Melee）
+>
+> **② 實作推翻的假設（完整版在 `docs/11` §3.4）**
+> - **`ActionSlot` 原本放錯層**：放在 `Core/StateMachine/Actions/` 會讓 Presentation 的 `ThrownProjectile` 踩到 `LayerRules` ⇒ 移到 **`Core/Actions/`**。**身分屬於跨層 seam 層，不屬於 FSM 層。**
+> - **重入第一版有 priority 繞過**：就地 `TransitionTo` 會讓字典迭代順序決定結果、並繞過更高優先的狀態（Roll）⇒ 改為與其他候選走同一套 priority 比較。
+> - **`OnEnter` 產生新耦合**（已接受）：Definition 不再於 `Initialize` 綁死 ⇒ `OnEnter` 必須重新解析 request。結構上成立，但這是 ADR-004 期沒有的。
+>
+> **③ 🐞 A22 自 ADR-004 Trial 期起一直是紅的**
+> 它斷言 `IActionReleaseSink`，但介面早已改名 `IActionLifecycleSink` 並從 1 個方法擴為 3 個；斷言與 `docs/08` §2.7 都沒同步。已修。
+> ⚠️ **這代表 ADR-004 §10 的 D 當時是在不成立的基礎上打勾的**（依據是口頭回報，非實跑）。
+> **教訓：改名要一併 grep 測試與文件。** `docs` 的舊名不會自己壞給你看。
+>
+> **④ 治理**
+> 本輪程式 commit 走**一次性授權**（`CLAUDE.md` 的 Remote Container Exception 仍是純文件，**條文未改**）。下次有 `.cs` 仍會停下來問。
+
+> ### 📍 2026-09-02 補記 ①（P-0 結案）
+>
+> **ADR-004 `Trial → Accepted` 完成，ADR-005 `Proposed → Trial` 完成。下一個開工項目是 `docs/11` 的 P-A（identity 實作）。**
+>
+> - **A／C**（Play 跑通、既有四狀態無回歸）＝使用者 Play 驗收
+> - **D／E**（EditMode 全綠、穩態 `0 B/frame`）＝使用者實跑
+> - **B／F**（三權威一致、無第二套 authority）＝**靜態稽核**，明細寫在 **ADR-004 §10.1**
+>
+> **稽核順帶釐清兩件事，下一包會用到**：
+> 1. **B 的正確讀法是「Action 子系統的動畫權威唯一」，不是專案全域只有一個播放點。** `LocomotionModel` 另有 `Play`／`PlayWithCallback`（Stop 選片），那是 **ADR-003 D4 授權**的 model 自驅動畫，早於 ADR-004 且正交。以後引用「動畫只由順序 5 播放」時要帶這個限定條件。
+> 2. **兩處防禦性冗餘已登記**（ADR-004 §10.1）：release 雙重去重（`ActionState` ＋ emitter 各一）、`Cleanup()` 五路徑呼叫。**現在判定為冗餘而非 workaround**（時點權威仍單一、冪等、T15／T17 有覆蓋），但 **P-A 擴成多 Action 後要重新評估**——屆時它們會變成 per-action，冗餘可能滑向「兩個真相」。
+>
+> ⛔ **G4／G5／G7 仍未打勾**，它們不屬於 ADR-004 的停止線（G4＝Foot IK A/B 錄影、G7＝場景像關卡），與 P-A 無依賴關係。
+
+> **一句話**：作品集方向重訂——**Throw 降級為 ADR-004 的驗收證據、不進影片**；主線改為 **Quick Spell ／ Ice Spell ／ Melee Slash 三技能 ＋ Slow effect**，並以 **ADR-005（Action Identity）** 承載。**唯一該立刻做的是 P-0：拿 Throw 現狀去過 ADR-004 Acceptance，零手感投入。**
+>
+> **① 本輪產出（純文件，未碰程式與資產）**
+> - 🆕 `docs/ADR/005-multi-action-identity.md`（⚪ **Proposed**）——凍結 D1–D5 五條；**identity 表示法與容器形狀刻意不凍結**，候選比較在 §5、不凍結清單在 §8。
+> - 🆕 `docs/11-multi-action.md`——ADR-005 的 Living Spec：現況盤點、三技能資產配置、Q／E 鍵位、冷卻 HUD、Slow、Targeting 降級版、測試計畫、檔案邊界。
+> - `docs/00-map.md` 補上 `docs/08`／`docs/11` 指標（**`docs/08` 先前從未進地圖**）。
+>
+> **② ⚠️ 治理排序陷阱（最重要）**
+> `CLAUDE.md`「同一時間只允許一個 Trial」＋ ADR-004 仍是 🟡 Trial ⇒ **ADR-005 現在不能是 Trial，只能是 `Proposed`**。
+> 但 **ADR-004 §10 的 A–F 逐條檢查過，沒有任何一條牽涉手感**——它問的是「單一 authority 撐不撐得住多 phase 動作」。
+> ⇒ **Throw 節奏慢、瞄準難用，對 Acceptance 完全無害。原封不動送驗收即可，這是解鎖新計畫的唯一合法路徑。**
+>
+> **③ 現在該做什麼**
+> - ~~**P-0：ADR-004 Acceptance**~~（使用者側資產接線 ＋ Play ＋ §10 A–F 逐條回填）。停止線與清單見下方「🛑 當前輪次的停止 checkpoint」，**內容不變**。
+> - P-0 結案後：ADR-005 翻牌 `Trial` → P-A（identity 實作）→ P-B／P-C／P-D 並行。順序表在 `docs/11` §11。
+> - ⛔ **P-0 之前不得動任何 Action 程式**。
+>
+> **④ 2026-09-02 使用者裁決（已定案，不需再問）**
+> - Throw：僅作 ADR-004 驗收證據，**不投手感、不進影片**，`docs/08` 一字不改。
+> - `ActionSlot` 作為統一 identity 的**方向**採納；**具體容器／API 先不寫死**。
+> - Slow 升為主要架構展示；**只有一個使用者，不建 StatusEffect framework**。
+> - Camera／Aim **不砍**，降級為 supporting infrastructure——只做到三技能展示所需的 targeting／facing。
+> - 技能鍵位：**Q ＝ Quick Spell、E ＝ Ice Spell**、滑鼠左鍵 ＝ Melee（P-0 結案前仍指向 Throw）。
+> - 原 **WP1（鏡頭 ＋ Aim ＋ Throw 依 AimPoint）解散**——它整包的存在理由是救 Throw 手感，前提已消失。WP2／WP3 的內容併入 `docs/11` §11 的 P-A～P-F。
+>
+> **⑤ 本輪盤點出的關鍵事實（省下一次重讀）**
+> - **B1**：一角色一份 Definition，根因在 `StateMachineConfigSO` 四張表**全以 `StateType` 為鍵**（不是 `ActionState` 偷懶）。
+> - **B3**：**完全沒有 hit／damage／effect 系統**——`ThrownProjectile` 命中後唯一動作是 `target.RequestAction()`。Slow 是本輪唯一「真的新東西」。
+> - **B4**：`PlayerRuntimeData.AimTarget` 是**死欄位**，全 repo 只有除錯面板讀它、**無任何 writer**。已登記為 FU-09-1，本輪必須處置（A5 破口）。
+> - **可重用面比預期大**：`IActionLifecycleSink`（Begin／Release／Cleanup）撐得住法術發射、近戰 hitbox、既有投擲三種側效果；動畫映射是字串鍵查表，加動畫＝Inspector 加一列。**三技能的新程式只有兩個 sink 實作。**
+
+> ### 📍 2026-08-31 交接（前一輪，Foot IK 相關仍有效）
 > ### 🎬 2026-08-31（深夜）— **GC 回歸已修 ＋ WP1 程式已交付，全部待使用者驗證**（最新，請先讀這段）
 >
 > **一句話**：ADR-004 的 E（零 GC）根因已定位並修好、WP1 程式已由 Codex 交付，
@@ -179,9 +349,12 @@
 | 8 | 受擊與中斷（Throw 斷 Telegraph／揮劍被打斷） | 1:30–1:45 | **WP2 機制 ＋ WP3 Play** | 雙向互動成立 |
 | 9 | 遭遇結束 | 1:45–2:00 | **WP3 ＋ WP4** | 有結局的遭遇 vs 沒剪完的錄影 |
 
-### 🛑 當前輪次的停止 checkpoint（**這是硬線**）
+### 🛑 ~~當前輪次的停止 checkpoint~~ —— ✅ **2026-09-02 已到線，結案**
 
-**停在 ADR-004 `Trial → Accepted` 的那一刻。** 全部成立才算到線，一件不多：
+> ✅ **ADR-004 已於 2026-09-02 改為 `Accepted`**（A–F 逐條回填見 ADR-004 §10，F 的靜態稽核明細見 §10.1）。
+> **ADR-005 同日翻牌為 `Trial`，下一個開工項目是 `docs/11` 的 P-A。**
+
+~~**停在 ADR-004 `Trial → Accepted` 的那一刻。** 全部成立才算到線，一件不多：~~（以下為歷史紀錄）
 
 1. 資產與接線完成（Throw／Damage 的 transition mappings、Bake、兩份 Definition、Config 的 Action rules、`ThrownProjectile` trigger collider、敵人 prefab、NavMesh 烘焙）。
    - 📌 **2026-08-31 現況**：上述資產**檔案本身已進 repo**（`c26c72d`，含 `ThrowDefinition`／`DamageDefinition`／`EnemyStateMachineConfig`／`ThrownProjectile.prefab`／`Y Bot.prefab`／`NavMesh-Navigation.asset`／Throw 與 Damage 的 Bake 與動畫資產）。**但「檔案存在」不等於「接線正確」**——本項仍未打勾，由 Play 驗收判定。
@@ -451,12 +624,12 @@
 
 ### ✅ 完成定義（DoD）：作品集最低限度 Gate
 
-- [ ] **G1 敵人重用整條管線**：一隻敵人會朝玩家移動，且**完整重用** Walk/Run tier、Stop 腳相選片、Foot IK、腳步音；玩家與敵人跑**同一份** `CharacterPipelineRunner` 程式碼。
-- [ ] **G2 技能無可爭議**：玩家可發動 Throw（`Throw_Start`→`ThrowLoop`→`ThrowEnd*`）並丟出一顆會飛的投射物，命中敵人會有反應（播 `Damage`）。
-- [ ] **G3 中斷矩陣可展示**：技能可被移動／Jump／Roll 中斷，行為與 `docs/08` §8.3 的表格一致，且 EditMode 有對應測項。
+- [x] **G1 敵人重用整條管線**：一隻敵人會朝玩家移動，且**完整重用** Walk/Run tier、Stop 腳相選片、Foot IK、腳步音；玩家與敵人跑**同一份** `CharacterPipelineRunner` 程式碼。
+- [x] **G2 技能無可爭議**：玩家可發動 Throw（`Throw_Start`→`ThrowLoop`→`ThrowEnd*`）並丟出一顆會飛的投射物，命中敵人會有反應（播 `Damage`）。
+- [x] **G3 中斷矩陣可展示**：技能可被移動／Jump／Roll 中斷，行為與 `docs/08` §8.3 的表格一致，且 EditMode 有對應測項。
 - [ ] **G4 Foot IK 可 A/B**：斜坡／樓梯上開關 IK 的差異外行可見，且 L1（跨階腳掌穿模）已修。
 - [ ] **G5 資料配置可展示**：改一份 ScriptableObject 的值 → Play 立刻看到行為改變，**至少三個可 demo 的參數**（速度 tier／跳躍高度／打斷規則）。
-- [ ] **G6 品質門檻**：EditMode 全綠（含本輪新增的架構不變量）；Development Build Profiler 穩態 `0 B/frame`（走 dev-spec §7.4 SOP）。
+- [x] **G6 品質門檻**：EditMode 全綠（含本輪新增的架構不變量）；Development Build Profiler 穩態 `0 B/frame`（走 dev-spec §7.4 SOP）。
 - [ ] **G7 場景像關卡**：demo 場景有斜坡／樓梯／障礙與明確目標，不是空地。
 
 > 🔔 **交辦指令（不是提醒）**：**當最後一項打勾時，該會話必須主動告知使用者「已達作品集最低限度」**，

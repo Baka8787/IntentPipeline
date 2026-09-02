@@ -52,7 +52,8 @@ namespace Project.Presentation.Actions
             if (_completed || target == null) return false;
 
             _completed = true;
-            target.RequestAction();
+            // 🆕（ADR-005 D1）命中提交的是 Reaction 身分——受擊與「我要出手」自此可區分（FU-3）。
+            target.RequestAction(ActionSlot.Reaction);
             if (Application.isPlaying) Destroy(gameObject);
             return true;
         }

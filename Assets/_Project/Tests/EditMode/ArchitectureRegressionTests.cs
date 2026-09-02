@@ -651,5 +651,52 @@ namespace Project.Tests.EditMode
                 "修法：在 BaseState 快取一次（Type 對每個具體 state 是常數）。\n" +
                 string.Join("\n", violations));
         }
+
+        // =====================================================================
+        // A24 — Action identity 單一來源（🆕 ADR-005 D1，Trial）
+        //
+        // ⚠️ 合併註記（2026-09-02）：本測項在遠端分支上原編號為 A23，與本機同輪新增的
+        //    「AnimationKey 不得每帧配置」撞號。本機那條已被 dev-spec §7.1 引用在先，
+        //    故本測項順延為 A24。編號是引用鍵，不是排名。
+        // =====================================================================
+
+        [Test]
+        public void A24_ActionIdentity_HasExactlyOneSourceOfTruth()
+        {
+            const string canonical = "ActionSlot.cs";
+            var violations = new List<string>();
+
+            // ① 身分只准宣告一次。任何第二個「Action 身分」enum 都是 D1 禁止的第二把鍵。
+            var declarations = new List<string>();
+            foreach (string path in Directory.GetFiles(ScriptsRoot, "*.cs", SearchOption.AllDirectories))
+            {
+                string code = StripComments(File.ReadAllText(path));
+                if (Regex.IsMatch(code, @"enum\s+\w*(ActionSlot|ActionId|SkillId|AbilityId)\w*\b"))
+                {
+                    declarations.Add(RelativePath(path));
+                }
+            }
+
+            if (declarations.Count != 1 || !declarations[0].EndsWith(canonical))
+            {
+                violations.Add(
+                    $"Action 身分必須恰好宣告一次於 {canonical}，實際：[{string.Join(", ", declarations)}]");
+            }
+
+            // ② 冷卻仍是 ActionState 獨佔（ADR-004 D2 延續）——不得外流到 Runner／Config／Presentation。
+            foreach (string path in Directory.GetFiles(ScriptsRoot, "*.cs", SearchOption.AllDirectories))
+            {
+                if (Path.GetFileName(path) == "ActionState.cs") continue;
+                if (Path.GetFileName(path) == "ActionDefinitionSO.cs") continue; // authored 欄位，非執行期狀態
+                string code = StripComments(File.ReadAllText(path));
+                if (code.Contains("_cooldownEndTime"))
+                {
+                    violations.Add($"{RelativePath(path)} 持有冷卻執行期狀態；能不能出手只有 ActionState 能回答");
+                }
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "ADR-005 D1／ADR-004 D2 違規：\n" + string.Join("\n", violations));
+        }
     }
 }

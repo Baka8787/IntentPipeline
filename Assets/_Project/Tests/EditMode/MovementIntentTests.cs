@@ -3,6 +3,7 @@ using System.Reflection;
 using NUnit.Framework;
 using UnityEngine;
 using Project.Core.Blackboard;
+using Project.Core.Actions;
 using Project.Core.Movement;
 
 namespace Project.Tests.EditMode
@@ -281,7 +282,7 @@ namespace Project.Tests.EditMode
             var data = new PlayerRuntimeData();
             data.Intent.JumpRequested = true;
             data.Intent.RollRequested = true;
-            data.Intent.FireRequested = true;
+            data.Intent.RequestedActionSlot = ActionSlot.Primary;
             data.JustLanded = true;
             data.JustLeftGround = true;
             data.MovementIntent.DesiredSpeedNormalized = 0.75f;
@@ -292,7 +293,8 @@ namespace Project.Tests.EditMode
 
             Assert.IsFalse(data.Intent.JumpRequested, "trigger 意圖必須在管線順序 7 統一復位");
             Assert.IsFalse(data.Intent.RollRequested, "trigger 意圖必須在管線順序 7 統一復位");
-            Assert.IsFalse(data.Intent.FireRequested, "trigger 意圖必須在管線順序 7 統一復位");
+            Assert.AreEqual(ActionSlot.None, data.Intent.RequestedActionSlot,
+                "Action request 是單幀邊沿意圖，必須在管線順序 7 統一復位（ADR-005）");
             Assert.IsFalse(data.JustLanded, "單幀邊沿事件必須在管線順序 7 統一復位");
             Assert.IsFalse(data.JustLeftGround, "單幀邊沿事件必須在管線順序 7 統一復位");
 

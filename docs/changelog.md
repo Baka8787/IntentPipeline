@@ -6,6 +6,32 @@
 
 ---
 
+## [v0.35] - ADR-005 Trial：ActionSlot 身分讓多 Action 共用一顆 ActionState（2026-09-02，⏳ 待編譯與驗收）
+
+`docs/08` §11.1 登記的 FU-1／FU-2／FU-3 一次解掉。三者共同根因是「系統裡沒有『這是哪一個 Action』的概念」——概念不存在，查表就只能用 `StateType` 當鍵、mailbox 只能是無名旗標、中斷只能比型別。新增 `ActionSlot`（`None`／`Primary`／`Secondary`／`Tertiary`／`Reaction`）作為單一身分，輸入映射、per-slot 冷卻、external request、Action→Action 中斷全部以它為鍵。
+
+`IntentData.FireRequested` 改為 `RequestedActionSlot`，writer 不變。`StateMachineConfigSO` 新增一條**平行的** `actionDefinitions` 索引，刻意不動既有四張以 `StateType` 為鍵的表——改它們會波及 Jump／Roll 等與 Action 無關的狀態；清單為空時退回舊路徑，既有 Throw／Damage 資產不用改任何欄位。`ActionState` 的冷卻由單一 `float` 改為 per-slot 陣列，仍住在 `ActionState` 內（ADR-004 D2 未破）；Definition 改為每次進入時依 request 現查。`BaseState.CanReenter` 預設 `false`，`ActionState` override 以支援 Action→Action 中斷，判準與 `CanEnter` 同源，沒有引入新決策來源。
+
+本輪採 code-first（ADR-005 Trial ＋ Fold-back 規則）。程式推翻兩個原假設：`ActionSlot` 原放 `Core/StateMachine/Actions/`，但 Presentation 的 `ThrownProjectile` 需要它而 `LayerRules` 禁止該 namespace，⇒ 移到 `Core/Actions/`——**身分屬於跨層 seam 層，不屬於 FSM 層**，這個結論是架構測試教的；重入的第一版就地 `TransitionTo`，會讓字典迭代順序決定結果並繞過更高優先的狀態（Roll），⇒ 改為與其他候選走同一套 priority 比較。另接受一個新耦合：`OnEnter` 現在必須重新解析 request。
+
+ADR-005 同輪瘦身，五條決策砍到兩條——既有 authority 的複述、schema routing 事實、實作分析都不該佔用 ADR 的凍結力，那會稀釋「ADR ＝ 改錯會造成架構污染」的訊號。
+
+順帶修掉一個既存缺陷：**A22 自 ADR-004 Trial 期起一直是紅的**。它斷言 `IActionReleaseSink`，但該介面早已改名為 `IActionLifecycleSink` 並從 1 個方法擴為 3 個，斷言與 `docs/08` §2.7 都沒同步。這也意味 ADR-004 §10 的 D 當時是在不成立的基礎上打勾的。教訓：改名要一併 grep 測試與文件。
+
+新增 T18–T21 與 A23（守 ADR-005 D1：身分只准宣告一次、冷卻不得外流）。⏳ **本批在遠端容器完成，容器內無 Unity 與 C# 編譯器，尚未編譯過**；EditMode、資產接線、Play 與 Profiler 零 GC 全部待驗——熱路徑有改動（`ProcessIntents`／`EvaluateInterrupts`），零 GC **必須**複驗。
+
+## [v0.34] - ADR-004 Accepted：Action 進 FSM 拓撲結案（2026-09-02，已驗收）
+
+Throw vertical slice 通過 ADR-004 §10 的 Acceptance Criteria，ADR-004 自 `Trial` 改為 `Accepted`——**本專案第一個走完 `Design → Trial → Implement → Observe → Revise → Accept` 全流程的 ADR**。D1–D7 decision content 自此凍結進入 Immutable Log。
+
+A（Play 全程跑通）與 C（既有 Idle／Move／Jump／Roll 無回歸）由 Play 驗收；D（EditMode 全綠）與 E（穩態 `0 B/frame`）由實跑確認。B 與 F 改以**靜態稽核**完成，明細新增為 ADR-004 §10.1：以符號搜尋列舉三個權威的所有呼叫點，確認 `ActionState` 全檔只有 `IsPlaying`／`GetNormalizedTime` 兩處唯讀查詢而從不呼叫 `Play`、冷卻僅 `OnExit` 寫入與 `CanEnter` 讀取、`Core/` 下 `Instantiate` 零命中、sink 呼叫點全部在 `ActionState` 內。
+
+稽核同時釐清 B 的正確讀法是「**Action 子系統**的動畫權威唯一」而非專案全域只有一個播放點——`LocomotionModel` 的 Stop 選片播放屬 ADR-003 D4 授權，早於 ADR-004 且與之正交。另登記兩處防禦性冗餘（release 雙重去重、`Cleanup()` 多路徑呼叫），現階段判定為冪等 safety net 而非 workaround，但多 Action 落地後需重新評估是否滑向兩個真相。
+
+作品集方向同日重訂：Throw 降級為 Acceptance 證據與架構歷史案例，不再投入手感調整，也不出現在展示影片。主線改為 Quick Spell／Ice Spell／Melee Slash 三技能加 Slow effect，由新增的 **ADR-005（Action Identity，同日翻牌 `Trial`）** 與 `docs/11-multi-action.md` 承載。ADR-005 只凍結五條決策，identity 的表示法、容器形狀與 API 一律不凍結。原 WP1（鏡頭＋Aim＋Throw 依 AimPoint）當日被判「解散」——**該判斷已於 2026-09-02 合併時撤回**：它是在看不到本機工作樹的遠端容器裡做的，而 WP1 其實已實作完成（見 `docs/09-camera-aim.md`）。WP1 是既有基礎，不是被取消的計畫。
+
+治理面另新增 `CLAUDE.md` 的 Remote Container Exception：遠端容器 session 中純文件變更可由 Claude commit／push，變更集一旦出現程式或 Unity 資產即整批退回原禁令。
+
 ## [v0.33] - Walk Pending Stop 相位等待（2026-08-21，已驗收）
 
 Walk LU／RU Fade `0.15 → 0.25 s` 後全身瞬間變動仍明顯，確認問題是固定起點 pose mismatch，繼續加長淡入只會讓錯誤混合更久。放開 Walk 現在先進入 `LocomotionStopRuntime` 私有 Pending 階段：用 Stop 入場 `FootPhaseCurve` 的連續值比對 Walk loop 烘焙鍵，選下一個最近的 authored 入場時刻，到點才播放。

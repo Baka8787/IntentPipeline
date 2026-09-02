@@ -13,6 +13,11 @@ namespace Project.Core.Pipeline
         public InputAction RollAction;
         public InputAction FireAction;
 
+        // 🆕（ADR-005）第二／第三個 action 按鍵（預設綁 Q／E，實際綁定在 .inputactions 資產）。
+        // 未綁定＝恆 false＝該技能不可觸發，不影響其他功能（同 SprintAction/WalkAction 先例）。
+        public InputAction SecondaryAction;
+        public InputAction TertiaryAction;
+
         // 🆕（ADR-003 Stage 1）持續型中性 action：本層不解讀語意，只回報按住與否。
         // 未綁定＝恆 false＝無修飾鍵（行為等同 Migration 前），因此不綁也能正常遊玩。
         public InputAction SprintAction;
@@ -25,6 +30,8 @@ namespace Project.Core.Pipeline
             JumpAction?.Enable();
             RollAction?.Enable();
             FireAction?.Enable();
+            SecondaryAction?.Enable();
+            TertiaryAction?.Enable();
             SprintAction?.Enable();
             WalkAction?.Enable();
         }
@@ -36,6 +43,8 @@ namespace Project.Core.Pipeline
             JumpAction?.Disable();
             RollAction?.Disable();
             FireAction?.Disable();
+            SecondaryAction?.Disable();
+            TertiaryAction?.Disable();
             SprintAction?.Disable();
             WalkAction?.Disable();
         }
@@ -51,6 +60,8 @@ namespace Project.Core.Pipeline
             data.JumpButtonDown = JumpAction != null && JumpAction.WasPressedThisFrame();
             data.RollButtonDown = RollAction != null && RollAction.WasPressedThisFrame();
             data.FireButtonDown = FireAction != null && FireAction.WasPressedThisFrame();
+            data.SecondaryActionButtonDown = SecondaryAction != null && SecondaryAction.WasPressedThisFrame();
+            data.TertiaryActionButtonDown = TertiaryAction != null && TertiaryAction.WasPressedThisFrame();
 
             // 持續型（IsPressed）：供「按住才生效」的控制方案使用。
             data.SprintButtonHeld = SprintAction != null && SprintAction.IsPressed();
