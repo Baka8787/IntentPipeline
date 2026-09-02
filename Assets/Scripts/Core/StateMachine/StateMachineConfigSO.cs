@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using Project.Presentation.Motion;
 using Project.Core.Actions;
+using Project.Core.StateMachine.Actions;   // ActionDefinitionSO 住在子命名空間；C# 不會自動搜尋子命名空間
 
 namespace Project.Core.StateMachine
 {
