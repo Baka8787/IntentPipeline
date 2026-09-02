@@ -260,6 +260,28 @@ Claude is NOT allowed to execute any Git mutation commands. The human developer 
 - **No PRs**: Never attempt to interact with the GitHub API to create Pull Requests or remote branches.
 - **Stop After Edit**: Once files are modified, stop immediately. Leave verification, compilation checks, and Git commits to the human developer in the Unity Editor / Terminal.
 
+## ⚠️ Remote Container Exception（decided 2026-09-02，使用者明確裁決）
+
+> **本節只適用於「工作樹不是使用者本機」的遠端 session**（Claude Code on the web ／ 容器化 session）。
+> **在使用者本機執行時，上方禁令一字不變、完全適用。**
+
+**為什麼需要例外**：上方 Solo Developer Mode 的前提是「本機工作樹持久存在，使用者稍後會在 Terminal 接手」。
+遠端容器**沒有這個前提**——容器回收後未 commit 的檔案直接消失，`git log` 追不到、下一個會話讀不到。
+這與「Documents Live in the Repo, Not in a Session」是同一個問題的兩面：**只存在於 session 的東西等於不存在。**
+
+| | 內容 |
+|---|---|
+| **✅ 允許** | 遠端 session 中，**純文件變更**可由 Claude `git add` ／ `git commit` ／ `git push -u origin <指定分支>` |
+| **純文件的定義** | 變更集**只含** `docs/**`、`WORKLOG.md`、`*.md`、`LearningNotes/**` |
+| **⛔ 一票否決** | 變更集若出現 `.cs`／`.asset`／`.prefab`／`.meta`／`.unity`／`.inputactions`／任何動畫或美術資產（`.fbx`／`.anim`／`.mat`／`.controller`）**任一項**，**整批退回上方禁令**，一律由使用者執行 |
+| **強制前置檢查** | commit 前**必須**跑 `git status --porcelain` 並逐條確認副檔名，**檢查結果要報給使用者**。⛔ 不得憑印象判斷「應該只有文件吧」 |
+| **分支** | 只准 push 到 session 指定的分支。⛔ 不得 `checkout`／`switch`／`branch`／`merge`／`rebase`／`stash`／force-push |
+| **PR** | **仍然禁止**——除非使用者明確要求，否則不開 PR（上方 No PRs 規則在此不放寬） |
+
+**為什麼把界線畫在「純文件」**：文件變更是加法、可讀、衝突易解，且它的價值完全來自「被 commit 進 repo」。
+程式與 Unity 資產則相反——`.meta`／GUID／serialization 的破壞在 review 階段極難察覺，
+而 Unity Editor 的編譯與 Play 驗證只有使用者做得到。**這條界線分的不是信任，是「錯了誰救得回來」。**
+
 ---
 
 # Expected Output Style
