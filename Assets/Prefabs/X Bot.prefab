@@ -2395,7 +2395,15 @@ MonoBehaviour:
     m_Id: aba633b6-06c6-4897-a83b-ccf2d2f0e049
     m_Processors: 
     m_Interactions: 
-    m_SingletonActionBindings: []
+    m_SingletonActionBindings:
+    - m_Name: 
+      m_Id: 3c4e6b7a-e4bf-4a8b-a1d4-5882145250f7
+      m_Path: <Keyboard>/e
+      m_Interactions: 
+      m_Processors: 
+      m_Groups: 
+      m_Action: Tertiary
+      m_Flags: 0
     m_Flags: 0
   SprintAction:
     m_Name: Sprint
