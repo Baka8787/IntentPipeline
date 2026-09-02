@@ -64,7 +64,7 @@ namespace Project.Core.Pipeline
             EditorGUILayout.LabelField("  Raw Look Input", input.LookInput.ToString());
             EditorGUILayout.LabelField("  Button: Jump Down", input.JumpButtonDown ? "【TRUE】" : "false");
             EditorGUILayout.LabelField("  Button: Roll Down", input.RollButtonDown ? "【TRUE】" : "false");
-            EditorGUILayout.LabelField("  Button: Fire Down", input.FireButtonDown ? "【TRUE】" : "false");
+            EditorGUILayout.LabelField("  Button: Slot1 Down", input.Slot1ButtonDown ? "【TRUE】" : "false");
             EditorGUILayout.LabelField("  Button: Sprint Held", input.SprintButtonHeld ? "【TRUE】" : "false");
             EditorGUILayout.LabelField("  Button: Walk Held", input.WalkButtonHeld ? "【TRUE】" : "false");
             EditorGUILayout.LabelField("  Button: Walk Down（邊沿）", input.WalkButtonDown ? "【TRUE】" : "false");

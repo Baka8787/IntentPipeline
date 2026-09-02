@@ -72,7 +72,7 @@ namespace Project.Core.Pipeline
             public Vector2 LookInput;
             public bool JumpButtonDown;
             public bool RollButtonDown;
-            public bool FireButtonDown;
+            public bool Slot1ButtonDown;
             public bool SprintButtonHeld;
             public bool WalkButtonHeld;
             public bool WalkButtonDown;
@@ -227,7 +227,7 @@ namespace Project.Core.Pipeline
             _inputDebug.LookInput = inputData.LookInput;
             _inputDebug.JumpButtonDown = inputData.JumpButtonDown;
             _inputDebug.RollButtonDown = inputData.RollButtonDown;
-            _inputDebug.FireButtonDown = inputData.FireButtonDown;
+            _inputDebug.Slot1ButtonDown = inputData.Slot1ButtonDown;
             _inputDebug.SprintButtonHeld = inputData.SprintButtonHeld;
             _inputDebug.WalkButtonHeld = inputData.WalkButtonHeld;
             _inputDebug.WalkButtonDown = inputData.WalkButtonDown;
@@ -385,16 +385,16 @@ namespace Project.Core.Pipeline
             // raw input 只回報按鍵狀態（不知道技能），ActionState 只認 Slot（不知道按鍵），兩端都保持乾淨。
             // ⚠️ 同幀多鍵：先寫者勝（Slot1 > Slot2 > Slot3）。單格 intent 不排隊，
             //    與既有 mailbox 的「不排隊、不重試」語意一致。
-            if (input.FireButtonDown) _runtimeData.Intent.RequestedActionSlot = ActionSlot.Slot1;
-            else if (input.SecondaryActionButtonDown) _runtimeData.Intent.RequestedActionSlot = ActionSlot.Slot2;
-            else if (input.TertiaryActionButtonDown) _runtimeData.Intent.RequestedActionSlot = ActionSlot.Slot3;
+            if (input.Slot1ButtonDown) _runtimeData.Intent.RequestedActionSlot = ActionSlot.Slot1;
+            else if (input.Slot2ButtonDown) _runtimeData.Intent.RequestedActionSlot = ActionSlot.Slot2;
+            else if (input.Slot3ButtonDown) _runtimeData.Intent.RequestedActionSlot = ActionSlot.Slot3;
 
             // 字串（尤其帶 richtext tag）每次觸發都會產生 GC Alloc，與專案零 GC 目標矛盾。
             // 包進 UNITY_EDITOR 後，Release 建置會被編譯器直接移除，Editor 內除錯體驗不變。
 #if UNITY_EDITOR
             if (input.JumpButtonDown) Debug.Log("<color=lime>[Intent] 跳躍意圖已被黑板捕獲！</color>");
             if (input.RollButtonDown) Debug.Log("<color=cyan>[Intent] 翻滾意圖已被黑板捕獲！</color>");
-            if (input.FireButtonDown) Debug.Log("<color=orange>[Intent] 開火意圖已被黑板捕獲！</color>");
+            if (input.Slot1ButtonDown) Debug.Log("<color=orange>[Intent] Slot1 意圖已被黑板捕獲！</color>");
 #endif
         }
 
