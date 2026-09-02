@@ -353,11 +353,20 @@ Definition 不再於 `Initialize` 綁死，因此 `OnEnter` 必須**重新解析
 `BuildActionSlotMap` 在 `actionDefinitions` 為空時，退回讀 `paramsMappings` 綁在 `StateType.Action` 的那份。
 ⇒ **既有 Throw／Damage 資產不改一個欄位也能繼續跑**。T21 鎖住此路徑。
 
-### 測試（已寫，⏳ 未實跑）
+> 🔴 **接線陷阱（`BuildActionSlotMap` 的 `if (_actionSlotMap.Count > 0) return;`）**
+> 退路是 **all-or-nothing**：只要 `actionDefinitions` **有任何一筆**，相容路徑就整條不走。
+> ⇒ 想加 Slot2／Slot3 時，**必須把現有的 Throw Definition 一併放進 `actionDefinitions`（Slot ＝ `Slot1`）**，
+> 否則 Throw 會安靜地失效——`paramsMappings` 裡那份從此不再被查。
+> 這不是 bug（半套遷移比隱性雙來源更該被看見），但它**不會報錯**，所以寫在這裡。
+
+### 測試（✅ 2026-09-02 實跑全綠）
 
 新增 **T18**（兩份 Definition 獨立觸發且共用同一 `ActionState` 實例）、**T19**（per-slot 冷卻不連坐）、
 **T20**（同 slot 不重入／不同 slot 可互相打斷）、**T21**（舊資產相容），
 ＋ **A24**（守 ADR-005 D1：身分只准宣告一次、冷卻不得外流至 `ActionState` 之外）。
+
+⚠️ **T19 當初是紅的，且抓到真 bug**：冷卻只寫在 `OnExit`，而 `Complete()` 會先清空 `_activeSlot`／`_definition`
+⇒ **自然播完的 Action 永遠不進冷卻**。已抽出 `CommitCooldown()` 在兩個結束路徑各呼叫（冪等）。
 
 ### 🐞 順帶修掉的既存缺陷
 
