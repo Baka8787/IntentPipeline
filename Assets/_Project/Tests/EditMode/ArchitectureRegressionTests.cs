@@ -4,6 +4,7 @@ using System.IO;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
 using UnityEngine;
+using Project.Core.StateMachine;   // A23：直接構造四個 ambient／intrinsic state 檢查 AnimationKey 的識別性
 
 namespace Project.Tests.EditMode
 {
@@ -606,7 +607,49 @@ namespace Project.Tests.EditMode
             string code = StripComments(File.ReadAllText(path));
             StringAssert.DoesNotContain("Instantiate", code);
             StringAssert.DoesNotContain("Destroy", code);
-            StringAssert.Contains("IActionReleaseSink", code);
+            // ⚠️ 介面實名為 IActionLifecycleSink（`Core/Actions/IActionLifecycleSink.cs`）。
+            //    原斷言寫成 `IActionReleaseSink`——那個名字在專案裡從不存在，因此本測項自 ADR-004 落地起
+            //    就是紅的，只是**當時沒有人真的跑過測試**（2026-08-31 首次執行才暴露）。
+            //    這條的意圖不變：ActionState 只能把 Unity side effect 委派給 sink，不得自己生滅物件。
+            StringAssert.Contains("IActionLifecycleSink", code);
+        }
+
+        // ------------------------------------------------------------------
+        // A23 — AnimationKey 不得每帧配置（零 GC 紀律的可自動化切片，比照 A3）
+        //
+        // 背景：ADR-004 把管線順序 5 由「比較 StateType」改為「比較 AnimationKey 字串」，
+        //       使同一個 ActionState 能切換多 phase。代價是本屬性從「每次轉場讀一次」
+        //       變成「**每帧**讀一次」。而 `Enum.ToString()` 每次呼叫都裝箱 ＋ 配置字串，
+        //       於是熱路徑每角色每帧漏 40 B（玩家＋敵人 = 80 B/frame，Profiler 實測）。
+        //
+        // 為什麼用「同一個實例」而不是掃字面 `.ToString()`：
+        //   掃字面會過度擬合寫法（換成 nameof／字典／插值就漏掉），而**識別性**直接描述我們要的性質——
+        //   「重複讀取不得產生新物件」。任何仍會配置的實作都會讓這條紅。
+        // ------------------------------------------------------------------
+        [Test]
+        public void A23_StateAnimationKey_DoesNotAllocatePerAccess()
+        {
+            var states = new List<BaseState>
+            {
+                new IdleState(), new MoveState(), new JumpState(), new RollState()
+            };
+
+            var violations = new List<string>();
+            foreach (BaseState state in states)
+            {
+                string first = state.AnimationKey;
+                string second = state.AnimationKey;
+
+                if (!ReferenceEquals(first, second))
+                {
+                    violations.Add($"{state.GetType().Name}.AnimationKey 每次讀取都回傳新實例（值＝\"{first}\"）");
+                }
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "AnimationKey 由管線順序 5 每帧讀取，必須快取；`=> Type.ToString()` 會裝箱並配置字串。\n" +
+                "修法：在 BaseState 快取一次（Type 對每個具體 state 是常數）。\n" +
+                string.Join("\n", violations));
         }
     }
 }

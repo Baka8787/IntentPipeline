@@ -7,7 +7,107 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
-> ### 📍 2026-08-31 交接（最新，請先讀這段）
+> ### 🎬 2026-08-31（深夜）— **GC 回歸已修 ＋ WP1 程式已交付，全部待使用者驗證**（最新，請先讀這段）
+>
+> **一句話**：ADR-004 的 E（零 GC）根因已定位並修好、WP1 程式已由 Codex 交付，
+> 但**兩者都還沒有在 Unity 裡跑過**——`.meta` 未生成、EditMode 未執行、Play 未驗。
+>
+> **① ADR-004 §10-E 的 GC 回歸（已修）**
+> - **根因**：`BaseState.AnimationKey => Type.ToString()`。`Enum.ToString()` 每次呼叫都**裝箱＋配置字串**。
+>   ADR-004（`c26c72d`）把順序 5 由「比較 `StateType`」改成「比較 `AnimationKey` 字串」以支援多 phase Action，
+>   使該屬性由**每次轉場讀一次**變成**每帧讀一次** ⇒ 每角色 40 B，玩家＋敵人 = **80 B/frame**（Profiler 實測數字完全對得上：GC.Alloc Calls 4 ＝ 2 角色 × 2 次配置）。
+> - **為什麼 v0.24 曾實測 0 B/frame**：當時 `AnimationKey` 只在轉場時被讀，配置量在穩態看不見。
+> - **修法**：`BaseState` 快取一次（`Type` 對每個具體 state 是常數）。`ActionState` 早已 override 成自己的 phase 快取，不受影響。
+> - **⚖️ 不影響 §10-F**：順序 5 輪詢動畫鍵是 D5 的設計要求，不是 workaround，也沒有第二套 authority。**設計不需退回。**
+> - **新增架構不變量 A23**（`[Test]` **17 → 18**）：斷言連續兩次讀 `AnimationKey` 回傳**同一個 string 實例**。
+>   刻意不掃 `.ToString()` 字面——那會過度擬合寫法；識別性直接描述要的性質。
+>   📌 這是 **A3 能力邊界的第二個實例**（第一個是介面型 `foreach` 裝箱），已記入 dev-spec §7.1。
+> - ⚠️ **E 的驗證狀態（據實記錄，不得寫成量測通過）**：使用者裁決**不再複測** ⇒ E ＝「已定位並修正 ＋ A23 自動守住」，
+>   **不是**「重新量測通過」。dev-spec §7.4 的 Development Build 量測**尚未重跑**。已同步記入 ADR-004 §11。
+>
+> **② WP1 程式（Codex 已交付，`threadId 01a05468`）**
+> - 新增 `Presentation/Camera/AimResolver.cs`、`_Project/Tests/EditMode/CameraAimTests.cs`（8 條測項 T-1～T-8）
+> - 修改 `ThirdPersonCamera.cs`（移除 `LookAt` ＋ pivot 公轉 ＋ 取景 blend ＋ 防穿牆）、`ThrowProjectileEmitter.cs`（依 AimPoint 發射 ＋ 退化路徑）
+> - **已獨立稽核通過**（不採信自述）：禁區零觸碰；`LookAt` 實呼叫已移除；`ThrownProjectile.cs` 未動；
+>   無 LINQ；`transform.rotation` 單一寫入且碰撞只改 position（§7.3.2 第一條紅線成立）。
+> - 🔴 **Codex 明確聲明未實跑測試**（它被禁止開 Unity）⇒ **「交回時全綠」尚未成立。**
+>
+> **③ 相機取景已定案（2026-08-31 實機調定，程式／prefab／規格三方同步）**
+> `pivotHeight = 1.5`、`offset = (0.44, **−0.39**, −1.83)`、`aimOffset = (0.5, 0.42, −2)`、`mouseSensitivity = 0.1`（由舊值 2 修正）。
+> 換算：**y 為負是刻意的** ⇒ 角色在畫面中心**上方 40%**（`atan(0.39/1.83)=12.0°`）、水平 13.5° 左（右肩過肩）、相機高 1.11 m、距離 1.83 m。
+> 公式與失敗對照見 [`docs/09` §6.2](09-camera-aim.md)。
+> 📌 過程中修掉的**規格錯誤（全部是我的，不是實作偏離）**：
+> ①`offset` 語意在 D1 之後改變但沒說要遷移舊值（舊值 ⇒ 角色貼齊畫面下緣，看起來像相機壞掉）；
+> ②**「側向 offset 會影響移動基底」的警告是錯的**——`rotation = Euler(pitch, yaw, 0)` 與 offset 無關，
+> E3 只是**一次性的遷移論證**、不是持續約束 ⇒ §3-E1／E3、§4-D1、§9-T4、§10.1 T-3、§11.2、§12.1-R3 全部已改寫。
+> 🔴 **教訓**：我連續三輪改程式卻漏改規格表格，全部由 **Codex 的停止條件擋下**（它三次拒絕開工並指出矛盾）。
+> **改程式與改規格要在同一次動作內完成**，不要分兩趟。
+>
+> **④ Codex 複驗（thread `01a05e15`，2026-08-31）**
+> C1–C10、防穿牆四紅線、AimPoint／soft target（確認選**角度最小**非最近）、Throw 三條退化路徑、
+> T1–T6、§2.3.2 禁止項 —— **全部靜態符合**。唯一違反＝**測項 T-3 仍在測作廢判準**，已修；Runtime 三檔未動。
+> 編譯面靜態檢查通過（`InternalsVisibleTo("Project.Tests.EditMode")` 已由我確認存在、asmdef 引用齊全）。
+>
+> **⑤ 接線現況（2026-08-31 由 prefab 實查，非截圖推測）**
+> | 項目 | 狀態 |
+> | --- | --- |
+> | Layer 表：`6 = Player`(X Bot)／`7 = Enemy`(Y Bot) | — |
+> | `obstructionMask` = Default | ✅ 排除 Player |
+> | `aimRayMask` = Default + Enemy | ✅ **排除 Player**（最隱蔽的那個陷阱已避開） |
+> | `softTargetMask` = Enemy | ✅ |
+> | `AimResolver` 元件（掛在 X Bot）＋ `aimAction` = RMB | ✅ |
+> | X Bot／Y Bot 皆在場景根層互為兄弟 | ✅ `transform.root` 不同 ⇒ 自我排除正確 |
+> | 🔴 **`ThirdPersonCamera.aimResolver`** | ❌ **仍 None**。跨 prefab 引用 ⇒ **必須在場景實例上接**（同 `target` 既有的 override 作法），prefab 資產內拖不到 |
+> | 🔴 **`ThrowProjectileEmitter.aimResolver`** | ❌ **仍 None**。與 `AimResolver` 同在 X Bot ⇒ **可直接在 Prefab 編輯模式拖** |
+> | `AimResolver.sourceCamera` | ⚠️ None ⇒ 退回 `Camera.main`（有 MainCamera tag，會動），建議明確指定 |
+>
+> ⇒ **瞄準路徑目前完全沒啟動過**；`aimOffset` 從未被真正看過（§12.1-R3 的 24° 垂直擺動風險尚未驗證）。
+>
+> **⑥ 下一步（全部在使用者側，依序）**
+> 1. **接上兩個 `aimResolver` 引用**（見⑤，兩者作法不同）。
+> 2. 跑 EditMode：**應為 18 ＋ 8 = 26 條全綠**。任一條紅 ⇒ 回報，不要自行繞過。
+> 3. 依 [`docs/09` §10.4](09-camera-aim.md) 跑**八步驗收操作鏈**。
+> ⚠️ Codex 預測最可能先撞到：①兩個 `aimResolver` 未接完整；②探索／瞄準 `offset.y` 異號造成 24° 垂直擺動；
+> ③ **P4**（D3 的強制觀察項，明顯違和即**直接升級 D3(c)**，已預先授權）。
+>
+> **① 已完成**
+> - `docs/09-camera-aim.md`（WP1 規格，🟢 **已定案**）＋ `docs/00-map.md` 登記一行。
+> - **確認不需要 ADR**：四條判準逐條 ❌（§12.3）。本包走 Living Doc 分卷，不開 ADR、不進 Trial。
+> - **D1–D5 五個裁決點全部拍板**（使用者，見下表）。
+> - **新增 §2.3「WP1 鏡頭完成線」**：C1–C10 的 DoD ＋ 使用者指定的 10 條明確不做 ＋ **驗收操作鏈**（§10.4）。
+>
+> **② 裁決結果（使用者 2026-08-31）**
+> | # | 題目 | 裁決 |
+> | --- | --- | --- |
+> | **D1** | 相機旋轉單一權威 | ✅ 採納 (a)：移除 `LookAt` ＋ pivot 公轉 |
+> | **D2** | AimPoint 住哪裡 | ✅ 採納 (a)：Presentation 私有，**不進黑板**，先不抽介面 |
+> | **D3** 🔴 | 瞄準時角色轉不轉身 | ✅ 先採 (a)，**列為強制 Play 驗收項**；明顯違和**直接升級 (c)**（已預先授權，不必再問） |
+> | **D4** | soft target 形狀 | ✅ 採納 (a) |
+> | **D5** | Cinemachine | ✅ **WP1 不使用** |
+>
+> **③ scope 的兩處變動（重要，會與舊文字打架）**
+> - 🔄 **相機防穿牆：Non-goal → In Scope**（`docs/09` S7／C9／§7.3）。本檔的 polish 桶已由 5 項改為 **4** 項。
+>   範圍嚴格限縮：**只拉近、不轉向、不找路、不淡出**（四條紅線在 §7.3.2）。
+> - 🆕 **Lock-on 切成後續獨立 Gameplay 工作包**（FU-13）——它同時動 Camera ＋ Facing ＋ Movement Basis ＋ Action Targeting 四個系統，
+>   塞進 WP1 會讓本包的架構命題直接失效。
+>
+> **④ ⛔ scope 已鎖**：使用者明確指示**不得因「作品集品質」自行追加**。跑完 §10.4 的八步操作鏈即視為 WP1 Camera 部分完成。
+>
+> **⑤ 三個從程式挖出來、決定本包形狀的事實**
+> - **FU-5 的修法可證明是行為中性的**：`offset.x == 0`，而 `MotionDriver` 與 `AIMovementSource` **兩個消費者都把 `camera.forward` 壓平**，壓平後 `LookAt` 版與 `Euler(pitch,yaw,0)` 版**水平分量完全相同**。相機 pitch 目前**零消費者**。（已寫成 EditMode 測項 T-3，讓這個前提會失敗）
+> - 🆕 **FU-11**：相機是**第二個輸入權威**——`InputData.LookInput` 有採樣**無消費者**，相機直接讀 `Mouse.current.delta`，繞過 `BlockInput` 閘門。**本包不修**：`InputData` 是 `ref struct`、當帧銷毀，相機在 LateUpdate 拿不到 ⇒ 接回管線只能經黑板 ⇒ 撞停止條件①。
+> - 🆕 **FU-12**：`PlayerRuntimeData.AimTarget` 是**死欄位**（無寫入者、無讀取者）。**刻意不使用、也不順手清理**——清理會動 schema，污染本包「零改動」的證明。
+>
+> **⑥ 停止線：已核對，仍未滿足 ⇒ 不派 Codex**
+> 2026-08-31 實查：ADR-004 §10 的 **A–F 六項全部未勾**、**G1–G7 全部未勾**、ADR 狀態欄仍為 🟡 `Trial`。
+> ⇒ WP1 停在「文件先行」這一步（規矩：**規格先落地並 commit，Codex 才開始寫程式**）。
+> **下一個會話的判斷式**：先看 ADR-004 §10 是否已回填 ＋ G1／G2／G3／G6 是否打勾——
+> **滿足才依既有流程派 Codex**（交付邊界見 [`docs/09` §11](09-camera-aim.md)）；**未滿足就不要越線**。
+> ⚠️ 兩者仍**不互相 gate**：ADR-004 的 Play 驗收是使用者側工作，可與本規格的 review 平行進行。
+>
+> ---
+
+> ### 📍 2026-08-31 交接（前一段，Foot IK 與 scope 收斂）
 >
 > **一句話**：Foot IK 軌 A 已結案；主線仍卡在 **ADR-004 的 Unity 資產側與 Play 驗收**（使用者側），程式面沒有待辦。
 >
@@ -20,16 +120,18 @@
 > **② 現在該做什麼**
 > - **不要動 Foot IK**。重開條件見 `docs/05` §3.5.5（五條，任一成立才重開）。繼續調之前**必須先做 FU-IK-2 可視化**。
 > - **主線的停止線沒有變**：ADR-004 `Trial → Accepted`。等使用者完成資產接線與 Play 驗收，程式面無事可做。
-> - 使用者說要開 **WP1（鏡頭 ＋ Aim ＋ Throw 依 AimPoint）** 時：先出 `docs/09-camera-aim.md` 規格，再派 Codex。**WP1 不開 ADR**（純 Presentation、黑板 schema 零改動）。
+> - ~~使用者說要開 **WP1（鏡頭 ＋ Aim ＋ Throw 依 AimPoint）** 時：先出 `docs/09-camera-aim.md` 規格，再派 Codex。~~
+>   ✅ **已執行（2026-08-31 晚）**：規格已落地於 [`docs/09-camera-aim.md`](09-camera-aim.md)，現卡在五個裁決點——見本段最上方的 WP1 區塊。**WP1 不開 ADR** 已由 §12.3 逐條確認。
 >
 > **③ 環境與工具（本輪新增）**
 > - **Codex 可直接呼叫**：`.mcp.json` 已設定（`cmd /c codex mcp-server`，`sandbox_mode=workspace-write`／`approval_policy=never`），工具為 `mcp__codex__codex` ／ `mcp__codex__codex-reply`。⚠️ **thread 會過期**（實測掉過一次），過期就開新 session 並補完整脈絡。
 > - **Codex 沙箱與批准權在它那側**，MCP 層無法強制紀律 ⇒ 「不碰 git、不碰資產、檔案白名單」**必須每次寫進 prompt**，光靠 `AGENTS.md` 不夠。
 > - 使用者**已授權**直接調用 Codex。
 >
-> **④ 工作樹狀態（未 commit，git 全由使用者執行）**
-> - Foot IK v4（3 檔）、ADR-004 Trial 的 P1／P2 程式與資產、Free Sword Animations 素材、本輪全部文件。
-> - commit 切點建議見下方「🌱 Git commit 切點」一節。
+> **④ 工作樹狀態（2026-08-31 核對：`git status` 為 clean；git 全由使用者執行）**
+> - ✅ **本輪全部產出已由使用者 commit**：Foot IK v4、ADR-004 Trial 的 P1／P2 程式與資產、Free Sword Animations 素材、本輪全部文件——工作樹已無未暫存／未追蹤變更。
+> - **實際落點與原規劃不同**，落在兩筆：`c26c72d`（素材＋程式＋Unity 資產＋多數文件，合流成一筆）與 `d5132e9`（治理條文 ＋ `docs/artifacts/foot-ik.html`）。逐項對照見下方「🌱 Git commit 切點」A 段。
+> - ⚠️ **commit 完成 ≠ 驗收完成**。ADR-004 仍是 `Trial`；停止線四項尚未全數成立（見上方「🛑 當前輪次的停止 checkpoint」）。**資產已進 repo 不等於接線正確**——第 1 項仍要由 Play 驗收判定。
 >
 > **⑤ 這輪學到的、值得下一個會話沿用的做法**
 > - **先形式化約束模型再改程式**。Foot IK 繞了四版，前三版都是因為沒把「誰決定位置／誰決定旋轉／誰決定接觸」講清楚就動手。
@@ -55,7 +157,10 @@
 > - **🎬 Portfolio Qualification**：觀眾實際看到什麼？沒有它，影片缺哪一段？驗收＝錄影段落／外行能否複述。
 >
 > ⚠️ **分類規則**：一個項目只要在**任一條軸**上是必要的，就**不得**進 polish 桶。
-> 只有兩條軸都只是加分的才是 polish（現存 5 項：震屏、hit stop、aim friction 微調、相機碰撞避讓、projectile 物件池）。
+> 只有兩條軸都只是加分的才是 polish（現存 **4** 項：震屏、hit stop、aim friction 微調、projectile 物件池）。
+> 🔄 **2026-08-31 重新分類**：**相機碰撞避讓（防穿牆）已移出 polish 桶，進入 WP1 scope**（使用者裁決）。
+> 理由正是本節的分類規則——它在 🎬 軸上是**必要**的：穿牆是外行一眼看得到的破綻，且它是「自由第三人稱視角基礎」與
+> 「一顆會跟隨的攝影機」之間的分界線。原分類是誤判。範圍限縮為「只拉近、不轉向、不找路」，見 [`docs/09` §7.3](09-camera-aim.md)。
 
 ### 🎬 展示規格（取代舊的「15–20 秒 demo」）
 
@@ -79,6 +184,7 @@
 **停在 ADR-004 `Trial → Accepted` 的那一刻。** 全部成立才算到線，一件不多：
 
 1. 資產與接線完成（Throw／Damage 的 transition mappings、Bake、兩份 Definition、Config 的 Action rules、`ThrownProjectile` trigger collider、敵人 prefab、NavMesh 烘焙）。
+   - 📌 **2026-08-31 現況**：上述資產**檔案本身已進 repo**（`c26c72d`，含 `ThrowDefinition`／`DamageDefinition`／`EnemyStateMachineConfig`／`ThrownProjectile.prefab`／`Y Bot.prefab`／`NavMesh-Navigation.asset`／Throw 與 Damage 的 Bake 與動畫資產）。**但「檔案存在」不等於「接線正確」**——本項仍未打勾，由 Play 驗收判定。
 2. ⚠️ **`playerCamera` 欄位或 MainCamera tag 必須確認存在**——`AIMovementSource` 在 `data.CameraTransform == null` 時**直接 return**，症狀是「敵人靜止不動」且**沒有任何錯誤訊息**。這條放進驗收清單，不要現場 debug。
 3. G1／G2／G3／G6 打勾。
 4. ADR-004 §10 的 **A–F 逐條回填**，特別是 **F（實作沒有逼出第二套 authority 或明顯 workaround）**。
@@ -194,7 +300,7 @@
 
 | 包 | 🏗 Architecture Qualification | 🎬 Portfolio Qualification | 交付段落 | ADR 路由 |
 | --- | --- | --- | --- | --- |
-| **WP1** 鏡頭 ＋ Aim ＋ Throw 依 AimPoint | 「相機／瞄準是純 Presentation 關切」——交付時**黑板 schema 零改動、架構測試條數不變**。這是個**負面證明**：不是每個新功能都要動核心契約 | 探索鏡頭讓既有 locomotion 終於好看；瞄準可信；miss 能歸因於自己 | 1／2／3 | **不開 ADR** → `docs/09-camera-aim.md` |
+| **WP1** 鏡頭 ＋ Aim ＋ Throw 依 AimPoint | 「相機／瞄準是純 Presentation 關切」——交付時**黑板 schema 零改動、架構測試條數不變**。這是個**負面證明**：不是每個新功能都要動核心契約 | 探索鏡頭讓既有 locomotion 終於好看；瞄準可信；miss 能歸因於自己 | 1／2／3 | ✅ **確認不開 ADR**（四判準逐條 ❌，見 §12.3）→ 規格已落地 [`docs/09-camera-aim.md`](09-camera-aim.md)（🟡 待 §4 五個裁決點拍板） |
 | **WP2** Multi-Action ＋ Action Mapping ＋ 玩家揮劍 | 一顆 `ActionState`／六員 `StateType`／七階管線不變的前提下跑多 action；**加第四個 action ＝ 一份資產 ＋ 一列映射，零程式**；裁決 FU-1 | **遠程／近戰對比**；架構價值唯一能「演」出來的一段（改 SO 即改行為） | 6／7（並讓 8 成為可能） | **ADR-005（Trial）**，前提：ADR-004 已 Accepted |
 | **WP3** 敵人戰鬥遭遇 | **敵人攻擊不新增任何 runtime 程式**——Telegraph／Commit／Recovery 全由 `ActionPhase` 的逐 phase `Interruptible` ＋ `Cooldown` 表達 | 敵人是對手不是靶子；Roll 終於有存在理由；雙向互動 | 4／5／8／9 | 不開 ADR → Living Docs |
 | **WP4** 主展示 ＋ Teaser | **無新增；本包不得產生任何程式或架構改動** | 整片；節奏與呼吸 | 全部 | 無 |
@@ -207,19 +313,25 @@
 
 傷害數值／HP／死亡系統；Effect／Buff／Status Framework（**Slow 因此不進任何一包**）；combo／輸入緩衝／通用 cancel window；Behavior Tree／Utility AI／GOAP／aggression token；通用 targeting service／全域註冊表／singleton；上身層／aim IK；新的管線階段；通用 camera state machine；**動 `LocomotionModel`**（`docs/07` §13.1-R4）。
 🆕 **新界線**：命中回饋＝「一個材質參數 ＋ 一顆音效」。**一旦它開始需要註冊、查表或定義檔，就已經越線**——第二個使用者出現前不建 production abstraction。
+🆕 **相機側界線（2026-08-31，使用者裁決）**：lock-on／target switching／strafing movement mode／shoulder swap／camera zone／
+電影式自動構圖／多層 camera profile／複雜 obstruction avoidance／自動 reposition 與 corner solving／**為未來預抽的大型 Camera Framework**——
+**一律不進 WP1**（清單全文在 [`docs/09` §2.3.2](09-camera-aim.md)）。防穿牆是**唯一**進 scope 的碰撞處理，且只准「拉近」。
 
 ### 📇 Follow-up 登記表（只登記，不處理）
 
 | # | 發現 | 處理時機 |
 | --- | --- | --- |
 | **FU-1／FU-2／FU-3** | Action→Action 中斷不可能／一角色一份 Definition／mailbox 無身分 | **WP2**。全文已寫入 [`docs/08` §11.1](08-skill-system.md) |
-| **FU-4** | Throw 沿角色 root forward 發射（`ThrowProjectileEmitter` 的 `Instantiate(..., transform.rotation)`） | WP1 |
-| **FU-5** | 相機**旋轉雙權威**：`_yaw`／`_pitch` 只驅動位置軌道，最終 rotation 被 `LookAt` 整個覆寫 ⇒「滑但不好瞄」的根因是這個，不只是 damping 值 | WP1 |
+| **FU-4** | Throw 沿角色 root forward 發射（`ThrowProjectileEmitter` 的 `Instantiate(..., transform.rotation)`） | **WP1 進行中** → 解法在 [`docs/09` §8.2](09-camera-aim.md)（含未接線時的退化路徑） |
+| **FU-5** | 相機**旋轉雙權威**：`_yaw`／`_pitch` 只驅動位置軌道，最終 rotation 被 `LookAt` 整個覆寫 ⇒「滑但不好瞄」的根因是這個，不只是 damping 值 | **WP1 進行中** → 裁決點 [`docs/09` §4-D1](09-camera-aim.md)。🔍 **已證明修法對既有移動是行為中性的**（`offset.x == 0` ＋ 兩個消費者都壓平 `y`），論證見 §3-E3、測項 T-3 |
 | **FU-6** | `AIMovementSource` 依賴 `data.CameraTransform`，把世界方向轉成相機空間只為了讓 `MotionDriver` 轉回世界；敵人的移動因此綁在玩家相機上 | **不排程**。正解是給 `MovementIntent` 座標基底語意或讓 producer 直接輸出世界方向（ADR-003 §9-L2 的延續），等第三個 producer 出現再談 |
-| **FU-7** | Cinemachine 2.10.7 在 manifest 但專案零使用（只有 `Assets/StarterAssets` 引用）＝決策債 | WP1 開包時一次裁決「用或不用」。⚠️ 若導入需掛 `CinemachineCore.GetInputAxis` 這類**靜態全域輸入 hook**，等於引入第二個輸入權威 ⇒ 停並回報 |
+| **FU-7** | Cinemachine 2.10.7 在 manifest 但專案零使用（只有 `Assets/StarterAssets` 引用）＝決策債 | ✅ **已裁決（2026-08-31，待使用者確認）：不導入**。四條理由見 [`docs/09` §4-D5](09-camera-aim.md)——主因正是預警過的 `CinemachineCore.GetInputAxis` 靜態全域 hook（停止條件②），且 CM 的價值面（blend 圖／優先級／群組取景）**一項都不在 WP1 scope 內**。manifest 清理屬使用者側、可選 |
 | **FU-8** | `ThrownProjectile` 每次 `Instantiate`／`Destroy` | **不排程**。零 GC SOP 管的是穩態，投擲是事件型配置；Profiler 實測成為問題才做池 |
 | **FU-9** | `ActionState.CanEnter` 對 `FireRequested` 與 external mailbox 同權，無仲裁 | WP2 順帶（多來源必然要定義誰贏） |
 | **FU-10** | `LocomotionModel` 走向 God Class（`docs/07` §13.1-R4） | 不排程；**四個工作包都不得動它** |
+| **FU-11** 🆕 | **相機是第二個輸入權威**：`InputData.LookInput` 有採樣但**零消費者**，`ThirdPersonCamera` 直接讀 `Mouse.current.delta`，繞過 `BlockInput` 閘門（以 `Cursor.lockState` 代理） | **不排程**（WP1 明確不修）。`InputData` 是 `ref struct`、當帧銷毀，LateUpdate 的相機拿不到 ⇒ 接回管線只能經黑板 ⇒ 撞停止條件①。觸發條件：①出現「游標自由但相機仍該轉」的模式（dev-spec §7.3 的失效條件）；或②**第三個** Presentation 元件想直接讀輸入裝置。詳見 [`docs/09` §5.3](09-camera-aim.md) |
+| **FU-12** 🆕 | `PlayerRuntimeData.AimTarget` 是**死欄位**——有宣告、Editor 有顯示，**無寫入者也無讀取者** | **不排程**。⛔ **不得混進 WP1**：清理它會動黑板 schema ＋ dev-spec §1.1 ＋ Editor，會污染本包「schema 零改動」的負面證明。應獨立成一筆清理 commit |
+| **FU-13** ✅ | **Souls 式 lock-on** | ✅ **已開包（2026-08-31）** → 規格 [`docs/10-lock-on.md`](10-lock-on.md)（🟡 待 D1 裁決）。**拆兩階段**：Stage 1（不含 strafe）四條 ADR 判準全不成立 ⇒ **不開 ADR、走 Living Doc**；Stage 2（含 strafe）判準①③成立 ⇒ 必須開 ADR-005，且**不得在 ADR-004 仍為 Trial 時開始** |
 
 ---
 
@@ -274,15 +386,23 @@
 > 判準是「**能不能單獨 revert**」，**不是歷史好不好看**。為了漂亮的歷史去做 `git add -p` 拆同一個檔案，
 > 代價高於收益——**檔案混在一起就合成一筆，並在 message 裡誠實說明**。
 
-**A. 現在（工作樹已累積 P1＋P2＋治理文件，尚未 commit）**
+**A. ✅ 已完成（2026-08-31 核對）** —— 原標題：「現在（工作樹已累積 P1＋P2＋治理文件，尚未 commit）」
 
-| 順序 | 建議切點 | 內容 | 為什麼單獨一筆 |
-| --- | --- | --- | --- |
-| **C0-a** | `chore(assets): 匯入 Free Sword Animations（EEJANAI_Team）` | 只有 `Assets/EEJANAI_Team/**` ＋ `.meta` | 第三方素材單獨一筆 ⇒ 日後換版或移除可乾淨 revert，不與自己的程式糾纏 |
-| **C0-b** | `feat: 敵人管線重用 ＋ Action in FSM（ADR-004 Trial，待 Play 驗收）` | `Assets/Scripts/**`、`ArchitectureRegressionTests.cs`、以及 P1／P2 的資產（Throw／Damage 動畫資產、Bake、`Actions/`、`EnemyStateMachineConfig`、`ThrownProjectile.prefab`、`Y Bot`、場景與 `X Bot.prefab` 改動） | ⚠️ **P1 與 P2 在 `CharacterPipelineRunner.cs` 內混在同一個檔**（D1 守衛拆解 ＋ Action 組裝），拆兩筆需要 hunk 級手術 ⇒ **合成一筆**。message 必須標 **Trial／待驗收**，不得寫成已完成 |
-| **C0-c** | `docs: Trial-first 治理 ＋ ADR-004 ＋ scope 收斂與後續四包` | `CLAUDE.md`、`WORKLOG.md`、`docs/**` | 文件與程式分開 ⇒ 程式若 revert，治理決策不會跟著消失 |
+> 📌 **實際切法與下表規劃不同，原規劃全文保留作為歷史脈絡。** 使用者實際切成兩筆，
+> C0-a／C0-b／Foot IK v4 與多數文件**合流進 `c26c72d`**，治理條文與 HTML artifact 落在 `d5132e9`。
+> 這與本節「檔案混在一起就合成一筆」的判準不衝突，但**代價要記在帳上**：
+> 第三方素材、ADR-004 Trial 程式、Foot IK 修正三者**已無法各自單獨 revert**——
+> 日後若要移除 Free Sword 素材或退掉 Foot IK v4，會連帶動到 ADR-004 的程式與資產。
+> ⚠️ 另注意 `c26c72d` 的 message 標題是 `fix(ik): …`，**未依 C0-b 規劃標注「Trial／待驗收」**
+> ⇒ **ADR-004 的 Trial 狀態以本檔與 [`docs/ADR/004`](ADR/004-action-in-fsm.md) §0 為準，不以 commit message 為準。**
 
-**B. Play 驗收通過之後**
+| 順序 | 原規劃切點 | 內容 | 為什麼單獨一筆 | 實際落點 |
+| --- | --- | --- | --- | --- |
+| **C0-a** | `chore(assets): 匯入 Free Sword Animations（EEJANAI_Team）` | 只有 `Assets/EEJANAI_Team/**` ＋ `.meta` | 第三方素材單獨一筆 ⇒ 日後換版或移除可乾淨 revert，不與自己的程式糾纏 | ✅ **`c26c72d`**（與 C0-b、Foot IK v4 合流，未單獨成筆） |
+| **C0-b** | `feat: 敵人管線重用 ＋ Action in FSM（ADR-004 Trial，待 Play 驗收）` | `Assets/Scripts/**`、`ArchitectureRegressionTests.cs`、以及 P1／P2 的資產（Throw／Damage 動畫資產、Bake、`Actions/`、`EnemyStateMachineConfig`、`ThrownProjectile.prefab`、`Y Bot`、場景與 `X Bot.prefab` 改動） | ⚠️ **P1 與 P2 在 `CharacterPipelineRunner.cs` 內混在同一個檔**（D1 守衛拆解 ＋ Action 組裝），拆兩筆需要 hunk 級手術 ⇒ **合成一筆**。message 必須標 **Trial／待驗收**，不得寫成已完成 | ✅ **`c26c72d`**（含全部 P1／P2 Unity 資產；message 未標 Trial，見上方注意事項） |
+| **C0-c** | `docs: Trial-first 治理 ＋ ADR-004 ＋ scope 收斂與後續四包` | `CLAUDE.md`、`WORKLOG.md`、`docs/**` | 文件與程式分開 ⇒ 程式若 revert，治理決策不會跟著消失 | ✅ **拆在兩筆**：`docs/**`／`WORKLOG.md`／`CLAUDE.md` 主體在 **`c26c72d`**（與程式同筆，未達成「文件與程式分開」）；「Documents Live in the Repo」條文 ＋ `docs/artifacts/foot-ik.html` 在 **`d5132e9`** |
+
+**B. ⏳ 尚未開始 —— Play 驗收通過之後**
 
 | 順序 | 建議切點 | 內容 |
 | --- | --- | --- |
@@ -290,7 +410,20 @@
 
 ⚠️ **`Trial → Accepted` 必須是獨立一筆，且晚於程式那一筆**——Accepted 是**驗收結果**，把它跟程式塞進同一個 commit 等於宣稱「寫完即通過」。
 
-**C. 之後每個工作包的固定節奏（四筆）**
+**B′. 🆕 現在工作樹上待 commit 的東西（2026-08-31 深夜）**
+
+> ⚠️ **兩件事來源不同、revert 邊界不同，不要合成一筆。**
+
+| 順序 | 建議切點 | 內容 |
+| --- | --- | --- |
+| **C0-d** | `fix(perf): AnimationKey 每帧配置（ADR-004 Trial 期回歸）＋ A23` | `Core/StateMachine/BaseState.cs`、`ArchitectureRegressionTests.cs`、`docs/02-dev-spec.md` §7.1、`docs/ADR/004` §11 |
+| **C0-e** | `spec: WP1 相機／瞄準規格（docs/09）` | `docs/09-camera-aim.md`、`docs/00-map.md`、`WORKLOG.md` |
+| **C0-f** | `feat(camera): WP1 相機單一權威 ＋ AimPoint ＋ 防穿牆（待 Play 驗收）` | `Presentation/Camera/**`、`Presentation/Actions/ThrowProjectileEmitter.cs`、`_Project/Tests/EditMode/CameraAimTests.cs` |
+
+⚠️ **C0-d 必須早於 C0-f**：GC 修正是 ADR-004 的收尾，WP1 若要 revert 不該把它一起帶走。
+⚠️ **C0-f 的 message 必須標「待 Play 驗收」**——測試尚未實跑，不得寫成已完成。
+
+**C. ⏳ 尚未開始 —— 之後每個工作包的固定節奏（四筆，WP1 起適用）**
 
 1. `spec:` / `docs:` — 規格與 ADR 進 Trial（**Codex 動程式之前**）
 2. `feat:` — Codex 的程式 ＋ EditMode 測試（**全綠才交**）
@@ -300,6 +433,10 @@
 **為什麼程式與資產要分開**：Play 驗收失敗時可以單獨 revert 程式而**不丟掉資產工作**——`.meta` 的 GUID 重建代價遠高於重寫一次程式。
 
 **軌 A 獨立 commit**：`feat(scene): 關卡地形（斜坡／樓梯／障礙）` 與 `fix(ik): Foot IK L1 Heel/Toe 雙點採樣` 各一筆，**不與任何工作包混**——它是並行軌，混進去會讓工作包的 revert 邊界失效。
+
+> 📌 **實況（2026-08-31）**：Foot IK 那筆 ✅ 已完成於 **`c26c72d`**，但**沒有做到「不與任何工作包混」**——
+> 它與 C0-a／C0-b 同筆，因此 Foot IK v4 現在無法脫離 ADR-004 的程式單獨 revert（代價已記在 A 段）。
+> `feat(scene): 關卡地形` ⏳ **尚未開始**（軌 A 的場景部分，屬使用者側資產工作）。
 
 ---
 

@@ -1,0 +1,204 @@
+using NUnit.Framework;
+using Project.Presentation.Actions;
+using Project.Presentation.CameraControl;
+using Project.Presentation.Motion;
+using UnityEngine;
+
+namespace Project.Tests.EditMode
+{
+    /// <summary>
+    /// Camera／Aim／Throw 的決策核心純函數測試。刻意不建立場景、不呼叫 Physics，
+    /// 讓 E3 行為中性、soft-target 排名與防穿牆非對稱成為可重現的契約。
+    /// </summary>
+    public sealed class CameraAimTests
+    {
+        private const float Epsilon = 1e-4f;
+
+        [Test]
+        public void T1_ComputeThrowRotation_ForwardPointsAtAimPoint()
+        {
+            Vector3 spawn = new Vector3(1f, 2f, 3f);
+            Vector3 aimPoint = spawn + new Vector3(4f, 1f, 5f);
+
+            Quaternion rotation = ThrowProjectileEmitter.ComputeThrowRotation(
+                spawn, aimPoint, Quaternion.identity);
+
+            Assert.Less(Vector3.Angle(rotation * Vector3.forward, aimPoint - spawn), Epsilon,
+                "生成 rotation 的 forward 必須指向 AimPoint。");
+        }
+
+        [Test]
+        public void T2_ComputeThrowRotation_DegenerateDistanceReturnsFallbackExactly()
+        {
+            Vector3 spawn = new Vector3(1f, 2f, 3f);
+            Quaternion fallback = Quaternion.Euler(10f, 20f, 30f);
+
+            Quaternion rotation = ThrowProjectileEmitter.ComputeThrowRotation(
+                spawn, spawn + Vector3.one * 0.0001f, fallback);
+
+            Assert.AreEqual(fallback, rotation,
+                "AimPoint 幾乎等於生成點時必須逐字回 fallback，不得呼叫 LookRotation(zero)。");
+        }
+
+        [Test]
+        public void T3_ComputeOrbitPosition_ChangesPositionButOffsetDoesNotChangeYawPitchForward()
+        {
+            Vector3 pivot = new Vector3(2f, 1f, -4f);
+            Vector3 centeredOffset = new Vector3(0f, 2f, -3.5f);
+            Vector3 behind = ThirdPersonCamera.ComputeOrbitPosition(pivot, 0f, 0f, centeredOffset);
+            Vector3 yawed = ThirdPersonCamera.ComputeOrbitPosition(pivot, 90f, 0f, centeredOffset);
+
+            Assert.AreEqual(pivot.z - 3.5f, behind.z, Epsilon, "yaw=0 時相機必須在 pivot 正後方。");
+            Assert.AreEqual(pivot.x - 3.5f, yawed.x, Epsilon,
+                "yaw=90 時，相機位於 forward 反向側，鏡頭 forward 指向世界右方。");
+
+            const float yaw = 37f;
+            const float pitch = 18f;
+            Vector3 shoulderOffset = new Vector3(0.8f, centeredOffset.y, centeredOffset.z);
+            Vector3 centeredPosition = ThirdPersonCamera.ComputeOrbitPosition(
+                pivot, yaw, pitch, centeredOffset);
+            Vector3 shoulderPosition = ThirdPersonCamera.ComputeOrbitPosition(
+                pivot, yaw, pitch, shoulderOffset);
+
+            Assert.AreNotEqual(centeredPosition, shoulderPosition,
+                "不同 offset.x 必須改變相機位置，否則無法形成過肩構圖。");
+
+            Vector3 centeredForward = Quaternion.Euler(pitch, yaw, 0f) * Vector3.forward;
+            Vector3 shoulderForward = Quaternion.Euler(pitch, yaw, 0f) * Vector3.forward;
+            centeredForward.y = 0f;
+            shoulderForward.y = 0f;
+            Assert.Less(Vector3.Angle(centeredForward, shoulderForward), Epsilon,
+                "相同 yaw／pitch 下，offset.x 不得影響壓平後的 camera forward。");
+        }
+
+        [Test]
+        public void T4_ClampPitch_ClampsOutsideAndPreservesBoundaries()
+        {
+            Assert.AreEqual(-20f, ThirdPersonCamera.ClampPitch(-30f, -20f, 60f));
+            Assert.AreEqual(60f, ThirdPersonCamera.ClampPitch(70f, -20f, 60f));
+            Assert.AreEqual(-20f, ThirdPersonCamera.ClampPitch(-20f, -20f, 60f));
+            Assert.AreEqual(60f, ThirdPersonCamera.ClampPitch(60f, -20f, 60f));
+        }
+
+        [Test]
+        public void T5_IsWithinSoftTargetCone_HandlesInsideOutsideAndZeroDistance()
+        {
+            Vector3 origin = Vector3.zero;
+            Assert.IsTrue(AimResolver.IsWithinSoftTargetCone(
+                origin, Vector3.forward, new Vector3(0.5f, 0f, 10f), 8f, 20f));
+            Assert.IsFalse(AimResolver.IsWithinSoftTargetCone(
+                origin, Vector3.forward, new Vector3(5f, 0f, 10f), 8f, 20f));
+            Assert.IsFalse(AimResolver.IsWithinSoftTargetCone(
+                origin, Vector3.forward, origin, 8f, 20f),
+                "距離為 0 的退化輸入必須回 false，而不是讓 NaN 進入比較。");
+        }
+
+        [Test]
+        public void T6_SoftTargetSelection_PrefersSmallestAngleNotNearestDistance()
+        {
+            Vector3 origin = Vector3.zero;
+            Vector3 direction = Vector3.forward;
+            Vector3 nearerButWider = new Vector3(0.8f, 0f, 8f);
+            Vector3 fartherButStraighter = new Vector3(0.2f, 0f, 16f);
+
+            Assert.IsTrue(AimResolver.IsWithinSoftTargetCone(
+                origin, direction, nearerButWider, 8f, 20f));
+            Assert.IsTrue(AimResolver.IsWithinSoftTargetCone(
+                origin, direction, fartherButStraighter, 8f, 20f));
+            Assert.IsTrue(AimResolver.IsBetterSoftTarget(
+                origin, direction, fartherButStraighter, nearerButWider),
+                "兩者都在錐內時必須選角度偏差較小者，不能選較近者。");
+        }
+
+        [Test]
+        public void T7_ResolveCameraDistance_UsesDesiredHitMinusSkinAndMinimum()
+        {
+            Assert.AreEqual(3.5f,
+                ThirdPersonCamera.ResolveCameraDistance(3.5f, false, 0f, 0.1f, 0.6f), Epsilon);
+            Assert.AreEqual(1.9f,
+                ThirdPersonCamera.ResolveCameraDistance(3.5f, true, 2f, 0.1f, 0.6f), Epsilon);
+            Assert.AreEqual(0.6f,
+                ThirdPersonCamera.ResolveCameraDistance(3.5f, true, 0.2f, 0.1f, 0.6f), Epsilon,
+                "近距離命中不得回負值或 0，必須夾在 minDistance。");
+        }
+
+        [Test]
+        public void T8_AdvanceOccludedDistance_PullsInImmediatelyAndReturnsGradually()
+        {
+            Assert.AreEqual(1.2f,
+                ThirdPersonCamera.AdvanceOccludedDistance(3f, 1.2f, 6f, 0.1f), Epsilon,
+                "遮蔽拉近必須立即採 target，避免先穿牆再退出。");
+
+            float first = ThirdPersonCamera.AdvanceOccludedDistance(1.2f, 3f, 6f, 0.1f);
+            float second = ThirdPersonCamera.AdvanceOccludedDistance(first, 3f, 6f, 0.1f);
+            Assert.Greater(first, 1.2f);
+            Assert.Less(first, 3f);
+            Assert.Greater(second, first);
+            Assert.LessOrEqual(second, 3f, "推遠必須單調逼近且不得 overshoot。");
+        }
+
+        // T-9 —— 開場俯角的角度正規化（2026-08-31 補）
+        //
+        // 背景：`Transform.eulerAngles` 回傳 [0, 360)。舊寫法把它直接當 pitch 再 Clamp，
+        //       「相機朝上擺」(-10°) 會被讀成 350，夾完變成 maxPitch ⇒ 開場鏡頭甩到最大俯角。
+        // 這條把「先正規化再夾限」釘死；沒有它，回歸時只會表現成偶發的開場鏡頭跳動，極難歸因。
+        [Test]
+        public void T9_NormalizeAngle_MapsEulerRangeToSignedRange()
+        {
+            Assert.AreEqual(-10f, ThirdPersonCamera.NormalizeAngle(350f), Epsilon,
+                "350° 必須還原為 -10°，否則 Clamp(minPitch, maxPitch) 會把朝上擺的相機壓成 maxPitch。");
+            Assert.AreEqual(25.2f, ThirdPersonCamera.NormalizeAngle(25.2f), Epsilon,
+                "已在 [-180, 180] 內的值必須逐字不變。");
+            Assert.AreEqual(0f, ThirdPersonCamera.NormalizeAngle(360f), Epsilon);
+            Assert.AreEqual(-90f, ThirdPersonCamera.NormalizeAngle(270f), Epsilon);
+            Assert.AreEqual(-10f, ThirdPersonCamera.NormalizeAngle(-370f), Epsilon,
+                "超出一圈的負值同樣要收斂回 [-180, 180]。");
+
+            // 迴歸重點：正規化後再夾限，結果必須落在合法俯角內且**不是** maxPitch。
+            float pitch = Mathf.Clamp(ThirdPersonCamera.NormalizeAngle(350f), -20f, 60f);
+            Assert.AreEqual(-10f, pitch, Epsilon, "正規化後夾限不得把 -10° 變成 60°。");
+        }
+
+        [Test]
+        public void T10_ComputeAimFacingTarget_InsideDeadzoneReturnsCurrentExactly()
+        {
+            Quaternion current = Quaternion.Euler(0f, 25f, 0f);
+            Vector3 targetDirection = Quaternion.Euler(0f, 39f, 0f) * Vector3.forward;
+
+            Quaternion target = MotionDriver.ComputeAimFacingTarget(
+                current, targetDirection, 15f, out bool shouldTurn);
+
+            Assert.IsFalse(shouldTurn);
+            Assert.AreEqual(current, target,
+                "偏差在死區內時必須逐字回傳目前朝向，不能只是降低轉速。");
+        }
+
+        [Test]
+        public void T11_ComputeAimFacingTarget_OutsideDeadzoneStartsTurning()
+        {
+            Quaternion current = Quaternion.identity;
+            Vector3 targetDirection = Quaternion.Euler(0f, 15.1f, 0f) * Vector3.forward;
+
+            Quaternion target = MotionDriver.ComputeAimFacingTarget(
+                current, targetDirection, 15f, out bool shouldTurn);
+
+            Assert.IsTrue(shouldTurn, "偏差略大於單一死區門檻時必須開始轉向。");
+            Assert.Less(Vector3.Angle(target * Vector3.forward, targetDirection), Epsilon);
+        }
+
+        [Test]
+        public void T12_ComputeAimFacingTarget_FlattensVerticalDirection()
+        {
+            Vector3 targetDirection = new Vector3(1f, 5f, 1f);
+
+            Quaternion target = MotionDriver.ComputeAimFacingTarget(
+                Quaternion.identity, targetDirection, 0f, out bool shouldTurn);
+            Vector3 targetForward = target * Vector3.forward;
+
+            Assert.IsTrue(shouldTurn);
+            Assert.AreEqual(0f, targetForward.y, Epsilon,
+                "AimPoint 高低差只能影響瞄準，不得把角色 root 轉出水平面產生 pitch。");
+            Assert.Less(Vector3.Angle(targetForward, new Vector3(1f, 0f, 1f)), Epsilon);
+        }
+    }
+}

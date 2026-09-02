@@ -12,7 +12,7 @@ GameObject:
   - component: {fileID: 8239597827217405866}
   - component: {fileID: 7929342757420349995}
   - component: {fileID: 2915347899319234830}
-  m_Layer: 0
+  m_Layer: 2
   m_Name: ThrownProjectile
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -106,7 +106,7 @@ GameObject:
   - component: {fileID: 1614746900316616180}
   - component: {fileID: 2631938175779038141}
   - component: {fileID: 6159936951102146059}
-  m_Layer: 0
+  m_Layer: 2
   m_Name: Visual
   m_TagString: Untagged
   m_Icon: {fileID: 0}

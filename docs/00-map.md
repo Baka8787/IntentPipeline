@@ -33,6 +33,8 @@
 | 位移驅動 | `Presentation/Motion/`：`MotionDriver`／`MotionBakeData` | dev-spec §2.1 順序 6／§3.2 MotionDriver |
 | 動畫門面 | `Presentation/Animation/`：`AnimationFacadeBase`（抽象）／`AnimancerFacade` | 抽象在 dev-spec §3.1；**實作／Mixer／資料流在 `docs/06-animation-presentation.md`** |
 | 表現層管線＋音效 | `Presentation/`：`IPresentationController`／`PresentationPipeline`／`Audio/` | dev-spec §3.4；design-doc §4.6 |
+| **相機／瞄準（WP1）** 🆕 | `Presentation/Camera/`：`ThirdPersonCamera`／`AimResolver`；消費端 `Presentation/Actions/ThrowProjectileEmitter`；facing 由 `MotionDriver.RequestFacing`（D3(c)） | **`docs/09-camera-aim.md`**（🟢 規格定案，D1–D5 已裁決；**§2.3＝scope boundary 與完成線**、§6.2＝取景參數換算、§10.4＝驗收操作鏈）；相機的滑鼠閘門張力在 dev-spec §7.3 |
+| **Lock-on（FU-13）** 🆕 | `Presentation/Camera/LockOnController`（規劃中） | **`docs/10-lock-on.md`**（🟡 待 D1 裁決）。**Stage 1 不開 ADR**（純 Presentation）／**Stage 2 含 strafe ⇒ 必開 ADR-005** ＋ 逼出 FU-6 |
 | Foot IK（Level 1 rigid sole） | `Presentation/IK/` | **`docs/05-foot-ik.md`**（原 §3.5，編號原樣保留；§3.5.5＝Level 1 約束模型與升級階梯）；哲學在 design-doc §4.6；**圖解導覽在 `docs/artifacts/foot-ik.html`** |
 | 物件階層 | 角色 Prefab 的 Root／Model 兩層 | **ADR-001**；dev-spec §0.3 |
 | 動畫資產治理 | FBX 子 clip 直引、匯入 preset | dev-spec §0.4；CLAUDE.md「Animation Assets」 |

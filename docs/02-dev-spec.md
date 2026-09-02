@@ -1170,6 +1170,7 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | **A20** 🟡 Trial | Action 層不得引用 `CharacterController`，位移只經 `MotionDriver` | ADR-004 D4 | `ArchitectureRegressionTests.A20_*` | 掃描 Action files |
 | **A21** 🟡 Trial | external request endpoint／projectile 不得播放動畫、強制 transition 或寫 `IntentData` | ADR-004 D1／D2 | `ArchitectureRegressionTests.A21_*` | 掃描 request／sink／projectile files 的 authority token |
 | **A22** 🟡 Trial | `ActionState` 不得 `Instantiate`／`Destroy`；Unity side effect 只交給 `IActionReleaseSink` | ADR-004 D2／D7 | `ArchitectureRegressionTests.A22_*` | 掃描 `ActionState.cs` |
+| **A23** 🆕 | **`AnimationKey` 不得每次讀取都配置**：連續兩次讀取必須回傳**同一個 string 實例** | Zero GC（順序 5 每帧讀取本屬性） | `ArchitectureRegressionTests.A23_*` | 構造四個 state，`ReferenceEquals` 比對兩次讀取。⚠️ **刻意不掃 `.ToString()` 字面**——那會過度擬合寫法（改成 `nameof`／字典／插值就漏掉），而**識別性**直接描述要的性質。<br>📌 **這是 A3 能力邊界的第二個實例**（第一個是介面型 `foreach` 裝箱）：ADR-004 把順序 5 由「比較 `StateType`」改為「比較 `AnimationKey` 字串」後，`=> Type.ToString()` 由每次轉場配置一次變成**每帧**配置，實測每角色 40 B。同樣沒有任何可疑 token，只有一個看起來正常的屬性 |
 
 > **掃描法的已知精度（誠實記錄，非缺陷）**：①只掃 Runtime（`Core`／`Presentation`）——單一寫入者是**執行期**契約，`Editor/` 的除錯 Inspector 可手動改寫黑板意圖屬合法例外；②掃描前移除註解，避免文件性文字造成假陽性；字串常值內含 `//` 會被一併截斷，此偏差只會讓檢查**變寬鬆**（漏報），不會假陽性；③token 採子字串比對，刻意保守。
 

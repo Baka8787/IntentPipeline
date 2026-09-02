@@ -26,7 +26,20 @@ namespace Project.Presentation.Motion
         [SerializeField] private float gravity = -9.81f;
         [SerializeField] private float reboundForce = -2f; // 踩在地面時的固定貼地力
 
+        [Header("Aim Facing")]
+        // 🔄 2026-08-31 使用者實測後由 15° 收到 8°：15° 下「球明顯不是從身體正前方離開」，
+        //    前丟動畫與彈道對不上的違和比腳被微調更難接受。
+        // ⚠️ 這兩個值在**同一條軸的兩端**，不可能同時消掉：
+        //    死區太小 ⇒ 半蹲姿勢的腳被連續微調（看起來一直被扭）；
+        //    死區太大 ⇒ 球不從身體正前方離開（前丟動畫失去說服力）。
+        //    調參目標是「腳看起來站定、球又大致從身體前方離開」的平衡點，不是把某一端歸零。
+        [SerializeField, Min(0f)] private float aimFacingAngleDeadzone = 8f;
+        [SerializeField, Min(0f)] private float aimFacingTurnSpeed = 10f;
+
         private float _verticalVelocity;
+
+        private Vector3 _requestedFacingDirection;
+        private int _facingRequestFrame = -1;
 
         // 🆕（ADR-002）本次垂直運動採用的重力（負值＝向下）。
         // 預設等於序列化的 gravity；起跳時由 ApplyJumpLaunch 覆寫為「該段烘焙逆推重力」，
@@ -109,12 +122,27 @@ namespace Project.Presentation.Motion
         }
 
         /// <summary>
+        /// 提交僅限當帧的世界空間朝向請求。request 留在 MotionDriver 內結算，讓角色 rotation
+        /// 仍只有一個寫入者；壓平則避免 AimPoint 的高度把角色 root 帶出水平面。
+        /// </summary>
+        public void RequestFacing(Vector3 worldDirection)
+        {
+            worldDirection.y = 0f;
+            _requestedFacingDirection = worldDirection.sqrMagnitude > 0f
+                ? worldDirection.normalized
+                : Vector3.zero;
+            _facingRequestFrame = Time.frameCount;
+        }
+
+        /// <summary>
         /// 🚀 【大一統完全體：順序 6a】基礎常規運動
         /// 融合了相機視角解耦、procedural 水平轉向、以及世界重力結算
         /// </summary>
         public void ExecuteBaseMovement(PlayerRuntimeData data)
         {
             if (IsTimeFrozen) return; // 見 IsTimeFrozen 的說明：零位移的 Move 會毀掉 isGrounded
+
+            bool hasFacingRequest = ApplyFacingRequest();
 
             Vector3 horizontalVelocity = Vector3.zero;
 
@@ -132,7 +160,7 @@ namespace Project.Presentation.Motion
                 // 2. 將玩家的輸入方向，投影到相機的世界座標系中，算出「期望的世界移動方向」
                 Vector3 targetDirection = camForward * data.MoveDirection.y + camRight * data.MoveDirection.x;
 
-                if (targetDirection.sqrMagnitude > 0.001f)
+                if (!hasFacingRequest && targetDirection.sqrMagnitude > 0.001f)
                 {
                     // 3. 讓角色身體平滑地 Slerp 轉向這個期望的世界移動方向
                     Quaternion targetRotation = Quaternion.LookRotation(targetDirection.normalized);
@@ -159,6 +187,8 @@ namespace Project.Presentation.Motion
             if (bakeData == null) return;
             if (IsTimeFrozen) return; // 同 ExecuteBaseMovement，見 IsTimeFrozen 的說明
 
+            ApplyFacingRequest();
+
             float currentTime = normalizedTime * bakeData.Duration;
             float previousTime = Mathf.Max(0f, currentTime - Time.deltaTime);
             ExecuteBakedCurveMovementAtTimes(bakeData, currentTime, previousTime, false, data);
@@ -175,6 +205,8 @@ namespace Project.Presentation.Motion
         {
             if (bakeData == null) return;
             if (IsTimeFrozen) return;
+
+            ApplyFacingRequest();
 
             float currentTime = Mathf.Max(0f, normalizedTime * bakeData.Duration);
             float previousTime = Mathf.Clamp(previousNormalizedTime * bakeData.Duration, 0f, currentTime);
@@ -214,6 +246,73 @@ namespace Project.Presentation.Motion
 
             Vector3 finalMovement = horizontalVelocity + GetGravityThisFrame(data);
             characterController.Move(finalMovement * Time.deltaTime);
+        }
+
+        /// <summary>
+        /// 消費當帧 request，並回報它是否取代了 procedural movement 的朝向權威。
+        /// Throw loop 是半蹲且腳掌釘地；連續微轉會把站定姿勢讀成腳被拖著扭，視覺上比不轉更差。
+        /// 因此小偏差完全不轉，單一門檻外才平順轉向；不做遲滯，避免引入第二套跨帧狀態。
+        /// </summary>
+        private bool ApplyFacingRequest()
+        {
+            if (_facingRequestFrame != Time.frameCount)
+            {
+                _requestedFacingDirection = Vector3.zero;
+                _facingRequestFrame = -1;
+                return false;
+            }
+
+            Vector3 requestedDirection = _requestedFacingDirection;
+            _requestedFacingDirection = Vector3.zero;
+            _facingRequestFrame = -1;
+
+            if (requestedDirection.sqrMagnitude <= 0f) return false;
+
+            Quaternion currentRotation = transform.rotation;
+            Quaternion targetRotation = ComputeAimFacingTarget(
+                currentRotation, requestedDirection, aimFacingAngleDeadzone, out bool shouldTurn);
+            if (shouldTurn)
+            {
+                transform.rotation = Quaternion.Slerp(
+                    currentRotation, targetRotation, aimFacingTurnSpeed * Time.deltaTime);
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// 將 facing 的判定保持為無場景依賴的純函數，讓死區與水平約束可由 EditMode 直接守住。
+        /// </summary>
+        internal static Quaternion ComputeAimFacingTarget(
+            Quaternion currentRotation,
+            Vector3 worldDirection,
+            float angleDeadzone,
+            out bool shouldTurn)
+        {
+            worldDirection.y = 0f;
+            if (worldDirection.sqrMagnitude <= 0f)
+            {
+                shouldTurn = false;
+                return currentRotation;
+            }
+
+            worldDirection.Normalize();
+            Quaternion targetRotation = Quaternion.LookRotation(worldDirection, Vector3.up);
+
+            Vector3 currentForward = currentRotation * Vector3.forward;
+            currentForward.y = 0f;
+            if (currentForward.sqrMagnitude > 0f)
+            {
+                currentForward.Normalize();
+                if (Vector3.Angle(currentForward, worldDirection) <= Mathf.Max(0f, angleDeadzone))
+                {
+                    shouldTurn = false;
+                    return currentRotation;
+                }
+            }
+
+            shouldTurn = true;
+            return targetRotation;
         }
 
         /// <summary>

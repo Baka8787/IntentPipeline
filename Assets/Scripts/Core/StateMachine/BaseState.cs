@@ -21,7 +21,23 @@ namespace Project.Core.StateMachine
         protected IMovementModel MovementModel { get; private set; }
 
         // 🆕 預設用 enum 名稱當動畫鍵，對應 AnimancerFacade 的 ClipMapping.StateKey
-        public virtual string AnimationKey => Type.ToString();
+        // ⚠️ **必須快取，不得改回 `=> Type.ToString()`**（2026-08-31 修，ADR-004 Trial 期回歸）：
+        //    ADR-004 起，管線順序 5 改為**每帧**讀取本屬性（多 phase Action 需要「動畫鍵變更就重播」，
+        //    只比較 StateType 做不到）。而 Enum.ToString() 每次呼叫都會**裝箱 ＋ 配置字串**，
+        //    於是「每次轉場配置一次」變成「每角色每帧配置 40 B」——玩家＋敵人實測 80 B/frame。
+        //    Type 對每個具體 state 是常數，故快取一次絕對安全。
+        //    ActionState 覆寫本屬性為自己的 phase 快取欄位，不受影響。
+        //    回歸由 ArchitectureRegressionTests.A23 守（斷言連續兩次取得同一個 string 實例）。
+        private string _defaultAnimationKey;
+
+        public virtual string AnimationKey
+        {
+            get
+            {
+                if (_defaultAnimationKey == null) _defaultAnimationKey = Type.ToString();
+                return _defaultAnimationKey;
+            }
+        }
 
         public virtual void Initialize(StateMachineConfigSO config, IMovementModel movementModel)
         {

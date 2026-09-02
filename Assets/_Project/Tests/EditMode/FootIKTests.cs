@@ -49,8 +49,14 @@ namespace Project.Tests.EditMode
 
             Vector3 actual = FootIKController.ClampGroundNormal(normal, 15f);
 
-            Assert.AreEqual(normal, actual,
-                "閾值本身不應切換路徑或引入數值擾動。");
+            // ⚠️ **刻意用容差而非 Assert.AreEqual(Vector3, Vector3)**（後者是逐位元精確比對）。
+            //    `Quaternion.AngleAxis(15f, …)` 造出的向量，`Vector3.Angle` 量回來可能是 15.0000019，
+            //    於是落到 `> maxAngle` 的分支走 RotateTowards，回傳值在最後幾個 bit 上與輸入不同。
+            //    **兩條路徑在閾值上都是對的**，差異遠低於任何可見尺度；要求逐位元相同在浮點上不可能成立。
+            //    本測項真正要守的性質是「閾值附近不得有**可觀察**的擾動」，故以 Epsilon 表達。
+            Assert.AreEqual(normal.x, actual.x, Epsilon, "閾值附近不應引入可觀察的數值擾動（x）。");
+            Assert.AreEqual(normal.y, actual.y, Epsilon, "閾值附近不應引入可觀察的數值擾動（y）。");
+            Assert.AreEqual(normal.z, actual.z, Epsilon, "閾值附近不應引入可觀察的數值擾動（z）。");
         }
 
         [Test]

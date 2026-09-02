@@ -1,5 +1,6 @@
 using UnityEngine;
 using Project.Core.Actions;
+using Project.Presentation.CameraControl;
 
 namespace Project.Presentation.Actions
 {
@@ -14,7 +15,9 @@ namespace Project.Presentation.Actions
         [SerializeField] private GameObject heldVisual;
         [SerializeField, Min(0f)] private float projectileSpeed = 5f;
         [SerializeField, Min(0.01f)] private float projectileLifetime = 5f;
+        [SerializeField] private AimResolver aimResolver;
 
+        private const float MinAimSqrDistance = 0.000001f;
         private bool _releasedThisExecution;
 
         public void Begin()
@@ -36,8 +39,25 @@ namespace Project.Presentation.Actions
             }
 
             Transform origin = spawnPoint != null ? spawnPoint : transform;
-            ThrownProjectile projectile = Instantiate(projectilePrefab, origin.position, transform.rotation);
+            Quaternion rotation = ResolveThrowRotation(origin.position);
+            ThrownProjectile projectile = Instantiate(projectilePrefab, origin.position, rotation);
             projectile.Initialize(projectileSpeed, projectileLifetime, transform.root);
+        }
+
+        private Quaternion ResolveThrowRotation(Vector3 spawnPosition)
+        {
+            Quaternion fallback = transform.rotation;
+            if (aimResolver == null || !aimResolver.TryGetAimPoint(out Vector3 aimPoint)) return fallback;
+
+            return ComputeThrowRotation(spawnPosition, aimPoint, fallback);
+        }
+
+        internal static Quaternion ComputeThrowRotation(Vector3 spawn, Vector3 aimPoint, Quaternion fallback)
+        {
+            Vector3 direction = aimPoint - spawn;
+            return direction.sqrMagnitude > MinAimSqrDistance
+                ? Quaternion.LookRotation(direction.normalized)
+                : fallback;
         }
 
         public void Cleanup()
