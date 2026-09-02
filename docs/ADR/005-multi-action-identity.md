@@ -62,14 +62,15 @@
 
 ## 4. Acceptance Criteria（`Trial → Accepted`）
 
-> **進度（2026-09-02 code-first 第一輪後）**：D／F 成立；A 在 EditMode 層成立、待 Play；B／C／E 未驗。
+> **進度（2026-09-02 code-first 第一輪後）**：**只有 F 成立**（靜態稽核）。**A–E 全部待驗——本批改動尚未在任何 Unity 環境編譯過。**
+> ⚠️ 2026-09-02 更正：D 曾短暫打勾，但該次「EditMode 全綠」是在**尚未拉取本分支**的本機專案上跑的，驗的是舊程式。已撤回。
 
-- [~] **A. 同一角色持有並可獨立觸發至少兩份 `ActionDefinitionSO`**，各自獨立輸入與 cooldown，且**共用同一顆 `ActionState`** —— 🟡 **EditMode 層成立**（T18 斷言兩者為同一 `ActionState` 實例、T19 斷言冷卻不連坐）。⏳ **待資產接線後 Play 驗證**（Q／E 實際觸發）
+- [ ] **A. 同一角色持有並可獨立觸發至少兩份 `ActionDefinitionSO`**，各自獨立輸入與 cooldown，且**共用同一顆 `ActionState`** —— ⏳ T18／T19 已寫好對應斷言（同一 `ActionState` 實例、冷卻不連坐），**但尚未實跑**；之後還需資產接線 ＋ Play
 - [ ] **B. 加下一個 Action ＝ 零 runtime 程式**（一份資產 ＋ 一列動畫映射 ＋ 一列 slot 映射）—— ⏳ 需實際加第三個 Action 才算數
 - [ ] **C. 既有 Idle／Move／Jump／Roll／Throw 無回歸** —— ⏳ 待 Play。T21 已鎖住舊資產的**解析**路徑，但不涵蓋播放與位移
-- [x] **D. EditMode 全綠**（含 A13′／A19 維持）—— ✅ 使用者實跑確認（2026-09-02）。⚠️ 同輪修掉 **A22 自 ADR-004 Trial 期起一直為紅**的既存缺陷（斷言 `IActionReleaseSink`，介面早已改名為 `IActionLifecycleSink`）
+- [ ] **D. EditMode 全綠**（含 A13′／A19 維持）—— ⏳ **待驗，且尚未編譯過**。⚠️ 同輪修了 **A22 自 ADR-004 Trial 期起一直為紅**的既存缺陷（斷言 `IActionReleaseSink`，介面早已改名為 `IActionLifecycleSink`）——**A22 轉綠是本條的主要觀察點**
 - [ ] **E. 零 GC**，穩態 `0 B/frame` —— ⏳ 待 Profiler。⚠️ 熱路徑有改動（`ProcessIntents`、`EvaluateInterrupts`），**必須複驗**
-- [x] **F. 沒有長出第二個 gate／interrupt 權威**（ADR-004 D2 的延續）—— ✅ 靜態稽核（定稿後重跑）：`_cooldownEndTime` 僅存在於 `ActionState.cs`；`CanEnter` 與 `CanReenter` **同源於單一 `TryResolveRequest`**，未引入新決策來源；`ActionState` 仍只讀取 facade（`IsPlaying`／`GetNormalizedTime`），從不 `Play`；`Core/` 下 `Instantiate` 零命中。**A23 已將本條機器化**
+- [x] **F. 沒有長出第二個 gate／interrupt 權威**（ADR-004 D2 的延續）—— ✅ **靜態稽核**（對定稿後的檔案重跑符號搜尋，不依賴編譯）：`_cooldownEndTime` 僅存在於 `ActionState.cs`；`CanEnter` 與 `CanReenter` **同源於單一 `TryResolveRequest`**，未引入新決策來源；`ActionState` 仍只讀取 facade（`IsPlaying`／`GetNormalizedTime`），從不 `Play`；`Core/` 下 `Instantiate` 零命中。⚠️ 已寫 **A23** 將本條機器化，但 **A23 本身尚未實跑**
 
 **未通過**：先修本 ADR ／ `docs/09` → 再驗證 → **不得補 workaround**。
 若 **D1 被證偽**（單一 identity 撐不住所有消費者），轉 `Rejected`，code／ADR／invariant 一起 revert 回 ADR-004 的單一 Definition 基線。

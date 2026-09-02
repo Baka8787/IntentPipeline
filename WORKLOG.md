@@ -12,9 +12,11 @@
 > ### 📍 2026-09-02 補記 ②（**最新，ADR-005 第一輪已落地**）
 >
 > **同一角色現在能持有多份 `ActionDefinitionSO`，以 `ActionSlot` 為身分獨立觸發、獨立冷卻，共用同一顆 `ActionState`。B1／B2／B5（＝FU-2／FU-3／FU-1）一次解掉。**
-> ✅ 編譯過、EditMode 全綠。⏳ **尚未 Play、尚未 Profiler、尚未資產接線。**
+> ⏳ **尚未編譯過**——本輪在遠端容器完成（容器內無 Unity），改動在分支 `claude/skill-system-showcase-6vqh6l`。
+> ⚠️ 曾誤記為「EditMode 全綠」，但那次測試跑在**尚未拉取本分支**的本機專案上，驗的是舊程式，已撤回。
 >
 > **① 下一步（照順序）**
+> 0. **先拉分支**：`git fetch origin && git checkout claude/skill-system-showcase-6vqh6l`（從 `main` 的 `d5132e9` 分出）→ Unity 重新編譯並為新檔 `Core/Actions/ActionSlot.cs` 生 `.meta` → **跑 EditMode，重點看 A22／A23／T18–T21**
 > 1. **資產接線**：`.inputactions` 加 Q／E → 接 `PlayerInputSource.SecondaryAction`／`TertiaryAction`；兩份新 `ActionDefinitionSO`（`Slot` 設 `Secondary`／`Tertiary`）填進 `StateMachineConfig` 的 **`actionDefinitions`**（⚠️ 不是 `paramsMappings`）
 > 2. **Play 驗證** ⇒ 回填 ADR-005 §4 的 **A／C**
 > 3. **Profiler 零 GC** ⇒ 回填 **E**。⚠️ 熱路徑有改（`ProcessIntents`／`EvaluateInterrupts`），**必須複驗**

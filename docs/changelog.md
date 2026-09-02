@@ -6,7 +6,7 @@
 
 ---
 
-## [v0.35] - ADR-005 Trial：ActionSlot 身分讓多 Action 共用一顆 ActionState（2026-09-02，EditMode 綠，待 Play 驗收）
+## [v0.35] - ADR-005 Trial：ActionSlot 身分讓多 Action 共用一顆 ActionState（2026-09-02，⏳ 待編譯與驗收）
 
 `docs/08` §11.1 登記的 FU-1／FU-2／FU-3 一次解掉。三者共同根因是「系統裡沒有『這是哪一個 Action』的概念」——概念不存在，查表就只能用 `StateType` 當鍵、mailbox 只能是無名旗標、中斷只能比型別。新增 `ActionSlot`（`None`／`Primary`／`Secondary`／`Tertiary`／`Reaction`）作為單一身分，輸入映射、per-slot 冷卻、external request、Action→Action 中斷全部以它為鍵。
 
@@ -18,7 +18,7 @@ ADR-005 同輪瘦身，五條決策砍到兩條——既有 authority 的複述�
 
 順帶修掉一個既存缺陷：**A22 自 ADR-004 Trial 期起一直是紅的**。它斷言 `IActionReleaseSink`，但該介面早已改名為 `IActionLifecycleSink` 並從 1 個方法擴為 3 個，斷言與 `docs/08` §2.7 都沒同步。這也意味 ADR-004 §10 的 D 當時是在不成立的基礎上打勾的。教訓：改名要一併 grep 測試與文件。
 
-新增 T18–T21 與 A23（守 ADR-005 D1：身分只准宣告一次、冷卻不得外流）。編譯通過、EditMode 全綠；⏳ 資產接線、Play 驗證與 Profiler 零 GC 複驗待辦——熱路徑有改動（`ProcessIntents`／`EvaluateInterrupts`），零 GC **必須**複驗。
+新增 T18–T21 與 A23（守 ADR-005 D1：身分只准宣告一次、冷卻不得外流）。⏳ **本批在遠端容器完成，容器內無 Unity 與 C# 編譯器，尚未編譯過**；EditMode、資產接線、Play 與 Profiler 零 GC 全部待驗——熱路徑有改動（`ProcessIntents`／`EvaluateInterrupts`），零 GC **必須**複驗。
 
 ## [v0.34] - ADR-004 Accepted：Action 進 FSM 拓撲結案（2026-09-02，已驗收）
 

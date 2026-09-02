@@ -323,8 +323,10 @@ Definition 不再於 `Initialize` 綁死，因此 `OnEnter` 必須**重新解析
 
 ## 11.5 實作紀錄（2026-09-02，code-first 第一輪）
 
-> ✅ **編譯通過、EditMode 全綠**（使用者實跑確認）。
-> ⏳ **尚未 Play 驗證、尚未 Profiler 零 GC 複驗、尚未做資產接線。**
+> ⏳ **尚未在任何 Unity 環境編譯過。** 本輪在遠端容器完成，容器內沒有 Unity 與 C# 編譯器，
+> 全部為靜態撰寫；改動已推上分支 `claude/skill-system-showcase-6vqh6l`，待使用者本機拉取後驗證。
+> ⚠️ 2026-09-02 更正：本節曾記為「編譯通過、EditMode 全綠」，但該次測試跑在**尚未拉取本分支**的
+> 本機專案上，驗的是舊程式。已撤回——**這是本輪第二次「憑回報打勾」的失誤**（第一次是 A22）。
 
 ### 實際改動的 ownership ／ data flow
 
@@ -350,7 +352,7 @@ Definition 不再於 `Initialize` 綁死，因此 `OnEnter` 必須**重新解析
 `BuildActionSlotMap` 在 `actionDefinitions` 為空時，退回讀 `paramsMappings` 綁在 `StateType.Action` 的那份。
 ⇒ **既有 Throw／Damage 資產不改一個欄位也能繼續跑**。T21 鎖住此路徑。
 
-### 測試
+### 測試（已寫，⏳ 未實跑）
 
 新增 **T18**（兩份 Definition 獨立觸發且共用同一 `ActionState` 實例）、**T19**（per-slot 冷卻不連坐）、
 **T20**（同 slot 不重入／不同 slot 可互相打斷）、**T21**（舊資產相容），
