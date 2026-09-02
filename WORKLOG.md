@@ -9,6 +9,55 @@
 
 > ### 📍 2026-09-02 交接（**最新，請先讀這段**）
 >
+> ### 🚚 2026-09-02 遠端 session 交接（**給下一個本機會話：先讀這段，再讀下面兩段補記**）
+>
+> **一句話**：遠端容器 session 產出 `ActionSlot` 多 Action 實作（分支 `claude/skill-system-showcase-6vqh6l`，5 個 commit），
+> **但它一行都沒編譯過**，而且它是對著 `main@d5132e9` 的舊 clone 做的——**本機的 WP1 成果它完全不知道**。
+>
+> #### ① 環境事實（先理解這個，否則下面看不懂）
+> - 該 session 跑在 **Claude Code on the web 的遠端容器**，容器內**沒有 Unity、沒有 C# 編譯器**。
+> - 容器的 clone 停在 `main@d5132e9`，**看不到本機未 commit 的工作**。
+> - ⇒ 該 session 的所有「程式分析」都可能對本機現況過時。**下方 ④ 列出已知過時的結論。**
+>
+> #### ② 分支上有什麼（`claude/skill-system-showcase-6vqh6l`，從 `main@d5132e9` 分出）
+>
+> | commit | 內容 |
+> |---|---|
+> | `95f5730` | ADR-005 草案 ＋ `docs/09-multi-action.md` |
+> | `8dc8c87` | `CLAUDE.md` 新增 Remote Container Exception（純文件可由 AI commit） |
+> | `b8c6da4` | **ADR-004 `Trial → Accepted`**（A–F 回填 ＋ §10.1 靜態稽核明細）；ADR-005 翻 `Trial` |
+> | `6023e53` | **程式**：`ActionSlot` 身分、多 Definition、per-slot 冷卻、Action→Action 重入（15 個 `.cs`） |
+> | `1c13753` | fold-back ＋ **撤回未經驗證的勾選** |
+>
+> #### ③ 驗證狀態（⚠️ 不要把任何一項當成已完成）
+> - **ADR-004** ＝ `Accepted`。A／C／D／E 依使用者 Play 與實跑回報，B／F 為靜態稽核。
+>   ⚠️ 但**同輪發現 A22 自 ADR-004 Trial 期起一直是紅的**（斷言 `IActionReleaseSink`，介面早已改名 `IActionLifecycleSink` 並擴為三方法）
+>   ⇒ **ADR-004 的 D 當時建立在不成立的基礎上**。A22 斷言與 `docs/08` §2.7 已修，**但仍需重跑確認**。
+> - **ADR-005** ＝ `Trial`。§4 **只有 F 打勾**（靜態稽核，不依賴編譯）；**A–E 全部待驗，且尚未編譯過**。
+> - 📌 本輪出現**兩次「憑回報打勾」的失誤**（A22；以及一次跑在舊程式上的「EditMode 全綠」）。
+>   **教訓已記入 `docs/09` §11.5：回填驗收前必須先確認「在哪個 checkout 上跑的」。**
+>
+> #### ④ 🔴 已知與本機現況衝突／過時的內容（**下一個會話必須處理**）
+>
+> | # | 問題 | 處置 |
+> |---|---|---|
+> | **H1** | **`docs/09` 撞號**：分支上是 `09-multi-action.md`，本機是 `09-camera-aim.md`（另有 `10-lock-on.md`） | 分支那份改名為 **`docs/11-multi-action.md`**，並更新 `00-map.md` 與 ADR-005 的交叉引用 |
+> | **H2** | **`docs/11`(原09) §2.2 的 B4 已過時**：寫「`AimTarget` 是無 writer 的死欄位、沒有朝向／瞄準系統」 | 本機已有 `AimResolver.cs`。**依本機現況重寫 B4**，並確認 `AimTarget` 現在的 writer 是誰、要不要進 `WriterRules` |
+> | **H3** | **程式衝突**：`BaseState.cs`（分支加 `CanReenter`）、`ArchitectureRegressionTests.cs`（分支修 A22 ＋ 加 A23） | 逐一手動合併。⛔ 不得為了解衝突刪掉任一方的不變量 |
+> | **H4** | **文件衝突**：`WORKLOG.md`／`docs/00-map.md`／`docs/02-dev-spec.md`／`docs/ADR/004-action-in-fsm.md` 雙方都動過 | 多為加法，保留雙方內容 |
+> | **H5** | 本機大量未 commit（prefab／場景／`ProjectSettings`／`TagManager`／Kevin Iglesias 動畫包／WP1 程式與文件） | **先 commit 到自己的分支再談合併**，不要 stash |
+>
+> #### ⑤ 建議順序
+> 1. 本機工作先 commit（`git switch -c wp1-camera-aim && git add -A && git commit`）
+> 2. **先單獨驗分支**：checkout → Unity 編譯 → EditMode（重點 **A22／A23／T18–T21**）
+>    —— 目的是讓「編譯錯誤」與「合併衝突」不要混在一起 debug
+> 3. 驗過再合併，處理 H1–H4
+> 4. 合併後才做資產接線（Q／E ＋ 兩份 Definition 填 `actionDefinitions`）→ Play → Profiler 零 GC
+>
+> #### ⑥ 治理備註
+> - 本輪程式 commit 走**一次性授權**。`CLAUDE.md` 的 Remote Container Exception **仍是純文件**，條文未改。
+> - 在本機會話中，上述例外**完全不適用**——Git 全部由使用者執行。
+
 > ### 📍 2026-09-02 補記 ②（**最新，ADR-005 第一輪已落地**）
 >
 > **同一角色現在能持有多份 `ActionDefinitionSO`，以 `ActionSlot` 為身分獨立觸發、獨立冷卻，共用同一顆 `ActionState`。B1／B2／B5（＝FU-2／FU-3／FU-1）一次解掉。**
