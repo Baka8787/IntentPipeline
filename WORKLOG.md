@@ -33,17 +33,28 @@
 > 本機那條已被 dev-spec §7.1 引用在先 ⇒ **遠端那條順延為 `A24_ActionIdentity_HasExactlyOneSourceOfTruth`**。
 > `docs/02-dev-spec.md` §7.1 的表格與 `docs/11` 的引用皆已同步。**編號是引用鍵，不是排名。**
 >
-> **④ 靜態編譯稽核（本機會話執行，不採信遠端自述）**
-> 遠端 15 個 `.cs` 已逐檔檢查：`using Project.Core.Actions;` 在 `CharacterPipelineRunner`／`ThrownProjectile`／
-> `FullBodyStateMachine`／`ActionDefinitionSO`／`CharacterPipelineRunnerEditor` 皆已補齊；
-> 全樹無 `FireRequested` 殘留、無無參數 `RequestAction()` 呼叫點；`IActionLifecycleSink` 三方法與 sink 實作一致。
-> ⚠️ **這是靜態閱讀，不是編譯。** 唯一已知的機械缺漏：**`Assets/Scripts/Core/Actions/ActionSlot.cs.meta` 未隨分支提交**，
-> Unity 首次匯入時會自動生成新 GUID —— 生成後請一併 commit。
+> **④ ✅ 編譯已通過（不是靜態閱讀——是真的跑編譯器）**
+> 初版稽核只做了靜態閱讀，**漏掉一個真的編譯錯誤**：`StateMachineConfigSO` 缺 `using Project.Core.StateMachine.Actions;`
+> ⇒ `CS0246: ActionDefinitionSO could not be found`。根因是 C# 的命名空間查找**只往父方向走、不搜尋子命名空間**，
+> 而遠端分支只補了 `using Project.Core.Actions;`（`ActionSlot` 用的那個）。已修（`71c5de5`）。
+>
+> 📌 **方法升級（重要，往後都該這樣做）**：Unity 產生的 `.csproj` ＋ `dotnet build` 可以**不開 Editor 就編譯**：
+> ```
+> dotnet build Project.Runtime.csproj -p:ResolveAssemblyReferenceIgnoreTargetFrameworkAttributeVersionMismatch=true
+> ```
+> 該 flag 是繞過 `nunit.framework`（4.7.2）與 csproj（4.7.1）的參考解析失敗，**不是程式問題**；不加會噴一堆假的
+> 「找不到 NUnit」。⚠️ `.csproj` 由 Unity 生成，新增檔案後要讓 Unity 重生一次才會納入編譯清單。
+> **現況：`Project.Runtime`／`Project.Editor`／`Project.Tests.EditMode` 三個 assembly 皆 0 error。**
+>
+> 其餘靜態稽核結論仍成立：全樹無 `FireRequested` 殘留、無無參數 `RequestAction()` 呼叫點、
+> `IActionLifecycleSink` 三方法與 sink 實作一致。
 >
 > **⑤ ⛔ 仍未成立的事（不得視為完成）**
-> - **這整包程式從未編譯過。** ADR-005 §4 的 A–E 全部待驗；ADR-004 的 A22 修正待重跑確認。
-> - EditMode 全套未跑（重點：**A22／A23／A24／T18–T21／CameraAimTests T-1～T-8**）。
+> - **編譯 ≠ 測試。** EditMode 全套仍未跑（重點：**A22／A23／A24／T18–T21／CameraAimTests T-1～T-8**）。
+>   ADR-005 §4 的 A–E 全部待驗；ADR-004 的 A22 修正待重跑確認。
 > - Play 未驗；Profiler 零 GC 未量測。
+> - `Assets/Scripts/Core/Actions/ActionSlot.cs.meta`：Unity 已開始生成但**內容不完整**（`MonoImporter` 區段缺失，
+>   因為當時卡在編譯錯誤）。**編譯修好後讓 Unity 重新匯入一次，再 commit 那個 meta。**
 > - 資產接線未做：Q／E 兩顆 InputAction、兩份 Definition 要填進 **`actionDefinitions`**（**不是** `paramsMappings`），
 >   以及 `ThirdPersonCamera.aimResolver` 在**場景實例**上仍是 `None`（見下面 2026-08-31 段⑤）。
 >
