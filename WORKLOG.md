@@ -7,7 +7,40 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
-> ### 📍 2026-08-31 交接（最新，請先讀這段）
+> ### 📍 2026-09-02 交接（**最新，請先讀這段**）
+>
+> **一句話**：作品集方向重訂——**Throw 降級為 ADR-004 的驗收證據、不進影片**；主線改為 **Quick Spell ／ Ice Spell ／ Melee Slash 三技能 ＋ Slow effect**，並以 **ADR-005（Action Identity）** 承載。**唯一該立刻做的是 P-0：拿 Throw 現狀去過 ADR-004 Acceptance，零手感投入。**
+>
+> **① 本輪產出（純文件，未碰程式與資產）**
+> - 🆕 `docs/ADR/005-multi-action-identity.md`（⚪ **Proposed**）——凍結 D1–D5 五條；**identity 表示法與容器形狀刻意不凍結**，候選比較在 §5、不凍結清單在 §8。
+> - 🆕 `docs/09-multi-action.md`——ADR-005 的 Living Spec：現況盤點、三技能資產配置、Q／E 鍵位、冷卻 HUD、Slow、Targeting 降級版、測試計畫、檔案邊界。
+> - `docs/00-map.md` 補上 `docs/08`／`docs/09` 指標（**`docs/08` 先前從未進地圖**）。
+>
+> **② ⚠️ 治理排序陷阱（最重要）**
+> `CLAUDE.md`「同一時間只允許一個 Trial」＋ ADR-004 仍是 🟡 Trial ⇒ **ADR-005 現在不能是 Trial，只能是 `Proposed`**。
+> 但 **ADR-004 §10 的 A–F 逐條檢查過，沒有任何一條牽涉手感**——它問的是「單一 authority 撐不撐得住多 phase 動作」。
+> ⇒ **Throw 節奏慢、瞄準難用，對 Acceptance 完全無害。原封不動送驗收即可，這是解鎖新計畫的唯一合法路徑。**
+>
+> **③ 現在該做什麼**
+> - **P-0：ADR-004 Acceptance**（使用者側資產接線 ＋ Play ＋ §10 A–F 逐條回填）。停止線與清單見下方「🛑 當前輪次的停止 checkpoint」，**內容不變**。
+> - P-0 結案後：ADR-005 翻牌 `Trial` → P-A（identity 實作）→ P-B／P-C／P-D 並行。順序表在 `docs/09` §11。
+> - ⛔ **P-0 之前不得動任何 Action 程式**。
+>
+> **④ 2026-09-02 使用者裁決（已定案，不需再問）**
+> - Throw：僅作 ADR-004 驗收證據，**不投手感、不進影片**，`docs/08` 一字不改。
+> - `ActionSlot` 作為統一 identity 的**方向**採納；**具體容器／API 先不寫死**。
+> - Slow 升為主要架構展示；**只有一個使用者，不建 StatusEffect framework**。
+> - Camera／Aim **不砍**，降級為 supporting infrastructure——只做到三技能展示所需的 targeting／facing。
+> - 技能鍵位：**Q ＝ Quick Spell、E ＝ Ice Spell**、滑鼠左鍵 ＝ Melee（P-0 結案前仍指向 Throw）。
+> - 原 **WP1（鏡頭 ＋ Aim ＋ Throw 依 AimPoint）解散**——它整包的存在理由是救 Throw 手感，前提已消失。WP2／WP3 的內容併入 `docs/09` §11 的 P-A～P-F。
+>
+> **⑤ 本輪盤點出的關鍵事實（省下一次重讀）**
+> - **B1**：一角色一份 Definition，根因在 `StateMachineConfigSO` 四張表**全以 `StateType` 為鍵**（不是 `ActionState` 偷懶）。
+> - **B3**：**完全沒有 hit／damage／effect 系統**——`ThrownProjectile` 命中後唯一動作是 `target.RequestAction()`。Slow 是本輪唯一「真的新東西」。
+> - **B4**：`PlayerRuntimeData.AimTarget` 是**死欄位**，全 repo 只有除錯面板讀它、**無任何 writer**。已登記為 FU-09-1，本輪必須處置（A5 破口）。
+> - **可重用面比預期大**：`IActionLifecycleSink`（Begin／Release／Cleanup）撐得住法術發射、近戰 hitbox、既有投擲三種側效果；動畫映射是字串鍵查表，加動畫＝Inspector 加一列。**三技能的新程式只有兩個 sink 實作。**
+
+> ### 📍 2026-08-31 交接（前一輪，Foot IK 相關仍有效）
 >
 > **一句話**：Foot IK 軌 A 已結案；主線仍卡在 **ADR-004 的 Unity 資產側與 Play 驗收**（使用者側），程式面沒有待辦。
 >
