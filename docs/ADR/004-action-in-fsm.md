@@ -2,9 +2,9 @@
 
 | 欄位 | 內容 |
 |---|---|
-| 狀態 (Status) | 🟡 **Trial**（2026-08-29 使用者裁決 D4-(a)）——**本專案第一個使用 Trial 狀態的 ADR，語意見下方「§0 Trial 的意思」** |
+| 狀態 (Status) | ✅ **Accepted**（2026-09-02 通過 §10 Acceptance Review）——**本專案第一個走完 `Trial → Accepted` 全流程的 ADR，語意見下方「§0 Trial 的意思」**。⚠️ 自此 **decision content（§3 D1–D7）凍結**，進入 Immutable Log；要改決策須開新 ADR 走 Supersede |
 | 日期 | 2026-08-29（Trial 開始） |
-| Acceptance Review | ⏳ 未進行。條件見 **§10**；通過後才改為 `Accepted` |
+| Acceptance Review | ✅ **2026-09-02 通過**，A–F 全數成立（逐條證據見 §10） |
 | Supersede | **無 ADR 被取代**——與 ADR-001／002／003 並列。測試不變量 **A13（`StateType` 恆五員）自本 ADR 進入 Trial 起即被新 baseline 正式取代**（不是「暫停」，見 §3-D3 與 CLAUDE.md「Architecture Invariants Track the Effective Baseline」），其防護目的由 A13′＋A19 承接 |
 | 關聯文件 | `docs/ADR/003-movement-intent-layering.md`（**D3 已預先定義 intrinsic-motion 類別並點名 Attack-lunge**）、**`docs/08-skill-system.md`（本 ADR 的 Living Spec；所有實作細節在該檔，見 §9）**、`docs/02-dev-spec.md` §2.1／§3.1／§3.3／§7、`WORKLOG.md`「作品集最低限度衝刺」 |
 | 影響模組 | `StateType`（+1 成員）、新增 `ActionState`／`ActionDefinitionSO`、`FullBodyStateMachine.Initialize`、`CharacterPipelineRunner.SyncAnimation`、`BaseState.AnimationKey`（語意擴張）、`ArchitectureRegressionTests`、`StateMachineConfigSO` 資產 |
@@ -246,12 +246,32 @@ ambient 的定義是「位移由當下 active Movement Model 決定」。動作�
 > **在 Throw vertical slice 完成之前，本 ADR 不得改為 `Accepted`。**
 > 全部通過後，由使用者確認並更新狀態欄、記入 §11、同步 `docs/changelog.md`。
 
-- [ ] **A. Throw 在 Unity Play 實際跑通**（Start → Loop → End／Cancel 全程）
-- [ ] **B. 三個權威與設計一致**：動畫只由順序 5 播放；打斷只由 FSM ＋資產決定；lifecycle 只有 `BaseState` 一套
-- [ ] **C. 既有 Idle／Move／Jump／Roll 無回歸**（動畫播放序列與位移路徑逐字不變）
-- [ ] **D. EditMode 測試全綠**，含 A13′／A19 與行為等價回歸測項
-- [ ] **E. 零 GC 通過**（dev-spec §7.4 SOP；穩態 `0 B/frame`）
-- [ ] **F. 實作沒有逼出第二套 authority 或明顯 workaround**——**這一條是本 Trial 的真正目的**。若實作過程中出現「為了讓它動起來只好在 X 旁邊再加一個判斷」，即為未通過
+- [x] **A. Throw 在 Unity Play 實際跑通**（Start → Loop → End／Cancel 全程）—— ✅ 使用者 Play 驗收，功能面全程通過
+- [x] **B. 三個權威與設計一致** —— ✅ 靜態稽核（2026-09-02）。**動畫**：`ActionState` 全檔只呼叫 `IsPlaying`／`GetNormalizedTime`（唯讀查詢），**從不呼叫 `Play`**，§5.3 的否決守住；Action 路徑的唯一播放點是 `CharacterPipelineRunner.SyncAnimation`（順序 5）。⚠️ **限定條件**：`LocomotionModel` 另有 `Play`／`PlayWithCallback`（Stop 選片），那是 **ADR-003 D4 授權的 model 自驅動畫**，早於本 ADR 且與 Action 正交——因此本條的正確讀法是「**Action 子系統的動畫權威唯一**」，而非專案全域只有一個播放點。**打斷**：`CanBeInterruptedBy` ＝ Config 規則表 ＋ 逐 phase `Interruptible`（authored 資產），無第三來源。**lifecycle**：僅 `BaseState` 的 `OnEnter`／`OnTick`／`OnExit` 一套；`IActionLifecycleSink` 的 `Begin`／`Release`／`Cleanup` 是側效果 adapter，呼叫時點單一持有於 `ActionState`
+- [x] **C. 既有 Idle／Move／Jump／Roll 無回歸** —— ✅ 使用者 Play 驗收 ＋ EditMode 行為等價回歸測項
+- [x] **D. EditMode 測試全綠** —— ✅ 使用者實跑確認。磁碟現況：`ActionStateTests` 7 個測項（含 T13–T17）、`ArchitectureRegressionTests` 含 A19／A20／A21／A22
+- [x] **E. 零 GC 通過** —— ✅ 使用者實測，穩態 `0 B/frame`
+- [x] **F. 實作沒有逼出第二套 authority 或明顯 workaround** —— ✅ 靜態稽核（2026-09-02，證據見下方「F 的稽核明細」）
+
+### 10.1 F 的稽核明細（2026-09-02）
+
+**查核方法**：以符號搜尋列舉三個權威的所有呼叫點，而非閱讀印象。
+
+| 查核項 | 結果 |
+|---|---|
+| `ActionState` 是否取得動畫播放權 | ❌ 無。全檔僅 `animationFacade.IsPlaying(...)` 與 `GetNormalizedTime()` 兩處**唯讀**查詢 |
+| 冷卻是否有第二個判斷點 | ❌ 無。`_cooldownEndTime` 僅在 `ActionState.OnExit` 寫入、`CanEnter` 讀取，全 repo 無其他 cooldown 符號 |
+| Action 層是否繞過 `MotionDriver` 位移 | ❌ 無（A20 機器化守衛） |
+| Core 是否生成 Unity 物件 | ❌ 無。`Instantiate`／`new GameObject` 在 `Core/` 下零命中（A22 守衛）；生成只發生在 `Presentation/Actions/` |
+| sink 是否參與 lifecycle 決策 | ❌ 無。`Begin`／`Release`／`Cleanup` 的呼叫點全部在 `ActionState` 內 |
+
+**兩處值得記錄、但判定為「防禦性冗餘」而非 workaround 的地方**：
+
+1. **雙重 release 去重**：`ActionState._releaseEmittedThisExecution` 與 `ThrowProjectileEmitter._releasedThisExecution` 各自防重複。判定：**時點權威仍單一**（sink 不決定何時 release，只保護自己不重複生成）；符合 §12 R-f 的設計意圖，且 T15 已鎖。**不構成第二套 authority。**
+2. **`Cleanup()` 多路徑呼叫**：`OnExit`／`Complete`／`EnterPhase(Cancel)`／`OnEnter` 失敗分支／`OnDisable` 皆會呼叫。判定：**冪等操作的 safety net**，T17 明文覆蓋（`Complete_ProvidesCleanupSafetyNet`）；`OnDisable` 屬 sink 管理自身 Unity 物件，符合 `IActionLifecycleSink` 的契約註解。**不構成 lifecycle 第二權威。**
+
+> 📌 這兩點記錄在此，是為了讓下一個工作包（ADR-005）在擴成多 Action 時**知道它們存在**——
+> 屆時去重與 cleanup 會變成 per-action，若屆時仍維持雙重防禦，需重新評估是否已從「冗餘」滑向「兩個真相」。
 
 **未通過時的處置**（依序，不得跳過）：
 1. **先修 Trial ADR ／ `docs/08`**，把實作發現寫進去；
@@ -269,6 +289,7 @@ ambient 的定義是「位移由當下 active Movement Model 決定」。動作�
 |---|---|---|
 | 2026-08-29 | 建立（狀態 `Accepted`） | 使用者裁決 D4-(a) |
 | 2026-08-29 | 狀態改為 **`Trial`**；新增 §0／§9／§10／§11；實作細節（phase 欄位、計時、冷卻、注入路徑、逐步呼叫鏈與生命週期圖）下放 `docs/08` | 治理方式調整：**使用者已裁決 ≠ 工程上已驗證**。改為 `Design → Trial → Implement → Observe → Revise → Accept`，避免單人開發被「先凍結才能實作」逼出 workaround |
+| 2026-09-02 | **狀態 `Trial → Accepted`**；§10 A–F 逐條回填 ＋ 新增 §10.1「F 的稽核明細」。**D1–D7 一字未動** | Acceptance Review 通過：A／C 由使用者 Play 驗收、D／E 由使用者實跑（EditMode 全綠、穩態 `0 B/frame`）、B／F 由靜態稽核（見 §10.1）。⚠️ 稽核同時釐清 B 的正確讀法為「**Action 子系統**動畫權威唯一」——`LocomotionModel` 的 Stop 播放屬 ADR-003 D4 授權，與本 ADR 正交 |
 | 2026-08-30 | **§8 新增 L4**（同型別 Action 之間無法互相中斷）。**僅補記已知限制，D1–D7 與 §10 的 Acceptance Criteria 一字未動** | Planning review 於磁碟現況發現 `EvaluateInterrupts` 的同型別排除與 D3「所有動作共用 `StateType.Action`」相乘，使 Action → Action 中斷結構性不可能。屬 **D3 的結構性代價**而非實作疏漏，依 §0 規則「先修文件再驗證」記於此；**不觸發本輪任何程式改動**（D7 使其在 Trial 期不會被觸發），候選解留給下一個 ADR |
 
 ---

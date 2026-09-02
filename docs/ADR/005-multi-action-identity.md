@@ -2,10 +2,10 @@
 
 | 欄位 | 內容 |
 |---|---|
-| 狀態 (Status) | ⚪ **Proposed** ——**尚未裁決，不得作為實作基線** |
-| 翻牌條件 | **ADR-004 `Trial → Accepted`**。`CLAUDE.md` 明文「同一時間只允許一個 Trial」，故本 ADR 在 ADR-004 結案前**不得**進入 `Trial` |
+| 狀態 (Status) | 🟡 **Trial**（2026-09-02 翻牌）——**目前的實作基線，但尚未由任何實作驗證**。語意見 ADR-004 §0 |
+| 翻牌條件 | ~~ADR-004 `Trial → Accepted`~~ ✅ **已滿足**（ADR-004 於 2026-09-02 Accepted），本 ADR 同日翻牌為 `Trial` |
 | 日期 | 2026-09-02（草案） |
-| Acceptance Review | ⏳ 未進行。條件見 **§7**（已預先寫好，翻牌即生效） |
+| Acceptance Review | ⏳ 未進行。條件見 **§7**（A–G 七條，其中 **G** 專守 Slow 不擴散） |
 | Supersede | **無 ADR 被取代**——與 ADR-001／002／003／004 並列。本 ADR **延續**並**不推翻** ADR-004 的 D1–D7；特別是 §5.2「每個動作一個 `StateType`」的否決在此**繼續有效** |
 | 關聯文件 | `docs/ADR/004-action-in-fsm.md`（前置；§8 L4 與 §5.2 否決）、**`docs/09-multi-action.md`（本 ADR 的 Living Spec；所有實作細節在該檔）**、`docs/08-skill-system.md` §11.1（FU-1／2／3 登記表）、`docs/02-dev-spec.md` §1／§2.1／§3.3／§7 |
 | 影響模組 | `IntentData`（黑板 schema）、`ActionState`、`StateMachineConfigSO` 的索引形狀、`FullBodyStateMachine.EvaluateInterrupts`、`ActionRequestTarget`、`PlayerInputSource`／`CharacterPipelineRunner.ProcessIntents`、`ArchitectureRegressionTests` |
@@ -167,6 +167,7 @@ Slow 的實作**必須**是既有 intent producer 上的係數，讓結果沿既
 | 日期 | 修改 | 原因 |
 |---|---|---|
 | 2026-09-02 | 建立草案（`Proposed`） | 作品集方向調整，FU-1／2／3 同時成為阻擋項 |
+| 2026-09-02 | **`Proposed → Trial`**。內容一字未動 | ADR-004 通過 Acceptance 並改為 `Accepted`，「同一時間只允許一個 Trial」的限制解除 |
 
 ---
 

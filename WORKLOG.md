@@ -9,6 +9,20 @@
 
 > ### 📍 2026-09-02 交接（**最新，請先讀這段**）
 >
+> ### 📍 2026-09-02 補記（**P-0 已結案，讀完上一段再讀這段**）
+>
+> **ADR-004 `Trial → Accepted` 完成，ADR-005 `Proposed → Trial` 完成。下一個開工項目是 `docs/09` 的 P-A（identity 實作）。**
+>
+> - **A／C**（Play 跑通、既有四狀態無回歸）＝使用者 Play 驗收
+> - **D／E**（EditMode 全綠、穩態 `0 B/frame`）＝使用者實跑
+> - **B／F**（三權威一致、無第二套 authority）＝**靜態稽核**，明細寫在 **ADR-004 §10.1**
+>
+> **稽核順帶釐清兩件事，下一包會用到**：
+> 1. **B 的正確讀法是「Action 子系統的動畫權威唯一」，不是專案全域只有一個播放點。** `LocomotionModel` 另有 `Play`／`PlayWithCallback`（Stop 選片），那是 **ADR-003 D4 授權**的 model 自驅動畫，早於 ADR-004 且正交。以後引用「動畫只由順序 5 播放」時要帶這個限定條件。
+> 2. **兩處防禦性冗餘已登記**（ADR-004 §10.1）：release 雙重去重（`ActionState` ＋ emitter 各一）、`Cleanup()` 五路徑呼叫。**現在判定為冗餘而非 workaround**（時點權威仍單一、冪等、T15／T17 有覆蓋），但 **P-A 擴成多 Action 後要重新評估**——屆時它們會變成 per-action，冗餘可能滑向「兩個真相」。
+>
+> ⛔ **G4／G5／G7 仍未打勾**，它們不屬於 ADR-004 的停止線（G4＝Foot IK A/B 錄影、G7＝場景像關卡），與 P-A 無依賴關係。
+
 > **一句話**：作品集方向重訂——**Throw 降級為 ADR-004 的驗收證據、不進影片**；主線改為 **Quick Spell ／ Ice Spell ／ Melee Slash 三技能 ＋ Slow effect**，並以 **ADR-005（Action Identity）** 承載。**唯一該立刻做的是 P-0：拿 Throw 現狀去過 ADR-004 Acceptance，零手感投入。**
 >
 > **① 本輪產出（純文件，未碰程式與資產）**
@@ -22,7 +36,7 @@
 > ⇒ **Throw 節奏慢、瞄準難用，對 Acceptance 完全無害。原封不動送驗收即可，這是解鎖新計畫的唯一合法路徑。**
 >
 > **③ 現在該做什麼**
-> - **P-0：ADR-004 Acceptance**（使用者側資產接線 ＋ Play ＋ §10 A–F 逐條回填）。停止線與清單見下方「🛑 當前輪次的停止 checkpoint」，**內容不變**。
+> - ~~**P-0：ADR-004 Acceptance**~~（使用者側資產接線 ＋ Play ＋ §10 A–F 逐條回填）。停止線與清單見下方「🛑 當前輪次的停止 checkpoint」，**內容不變**。
 > - P-0 結案後：ADR-005 翻牌 `Trial` → P-A（identity 實作）→ P-B／P-C／P-D 並行。順序表在 `docs/09` §11。
 > - ⛔ **P-0 之前不得動任何 Action 程式**。
 >
@@ -107,9 +121,12 @@
 | 8 | 受擊與中斷（Throw 斷 Telegraph／揮劍被打斷） | 1:30–1:45 | **WP2 機制 ＋ WP3 Play** | 雙向互動成立 |
 | 9 | 遭遇結束 | 1:45–2:00 | **WP3 ＋ WP4** | 有結局的遭遇 vs 沒剪完的錄影 |
 
-### 🛑 當前輪次的停止 checkpoint（**這是硬線**）
+### 🛑 ~~當前輪次的停止 checkpoint~~ —— ✅ **2026-09-02 已到線，結案**
 
-**停在 ADR-004 `Trial → Accepted` 的那一刻。** 全部成立才算到線，一件不多：
+> ✅ **ADR-004 已於 2026-09-02 改為 `Accepted`**（A–F 逐條回填見 ADR-004 §10，F 的靜態稽核明細見 §10.1）。
+> **ADR-005 同日翻牌為 `Trial`，下一個開工項目是 `docs/09` 的 P-A。**
+
+~~**停在 ADR-004 `Trial → Accepted` 的那一刻。** 全部成立才算到線，一件不多：~~（以下為歷史紀錄）
 
 1. 資產與接線完成（Throw／Damage 的 transition mappings、Bake、兩份 Definition、Config 的 Action rules、`ThrownProjectile` trigger collider、敵人 prefab、NavMesh 烘焙）。
 2. ⚠️ **`playerCamera` 欄位或 MainCamera tag 必須確認存在**——`AIMovementSource` 在 `data.CameraTransform == null` 時**直接 return**，症狀是「敵人靜止不動」且**沒有任何錯誤訊息**。這條放進驗收清單，不要現場 debug。
@@ -347,12 +364,12 @@
 
 ### ✅ 完成定義（DoD）：作品集最低限度 Gate
 
-- [ ] **G1 敵人重用整條管線**：一隻敵人會朝玩家移動，且**完整重用** Walk/Run tier、Stop 腳相選片、Foot IK、腳步音；玩家與敵人跑**同一份** `CharacterPipelineRunner` 程式碼。
-- [ ] **G2 技能無可爭議**：玩家可發動 Throw（`Throw_Start`→`ThrowLoop`→`ThrowEnd*`）並丟出一顆會飛的投射物，命中敵人會有反應（播 `Damage`）。
-- [ ] **G3 中斷矩陣可展示**：技能可被移動／Jump／Roll 中斷，行為與 `docs/08` §8.3 的表格一致，且 EditMode 有對應測項。
+- [x] **G1 敵人重用整條管線**：一隻敵人會朝玩家移動，且**完整重用** Walk/Run tier、Stop 腳相選片、Foot IK、腳步音；玩家與敵人跑**同一份** `CharacterPipelineRunner` 程式碼。
+- [x] **G2 技能無可爭議**：玩家可發動 Throw（`Throw_Start`→`ThrowLoop`→`ThrowEnd*`）並丟出一顆會飛的投射物，命中敵人會有反應（播 `Damage`）。
+- [x] **G3 中斷矩陣可展示**：技能可被移動／Jump／Roll 中斷，行為與 `docs/08` §8.3 的表格一致，且 EditMode 有對應測項。
 - [ ] **G4 Foot IK 可 A/B**：斜坡／樓梯上開關 IK 的差異外行可見，且 L1（跨階腳掌穿模）已修。
 - [ ] **G5 資料配置可展示**：改一份 ScriptableObject 的值 → Play 立刻看到行為改變，**至少三個可 demo 的參數**（速度 tier／跳躍高度／打斷規則）。
-- [ ] **G6 品質門檻**：EditMode 全綠（含本輪新增的架構不變量）；Development Build Profiler 穩態 `0 B/frame`（走 dev-spec §7.4 SOP）。
+- [x] **G6 品質門檻**：EditMode 全綠（含本輪新增的架構不變量）；Development Build Profiler 穩態 `0 B/frame`（走 dev-spec §7.4 SOP）。
 - [ ] **G7 場景像關卡**：demo 場景有斜坡／樓梯／障礙與明確目標，不是空地。
 
 > 🔔 **交辦指令（不是提醒）**：**當最後一項打勾時，該會話必須主動告知使用者「已達作品集最低限度」**，

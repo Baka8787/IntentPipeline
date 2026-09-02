@@ -6,6 +6,18 @@
 
 ---
 
+## [v0.34] - ADR-004 Accepted：Action 進 FSM 拓撲結案（2026-09-02，已驗收）
+
+Throw vertical slice 通過 ADR-004 §10 的 Acceptance Criteria，ADR-004 自 `Trial` 改為 `Accepted`——**本專案第一個走完 `Design → Trial → Implement → Observe → Revise → Accept` 全流程的 ADR**。D1–D7 decision content 自此凍結進入 Immutable Log。
+
+A（Play 全程跑通）與 C（既有 Idle／Move／Jump／Roll 無回歸）由 Play 驗收；D（EditMode 全綠）與 E（穩態 `0 B/frame`）由實跑確認。B 與 F 改以**靜態稽核**完成，明細新增為 ADR-004 §10.1：以符號搜尋列舉三個權威的所有呼叫點，確認 `ActionState` 全檔只有 `IsPlaying`／`GetNormalizedTime` 兩處唯讀查詢而從不呼叫 `Play`、冷卻僅 `OnExit` 寫入與 `CanEnter` 讀取、`Core/` 下 `Instantiate` 零命中、sink 呼叫點全部在 `ActionState` 內。
+
+稽核同時釐清 B 的正確讀法是「**Action 子系統**的動畫權威唯一」而非專案全域只有一個播放點——`LocomotionModel` 的 Stop 選片播放屬 ADR-003 D4 授權，早於 ADR-004 且與之正交。另登記兩處防禦性冗餘（release 雙重去重、`Cleanup()` 多路徑呼叫），現階段判定為冪等 safety net 而非 workaround，但多 Action 落地後需重新評估是否滑向兩個真相。
+
+作品集方向同日重訂：Throw 降級為 Acceptance 證據與架構歷史案例，不再投入手感調整，也不出現在展示影片。主線改為 Quick Spell／Ice Spell／Melee Slash 三技能加 Slow effect，由新增的 **ADR-005（Action Identity，同日翻牌 `Trial`）** 與 `docs/09-multi-action.md` 承載。ADR-005 只凍結五條決策，identity 的表示法、容器形狀與 API 一律不凍結。原 WP1（鏡頭＋Aim＋Throw 依 AimPoint）解散——該包的存在理由是救 Throw 手感，前提已消失。
+
+治理面另新增 `CLAUDE.md` 的 Remote Container Exception：遠端容器 session 中純文件變更可由 Claude commit／push，變更集一旦出現程式或 Unity 資產即整批退回原禁令。
+
 ## [v0.33] - Walk Pending Stop 相位等待（2026-08-21，已驗收）
 
 Walk LU／RU Fade `0.15 → 0.25 s` 後全身瞬間變動仍明顯，確認問題是固定起點 pose mismatch，繼續加長淡入只會讓錯誤混合更久。放開 Walk 現在先進入 `LocomotionStopRuntime` 私有 Pending 階段：用 Stop 入場 `FootPhaseCurve` 的連續值比對 Walk loop 烘焙鍵，選下一個最近的 authored 入場時刻，到點才播放。

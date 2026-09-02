@@ -1,11 +1,15 @@
-# Action System — Throw Vertical Slice（Trial 實作規格）
+# Action System — Throw Vertical Slice（實作規格）
 
-> **定位**：🟡 **[`docs/ADR/004-action-in-fsm.md`](ADR/004-action-in-fsm.md)（狀態 `Trial`）的 Living Spec。**
+> ✅ **2026-09-02：ADR-004 已 `Accepted`，本 vertical slice 結案。** 本檔自此描述**已驗證的實作**，不再是 Trial 期文件。
+> **Throw 的後續定位**：ADR-004 的 Acceptance 證據 ＋ 架構歷史案例。依 2026-09-02 使用者裁決，
+> **不再投入手感調整，且不出現在作品集影片**。多 Action 的後續工作見 [`docs/09-multi-action.md`](09-multi-action.md)。
+>
+> **定位**：✅ **[`docs/ADR/004-action-in-fsm.md`](ADR/004-action-in-fsm.md)（狀態 `Accepted`）的 Living Spec。**
 > ADR 只凍結「改錯會造成架構污染」的決策（D1–D7）；**本檔承載全部實作細節，且本檔內容允許因實作發現而修改**——
 > 那正是 Trial 的目的（ADR-004 §0）。
 > **本輪範圍**：讓 Codex 能實作**第一個 Throw vertical slice**，不多不少。
 > **不是** Action Framework 的完整設計；不做 ActionLibrary／多動作／Combo／Effect Framework（ADR-004 D7）。
-> **⚠️ 引用本檔時請一併註明 ADR-004 仍是 Trial**——通過 ADR-004 §10 的 Acceptance Criteria 之前，本檔不是穩定真相。
+> ~~**⚠️ 引用本檔時請一併註明 ADR-004 仍是 Trial**~~ —— **2026-09-02 解除**：ADR-004 §10 已通過，本檔為穩定真相。
 > **前身**：本檔 2026-08-29 上午的初稿設計了獨立 `SkillDriver`，已被 ADR-004 取代；該方案與其否決理由保存在 ADR-004 §5.1。
 
 ---
