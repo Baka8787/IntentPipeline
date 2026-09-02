@@ -170,14 +170,7 @@ namespace Project.Core.StateMachine
         public override void OnExit(PlayerRuntimeData data)
         {
             _lifecycleSink?.Cleanup();
-
-            // 冷卻記在**剛結束的那個 slot** 上，不是全域。Definition 為空（未成功進入）時不寫。
-            if (_definition != null && _activeSlot != ActionSlot.None)
-            {
-                _cooldownEndTime[(int)_activeSlot] =
-                    Time.time + Mathf.Max(0f, _definition.Cooldown);
-            }
-
+            CommitCooldown();
             ResetExecutionState();
         }
 
@@ -288,7 +281,24 @@ namespace Project.Core.StateMachine
         private void Complete()
         {
             _lifecycleSink?.Cleanup();
+            CommitCooldown();
             ResetExecutionState();
+        }
+
+        /// <summary>
+        /// 把冷卻記在**剛結束的那個 slot** 上，不是全域。Definition 為空（未成功進入）時不寫。
+        ///
+        /// 🐛 **2026-09-02 修**：本段原本只寫在 <see cref="OnExit"/>，但 <see cref="Complete"/> 會先
+        /// <see cref="ResetExecutionState"/> 清掉 <c>_activeSlot</c>／<c>_definition</c> ——
+        /// 於是**自然播完的 Action 永遠不會進冷卻**，只有被中斷的才會。方向剛好相反。
+        /// 兩個結束路徑（自然完成／被中斷）都要記，所以抽成同一個方法在兩處呼叫；
+        /// 由下方的 null 判定保證冪等（`Complete()` 記完即清，後續 `OnExit` 是 no-op），
+        /// 因此**不會重複延長冷卻**。
+        /// </summary>
+        private void CommitCooldown()
+        {
+            if (_definition == null || _activeSlot == ActionSlot.None) return;
+            _cooldownEndTime[(int)_activeSlot] = Time.time + Mathf.Max(0f, _definition.Cooldown);
         }
 
         /// <summary>

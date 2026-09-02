@@ -167,7 +167,12 @@ namespace Project.Tests.EditMode
             state.Initialize(config, new FakeMovementModel());
             var data = new PlayerRuntimeData();
 
+            // 🆕（ADR-005）ActionState 不再於 Initialize 綁死 Definition，改為每次進入時依 request 的
+            // slot 現查 ⇒ 直接呼叫 OnEnter 的測試**必須先表達 request**，否則解析不到任何 Definition。
+            // 走 FSM 的測試不受影響（CanEnter 已先問過）。進入後復位，比照管線順序 7 的單幀語意。
+            data.Intent.RequestedActionSlot = ActionSlot.Primary;
             state.OnEnter(data);
+            data.Intent.RequestedActionSlot = ActionSlot.None;
 
             Assert.AreEqual(1, sink.ReleaseCount, "預設值 0 必須維持既有 phase-entry release 行為");
 
@@ -195,7 +200,12 @@ namespace Project.Tests.EditMode
             state.Initialize(config, new FakeMovementModel());
             var data = new PlayerRuntimeData { IsGrounded = true };
 
+            // 🆕（ADR-005）直接呼叫 OnEnter ⇒ 必須先表達 request（見上方 ReleaseNormalizedTime_Zero 註解）。
+            // 進入後復位為 None，避免殘留的 request 在 Loop 期被誤判為 WaitForTrigger 的 re-trigger。
+            data.Intent.RequestedActionSlot = ActionSlot.Primary;
             state.OnEnter(data);
+            data.Intent.RequestedActionSlot = ActionSlot.None;
+
             state.OnTick(data, 0.1f);
             data.MovementIntent.DesiredSpeedNormalized = 1f;
             state.OnTick(data, 0.016f);
@@ -220,7 +230,11 @@ namespace Project.Tests.EditMode
             state.Initialize(config, new FakeMovementModel());
             var data = new PlayerRuntimeData();
 
+            // 🆕（ADR-005）直接呼叫 OnEnter ⇒ 必須先表達 request（見上方 ReleaseNormalizedTime_Zero 註解）。
+            data.Intent.RequestedActionSlot = ActionSlot.Primary;
             state.OnEnter(data);
+            data.Intent.RequestedActionSlot = ActionSlot.None;
+
             state.OnTick(data, 0.1f);
 
             Assert.AreEqual(ActionPhase.None, state.CurrentPhase);
