@@ -9,7 +9,31 @@
 
 > ### 📍 2026-09-02 交接（**最新，請先讀這段**）
 >
-> ### 📍 2026-09-02 補記（**P-0 已結案，讀完上一段再讀這段**）
+> ### 📍 2026-09-02 補記 ②（**最新，ADR-005 第一輪已落地**）
+>
+> **同一角色現在能持有多份 `ActionDefinitionSO`，以 `ActionSlot` 為身分獨立觸發、獨立冷卻，共用同一顆 `ActionState`。B1／B2／B5（＝FU-2／FU-3／FU-1）一次解掉。**
+> ✅ 編譯過、EditMode 全綠。⏳ **尚未 Play、尚未 Profiler、尚未資產接線。**
+>
+> **① 下一步（照順序）**
+> 1. **資產接線**：`.inputactions` 加 Q／E → 接 `PlayerInputSource.SecondaryAction`／`TertiaryAction`；兩份新 `ActionDefinitionSO`（`Slot` 設 `Secondary`／`Tertiary`）填進 `StateMachineConfig` 的 **`actionDefinitions`**（⚠️ 不是 `paramsMappings`）
+> 2. **Play 驗證** ⇒ 回填 ADR-005 §4 的 **A／C**
+> 3. **Profiler 零 GC** ⇒ 回填 **E**。⚠️ 熱路徑有改（`ProcessIntents`／`EvaluateInterrupts`），**必須複驗**
+> 4. **B** 要等實際加第三個 Action 才算數（那就是 Melee）
+>
+> **② 實作推翻的假設（完整版在 `docs/09` §3.4）**
+> - **`ActionSlot` 原本放錯層**：放在 `Core/StateMachine/Actions/` 會讓 Presentation 的 `ThrownProjectile` 踩到 `LayerRules` ⇒ 移到 **`Core/Actions/`**。**身分屬於跨層 seam 層，不屬於 FSM 層。**
+> - **重入第一版有 priority 繞過**：就地 `TransitionTo` 會讓字典迭代順序決定結果、並繞過更高優先的狀態（Roll）⇒ 改為與其他候選走同一套 priority 比較。
+> - **`OnEnter` 產生新耦合**（已接受）：Definition 不再於 `Initialize` 綁死 ⇒ `OnEnter` 必須重新解析 request。結構上成立，但這是 ADR-004 期沒有的。
+>
+> **③ 🐞 A22 自 ADR-004 Trial 期起一直是紅的**
+> 它斷言 `IActionReleaseSink`，但介面早已改名 `IActionLifecycleSink` 並從 1 個方法擴為 3 個；斷言與 `docs/08` §2.7 都沒同步。已修。
+> ⚠️ **這代表 ADR-004 §10 的 D 當時是在不成立的基礎上打勾的**（依據是口頭回報，非實跑）。
+> **教訓：改名要一併 grep 測試與文件。** `docs` 的舊名不會自己壞給你看。
+>
+> **④ 治理**
+> 本輪程式 commit 走**一次性授權**（`CLAUDE.md` 的 Remote Container Exception 仍是純文件，**條文未改**）。下次有 `.cs` 仍會停下來問。
+
+> ### 📍 2026-09-02 補記 ①（P-0 結案）
 >
 > **ADR-004 `Trial → Accepted` 完成，ADR-005 `Proposed → Trial` 完成。下一個開工項目是 `docs/09` 的 P-A（identity 實作）。**
 >

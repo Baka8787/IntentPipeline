@@ -6,6 +6,20 @@
 
 ---
 
+## [v0.35] - ADR-005 Trial：ActionSlot 身分讓多 Action 共用一顆 ActionState（2026-09-02，EditMode 綠，待 Play 驗收）
+
+`docs/08` §11.1 登記的 FU-1／FU-2／FU-3 一次解掉。三者共同根因是「系統裡沒有『這是哪一個 Action』的概念」——概念不存在，查表就只能用 `StateType` 當鍵、mailbox 只能是無名旗標、中斷只能比型別。新增 `ActionSlot`（`None`／`Primary`／`Secondary`／`Tertiary`／`Reaction`）作為單一身分，輸入映射、per-slot 冷卻、external request、Action→Action 中斷全部以它為鍵。
+
+`IntentData.FireRequested` 改為 `RequestedActionSlot`，writer 不變。`StateMachineConfigSO` 新增一條**平行的** `actionDefinitions` 索引，刻意不動既有四張以 `StateType` 為鍵的表——改它們會波及 Jump／Roll 等與 Action 無關的狀態；清單為空時退回舊路徑，既有 Throw／Damage 資產不用改任何欄位。`ActionState` 的冷卻由單一 `float` 改為 per-slot 陣列，仍住在 `ActionState` 內（ADR-004 D2 未破）；Definition 改為每次進入時依 request 現查。`BaseState.CanReenter` 預設 `false`，`ActionState` override 以支援 Action→Action 中斷，判準與 `CanEnter` 同源，沒有引入新決策來源。
+
+本輪採 code-first（ADR-005 Trial ＋ Fold-back 規則）。程式推翻兩個原假設：`ActionSlot` 原放 `Core/StateMachine/Actions/`，但 Presentation 的 `ThrownProjectile` 需要它而 `LayerRules` 禁止該 namespace，⇒ 移到 `Core/Actions/`——**身分屬於跨層 seam 層，不屬於 FSM 層**，這個結論是架構測試教的；重入的第一版就地 `TransitionTo`，會讓字典迭代順序決定結果並繞過更高優先的狀態（Roll），⇒ 改為與其他候選走同一套 priority 比較。另接受一個新耦合：`OnEnter` 現在必須重新解析 request。
+
+ADR-005 同輪瘦身，五條決策砍到兩條——既有 authority 的複述、schema routing 事實、實作分析都不該佔用 ADR 的凍結力，那會稀釋「ADR ＝ 改錯會造成架構污染」的訊號。
+
+順帶修掉一個既存缺陷：**A22 自 ADR-004 Trial 期起一直是紅的**。它斷言 `IActionReleaseSink`，但該介面早已改名為 `IActionLifecycleSink` 並從 1 個方法擴為 3 個，斷言與 `docs/08` §2.7 都沒同步。這也意味 ADR-004 §10 的 D 當時是在不成立的基礎上打勾的。教訓：改名要一併 grep 測試與文件。
+
+新增 T18–T21 與 A23（守 ADR-005 D1：身分只准宣告一次、冷卻不得外流）。編譯通過、EditMode 全綠；⏳ 資產接線、Play 驗證與 Profiler 零 GC 複驗待辦——熱路徑有改動（`ProcessIntents`／`EvaluateInterrupts`），零 GC **必須**複驗。
+
 ## [v0.34] - ADR-004 Accepted：Action 進 FSM 拓撲結案（2026-09-02，已驗收）
 
 Throw vertical slice 通過 ADR-004 §10 的 Acceptance Criteria，ADR-004 自 `Trial` 改為 `Accepted`——**本專案第一個走完 `Design → Trial → Implement → Observe → Revise → Accept` 全流程的 ADR**。D1–D7 decision content 自此凍結進入 Immutable Log。

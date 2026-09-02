@@ -105,12 +105,35 @@
 
 ⇒ **實作採方案 B**（`enum ActionSlot`）。ADR-005 D1 不凍結表示法，若程式證偽可直接改。
 
-### 3.3 開放問題（實作期必須回答，答案回填本節）
+### 3.3 開放問題 —— ✅ **已由實作回答（2026-09-02，code-first）**
 
-1. `Damage` 是主動 slot 還是獨立的 reaction 身分？
-2. slot 數量固定或動態？固定的話上限是多少（YAGNI 判斷）？
-3. 多份 Definition 掛在 `ActionState` 內、`StateMachineConfigSO` 索引擴張、或獨立 SO 清單？三者 Inspector 可維護性差異需實測。
-4. identity 是否需要進入 `ActionDefinitionSO` 成為 authored 欄位，還是純粹由容器位置決定？
+| # | 問題 | 答案 | 依據 |
+|---|---|---|---|
+| 1 | `Damage` 是主動 slot 還是獨立 reaction 身分？ | **獨立的 `Reaction` 成員**，且**沒有輸入來源**——只由 `ActionRequestTarget` 提交 | 這正是 FU-3 要的區別。若讓 `Damage` 佔一個主動 slot，「我被打到」與「我要出手」又會混在一起 |
+| 2 | slot 數量固定或動態？ | **固定 enum，目前五員**。冷卻陣列以 `(int)ActionSlot.Reaction + 1` 定尺寸 | 動態容器換來的彈性沒有使用者，且會犧牲 O(1) 查表與零配置 |
+| 3 | 多份 Definition 放哪？ | **`StateMachineConfigSO` 新增一條平行的 `actionDefinitions` 清單 ＋ `ActionSlot` 索引** | 既有四張表全以 `StateType` 為鍵，**改它們的形狀會波及 Jump／Roll 等與 Action 無關的狀態**。平行索引是影響面最小的解 |
+| 4 | identity 要不要成為 `ActionDefinitionSO` 的 authored 欄位？ | **要**。`ActionDefinitionSO.Slot`，因此清單是扁平的，不需要 mapping struct | 身分寫在資產自己身上，排序改變不影響行為（這正是否決 `int` index 的理由） |
+
+### 3.4 🔴 實作推翻的假設（2026-09-02）
+
+**① `ActionSlot` 的層級放錯了。**
+原本放 `Core/StateMachine/Actions/`（與 `ActionDefinitionSO`／`ActionPhase` 同層）。但 `ThrownProjectile` 位於
+Presentation，而 `LayerRules` 禁止 Presentation 出現 `Project.Core.StateMachine` ⇒ **A4 會紅**。
+
+⇒ **移到 `Core/Actions/`**，與 `ActionRequestTarget`／`IActionLifecycleSink` 同層。
+**身分屬於跨層 seam 層，不屬於 FSM 層**——`Core/Actions/` 存在的理由本來就是「Presentation 也被允許認識的最窄介面」。
+📌 這個結論是**架構測試教的**，不是設計時想到的。它也是 A4 這條不變量第一次產生正面價值（過去只用來擋錯誤）。
+
+**② Action→Action 重入的第一版有 priority 繞過。**
+初版在 `EvaluateInterrupts` 迴圈裡遇到同型別就直接 `TransitionTo` 並 return。後果：
+**字典迭代順序決定結果**，且重入會**繞過比它優先的狀態**（例：Roll 閃避應該打斷技能，卻可能被另一個技能的重入搶先）。
+⇒ 改為「重入候選與其他候選走同一套 priority 比較」。
+
+**③ `OnEnter` 產生了新的耦合（已接受，需留意）。**
+Definition 不再於 `Initialize` 綁死，因此 `OnEnter` 必須**重新解析一次 request**。
+結構上成立——intent 到順序 7 才復位、mailbox 到 Tick 結束才清，兩者都在 `TransitionTo` **之後**；
+並加了 `Complete()` 保底（request 消失時不進入任何 phase）。
+⚠️ 但這是 ADR-004 期沒有的耦合。副作用：直接呼叫 `OnEnter` 的測試現在必須先設 intent。
 
 ---
 
@@ -295,6 +318,52 @@
 | **P-F** | 敵人遭遇（原 WP3） | P-B／P-C |
 
 ~~**P-0 是硬前置**~~ ✅ **已滿足**（2026-09-02）。**下一個開工項目是 P-A。**
+
+---
+
+## 11.5 實作紀錄（2026-09-02，code-first 第一輪）
+
+> ✅ **編譯通過、EditMode 全綠**（使用者實跑確認）。
+> ⏳ **尚未 Play 驗證、尚未 Profiler 零 GC 複驗、尚未做資產接線。**
+
+### 實際改動的 ownership ／ data flow
+
+| 項目 | 改動 |
+|---|---|
+| 新增身分 | `Core/Actions/ActionSlot.cs`：`None`／`Primary`／`Secondary`／`Tertiary`／`Reaction` |
+| 黑板 schema | `IntentData.FireRequested`（`bool`）→ **`RequestedActionSlot`（`ActionSlot`）**。**writer 仍是 Runner，`WriterRules` 不變** |
+| 輸入 | `InputData` ＋2 顆 `*ButtonDown`；`PlayerInputSource` ＋2 個 `InputAction`（未綁定＝false） |
+| 按鍵→身分映射 | **Runner 順序 2 `ProcessIntents`**。raw input 不知道技能、`ActionState` 不知道按鍵 |
+| Config | 平行的 `actionDefinitions` ＋ `ActionSlot` 索引；`GetActionDefinition(slot)`／`ActionDefinitionCount` |
+| 冷卻 | `float` → `float[SlotCount]`，**仍住在 `ActionState` 內** |
+| Definition 綁定 | `Initialize` 綁死 → **每次進入依 request 現查**（`TryResolveRequest`） |
+| mailbox | `RequestAction(ActionSlot)`；projectile 命中送 `Reaction`（FU-3 解） |
+| 重入 | `BaseState.CanReenter(data)` 預設 `false`；`ActionState` override（FU-1 解） |
+
+### 沒有新增任何 abstraction
+
+新增的只有**一個 enum ＋ 一個陣列 ＋ Config 上一條平行索引**。
+零新介面、零 manager、零 framework。`IActionLifecycleSink` **一行未改**。
+
+### 向後相容
+
+`BuildActionSlotMap` 在 `actionDefinitions` 為空時，退回讀 `paramsMappings` 綁在 `StateType.Action` 的那份。
+⇒ **既有 Throw／Damage 資產不改一個欄位也能繼續跑**。T21 鎖住此路徑。
+
+### 測試
+
+新增 **T18**（兩份 Definition 獨立觸發且共用同一 `ActionState` 實例）、**T19**（per-slot 冷卻不連坐）、
+**T20**（同 slot 不重入／不同 slot 可互相打斷）、**T21**（舊資產相容），
+＋ **A23**（守 ADR-005 D1：身分只准宣告一次、冷卻不得外流至 `ActionState` 之外）。
+
+### 🐞 順帶修掉的既存缺陷
+
+**A22 自 ADR-004 Trial 期就一直是紅的。** 它斷言 `ActionState.cs` 含 `IActionReleaseSink`，
+但該介面早已改名為 `IActionLifecycleSink` 並從 1 個方法擴為 3 個；**斷言與 `docs/08` §2.7 都沒同步**。
+⇒ 已修斷言，並把 `docs/08` §2.7 fold back 到程式現況。
+
+⚠️ **這件事同時說明 ADR-004 §10 的 D（EditMode 全綠）當時是在不成立的基礎上打勾的。**
+教訓：**改名要一併 grep 測試與文件**——`docs` 的舊名不會自己壞給你看，而測試會，前提是有人真的在看它。
 
 ---
 

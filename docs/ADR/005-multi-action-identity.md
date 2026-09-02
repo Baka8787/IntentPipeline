@@ -62,12 +62,14 @@
 
 ## 4. Acceptance Criteria（`Trial → Accepted`）
 
-- [ ] **A. 同一角色持有並可獨立觸發至少兩份 `ActionDefinitionSO`**，各自獨立輸入與 cooldown，且**共用同一顆 `ActionState`**
-- [ ] **B. 加下一個 Action ＝ 零 runtime 程式**（一份資產 ＋ 一列動畫映射 ＋ 一列 slot 映射）
-- [ ] **C. 既有 Idle／Move／Jump／Roll／Throw 無回歸**
-- [ ] **D. EditMode 全綠**（含 A13′／A19 維持）
-- [ ] **E. 零 GC**，穩態 `0 B/frame`
-- [ ] **F. 沒有長出第二個 gate／interrupt 權威**（ADR-004 D2 的延續）
+> **進度（2026-09-02 code-first 第一輪後）**：D／F 成立；A 在 EditMode 層成立、待 Play；B／C／E 未驗。
+
+- [~] **A. 同一角色持有並可獨立觸發至少兩份 `ActionDefinitionSO`**，各自獨立輸入與 cooldown，且**共用同一顆 `ActionState`** —— 🟡 **EditMode 層成立**（T18 斷言兩者為同一 `ActionState` 實例、T19 斷言冷卻不連坐）。⏳ **待資產接線後 Play 驗證**（Q／E 實際觸發）
+- [ ] **B. 加下一個 Action ＝ 零 runtime 程式**（一份資產 ＋ 一列動畫映射 ＋ 一列 slot 映射）—— ⏳ 需實際加第三個 Action 才算數
+- [ ] **C. 既有 Idle／Move／Jump／Roll／Throw 無回歸** —— ⏳ 待 Play。T21 已鎖住舊資產的**解析**路徑，但不涵蓋播放與位移
+- [x] **D. EditMode 全綠**（含 A13′／A19 維持）—— ✅ 使用者實跑確認（2026-09-02）。⚠️ 同輪修掉 **A22 自 ADR-004 Trial 期起一直為紅**的既存缺陷（斷言 `IActionReleaseSink`，介面早已改名為 `IActionLifecycleSink`）
+- [ ] **E. 零 GC**，穩態 `0 B/frame` —— ⏳ 待 Profiler。⚠️ 熱路徑有改動（`ProcessIntents`、`EvaluateInterrupts`），**必須複驗**
+- [x] **F. 沒有長出第二個 gate／interrupt 權威**（ADR-004 D2 的延續）—— ✅ 靜態稽核（定稿後重跑）：`_cooldownEndTime` 僅存在於 `ActionState.cs`；`CanEnter` 與 `CanReenter` **同源於單一 `TryResolveRequest`**，未引入新決策來源；`ActionState` 仍只讀取 facade（`IsPlaying`／`GetNormalizedTime`），從不 `Play`；`Core/` 下 `Instantiate` 零命中。**A23 已將本條機器化**
 
 **未通過**：先修本 ADR ／ `docs/09` → 再驗證 → **不得補 workaround**。
 若 **D1 被證偽**（單一 identity 撐不住所有消費者），轉 `Rejected`，code／ADR／invariant 一起 revert 回 ADR-004 的單一 Definition 基線。
@@ -81,4 +83,5 @@
 |---|---|---|
 | 2026-09-02 | 建立草案（`Proposed`） | 作品集方向調整，FU-1／2／3 同時成為阻擋項 |
 | 2026-09-02 | `Proposed → Trial` | ADR-004 `Accepted`，「同一時間只允許一個 Trial」解除 |
+| 2026-09-02 | **code-first 第一輪落地**：`ActionSlot` 身分 ＋ 多 Definition ＋ per-slot 冷卻 ＋ Action→Action 重入。**D1／D2 未被推翻**，兩條決策一字未動。實作推翻的是**位置**與**重入實作**（詳見 `docs/09` §3.4），兩者都屬本 ADR 明文不凍結的範圍 | Fold-back：Trial 期允許 code-first，工作包結束前同步文件 |
 | 2026-09-02 | **瘦身：五條決策砍到兩條**（原 D2／D3／D4 下放 §3 表格）；候選比較與需求清單移入 `docs/09` §3；改採 code-first | 檢討發現 ADR 比它要守護的程式還長。既有 authority 的複述、routing 事實、實作分析**都不該佔用 ADR 的凍結力**——那會稀釋「ADR ＝ 改錯會造成架構污染」的訊號 |
