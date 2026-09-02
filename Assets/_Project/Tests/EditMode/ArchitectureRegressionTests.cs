@@ -606,7 +606,52 @@ namespace Project.Tests.EditMode
             string code = StripComments(File.ReadAllText(path));
             StringAssert.DoesNotContain("Instantiate", code);
             StringAssert.DoesNotContain("Destroy", code);
-            StringAssert.Contains("IActionReleaseSink", code);
+            // ⚠️ 2026-09-02 修正：介面在 ADR-004 Trial 期由 IActionReleaseSink 改名並擴為三方法
+            // （Begin／Release／Cleanup），本斷言未同步 ⇒ A22 自改名起一直是紅的。
+            StringAssert.Contains("IActionLifecycleSink", code);
+        }
+
+        // =====================================================================
+        // A23 — Action identity 單一來源（🆕 ADR-005 D1，Trial）
+        // =====================================================================
+
+        [Test]
+        public void A23_ActionIdentity_HasExactlyOneSourceOfTruth()
+        {
+            const string canonical = "ActionSlot.cs";
+            var violations = new List<string>();
+
+            // ① 身分只准宣告一次。任何第二個「Action 身分」enum 都是 D1 禁止的第二把鍵。
+            var declarations = new List<string>();
+            foreach (string path in Directory.GetFiles(ScriptsRoot, "*.cs", SearchOption.AllDirectories))
+            {
+                string code = StripComments(File.ReadAllText(path));
+                if (Regex.IsMatch(code, @"enum\s+\w*(ActionSlot|ActionId|SkillId|AbilityId)\w*\b"))
+                {
+                    declarations.Add(RelativePath(path));
+                }
+            }
+
+            if (declarations.Count != 1 || !declarations[0].EndsWith(canonical))
+            {
+                violations.Add(
+                    $"Action 身分必須恰好宣告一次於 {canonical}，實際：[{string.Join(", ", declarations)}]");
+            }
+
+            // ② 冷卻仍是 ActionState 獨佔（ADR-004 D2 延續）——不得外流到 Runner／Config／Presentation。
+            foreach (string path in Directory.GetFiles(ScriptsRoot, "*.cs", SearchOption.AllDirectories))
+            {
+                if (Path.GetFileName(path) == "ActionState.cs") continue;
+                if (Path.GetFileName(path) == "ActionDefinitionSO.cs") continue; // authored 欄位，非執行期狀態
+                string code = StripComments(File.ReadAllText(path));
+                if (code.Contains("_cooldownEndTime"))
+                {
+                    violations.Add($"{RelativePath(path)} 持有冷卻執行期狀態；能不能出手只有 ActionState 能回答");
+                }
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "ADR-005 D1／ADR-004 D2 違規：\n" + string.Join("\n", violations));
         }
     }
 }

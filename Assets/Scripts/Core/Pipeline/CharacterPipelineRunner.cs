@@ -379,7 +379,15 @@ namespace Project.Core.Pipeline
         {
             if (input.JumpButtonDown) _runtimeData.Intent.JumpRequested = true;
             if (input.RollButtonDown) _runtimeData.Intent.RollRequested = true;
-            if (input.FireButtonDown) _runtimeData.Intent.FireRequested = true;
+
+            // 🆕（ADR-005 D1）**按鍵 → ActionSlot 的映射住在這裡**，不在 raw input 層、也不在 ActionState。
+            // 理由：順序 2 的職責就是「把這一幀的輸入翻譯成意圖」——「左鍵代表 Primary」正是一句翻譯。
+            // raw input 只回報按鍵狀態（不知道技能），ActionState 只認 Slot（不知道按鍵），兩端都保持乾淨。
+            // ⚠️ 同幀多鍵：先寫者勝（Primary > Secondary > Tertiary）。單格 intent 不排隊，
+            //    與既有 mailbox 的「不排隊、不重試」語意一致。
+            if (input.FireButtonDown) _runtimeData.Intent.RequestedActionSlot = ActionSlot.Primary;
+            else if (input.SecondaryActionButtonDown) _runtimeData.Intent.RequestedActionSlot = ActionSlot.Secondary;
+            else if (input.TertiaryActionButtonDown) _runtimeData.Intent.RequestedActionSlot = ActionSlot.Tertiary;
 
             // 字串（尤其帶 richtext tag）每次觸發都會產生 GC Alloc，與專案零 GC 目標矛盾。
             // 包進 UNITY_EDITOR 後，Release 建置會被編譯器直接移除，Editor 內除錯體驗不變。

@@ -1,5 +1,6 @@
 #if UNITY_EDITOR
 using UnityEditor;
+using Project.Core.Actions;
 using UnityEngine;
 using Project.Core.Blackboard;
 using Project.Core.StateMachine; // 新增狀態機命名空間引用
@@ -73,7 +74,8 @@ namespace Project.Core.Pipeline
             // 1. 意圖區
             data.Intent.JumpRequested = EditorGUILayout.Toggle("Intent: Jump", data.Intent.JumpRequested);
             data.Intent.RollRequested = EditorGUILayout.Toggle("Intent: Roll", data.Intent.RollRequested);
-            data.Intent.FireRequested = EditorGUILayout.Toggle("Intent: Fire", data.Intent.FireRequested);
+            data.Intent.RequestedActionSlot = (ActionSlot)EditorGUILayout.EnumPopup(
+                "Intent: Action Slot", data.Intent.RequestedActionSlot);
 
             EditorGUILayout.Space();
 

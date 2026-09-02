@@ -149,14 +149,22 @@ public sealed class ActionRequestTarget : MonoBehaviour
 
 ### 2.7 Throw semantic release seam（一次性 side effect）
 
+> 🔄 **2026-09-02 fold-back**：本節原本描述單方法的 `IActionLifecycleSink`。實作在 Trial 期改名並擴為三方法
+> （held visual 需要「開始持有」與「清掉」兩個時點，只有 `Release()` 表達不了）。本節依 `CLAUDE.md`
+> Fold-back 規則同步為程式現況。⚠️ 該次改名**沒有同步 A22 的斷言**，導致 A22 自改名起一直是紅的——
+> 已於同日修正。教訓：改名時要一併 grep 測試與文件，`docs` 的舊名不會自己壞給你看。
+
 ```csharp
-public interface IActionReleaseSink
+public interface IActionLifecycleSink
 {
-    void Release();
+    void Begin();    // 進入 Action：開始持有 held visual
+    void Release();  // 跨過 authored release point：一次性 side effect（生成 projectile）
+    void Cleanup();  // 離開／取消／完成：清掉本地 Unity 物件（冪等）
 }
 ```
 
-`ActionState` 進入 `EmitsRelease == true` 的 phase 時呼叫一次 optional sink。Player 注入的具體實作是
+`ActionState` 於 `OnEnter` 呼叫 `Begin()`，進入 `EmitsRelease == true` 的 phase 時呼叫一次 `Release()`，
+於 `OnExit`／`Complete`／`Cancel` 呼叫 `Cleanup()`。Player 注入的具體實作是
 `ThrowProjectileEmitter`；它才持有 projectile prefab／spawn point 並負責 `Instantiate`。Enemy Damage 不配置 sink。
 
 - release 時點由 Action phase 決定，屬 FSM lifecycle；不是 Animation Event，也不依賴 clip callback。
@@ -274,7 +282,7 @@ motionDriver.ExecuteBakedCurveMovement(entry.Bake, animationFacade.GetNormalized
 - Idle／Move／Jump／Roll 的 `AnimationKey` 是常數 ⇒ **行為逐字不變**（由 §9.1-T10 守）。
 - `AnimationKey` 每帧求值 ⇒ **必須回傳快取欄位，禁止任何字串內插或串接**（§7）。
 - 這是**移除一個播放權威**，不是新增（ADR-004 D2）。
-- Runner 另在 Awake／Start 解析 optional `ActionRequestTarget`／`IActionReleaseSink` 並注入 FSM；這是 composition root 工作，**Update 不處理 external request 或 release**，管線階段仍為 1–7。
+- Runner 另在 Awake／Start 解析 optional `ActionRequestTarget`／`IActionLifecycleSink` 並注入 FSM；這是 composition root 工作，**Update 不處理 external request 或 release**，管線階段仍為 1–7。
 
 ---
 
@@ -288,7 +296,7 @@ sequenceDiagram
     participant FSM as FullBodyStateMachine
     participant ACT as ActionState
     participant DEF as ActionDefinitionSO
-    participant SINK as IActionReleaseSink
+    participant SINK as IActionLifecycleSink
     participant PROJ as Projectile
     participant AF as AnimancerFacade
     participant MD as MotionDriver
@@ -467,7 +475,7 @@ stateDiagram-v2
 | **A19** 🆕 | **不得為每個 Action 建立獨立 `ActionState` 子類別**；例外需在 allowlist 附書面理由 | 掃描 Runtime 的 `: ActionState` 宣告，比對 allowlist（現為空）。⚠️ 掃描範圍**只含 Runtime**（既有 `RuntimeScriptPaths()`），故測試用替身不受限 |
 | **A20** 🆕 | Action 層不得繞過唯一位移出口：`Core/StateMachine/Actions` 不得出現 `CharacterController` | 加一條既有 `LayerRule`（零新機制） |
 | **A21** 🆕 | projectile／request endpoint 不得取得 animation／transition authority | 掃描相關 Runtime 檔：不得呼叫 `AnimationFacadeBase.Play`／`TransitionTo`，不得寫 `IntentData` |
-| **A22** 🆕 | `ActionState` 不得擁有 Unity 物件生成 | `ActionState.cs` 不得出現 `Instantiate`／`Destroy`；只能呼叫 `IActionReleaseSink.Release` |
+| **A22** 🆕 | `ActionState` 不得擁有 Unity 物件生成 | `ActionState.cs` 不得出現 `Instantiate`／`Destroy`；只能呼叫 `IActionLifecycleSink.Release` |
 | **A5／A3／A9／A14** | **零改動**：黑板白名單不變長、無 LINQ、Runner 不認識 locomotion、Facade 維持通用 | 既有測試 |
 
 ---
@@ -482,7 +490,7 @@ stateDiagram-v2
 | `Core/StateMachine/Actions/ActionDefinitionSO.cs` | §2.2 |
 | `Core/StateMachine/States/ActionState.cs` | §3 |
 | `Core/Actions/ActionRequestTarget.cs` | §2.6 單格 external request mailbox；中性 seam 讓 Presentation projectile 不必反向依賴 StateMachine；不是 event bus |
-| `Core/Actions/IActionReleaseSink.cs` | §2.7 semantic one-shot seam；同上為跨層最窄介面 |
+| `Core/Actions/IActionLifecycleSink.cs` | §2.7 semantic one-shot seam；同上為跨層最窄介面 |
 | `ThrowProjectileEmitter.cs`／投射物 | sink 負責生成；投射物負責直線飛行、命中提交 request、逾時銷毀（實際資料夾於實作時依現有依賴規則落位） |
 
 ### 10.2 修改（Runtime，Codex）

@@ -1169,7 +1169,7 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | **A19** 🟡 Trial | 禁止一個 Action 一個 `ActionState` subclass | ADR-004 D3／YAGNI | `ArchitectureRegressionTests.A19_*` | 掃描 Runtime 的 `: ActionState` 宣告；例外必須先附書面理由 |
 | **A20** 🟡 Trial | Action 層不得引用 `CharacterController`，位移只經 `MotionDriver` | ADR-004 D4 | `ArchitectureRegressionTests.A20_*` | 掃描 Action files |
 | **A21** 🟡 Trial | external request endpoint／projectile 不得播放動畫、強制 transition 或寫 `IntentData` | ADR-004 D1／D2 | `ArchitectureRegressionTests.A21_*` | 掃描 request／sink／projectile files 的 authority token |
-| **A22** 🟡 Trial | `ActionState` 不得 `Instantiate`／`Destroy`；Unity side effect 只交給 `IActionReleaseSink` | ADR-004 D2／D7 | `ArchitectureRegressionTests.A22_*` | 掃描 `ActionState.cs` |
+| **A22** ✅ | `ActionState` 不得 `Instantiate`／`Destroy`；Unity side effect 只交給 `IActionLifecycleSink` | ADR-004 D2／D7 | `ArchitectureRegressionTests.A22_*` | 掃描 `ActionState.cs` |
 
 > **掃描法的已知精度（誠實記錄，非缺陷）**：①只掃 Runtime（`Core`／`Presentation`）——單一寫入者是**執行期**契約，`Editor/` 的除錯 Inspector 可手動改寫黑板意圖屬合法例外；②掃描前移除註解，避免文件性文字造成假陽性；字串常值內含 `//` 會被一併截斷，此偏差只會讓檢查**變寬鬆**（漏報），不會假陽性；③token 採子字串比對，刻意保守。
 

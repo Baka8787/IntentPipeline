@@ -81,16 +81,28 @@ namespace Project.Core.StateMachine
             foreach (var pair in _stateRegistry)
             {
                 BaseState targetState = pair.Value;
-                if (targetState.Type == _currentState.Type) continue;
 
-                if (targetState.CanEnter(data) && _currentState.CanBeInterruptedBy(targetState))
+                // 🆕（ADR-005；FU-1）同型別原本一律排除（`continue`），使兩個共用 StateType.Action
+                // 的技能永遠無法互相打斷。改為：同型別時交由該狀態自己回答「能不能被自己重入」。
+                // 預設 false ⇒ Idle／Move／Jump／Roll 行為逐字不變。
+                //
+                // ⚠️ 重入候選**必須與其他候選走同一套 priority 比較**，不得就地 TransitionTo——
+                // 那會讓字典迭代順序決定結果，並讓重入繞過比它更高優先的狀態（例：Roll 閃避）。
+                bool isSelf = targetState.Type == _currentState.Type;
+                if (isSelf)
                 {
-                    int priority = _config.GetPriority(targetState.Type);
-                    if (priority > highestPriority)
-                    {
-                        highestPriority = priority;
-                        bestCandidate = targetState;
-                    }
+                    if (!_currentState.CanReenter(data)) continue;
+                }
+                else if (!targetState.CanEnter(data) || !_currentState.CanBeInterruptedBy(targetState))
+                {
+                    continue;
+                }
+
+                int priority = _config.GetPriority(targetState.Type);
+                if (priority > highestPriority)
+                {
+                    highestPriority = priority;
+                    bestCandidate = targetState;
                 }
             }
 

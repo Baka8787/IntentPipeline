@@ -56,6 +56,18 @@ namespace Project.Core.StateMachine
             return Config.CheckCanInterrupt(this.Type, other.Type);
         }
         /// <summary>
+        /// 🆕（ADR-005）本狀態是否允許**被自己重入**。
+        ///
+        /// 預設 <c>false</c>——`EvaluateInterrupts` 依型別排除自己，那對 Idle／Move／Jump／Roll
+        /// 是正確的（重入 Jump 沒有意義）。只有承載多份資料的狀態（<c>ActionState</c>）需要它：
+        /// 兩個不同技能共用同一顆 state，型別排除會讓它們永遠無法互相打斷（FU-1）。
+        ///
+        /// ⚠️ 覆寫時**不得**引入新的准入來源——重入的判準必須與 <see cref="CanEnter"/> 同源，
+        /// 否則就是 ADR-004 D2 禁止的第二個 gate 權威。
+        /// </summary>
+        public virtual bool CanReenter(PlayerRuntimeData data) => false;
+
+        /// <summary>
         /// 控制目前狀態是否允許被「自然過渡」打斷。
         /// 預設為 true（如 Idle, Move）；有鎖定期的狀態（Jump, Roll）應複寫為 false 直到動作完成。
         /// </summary>
