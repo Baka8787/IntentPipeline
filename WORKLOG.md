@@ -7,10 +7,10 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
-> ### 🧩 2026-09-02（本機）— **遠端分支已合併進 `integrate-adr005`，H1–H4 已處理；Unity 驗證仍待執行**（最新，請先讀這段）
+> ### 🧩 2026-09-02（本機）— **合併完成 ＋ EditMode 全綠**；ADR-005 §4 的 D／F 成立，A／B／C／E 待 Play（最新，請先讀這段）
 >
-> **一句話**：遠端 ADR-005 分支與本機 WP1 已在 `integrate-adr005` 分支上合併完成、衝突全部依「保留雙方」處理，
-> 但**整包程式仍然沒有任何人在 Unity 裡編譯或跑過測試**——這一條沒有因為合併而改變。
+> **一句話**：遠端 ADR-005 分支與本機 WP1 已合併於 `integrate-adr005`，衝突依「保留雙方」處理完，
+> **編譯與 EditMode 皆已實跑通過**——但 ADR-005 仍是 `Trial`，因為 A／B／C／E 全都需要資產接線、Play 或 Profiler。
 >
 > **① 分支拓撲（本輪由本機會話建立）**
 > | 分支 | 內容 |
@@ -46,28 +46,35 @@
 > 「找不到 NUnit」。⚠️ `.csproj` 由 Unity 生成，新增檔案後要讓 Unity 重生一次才會納入編譯清單。
 > **現況：`Project.Runtime`／`Project.Editor`／`Project.Tests.EditMode` 三個 assembly 皆 0 error。**
 >
-> 其餘靜態稽核結論仍成立：全樹無 `FireRequested` 殘留、無無參數 `RequestAction()` 呼叫點、
-> `IActionLifecycleSink` 三方法與 sink 實作一致。
+> **⑤ ✅ EditMode 全綠（使用者實跑，2026-09-02）**
+> 過程抓到**三類問題**，全部已修：
+> | # | 問題 | 性質 |
+> |---|---|---|
+> | 1 | `StateMachineConfigSO` 缺 `using Project.Core.StateMachine.Actions` ⇒ `CS0246` | 遠端分支從未編譯過。C# 命名空間查找**只往父方向走、不搜尋子命名空間** |
+> | 2 | **`ActionState` 冷卻回歸**：`Complete()` 先 `ResetExecutionState()` 清掉 `_activeSlot`／`_definition`，`OnExit()` 才寫冷卻 ⇒ **自然播完的 Action 永遠不進冷卻，只有被中斷的才會** | 🔴 **真 bug**，由 T19 抓到。已抽出 `CommitCooldown()` 在兩個結束路徑各呼叫，靠 null 判定保證冪等 |
+> | 3 | `ReleaseNormalizedTime_Zero`／T16／T17 直接呼叫 `OnEnter` 卻未表達 request | 測試對齊新 baseline（ADR-005 起 Definition 改為進入時依 slot 現查）。**斷言未放寬**，三條原始斷言一字未動 |
 >
-> **⑤ ⛔ 仍未成立的事（不得視為完成）**
-> - **編譯 ≠ 測試。** EditMode 全套仍未跑（重點：**A22／A23／A24／T18–T21／CameraAimTests T-1～T-8**）。
->   ADR-005 §4 的 A–E 全部待驗；ADR-004 的 A22 修正待重跑確認。
-> - Play 未驗；Profiler 零 GC 未量測。
-> - `Assets/Scripts/Core/Actions/ActionSlot.cs.meta`：Unity 已開始生成但**內容不完整**（`MonoImporter` 區段缺失，
->   因為當時卡在編譯錯誤）。**編譯修好後讓 Unity 重新匯入一次，再 commit 那個 meta。**
-> - 資產接線未做：Q／E 兩顆 InputAction、兩份 Definition 要填進 **`actionDefinitions`**（**不是** `paramsMappings`），
+> **✅ A22 已轉綠**——它自 ADR-004 落地起一直是紅的（斷言 `IActionReleaseSink`，介面實名 `IActionLifecycleSink`）。
+> ADR-004 §11 已補上結案列；ADR-005 §4 的 **D 與 F 已打勾**（F 由 A24 機器守衛）。
+>
+> **⑥ ⛔ 仍未成立的事（不得視為完成）**
+> - **EditMode 綠 ≠ 功能成立。** ADR-005 §4 的 **A／B／C／E 全部未打勾**：
+>   A 缺資產接線 ＋ Play（程式面 T18–T21 已綠）／B 需真的加第三個 Action／C 需 Play 驗既有無回歸／E 需 Profiler。
+> - Play 未驗；Profiler 零 GC **未量測**（熱路徑動過 `ProcessIntents`、`EvaluateInterrupts`，必須複驗）。
+> - 資產接線未做：Q／E 兩顆 InputAction、兩份 Definition 填進 **`actionDefinitions`**（**不是** `paramsMappings`），
 >   以及 `ThirdPersonCamera.aimResolver` 在**場景實例**上仍是 `None`（見下面 2026-08-31 段⑤）。
 >
-> **⑥ 下一步（使用者側，需要 Unity）**
-> 1. `git switch integrate-adr005` → 開 Unity → 等編譯
-> 2. 跑 EditMode 全套；紅燈回報
-> 3. 綠燈後才做資產接線 → Play → Profiler
+> **⑦ 下一步**
+> 1. **資產接線**（使用者）：Q／E 兩顆 InputAction ＋ 兩份 `ActionDefinitionSO`（Slot 各設 Secondary／Tertiary）填進 Config 的 `actionDefinitions`
+> 2. **Play 驗收**：兩個技能可獨立觸發、冷卻不連坐、互相打斷、既有 Idle／Move／Jump／Roll／Throw 無回歸 ⇒ 結掉 A／C
+> 3. **Profiler**：穩態 0 B/frame ⇒ 結掉 E
+> 4. 全過之後 ADR-005 才可 `Trial → Accepted`
 >
 > ---
 
-> ### 📍 2026-09-02 交接（**最新，請先讀這段**）
+> ### 📍 2026-09-02 交接（歷史：合併前的本機交接）
 >
-> ### 🚚 2026-09-02 遠端 session 交接（**給下一個本機會話：先讀這段，再讀下面兩段補記**）
+> ### 🚚 2026-09-02 遠端 session 交接（歷史：遠端容器的交接，其結論已由上方合併段接手）
 >
 > **一句話**：遠端容器 session 產出 `ActionSlot` 多 Action 實作（分支 `claude/skill-system-showcase-6vqh6l`，5 個 commit），
 > **但它一行都沒編譯過**，而且它是對著 `main@d5132e9` 的舊 clone 做的——**本機的 WP1 成果它完全不知道**。
@@ -116,7 +123,7 @@
 > - 本輪程式 commit 走**一次性授權**。`CLAUDE.md` 的 Remote Container Exception **仍是純文件**，條文未改。
 > - 在本機會話中，上述例外**完全不適用**——Git 全部由使用者執行。
 
-> ### 📍 2026-09-02 補記 ②（**最新，ADR-005 第一輪已落地**）
+> ### 📍 2026-09-02 補記 ②（歷史：ADR-005 第一輪落地）
 >
 > **同一角色現在能持有多份 `ActionDefinitionSO`，以 `ActionSlot` 為身分獨立觸發、獨立冷卻，共用同一顆 `ActionState`。B1／B2／B5（＝FU-2／FU-3／FU-1）一次解掉。**
 > ⏳ **尚未編譯過**——本輪在遠端容器完成（容器內無 Unity），改動在分支 `claude/skill-system-showcase-6vqh6l`。

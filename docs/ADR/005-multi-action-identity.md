@@ -62,15 +62,15 @@
 
 ## 4. Acceptance Criteria（`Trial → Accepted`）
 
-> **進度（2026-09-02 code-first 第一輪後）**：**只有 F 成立**（靜態稽核）。**A–E 全部待驗——本批改動尚未在任何 Unity 環境編譯過。**
-> ⚠️ 2026-09-02 更正：D 曾短暫打勾，但該次「EditMode 全綠」是在**尚未拉取本分支**的本機專案上跑的，驗的是舊程式。已撤回。
+> **進度（2026-09-02 EditMode 全綠後）**：**D／F 成立**（使用者實跑確認）。**A／B／C／E 仍待驗**——皆需資產接線、Play 或 Profiler，EditMode 撐不到那裡。
+> ⚠️ 2026-09-02 前情：D 曾短暫打勾又撤回——那次「EditMode 全綠」跑在**尚未拉取本分支**的專案上，驗的是舊程式。本次不同：使用者是在合併後的 checkout 上跑的，且**先後回報了編譯錯誤與四條紅**（CS0246／T16／T17／T19／ReleaseNormalizedTime），修完才綠——證據鏈與本批程式對得上。
 
-- [ ] **A. 同一角色持有並可獨立觸發至少兩份 `ActionDefinitionSO`**，各自獨立輸入與 cooldown，且**共用同一顆 `ActionState`** —— ⏳ T18／T19 已寫好對應斷言（同一 `ActionState` 實例、冷卻不連坐），**但尚未實跑**；之後還需資產接線 ＋ Play
+- [ ] **A. 同一角色持有並可獨立觸發至少兩份 `ActionDefinitionSO`**，各自獨立輸入與 cooldown，且**共用同一顆 `ActionState`** —— 🟡 **程式面已成立**：T18（`Assert.AreSame` 同一 `ActionState` 實例）／T19（per-slot 冷卻不連坐）／T20（Action→Action 中斷）／T21（舊資產相容）**已實跑全綠**。**仍缺資產接線 ＋ Play**——真正的兩份資產、兩顆按鍵、實際播放都還沒發生，故本條不打勾
 - [ ] **B. 加下一個 Action ＝ 零 runtime 程式**（一份資產 ＋ 一列動畫映射 ＋ 一列 slot 映射）—— ⏳ 需實際加第三個 Action 才算數
 - [ ] **C. 既有 Idle／Move／Jump／Roll／Throw 無回歸** —— ⏳ 待 Play。T21 已鎖住舊資產的**解析**路徑，但不涵蓋播放與位移
-- [ ] **D. EditMode 全綠**（含 A13′／A19 維持）—— ⏳ **待驗，且尚未編譯過**。⚠️ 同輪修了 **A22 自 ADR-004 Trial 期起一直為紅**的既存缺陷（斷言 `IActionReleaseSink`，介面早已改名為 `IActionLifecycleSink`）——**A22 轉綠是本條的主要觀察點**
+- [x] **D. EditMode 全綠**（含 A13′／A19 維持）—— ✅ **使用者實跑確認（2026-09-02）**。過程暴露三類問題並全數修正：①`StateMachineConfigSO` 缺 `using Project.Core.StateMachine.Actions` ⇒ CS0246（遠端分支從未編譯過）；②**`ActionState` 冷卻回歸**——`Complete()` 先 `ResetExecutionState()` 清掉 `_activeSlot`／`_definition`，`OnExit()` 才寫冷卻 ⇒ **自然播完的 Action 永遠不進冷卻**（T19 抓到，已抽出 `CommitCooldown()` 在兩個結束路徑各呼叫）；③三條直接呼叫 `OnEnter` 的測試未表達 request，已對齊新 baseline（斷言未放寬）。<br>✅ **A22 已轉綠**——本條的主要觀察點成立：該測項自 ADR-004 落地起一直為紅（斷言 `IActionReleaseSink`，介面實名 `IActionLifecycleSink`）
 - [ ] **E. 零 GC**，穩態 `0 B/frame` —— ⏳ 待 Profiler。⚠️ 熱路徑有改動（`ProcessIntents`、`EvaluateInterrupts`），**必須複驗**
-- [x] **F. 沒有長出第二個 gate／interrupt 權威**（ADR-004 D2 的延續）—— ✅ **靜態稽核**（對定稿後的檔案重跑符號搜尋，不依賴編譯）：`_cooldownEndTime` 僅存在於 `ActionState.cs`；`CanEnter` 與 `CanReenter` **同源於單一 `TryResolveRequest`**，未引入新決策來源；`ActionState` 仍只讀取 facade（`IsPlaying`／`GetNormalizedTime`），從不 `Play`；`Core/` 下 `Instantiate` 零命中。⚠️ 已寫 **A24** 將本條機器化（合併時由 A23 順延——本機同輪的 AnimationKey 不變量先佔了 A23），但 **A24 本身尚未實跑**
+- [x] **F. 沒有長出第二個 gate／interrupt 權威**（ADR-004 D2 的延續）—— ✅ **靜態稽核**（對定稿後的檔案重跑符號搜尋，不依賴編譯）：`_cooldownEndTime` 僅存在於 `ActionState.cs`；`CanEnter` 與 `CanReenter` **同源於單一 `TryResolveRequest`**，未引入新決策來源；`ActionState` 仍只讀取 facade（`IsPlaying`／`GetNormalizedTime`），從不 `Play`；`Core/` 下 `Instantiate` 零命中。✅ **A24 已實跑全綠（2026-09-02）**——本條自此由機器守衛，不再依賴人工符號搜尋。（該測項合併時由 A23 順延，因本機同輪的 AnimationKey 不變量先佔了 A23。）
 
 **未通過**：先修本 ADR ／ `docs/11` → 再驗證 → **不得補 workaround**。
 若 **D1 被證偽**（單一 identity 撐不住所有消費者），轉 `Rejected`，code／ADR／invariant 一起 revert 回 ADR-004 的單一 Definition 基線。
@@ -86,3 +86,4 @@
 | 2026-09-02 | `Proposed → Trial` | ADR-004 `Accepted`，「同一時間只允許一個 Trial」解除 |
 | 2026-09-02 | **code-first 第一輪落地**：`ActionSlot` 身分 ＋ 多 Definition ＋ per-slot 冷卻 ＋ Action→Action 重入。**D1／D2 未被推翻**，兩條決策一字未動。實作推翻的是**位置**與**重入實作**（詳見 `docs/11` §3.4），兩者都屬本 ADR 明文不凍結的範圍 | Fold-back：Trial 期允許 code-first，工作包結束前同步文件 |
 | 2026-09-02 | **瘦身：五條決策砍到兩條**（原 D2／D3／D4 下放 §3 表格）；候選比較與需求清單移入 `docs/11` §3；改採 code-first | 檢討發現 ADR 比它要守護的程式還長。既有 authority 的複述、routing 事實、實作分析**都不該佔用 ADR 的凍結力**——那會稀釋「ADR ＝ 改錯會造成架構污染」的訊號 |
+| 2026-09-02 | **EditMode 全綠，D／F 成立**。過程抓到一個**真回歸**：冷卻只寫在 `OnExit`，但 `Complete()` 會先清空 `_activeSlot`／`_definition` ⇒ 自然播完的 Action 不進冷卻。已抽出 `CommitCooldown()` 於兩個結束路徑各呼叫（冪等）。**D1／D2 仍未被推翻** | 冷卻細節屬 §9 明列**不凍結**範圍，修在程式即可，不需改本 ADR 的決策內容 |
