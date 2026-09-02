@@ -2371,6 +2371,32 @@ MonoBehaviour:
       m_Action: Fire
       m_Flags: 0
     m_Flags: 0
+  SecondaryAction:
+    m_Name: Secondary
+    m_Type: 0
+    m_ExpectedControlType: 
+    m_Id: 6cc3b85b-cfdf-4a24-bda6-b325f22d01c8
+    m_Processors: 
+    m_Interactions: 
+    m_SingletonActionBindings:
+    - m_Name: 
+      m_Id: 6fd9069d-1bf9-491e-966c-d004d1fee643
+      m_Path: <Keyboard>/q
+      m_Interactions: 
+      m_Processors: 
+      m_Groups: 
+      m_Action: Secondary
+      m_Flags: 0
+    m_Flags: 0
+  TertiaryAction:
+    m_Name: Tertiary
+    m_Type: 0
+    m_ExpectedControlType: 
+    m_Id: aba633b6-06c6-4897-a83b-ccf2d2f0e049
+    m_Processors: 
+    m_Interactions: 
+    m_SingletonActionBindings: []
+    m_Flags: 0
   SprintAction:
     m_Name: Sprint
     m_Type: 0
@@ -2453,6 +2479,8 @@ MonoBehaviour:
   overrideMoveSpeed: 0
   gravity: -9.81
   reboundForce: -2
+  aimFacingAngleDeadzone: 8
+  aimFacingTurnSpeed: 10
 --- !u!114 &5245578631213322395
 MonoBehaviour:
   m_ObjectHideFlags: 0
