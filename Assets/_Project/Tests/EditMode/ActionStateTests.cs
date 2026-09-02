@@ -42,7 +42,7 @@ namespace Project.Tests.EditMode
             var machine = new FullBodyStateMachine();
             machine.Initialize(config, data, new FakeMovementModel());
 
-            data.Intent.RequestedActionSlot = ActionSlot.Primary;
+            data.Intent.RequestedActionSlot = ActionSlot.Slot1;
             machine.Tick(data, 0.016f);
 
             Assert.AreEqual(StateType.Action, machine.CurrentState.Type);
@@ -61,7 +61,7 @@ namespace Project.Tests.EditMode
             var machine = new FullBodyStateMachine();
             machine.Initialize(config, data, new FakeMovementModel(), target);
 
-            target.RequestAction(ActionSlot.Primary);
+            target.RequestAction(ActionSlot.Slot1);
             machine.Tick(data, 0.016f);
             Assert.AreEqual(StateType.Idle, machine.CurrentState.Type, "離地條件拒絕 external request");
 
@@ -69,7 +69,7 @@ namespace Project.Tests.EditMode
             machine.Tick(data, 0.016f);
             Assert.AreEqual(StateType.Idle, machine.CurrentState.Type, "被拒絕的 request 不得排隊到下一幀");
 
-            target.RequestAction(ActionSlot.Primary);
+            target.RequestAction(ActionSlot.Slot1);
             machine.Tick(data, 0.016f);
             Assert.AreEqual(StateType.Action, machine.CurrentState.Type, "新 request 應重新取得一次 FSM 仲裁機會");
 
@@ -125,12 +125,12 @@ namespace Project.Tests.EditMode
             var state = new ActionState(null, sink);
             state.Initialize(config, new FakeMovementModel());
             var data = new PlayerRuntimeData { IsGrounded = true };
-            data.Intent.RequestedActionSlot = ActionSlot.Primary;
+            data.Intent.RequestedActionSlot = ActionSlot.Slot1;
 
             state.OnEnter(data);
             Assert.AreEqual(1, sink.BeginCount);
             state.OnTick(data, 0.1f);
-            data.Intent.RequestedActionSlot = ActionSlot.Primary;
+            data.Intent.RequestedActionSlot = ActionSlot.Slot1;
             state.OnTick(data, 0.016f);
             Assert.AreEqual(ActionPhase.End, state.CurrentPhase);
             Assert.AreEqual(0, sink.ReleaseCount, "進入 End 時手上 visual 應繼續存在");
@@ -170,7 +170,7 @@ namespace Project.Tests.EditMode
             // 🆕（ADR-005）ActionState 不再於 Initialize 綁死 Definition，改為每次進入時依 request 的
             // slot 現查 ⇒ 直接呼叫 OnEnter 的測試**必須先表達 request**，否則解析不到任何 Definition。
             // 走 FSM 的測試不受影響（CanEnter 已先問過）。進入後復位，比照管線順序 7 的單幀語意。
-            data.Intent.RequestedActionSlot = ActionSlot.Primary;
+            data.Intent.RequestedActionSlot = ActionSlot.Slot1;
             state.OnEnter(data);
             data.Intent.RequestedActionSlot = ActionSlot.None;
 
@@ -202,7 +202,7 @@ namespace Project.Tests.EditMode
 
             // 🆕（ADR-005）直接呼叫 OnEnter ⇒ 必須先表達 request（見上方 ReleaseNormalizedTime_Zero 註解）。
             // 進入後復位為 None，避免殘留的 request 在 Loop 期被誤判為 WaitForTrigger 的 re-trigger。
-            data.Intent.RequestedActionSlot = ActionSlot.Primary;
+            data.Intent.RequestedActionSlot = ActionSlot.Slot1;
             state.OnEnter(data);
             data.Intent.RequestedActionSlot = ActionSlot.None;
 
@@ -231,7 +231,7 @@ namespace Project.Tests.EditMode
             var data = new PlayerRuntimeData();
 
             // 🆕（ADR-005）直接呼叫 OnEnter ⇒ 必須先表達 request（見上方 ReleaseNormalizedTime_Zero 註解）。
-            data.Intent.RequestedActionSlot = ActionSlot.Primary;
+            data.Intent.RequestedActionSlot = ActionSlot.Slot1;
             state.OnEnter(data);
             data.Intent.RequestedActionSlot = ActionSlot.None;
 
@@ -253,14 +253,14 @@ namespace Project.Tests.EditMode
         [Test]
         public void T18_TwoDefinitions_TriggerIndependentlyOnOneActionState()
         {
-            ActionDefinitionSO quick = CreateDefinition("QuickSpell", false, 0.1f, slot: ActionSlot.Secondary);
-            ActionDefinitionSO ice = CreateDefinition("IceSpell", false, 0.1f, slot: ActionSlot.Tertiary);
+            ActionDefinitionSO quick = CreateDefinition("QuickSpell", false, 0.1f, slot: ActionSlot.Slot2);
+            ActionDefinitionSO ice = CreateDefinition("IceSpell", false, 0.1f, slot: ActionSlot.Slot3);
             StateMachineConfigSO config = BuildMultiActionConfig(quick, ice);
             var data = new PlayerRuntimeData { IsGrounded = true };
             var machine = new FullBodyStateMachine();
             machine.Initialize(config, data, new FakeMovementModel());
 
-            data.Intent.RequestedActionSlot = ActionSlot.Secondary;
+            data.Intent.RequestedActionSlot = ActionSlot.Slot2;
             machine.Tick(data, 0.016f);
             Assert.AreEqual("QuickSpell", machine.CurrentState.AnimationKey);
             BaseState firstInstance = machine.CurrentState;
@@ -269,7 +269,7 @@ namespace Project.Tests.EditMode
             machine.Tick(data, 0.2f);
             Assert.AreEqual(StateType.Idle, machine.CurrentState.Type);
 
-            data.Intent.RequestedActionSlot = ActionSlot.Tertiary;
+            data.Intent.RequestedActionSlot = ActionSlot.Slot3;
             machine.Tick(data, 0.016f);
             Assert.AreEqual("IceSpell", machine.CurrentState.AnimationKey);
             Assert.AreSame(firstInstance, machine.CurrentState,
@@ -282,28 +282,28 @@ namespace Project.Tests.EditMode
         public void T19_CooldownIsPerSlot_AndDoesNotBlockOtherSlots()
         {
             ActionDefinitionSO quick =
-                CreateDefinition("QuickSpell", false, 0.05f, slot: ActionSlot.Secondary, cooldown: 5f);
+                CreateDefinition("QuickSpell", false, 0.05f, slot: ActionSlot.Slot2, cooldown: 5f);
             ActionDefinitionSO ice =
-                CreateDefinition("IceSpell", false, 0.05f, slot: ActionSlot.Tertiary, cooldown: 0f);
+                CreateDefinition("IceSpell", false, 0.05f, slot: ActionSlot.Slot3, cooldown: 0f);
             StateMachineConfigSO config = BuildMultiActionConfig(quick, ice);
             config.Initialize();
             var state = new ActionState();
             state.Initialize(config, new FakeMovementModel());
             var data = new PlayerRuntimeData { IsGrounded = true };
 
-            data.Intent.RequestedActionSlot = ActionSlot.Secondary;
+            data.Intent.RequestedActionSlot = ActionSlot.Slot2;
             state.OnEnter(data);
             state.OnTick(data, 0.1f);
             state.OnExit(data);
 
-            Assert.Greater(state.GetCooldownRemaining(ActionSlot.Secondary), 0f, "出手後該 slot 進入冷卻");
-            Assert.AreEqual(0f, state.GetCooldownRemaining(ActionSlot.Tertiary),
+            Assert.Greater(state.GetCooldownRemaining(ActionSlot.Slot2), 0f, "出手後該 slot 進入冷卻");
+            Assert.AreEqual(0f, state.GetCooldownRemaining(ActionSlot.Slot3),
                 "冷卻必須是 per-slot——另一個技能不得被連坐");
 
-            data.Intent.RequestedActionSlot = ActionSlot.Secondary;
+            data.Intent.RequestedActionSlot = ActionSlot.Slot2;
             Assert.IsFalse(state.CanEnter(data), "冷卻中的 slot 不得再次進入");
 
-            data.Intent.RequestedActionSlot = ActionSlot.Tertiary;
+            data.Intent.RequestedActionSlot = ActionSlot.Slot3;
             Assert.IsTrue(state.CanEnter(data), "未冷卻的 slot 必須仍可進入");
 
             Destroy(quick, ice, config);
@@ -312,24 +312,24 @@ namespace Project.Tests.EditMode
         [Test]
         public void T20_ActionToActionInterrupt_RequiresDifferentSlotAndInterruptiblePhase()
         {
-            ActionDefinitionSO quick = CreateDefinition("QuickSpell", false, 1f, slot: ActionSlot.Secondary);
-            ActionDefinitionSO ice = CreateDefinition("IceSpell", false, 1f, slot: ActionSlot.Tertiary);
+            ActionDefinitionSO quick = CreateDefinition("QuickSpell", false, 1f, slot: ActionSlot.Slot2);
+            ActionDefinitionSO ice = CreateDefinition("IceSpell", false, 1f, slot: ActionSlot.Slot3);
             StateMachineConfigSO config = BuildMultiActionConfig(quick, ice);
             var data = new PlayerRuntimeData { IsGrounded = true };
             var machine = new FullBodyStateMachine();
             machine.Initialize(config, data, new FakeMovementModel());
 
-            data.Intent.RequestedActionSlot = ActionSlot.Secondary;
+            data.Intent.RequestedActionSlot = ActionSlot.Slot2;
             machine.Tick(data, 0.016f);
             Assert.AreEqual("QuickSpell", machine.CurrentState.AnimationKey);
 
             // 同一個 slot 再次請求：不得重入（否則按住鍵會無限重播 Start）
-            data.Intent.RequestedActionSlot = ActionSlot.Secondary;
+            data.Intent.RequestedActionSlot = ActionSlot.Slot2;
             machine.Tick(data, 0.016f);
             Assert.AreEqual("QuickSpell", machine.CurrentState.AnimationKey);
 
             // 不同 slot：Interruptible phase 允許重入（FU-1）
-            data.Intent.RequestedActionSlot = ActionSlot.Tertiary;
+            data.Intent.RequestedActionSlot = ActionSlot.Slot3;
             machine.Tick(data, 0.016f);
             Assert.AreEqual("IceSpell", machine.CurrentState.AnimationKey,
                 "不同身分的 Action 必須能互相打斷（FU-1）");
@@ -347,7 +347,7 @@ namespace Project.Tests.EditMode
             var machine = new FullBodyStateMachine();
             machine.Initialize(config, data, new FakeMovementModel());
 
-            data.Intent.RequestedActionSlot = ActionSlot.Primary;
+            data.Intent.RequestedActionSlot = ActionSlot.Slot1;
             machine.Tick(data, 0.016f);
 
             Assert.AreEqual("Throw_Start", machine.CurrentState.AnimationKey,
@@ -360,7 +360,7 @@ namespace Project.Tests.EditMode
             bool emitsRelease,
             float duration,
             bool requiresGrounded = false,
-            ActionSlot slot = ActionSlot.Primary,
+            ActionSlot slot = ActionSlot.Slot1,
             float cooldown = 0f)
         {
             var definition = ScriptableObject.CreateInstance<ActionDefinitionSO>();

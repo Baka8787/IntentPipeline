@@ -19,8 +19,32 @@ namespace Project.Core.StateMachine
     /// </summary>
     public class ActionState : BaseState
     {
-        /// <summary>per-slot 冷卻的陣列長度。以 enum 最大成員 +1 直接定尺寸，查表 O(1) 且零配置。</summary>
-        private static readonly int SlotCount = (int)ActionSlot.Reaction + 1;
+        /// <summary>
+        /// per-slot 冷卻的陣列長度＝<see cref="ActionSlot"/> 最大成員 +1，查表 O(1) 且執行期零配置。
+        ///
+        /// ⚠️ **刻意不寫死 <c>(int)ActionSlot.Reaction + 1</c>**：保留段（100 起）將來若再加成員，
+        /// 寫死會讓陣列悄悄長度不足並在 <c>OnExit</c> 越界。改為由 enum 自己算，加成員不必記得改這裡。
+        ///
+        /// ⚖️ **稀疏是設計，不是浪費**：<see cref="ActionSlot"/> 的數值就是身分，且**刻意不要求連續**
+        /// （玩家段 1–3、保留段 100 起，中間的空隙讓兩段各自獨立成長）。以身分當索引 ⇒ 表必然稀疏。
+        /// 目前 101 格只用到 5 格 ＝ 404 B，**每個角色一次**的配置、不在熱路徑。
+        /// ⛔ 不要為了「填滿號碼」去改 enum 數值——那是在改身分，會讓既有資產指向別的 slot。
+        /// ⛔ 也不要為了省這 404 B 加一層 slot→密集索引的對照（2026-09-02 已裁決不做）——
+        /// 那等於多一把內部的鍵，與 ADR-005 D1「不得有第二把鍵」的精神相悖，而省下的是零頭。
+        /// </summary>
+        private static readonly int SlotCount = ComputeSlotCount();
+
+        private static int ComputeSlotCount()
+        {
+            var values = (ActionSlot[])System.Enum.GetValues(typeof(ActionSlot));
+            int max = 0;
+            for (int i = 0; i < values.Length; i++)
+            {
+                int value = (int)values[i];
+                if (value > max) max = value;
+            }
+            return max + 1;
+        }
 
         private readonly ActionRequestTarget _externalRequestTarget;
         private readonly IActionLifecycleSink _lifecycleSink;

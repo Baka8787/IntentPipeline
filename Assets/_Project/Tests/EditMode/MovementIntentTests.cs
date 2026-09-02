@@ -282,7 +282,7 @@ namespace Project.Tests.EditMode
             var data = new PlayerRuntimeData();
             data.Intent.JumpRequested = true;
             data.Intent.RollRequested = true;
-            data.Intent.RequestedActionSlot = ActionSlot.Primary;
+            data.Intent.RequestedActionSlot = ActionSlot.Slot1;
             data.JustLanded = true;
             data.JustLeftGround = true;
             data.MovementIntent.DesiredSpeedNormalized = 0.75f;

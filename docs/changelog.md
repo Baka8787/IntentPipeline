@@ -6,7 +6,7 @@
 
 ---
 
-## [v0.35] - ADR-005 Trial：ActionSlot 身分讓多 Action 共用一顆 ActionState（2026-09-02，⏳ 待編譯與驗收）
+## [v0.35] - ADR-005 Trial：ActionSlot 身分讓多 Action 共用一顆 ActionState（2026-09-02，✅ EditMode 全綠／⏳ Play 與零 GC 待驗）
 
 `docs/08` §11.1 登記的 FU-1／FU-2／FU-3 一次解掉。三者共同根因是「系統裡沒有『這是哪一個 Action』的概念」——概念不存在，查表就只能用 `StateType` 當鍵、mailbox 只能是無名旗標、中斷只能比型別。新增 `ActionSlot`（`None`／`Primary`／`Secondary`／`Tertiary`／`Reaction`）作為單一身分，輸入映射、per-slot 冷卻、external request、Action→Action 中斷全部以它為鍵。
 
@@ -18,6 +18,11 @@ ADR-005 同輪瘦身，五條決策砍到兩條——既有 authority 的複述�
 
 順帶修掉一個既存缺陷：**A22 自 ADR-004 Trial 期起一直是紅的**。它斷言 `IActionReleaseSink`，但該介面早已改名為 `IActionLifecycleSink` 並從 1 個方法擴為 3 個，斷言與 `docs/08` §2.7 都沒同步。這也意味 ADR-004 §10 的 D 當時是在不成立的基礎上打勾的。教訓：改名要一併 grep 測試與文件。
 
+新增 T18–T21 與 A24（守 ADR-005 D1：身分只准宣告一次、冷卻不得外流；該測項合併時由 A23 順延）。
+
+**合併與驗證（2026-09-02 本機）**：與本機 WP1 合併於 `integrate-adr005`，衝突一律保留雙方（遠端 `docs/09-multi-action.md` 因與本機 `09-camera-aim.md` 撞號而改名 `docs/11-multi-action.md`）。編譯與 EditMode **已實跑通過**，過程修掉三類問題：①`StateMachineConfigSO` 缺 `using Project.Core.StateMachine.Actions` ⇒ `CS0246`（遠端分支從未編譯過）；②**冷卻回歸**——`Complete()` 先清空 `_activeSlot`／`_definition`、`OnExit()` 才寫冷卻，導致**自然播完的 Action 永遠不進冷卻**（T19 抓到，已抽出 `CommitCooldown()` 在兩個結束路徑各呼叫）；③三條直接呼叫 `OnEnter` 的測試未表達 request，已對齊新 baseline。順帶讓 **A22 轉綠**——它自 ADR-004 落地起一直是紅的。ADR-005 §4 的 **D／F 已成立**；⏳ **A／B／C／E 仍待資產接線、Play 與 Profiler**，熱路徑有改動（`ProcessIntents`／`EvaluateInterrupts`），零 GC **必須**複驗。
+
+**`ActionSlot` 改名（2026-09-02，Trial 期修訂）**：`Primary`／`Secondary`／`Tertiary` → `Slot1`／`Slot2`／`Slot3`，`Reaction` 移到 **100 起的保留段**。原命名**自稱有語意、實為拉丁文寫的序號**，與語意命名的 `Reaction` 混在同一個 enum：講不出成長規則（第 4 個要叫 `Quaternary`？），且註解把身分直接綁在「按哪顆鍵」——**按鍵是 Presentation 的事，不是身分**。改名後 enum 分成「玩家觸發段（依序編號）」與「保留段（非輸入驅動、語意命名）」兩段，成長規則一句話講得完。**不採具體技能名**（`QuickSpell` 等）是因為那會讓 `Core` 認識遊戲內容，與「可獨立抽取的通用套件」定位衝突。⚖️ 屬 ADR-005 §9 明列**不凍結**的範圍，不需開新 ADR；趁資產尚未接線執行，成本最低（Unity 以 int 值序列化 enum ⇒ 改名安全、改值不安全）。
 新增 T18–T21 與 A23（守 ADR-005 D1：身分只准宣告一次、冷卻不得外流）。⏳ **本批在遠端容器完成，容器內無 Unity 與 C# 編譯器，尚未編譯過**；EditMode、資產接線、Play 與 Profiler 零 GC 全部待驗——熱路徑有改動（`ProcessIntents`／`EvaluateInterrupts`），零 GC **必須**複驗。
 
 ## [v0.34] - ADR-004 Accepted：Action 進 FSM 拓撲結案（2026-09-02，已驗收）

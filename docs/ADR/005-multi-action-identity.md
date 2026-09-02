@@ -87,3 +87,4 @@
 | 2026-09-02 | **code-first 第一輪落地**：`ActionSlot` 身分 ＋ 多 Definition ＋ per-slot 冷卻 ＋ Action→Action 重入。**D1／D2 未被推翻**，兩條決策一字未動。實作推翻的是**位置**與**重入實作**（詳見 `docs/11` §3.4），兩者都屬本 ADR 明文不凍結的範圍 | Fold-back：Trial 期允許 code-first，工作包結束前同步文件 |
 | 2026-09-02 | **瘦身：五條決策砍到兩條**（原 D2／D3／D4 下放 §3 表格）；候選比較與需求清單移入 `docs/11` §3；改採 code-first | 檢討發現 ADR 比它要守護的程式還長。既有 authority 的複述、routing 事實、實作分析**都不該佔用 ADR 的凍結力**——那會稀釋「ADR ＝ 改錯會造成架構污染」的訊號 |
 | 2026-09-02 | **EditMode 全綠，D／F 成立**。過程抓到一個**真回歸**：冷卻只寫在 `OnExit`，但 `Complete()` 會先清空 `_activeSlot`／`_definition` ⇒ 自然播完的 Action 不進冷卻。已抽出 `CommitCooldown()` 於兩個結束路徑各呼叫（冪等）。**D1／D2 仍未被推翻** | 冷卻細節屬 §9 明列**不凍結**範圍，修在程式即可，不需改本 ADR 的決策內容 |
+| 2026-09-02 | **`ActionSlot` 改名**：`Primary`／`Secondary`／`Tertiary` → `Slot1`／`Slot2`／`Slot3`，`Reaction` 移到 100 起的保留段。**D1 未被推翻**——身分仍是單一 enum、仍只有一把鍵 | 原命名自稱有語意、實為拉丁文序號，與語意命名的 `Reaction` 混用 ⇒ 無成長規則，且把身分綁在「按哪顆鍵」（按鍵屬 Presentation）。命名在 §9 明列**不凍結**，且資產尚未接線 ⇒ 此刻成本最低 |

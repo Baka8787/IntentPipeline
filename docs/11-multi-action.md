@@ -332,7 +332,8 @@ Definition 不再於 `Initialize` 綁死，因此 `OnEnter` 必須**重新解析
 
 | 項目 | 改動 |
 |---|---|
-| 新增身分 | `Core/Actions/ActionSlot.cs`：`None`／`Primary`／`Secondary`／`Tertiary`／`Reaction` |
+| 新增身分 | `Core/Actions/ActionSlot.cs`：`None`／`Slot1`／`Slot2`／`Slot3`（玩家觸發段，依序編號）／`Reaction = 100`（保留段，非輸入驅動）。<br>🔄 **2026-09-02 改名**：原 `Primary`／`Secondary`／`Tertiary` 自稱有語意、實為拉丁文序號，與語意命名的 `Reaction` 混在同一個 enum ⇒ 講不出成長規則、且把身分綁在「按哪顆鍵」。詳見該檔註解 |
+| 身分的數值語意 | **enum 的 int 值＝穩定身分，且刻意不要求連續**。改名安全、**改值不安全**（Unity 以值序列化）；淘汰某一格要留著它的數值、不遞補。玩家段（1–3）與保留段（100+）之間的空隙是設計的一部分，讓兩段各自獨立成長。<br>⇒ 以 slot 當索引的表（`ActionState` 的 per-slot 冷卻陣列）**必然稀疏**，容量取 enum 最大值 +1（現為 101 格用 5 格 ＝ 404 B，每角色一次、非熱路徑）。**已裁決不加 slot→密集索引的對照**——那等於多一把內部的鍵 |
 | 黑板 schema | `IntentData.FireRequested`（`bool`）→ **`RequestedActionSlot`（`ActionSlot`）**。**writer 仍是 Runner，`WriterRules` 不變** |
 | 輸入 | `InputData` ＋2 顆 `*ButtonDown`；`PlayerInputSource` ＋2 個 `InputAction`（未綁定＝false） |
 | 按鍵→身分映射 | **Runner 順序 2 `ProcessIntents`**。raw input 不知道技能、`ActionState` 不知道按鍵 |
