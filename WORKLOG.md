@@ -7,7 +7,7 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
-> ### 🧩 2026-09-02（本機）— **合併完成 ＋ EditMode 全綠**；ADR-005 §4 的 D／F 成立，A／B／C／E 待 Play（最新，請先讀這段）
+> ### 🧩 2026-09-02（本機）— **合併完成 ＋ EditMode 全綠 ＋ Slow 切片 Play 通過**；ADR-005 §4 的 D／F／G 成立，A／B／C／E 待接線與 Profiler（最新，請先讀這段）
 >
 > **一句話**：遠端 ADR-005 分支與本機 WP1 已合併於 `integrate-adr005`，衝突依「保留雙方」處理完，
 > **編譯與 EditMode 皆已實跑通過**——但 ADR-005 仍是 `Trial`，因為 A／B／C／E 全都需要資產接線、Play 或 Profiler。
@@ -71,7 +71,13 @@
 > - `ThirdPersonCamera.aimResolver` 在**場景實例**上仍是 `None`（WP1 的尾巴，見下面 2026-08-31 段⑤）。
 >   跟 ADR-005 無關，但 Play 時會撞到。
 >
-> **⑧ Slow 最小切片已落地（`8e7773a`，已編譯未實跑）**
+> **⑧ ✅ Slow 最小切片已通過 Play（`8e7773a` 程式；`2f0a949` 接線）**
+> **Acceptance G 成立**（使用者實測）：減速生效／到期自動恢復／重複命中不疊層，
+> **且跨系統自動傳播**——敵人跑步動畫自己變走路、腳步聲自己變疏、停步選片自己降級，
+> 五個下游檔案零修改（`A25` 守）。📌 **ADR-005 §4 原本只列到 F**，G 一直只存在於 `docs/11` §7.6 的引用中，
+> 已於同輪補列進 ADR 並記錄通過。
+> 🔧 順帶修掉一個**自合併起就存在的潛在回歸**：`DamageDefinition.asset` 沒有 `Slot` 欄位（比該欄位早存在）
+> ⇒ 吃初始值 `Slot1`，但命中提交的是 `Reaction` ⇒ **敵人不會播 Damage 且不報錯**。已改為 `Reaction`，Play 確認。
 > `Core/Effects/TemporaryGameplayEffectState`（單一 slot：tag／multiplier／expiresAt 分開存）
 > ＋ `AIMovementSource` 結尾乘倍率 ＋ `ThrownProjectile` 投遞。語意見 `docs/11` §7.4（**「剩 30%」不是「降 30%」**）。
 > ⛔ 未抽介面、未做 stacking／抗性／優先級／複合效果、未建 StatusEffect／GAS framework。**本輪也不得補做。**
