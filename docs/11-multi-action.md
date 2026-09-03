@@ -301,6 +301,10 @@ apply/remove callback。`ThrownProjectile` 直接投遞 `Effect.Slow` 的 0.3 �
 
 ### 7.6 驗收（＝ADR-005 Acceptance **G**）
 
+> **進度（2026-09-02 Play）**：✅ 減速生效／✅ 到期自動恢復／✅ 重複命中不疊層。
+> ⏳ **本節的驗收本體——「五個下游檔案零修改，而速度階層／停步選片／腳步節奏自動正確」——尚未確認。**
+> ⚠️ 上述三項只證明 Slow **會動**；G 要證明的是 Slow **沒有告訴任何人它存在**。兩者不可互相推導。
+
 `LocomotionModel`／`LocomotionSpeedSmoother`／`LocomotionStopSelector`／`FootIKController`／`AudioController`
 **五個檔案零修改**，而敵人的速度階層、停步選片、腳步節奏全部自動正確。
 **任一檔案為了 Slow 而被改動，本條即未通過。**
