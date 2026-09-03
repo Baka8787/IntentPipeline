@@ -173,6 +173,24 @@ Definition 不再於 `Initialize` 綁死，因此 `OnEnter` 必須**重新解析
 
 **素材**：`Assets/EEJANAI_Team/FreeSwordAnimations/FBX/slash1–9.fbx`（9 顆可挑）。
 
+#### 4.1.1 🔴 選 clip 的判準：轉向量越大，滑步越明顯
+
+**烘焙模型是一維的**——`MotionBakeData` 把 root motion 壓成「一個純量速度曲線 ＋ 一條 yaw 曲線」，
+重播時是 `transform.forward × speed` ＋ `Rotate(up, deltaYaw)`。被丟掉的是**側向位移**與**速度正負號**。
+
+這對 `Stand To Roll`（直線前滾）吻合，對「一邊轉一邊位移」的攻擊是**有損重建**，殘差就是滑步。
+
+> **2026-09-04 實測（`slash1`）**：`Duration 0.6s`／`AutoAverageSpeed 1.34`／峰值 `3.17`／總位移約 `0.80m`，
+> 而 `RotationCurve` 由 `0` 走到 **`-94.5°`**——0.6 秒轉了 95 度。實機出現**明顯滑步**。
+> ⚖️ 這不是參數問題，調不掉；**改 `Based Upon` 後重烘，數值幾乎不變**（1.3367407 → 1.3367412），
+> 因為 `Based Upon` 改的是參考座標系、不是運動量。
+
+⇒ **選 slash 時挑轉向量小、root motion 接近純前進的那一支。** 這是資產判準，不是程式問題。
+
+⚠️ 另一個獨立問題：`slash1` 只有 18 幀（0.6s）且**本身沒有收勢段**，而本卷 §4 只給了 `Start` 一個 phase
+⇒ 揮完直接回 locomotion，看起來像「沒有收回動作」。需要時補一個 `End` phase 指向收勢動畫
+（`EmitsRelease` 仍留在 `Start`——命中窗在揮擊，不在收勢）。
+
 **實作結論（2026-09-03）**：只新增一支 runtime sink。
 
 1. **法術投射物發射器不新增類別** — 直接沿用 `ThrowProjectileEmitter`。它已把 prefab、速度、壽命、spawn point、held visual 與 `AimResolver` 全部資料化；Quick／Ice 的差異只在 prefab 與數值，另建同形類別只會複製 lifecycle 與瞄準邏輯。Ice 的 Slow 仍由 `ThrownProjectile.appliesSlow` 資產開關決定。
