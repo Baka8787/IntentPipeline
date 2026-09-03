@@ -698,5 +698,37 @@ namespace Project.Tests.EditMode
             CollectionAssert.IsEmpty(violations,
                 "ADR-005 D1／ADR-004 D2 違規：\n" + string.Join("\n", violations));
         }
+
+        // =====================================================================
+        // A25 — Slow 不得擴散到 MovementIntent 下游（ADR-005 Acceptance G）
+        // =====================================================================
+
+        [Test]
+        public void A25_Slow_DoesNotLeakIntoMovementIntentConsumers()
+        {
+            string[] paths =
+            {
+                Path.Combine(ScriptsRoot, "Core", "Movement", "Models", "LocomotionModel.cs"),
+                Path.Combine(ScriptsRoot, "Core", "Movement", "LocomotionSpeedSmoother.cs"),
+                Path.Combine(ScriptsRoot, "Core", "Movement", "Models", "LocomotionStopSelector.cs"),
+                Path.Combine(ScriptsRoot, "Presentation", "IK", "FootIKController.cs"),
+                Path.Combine(ScriptsRoot, "Presentation", "Audio", "AudioController.cs")
+            };
+            string[] forbidden = { "Effect.Slow", "TemporaryGameplayEffectState", "MovementSpeedMultiplier" };
+            var violations = new List<string>();
+
+            foreach (string path in paths)
+            {
+                string code = StripComments(File.ReadAllText(path));
+                foreach (string token in forbidden)
+                {
+                    if (code.Contains(token)) violations.Add($"{RelativePath(path)} 出現 Slow 符號 {token}");
+                }
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "Slow 必須只在 MovementIntent producer 上縮放；速度階層、停步、Foot IK 與音效應自動沿用同一份意圖：\n" +
+                string.Join("\n", violations));
+        }
     }
 }

@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.AI;
 using Project.Core.Blackboard;
+using Project.Core.Effects;
 
 namespace Project.Core.Movement
 {
@@ -15,10 +16,12 @@ namespace Project.Core.Movement
         [SerializeField, Range(0f, 1f)] private float desiredSpeedNormalized = 1f;
 
         private NavMeshAgent _agent;
+        private TemporaryGameplayEffectState _effectState;
 
         private void Awake()
         {
             _agent = GetComponent<NavMeshAgent>();
+            _effectState = GetComponent<TemporaryGameplayEffectState>();
             _agent.updatePosition = false;
             _agent.updateRotation = false;
         }
@@ -56,7 +59,19 @@ namespace Project.Core.Movement
             data.MovementIntent.DesiredDirection = new Vector2(
                 Vector3.Dot(worldDirection, cameraRight),
                 Vector3.Dot(worldDirection, cameraForward));
-            data.MovementIntent.DesiredSpeedNormalized = Mathf.Clamp01(desiredSpeedNormalized);
+            data.MovementIntent.DesiredSpeedNormalized = ResolveDesiredSpeedNormalized(Time.time);
+        }
+
+        /// <summary>
+        /// Slow 在 intent producer 的最後一道輸出上生效；黑板仍只由 AIMovementSource 寫入，
+        /// 下游速度平滑、gait、停步、Foot IK 與音效都只會看到自然縮小後的同一份意圖。
+        /// </summary>
+        internal float ResolveDesiredSpeedNormalized(float currentTime)
+        {
+            float multiplier = _effectState != null
+                ? _effectState.GetMovementSpeedMultiplierAt(currentTime)
+                : 1f;
+            return Mathf.Clamp01(desiredSpeedNormalized) * multiplier;
         }
     }
 }

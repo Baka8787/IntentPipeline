@@ -261,7 +261,7 @@ Definition 不再於 `Initialize` 綁死，因此 `OnEnter` 必須**重新解析
 | 身分 | **`Effect.Slow`**（tag 表示狀態種類） |
 | 倍率 | **`MovementSpeedMultiplier = 0.3f`** |
 | 語意 | **「速度剩原本的 30%」**，⛔ **不是**「降低 30%」。寫實作時最容易搞反的就是這一條 |
-| 時長 | **有限時長**（`expiresAt`），不是永久 |
+| 時長 | **有限時長**（`expiresAt`），不是永久。`ThrownProjectile.slowDuration` 是投遞端調整值；規格未定 N，最小切片先採 **3 秒預設** |
 | 重複命中 | **刷新 duration，不疊層**。同一個 `Effect.Slow` 再命中只把 `expiresAt` 往後推 |
 | 到期 | **自動移除，速度恢復**。不需要任何人來清 |
 | 儲存形狀 | **tag ／ multiplier ／ expiresAt 分開存**，不是一個 effect 物件的欄位堆 |
@@ -293,6 +293,11 @@ data.MovementIntent.DesiredSpeedNormalized = Mathf.Clamp01(desiredSpeedNormalize
 > - **不做 `StatusEffect` ／ `Buff` ／ GAS framework。** 沒有 effect 清單、沒有 `List<Effect>`、
 >   沒有 apply/remove 生命週期回呼。**單一 slot 就夠**——「不疊層」正是這樣落地的。
 > - **不得讓 Action 系統認識目標的移動系統**（§7.3 第三條）。projectile 投遞的是「狀態」，不是「速度」。
+
+**最小實作形狀（2026-09-03）**：`TemporaryGameplayEffectState` 只有一個 slot，並以三個獨立欄位保存
+`Effect` tag／`MovementSpeedMultiplier`／`expiresAt`。查詢時惰性清除到期狀態，不設 `Update`，也沒有
+apply/remove callback。`ThrownProjectile` 直接投遞 `Effect.Slow` 的 0.3 倍與 `slowDuration`；
+`AIMovementSource` 直接讀取同一具體元件。這是單一使用者 seam，不是 production abstraction。
 
 ### 7.6 驗收（＝ADR-005 Acceptance **G**）
 
