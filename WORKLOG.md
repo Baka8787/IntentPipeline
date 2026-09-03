@@ -71,18 +71,52 @@
 > - `ThirdPersonCamera.aimResolver` 在**場景實例**上仍是 `None`（WP1 的尾巴，見下面 2026-08-31 段⑤）。
 >   跟 ADR-005 無關，但 Play 時會撞到。
 >
-> **⑧ 下一步（剩下的都在 Unity）**
+> **⑧ Slow 最小切片已落地（`8e7773a`，已編譯未實跑）**
+> `Core/Effects/TemporaryGameplayEffectState`（單一 slot：tag／multiplier／expiresAt 分開存）
+> ＋ `AIMovementSource` 結尾乘倍率 ＋ `ThrownProjectile` 投遞。語意見 `docs/11` §7.4（**「剩 30%」不是「降 30%」**）。
+> ⛔ 未抽介面、未做 stacking／抗性／優先級／複合效果、未建 StatusEffect／GAS framework。**本輪也不得補做。**
+> 🔧 本機稽核修正：原實作對**每顆**投射物都減速，但 `ThrownProjectile` 是三個技能共用元件 ⇒
+> 改為 `[SerializeField] bool appliesSlow`（預設 false），只有 Ice Spell 的 prefab 勾。
+>
+> **⑨ 🟡 Architecture debt（使用者 2026-09-02 裁決：先跑 Play，之後再裁決要不要收斂）**
+> `AIMovementSource` 目前**每幀直接讀效果元件**，與以下三處有張力：
+> - dev-spec §2.5／line 448：producer **「不每幀回讀 gameplay state」**（ADR-003 D2 context-free）
+> - dev-spec §7.3 既有張力列（2026-07-25 寫下）：「buff 是 gameplay state，producer 直接查詢＝context-free 破功…
+>   可行方向是**『buff 寫黑板 status region，producer 讀資料』**」
+> - `CLAUDE.md` 核心原則：「Gameplay reads data. Gameplay does not query other gameplay systems directly.」
+>
+> ⚠️ **A4 沒有擋下來**——它是 token 掃描，禁用清單裡沒有 `Project.Core.Effects`。**這是靜默通過，不是被批准。**
+> 📌 **裁決**：先跑 Play 確認 Slow 的展示價值，**再**決定要不要收斂到 blackboard status region。
+> **本輪不開新 ADR、不為了純度改 schema**（黑板 schema 變更是 CLAUDE.md 開 ADR 的判準①）。
+> ⇒ **Play 通過後**才把這筆正式補進 dev-spec §7.3。本段是它在此之前的暫存處。
+> revert 成本低——改動全是加法。
+>
+> **⑩ 下一步（剩下的都在 Unity）**
 > 1. ✅ Q／E 兩顆 InputAction —— **已完成**（`76a19a7`）
-> 2. **三份 `ActionDefinitionSO` 填進 Config 的 `actionDefinitions`**（**不是** `paramsMappings`）：
+> 2. **Y Bot 掛 `TemporaryGameplayEffectState`**
+>    🔴 沒掛 ⇒ `GetComponent` 回 null ⇒ 倍率恆為 1 ⇒ **Slow 完全無效且不報錯**
+> 3. **Ice Spell 的 projectile prefab 勾 `Applies Slow`**（預設 false）
+>    🔴 沒勾 ⇒ 命中只播 Damage、不減速，同樣**不報錯**
+> 4. **三份 `ActionDefinitionSO` 填進 Config 的 `actionDefinitions`**（**不是** `paramsMappings`）：
 >    Slot2／Slot3 兩份新的，**外加現有的 Throw（Slot ＝ `Slot1`）**。
 >    🔴 `BuildActionSlotMap` 的相容退路是 **all-or-nothing**——只要 `actionDefinitions` 有任何一筆，
 >    `paramsMappings` 那條就整條不走 ⇒ **漏掉 Throw 它會安靜失效，不報錯**（詳見 `docs/11` §10）。
 >    冷卻刻意設不同值，Play 時才看得出 per-slot 獨立。
-> 3. `AnimancerFacade` 的 Transition Mappings 補上兩個新 `AnimationKey`。
+> 5. `AnimancerFacade` 的 Transition Mappings 補上新的 `AnimationKey`。
 >    漏掉不會靜默失敗——`TryGetTransition` 會噴紅字，動作仍照 `FallbackDuration` 跑完，位移退回 base movement。
-> 4. **Play 驗收**：兩個技能可獨立觸發、冷卻不連坐、互相打斷、既有 Idle／Move／Jump／Roll／Throw 無回歸 ⇒ 結掉 A／C
-> 5. **Profiler**：穩態 0 B/frame ⇒ 結掉 E
-> 6. 全過之後 ADR-005 才可 `Trial → Accepted`
+>    ⚠️ 但 Melee Slash 要展示 motion mapping ⇒ **對它而言這就是安靜失敗**（`IsPlaying` 為 false ⇒ 位移退回 base，
+>    症狀是「劍揮了人不動」）。見 `docs/11` §4.1 的兩道 gate。
+> 6. **跑 EditMode 全套**（新增 `SlowEffectTests` 6 條 ＋ `A25`；紅燈回報）
+> 7. **Play 驗收 —— Slow 專項**：
+>    - Ice 命中後敵人速度**剩 30%**（不是降 30%）
+>    - **重複命中刷新 duration、不疊層**（連中兩次仍是 0.3 倍，不是 0.09）
+>    - **到期自動恢復**
+>    - **Acceptance G**：敵人的速度階層、停步選片、腳步節奏**自動正確**，五個下游檔案零修改（A25 守）
+> 8. **Play 驗收 —— 多 Action**：兩技能獨立觸發、冷卻不連坐、互相打斷、既有狀態無回歸 ⇒ 結掉 A／C
+> 9. **Profiler**：穩態 0 B/frame ⇒ 結掉 E
+> 10. 全過之後 ADR-005 才可 `Trial → Accepted`；⑨ 的 debt 同時裁決
+>
+> ⚠️ 另有一筆與 ADR-005 無關但 Play 會撞到的：`ThirdPersonCamera.aimResolver` 在**場景實例**上仍是 `None`。
 >
 > ---
 
