@@ -95,6 +95,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bc62224472b251c49bae83bd2452462b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Actions.ThrownProjectile
+  appliesSlow: 1
+  slowDuration: 7
 --- !u!1 &2496302247940507569
 GameObject:
   m_ObjectHideFlags: 0

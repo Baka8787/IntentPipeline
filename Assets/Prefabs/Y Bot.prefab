@@ -22,6 +22,7 @@ GameObject:
   - component: {fileID: 1492802606816328124}
   - component: {fileID: 1868996060426550972}
   - component: {fileID: 539958097729564367}
+  - component: {fileID: -1831002889493471418}
   m_Layer: 7
   m_Name: Y Bot
   m_TagString: Untagged
@@ -117,6 +118,8 @@ MonoBehaviour:
   overrideMoveSpeed: 0
   gravity: -9.81
   reboundForce: -2
+  aimFacingAngleDeadzone: 15
+  aimFacingTurnSpeed: 8
 --- !u!114 &8988644841951324072
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -391,6 +394,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4e67df2da4e8a494b81422b6360852e3, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Project.Runtime::Project.Core.Actions.ActionRequestTarget
+--- !u!114 &-1831002889493471418
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7863296372082958677}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 216ff09ccec53084894855e1213cc524, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Project.Runtime::Project.Core.Effects.TemporaryGameplayEffectState
 --- !u!1001 &8929059010494798423
 PrefabInstance:
   m_ObjectHideFlags: 0

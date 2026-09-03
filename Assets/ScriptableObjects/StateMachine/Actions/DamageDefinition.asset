@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1daa3d6a8c70ef9469b0feb6ae982ad3, type: 3}
   m_Name: DamageDefinition
   m_EditorClassIdentifier: Project.Runtime::Project.Core.StateMachine.Actions.ActionDefinitionSO
+  Slot: 100
   Phases:
   - Phase: 1
     AnimationKey: Damage
@@ -20,6 +21,7 @@ MonoBehaviour:
     Interruptible: 0
     WaitForTrigger: 0
     EmitsRelease: 0
+    ReleaseNormalizedTime: 0
   Cooldown: 0
   RequiresGrounded: 0
   CancelMoveIntentThreshold: 0.1
