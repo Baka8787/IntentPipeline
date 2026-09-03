@@ -139,13 +139,39 @@ Definition 不再於 `Initialize` 綁死，因此 `OnEnter` 必須**重新解析
 
 ## 4. 三個 Action 的資產配置（草案，實作期可調）
 
-> 皆為站定動作 ⇒ `Bake` 可留空，先用 `FallbackDuration`。
+> 🔄 **2026-09-02 修訂**：原文寫「皆為站定動作 ⇒ `Bake` 可留空」。**兩個法術維持如此，Melee Slash 不再是**——
+> 它改為刻意承載 **motion mapping 展示**（位移由烘焙曲線驅動），見下方 4.1。
 
-| Action | Phases | `EmitsRelease` | `Interruptible` | Sink 實作 |
-|---|---|---|---|---|
-| **Quick Spell** | `Start` | `Start` ＠ ~0.35 | `Start` = false | 法術投射物發射器 |
-| **Ice Spell** | `Start` | `Start` ＠ ~0.35 | `Start` = false | 同上（不同 prefab） |
-| **Melee Slash** | `Start` | `Start` ＠ ~0.40 | `Start` = false | 近戰 hitbox 開關 |
+| Action | Slot | Phases | `Bake` | `EmitsRelease` | `Interruptible` | Sink 實作 |
+|---|---|---|---|---|---|---|
+| **Melee Slash** | `Slot1`（滑鼠左鍵） | `Start` | ✅ **必要** | `Start` ＠ ~0.40 | `Start` = false | 近戰 hitbox 開關 |
+| **Quick Spell**（火／雷） | `Slot2`（Q） | `Start` | 留空 | `Start` ＠ ~0.35 | `Start` = false | 法術投射物發射器 |
+| **Ice Spell** | `Slot3`（E） | `Start` | 留空 | `Start` ＠ ~0.35 | `Start` = false | 同上（不同 prefab）＋ Slow 投遞 |
+
+**為什麼三格都只有 `Start`（法術不用素材自帶的 Load／Cast 分離）**：
+`Kevin Iglesias` 的 `MagicAttacks/` 每組都附 `Load`／`Cast`／合一三個檔，天生對應 `Start`／`End`。
+**刻意不用**——ADR-004 的 Throw 已經展示過多 phase ＋ release timing，再做一次是重複展示同一個機制；
+且需求是「**快速**施展」，快速本來就不該有蓄力段。改用合一檔、單一 `Start`。
+⇒ 三格的展示價值不重疊：**Slot1 ＝ motion mapping**、**Slot2／3 ＝ 多身分共用一顆 `ActionState` ＋ per-slot 冷卻**、
+**Slot3 額外 ＝ Slow 的跨系統自動傳播**。
+
+### 4.1 Melee Slash 的 Bake（motion mapping 展示）
+
+揮劍前衝的位移**由 `MotionBakeData` 的曲線驅動**，不是寫死的速度。這是三格裡唯一能讓外行**看得到**架構的一格
+（劍揮出去、人跟著往前衝，而位移數字來自烘焙資料而非程式常數）。
+
+> 🔴 **兩道 gate 都是安靜失敗**——`ActionState.OnUpdateMotion`：
+> ```csharp
+> bool hasBake = _currentEntry.Bake != null && _currentEntry.Bake.Duration > 0f;
+> bool isActuallyPlaying = animationFacade.IsPlaying(AnimationKey);
+> if (!hasBake || !isActuallyPlaying) { motionDriver.ExecuteBaseMovement(data); return; }
+> ```
+> ① **`AnimancerFacade` 的 Transition Mapping 沒接** ⇒ `IsPlaying` 為 false ⇒ 位移退回 base movement。
+> ② **`BakedDuration = 0`** ⇒ `hasBake` 為 false ⇒ 同樣退回。
+> 兩者都**不會 throw**。症狀是「動畫有播、人卻不往前衝」，很容易被誤判成烘焙壞掉。
+> ⚠️ 重烘策略一直是「用到再烘」（目前只有 Roll 有 `BakedDuration`），**新烘 slash 務必確認它 > 0**。
+
+**素材**：`Assets/EEJANAI_Team/FreeSwordAnimations/FBX/slash1–9.fbx`（9 顆可挑）。
 
 **唯二的新 runtime 程式**（都是 `IActionLifecycleSink` 實作，各約 40 行，形狀比照既有 `ThrowProjectileEmitter`）：
 
@@ -228,7 +254,47 @@ Definition 不再於 `Initialize` 綁死，因此 `OnEnter` 必須**重新解析
 - ⛔ `MovementIntent` 的**寫入者仍然唯一**——Slow 是 producer 內部的係數，**不是第二個寫入者**。`WriterRules` 的 `MovementIntent` 白名單**不得**因此變長
 - ⛔ 不得讓 Action 系統認識目標的移動系統（那是反向依賴）
 
-### 7.4 驗收（＝ADR-005 Acceptance **G**）
+### 7.4 語意（2026-09-02 使用者裁決，實作不得自行更動）
+
+| 項目 | 定死的值／行為 |
+|---|---|
+| 身分 | **`Effect.Slow`**（tag 表示狀態種類） |
+| 倍率 | **`MovementSpeedMultiplier = 0.3f`** |
+| 語意 | **「速度剩原本的 30%」**，⛔ **不是**「降低 30%」。寫實作時最容易搞反的就是這一條 |
+| 時長 | **有限時長**（`expiresAt`），不是永久 |
+| 重複命中 | **刷新 duration，不疊層**。同一個 `Effect.Slow` 再命中只把 `expiresAt` 往後推 |
+| 到期 | **自動移除，速度恢復**。不需要任何人來清 |
+| 儲存形狀 | **tag ／ multiplier ／ expiresAt 分開存**，不是一個 effect 物件的欄位堆 |
+
+### 7.5 投遞 seam（**刻意很薄**）
+
+§7.1–7.3 講清楚了 Slow **住在哪**（敵人 producer 內部的係數），但沒講**命中的那一刻誰打開它**。這裡補上。
+
+**形狀**：敵人身上掛一個「暫時 gameplay effect ／ tag 狀態」持有元件。
+Projectile 命中時**只投遞**「你中了 `Effect.Slow`，倍率 0.3、持續 N 秒」，
+**不知道對方拿去做什麼**；`AIMovementSource` 每幀只問「我現在有沒有 `Effect.Slow`」，有就把輸出速度乘上倍率。
+
+```
+ThrownProjectile ──(投遞 Effect.Slow)──▶ [效果持有元件] ◀──(只讀)── AIMovementSource
+        │                                                              │
+        └── 不認識 AIMovementSource                     └── 不認識 projectile
+```
+
+**掛載點**（唯一需要改的一行量級）：`AIMovementSource.ProduceIntent` 結尾
+```csharp
+data.MovementIntent.DesiredSpeedNormalized = Mathf.Clamp01(desiredSpeedNormalized);
+```
+⇒ 乘上「目前生效的倍率（無效果時為 1）」。**`MovementIntent` 的寫入者仍然只有它自己**（§7.3 第二條紅線成立）。
+
+> ⛔ **這條 seam 的禁令**（比它的功能還重要）
+> - **不抽介面。** 只有一個效果、一個投遞者、一個讀取者 ⇒ 具體型別直接引用。
+>   第二個使用者出現前不得建 production abstraction（`CLAUDE.md` 既有禁令）。
+> - **不做 stacking、抗性、優先級、複合效果、免疫、DoT。** ADR-005 **D5** ＋ 使用者 2026-09-02 明確裁決。
+> - **不做 `StatusEffect` ／ `Buff` ／ GAS framework。** 沒有 effect 清單、沒有 `List<Effect>`、
+>   沒有 apply/remove 生命週期回呼。**單一 slot 就夠**——「不疊層」正是這樣落地的。
+> - **不得讓 Action 系統認識目標的移動系統**（§7.3 第三條）。projectile 投遞的是「狀態」，不是「速度」。
+
+### 7.6 驗收（＝ADR-005 Acceptance **G**）
 
 `LocomotionModel`／`LocomotionSpeedSmoother`／`LocomotionStopSelector`／`FootIKController`／`AudioController`
 **五個檔案零修改**，而敵人的速度階層、停步選片、腳步節奏全部自動正確。
