@@ -30,7 +30,7 @@ namespace Project.Core.StateMachine
             PlayerRuntimeData data,
             IMovementModel movementModel,
             ActionRequestTarget actionRequestTarget = null,
-            IActionLifecycleSink actionLifecycleSink = null)
+            IActionLifecycleSink[] actionLifecycleSinks = null)
         {
             _config = config;
             _movementModel = movementModel;
@@ -41,7 +41,7 @@ namespace Project.Core.StateMachine
             RegisterState(new MoveState());
             RegisterState(new JumpState());
             RegisterState(new RollState());
-            RegisterState(new ActionState(actionRequestTarget, actionLifecycleSink));
+            RegisterState(new ActionState(actionRequestTarget, actionLifecycleSinks));
 
             _currentState = _stateRegistry[StateType.Idle];
             _currentState.OnEnter(data); // 💡 傳入實體數據

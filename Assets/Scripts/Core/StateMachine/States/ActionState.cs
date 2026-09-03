@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using Project.Core.Actions;
 using Project.Core.Blackboard;
@@ -32,7 +33,7 @@ namespace Project.Core.StateMachine
         /// ⛔ 也不要為了省這 404 B 加一層 slot→密集索引的對照（2026-09-02 已裁決不做）——
         /// 那等於多一把內部的鍵，與 ADR-005 D1「不得有第二把鍵」的精神相悖，而省下的是零頭。
         /// </summary>
-        private static readonly int SlotCount = ComputeSlotCount();
+        internal static readonly int SlotCount = ComputeSlotCount();
 
         private static int ComputeSlotCount()
         {
@@ -47,11 +48,16 @@ namespace Project.Core.StateMachine
         }
 
         private readonly ActionRequestTarget _externalRequestTarget;
-        private readonly IActionLifecycleSink _lifecycleSink;
+        private readonly IActionLifecycleSink[] _lifecycleSinks;
 
         // 🆕（ADR-005）冷卻改為 per-slot。**仍住在 ActionState 內部**（ADR-004 D2）——
         // 搬到 Runner／Config／HUD 都會讓「能不能出手」有第二個回答者。
         private readonly float[] _cooldownEndTime = new float[SlotCount];
+#if UNITY_EDITOR
+        // 缺 Definition 是資產接線錯誤，不改變 gate 的嚴格行為；每個 slot 只警告一次，避免 CanEnter
+        // 每幀輪詢時持續配置訊息字串並淹沒 Console。
+        private readonly bool[] _missingDefinitionWarnings = new bool[SlotCount];
+#endif
 
         private ActionDefinitionSO _definition;
         private ActionSlot _activeSlot;
@@ -61,10 +67,12 @@ namespace Project.Core.StateMachine
         private string _currentAnimationKey;
         private bool _releaseEmittedThisExecution;
 
-        public ActionState(ActionRequestTarget externalRequestTarget = null, IActionLifecycleSink lifecycleSink = null)
+        public ActionState(
+            ActionRequestTarget externalRequestTarget = null,
+            IActionLifecycleSink[] lifecycleSinks = null)
         {
             _externalRequestTarget = externalRequestTarget;
-            _lifecycleSink = lifecycleSink;
+            _lifecycleSinks = lifecycleSinks ?? Array.Empty<IActionLifecycleSink>();
         }
 
         public override StateType Type => StateType.Action;
@@ -106,8 +114,8 @@ namespace Project.Core.StateMachine
 
             _activeSlot = slot;
             _definition = definition;
-            _lifecycleSink?.Begin();
-            if (!EnterPhase(ActionPhase.Start)) _lifecycleSink?.Cleanup();
+            ActiveLifecycleSink()?.Begin();
+            if (!EnterPhase(ActionPhase.Start)) ActiveLifecycleSink()?.Cleanup();
         }
 
         public override void OnTick(PlayerRuntimeData data, float deltaTime)
@@ -193,7 +201,7 @@ namespace Project.Core.StateMachine
 
         public override void OnExit(PlayerRuntimeData data)
         {
-            _lifecycleSink?.Cleanup();
+            ActiveLifecycleSink()?.Cleanup();
             CommitCooldown();
             ResetExecutionState();
         }
@@ -222,11 +230,33 @@ namespace Project.Core.StateMachine
             if (slot == ActionSlot.None) return false;
 
             definition = Config.GetActionDefinition(slot);
-            if (definition == null) return false;
+            if (definition == null)
+            {
+#if UNITY_EDITOR
+                WarnMissingDefinitionOnce(slot);
+#endif
+                return false;
+            }
             if (!HasPhase(definition, ActionPhase.Start)) return false;
             if (definition.RequiresGrounded && !data.IsGrounded) return false;
             return Time.time >= _cooldownEndTime[(int)slot];
         }
+
+#if UNITY_EDITOR
+        private void WarnMissingDefinitionOnce(ActionSlot slot)
+        {
+            int index = (int)slot;
+            if (index >= 0 && index < _missingDefinitionWarnings.Length)
+            {
+                if (_missingDefinitionWarnings[index]) return;
+                _missingDefinitionWarnings[index] = true;
+            }
+
+            Debug.LogWarning(
+                $"[ActionState] ActionSlot.{slot} 沒有對應的 ActionDefinitionSO；" +
+                "請檢查 StateMachineConfig 的 actionDefinitions 與該 Definition 的 Slot 欄位。");
+        }
+#endif
 
         /// <summary>Loop 期的 <c>WaitForTrigger</c>：只有**同一個 slot** 再次被請求才算 re-trigger。</summary>
         private bool IsRetriggeredThisFrame(PlayerRuntimeData data)
@@ -253,7 +283,7 @@ namespace Project.Core.StateMachine
 
             if (phase == ActionPhase.Cancel)
             {
-                _lifecycleSink?.Cleanup();
+                ActiveLifecycleSink()?.Cleanup();
             }
             else
             {
@@ -271,7 +301,7 @@ namespace Project.Core.StateMachine
             if (_phaseElapsed < CurrentDuration() * normalizedTime) return;
 
             _releaseEmittedThisExecution = true;
-            _lifecycleSink?.Release();
+            ActiveLifecycleSink()?.Release();
         }
 
         private float CurrentDuration()
@@ -304,9 +334,17 @@ namespace Project.Core.StateMachine
 
         private void Complete()
         {
-            _lifecycleSink?.Cleanup();
+            // 必須在 CommitCooldown／ResetExecutionState 清掉 _activeSlot 前查表；
+            // 否則自然完成時會把 Cleanup 送到 None，重演冷卻曾踩過的同一個順序 bug。
+            ActiveLifecycleSink()?.Cleanup();
             CommitCooldown();
             ResetExecutionState();
+        }
+
+        private IActionLifecycleSink ActiveLifecycleSink()
+        {
+            int index = (int)_activeSlot;
+            return index > 0 && index < _lifecycleSinks.Length ? _lifecycleSinks[index] : null;
         }
 
         /// <summary>

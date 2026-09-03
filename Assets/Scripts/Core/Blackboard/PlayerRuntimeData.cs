@@ -112,7 +112,6 @@ namespace Project.Core.Blackboard
         /// 限制 setter 為 internal，僅允許 EquipmentDriver 進行修改。
         /// </summary>
         public ItemInstance CurrentWeapon { get; internal set; }
-        public Transform AimTarget { get; set; }
 
 
     }

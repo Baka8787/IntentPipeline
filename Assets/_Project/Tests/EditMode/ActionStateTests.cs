@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.TestTools;
 using Project.Core.Actions;
 using Project.Core.Blackboard;
 using Project.Core.Movement;
@@ -122,7 +123,7 @@ namespace Project.Tests.EditMode
             };
             StateMachineConfigSO config = BuildConfig(definition);
             config.Initialize();
-            var state = new ActionState(null, sink);
+            var state = new ActionState(null, CreateSinkMap(ActionSlot.Slot1, sink));
             state.Initialize(config, new FakeMovementModel());
             var data = new PlayerRuntimeData { IsGrounded = true };
             data.Intent.RequestedActionSlot = ActionSlot.Slot1;
@@ -163,7 +164,7 @@ namespace Project.Tests.EditMode
             ActionDefinitionSO definition = CreateDefinition("Immediate", true, 0.2f);
             StateMachineConfigSO config = BuildConfig(definition);
             config.Initialize();
-            var state = new ActionState(null, sink);
+            var state = new ActionState(null, CreateSinkMap(ActionSlot.Slot1, sink));
             state.Initialize(config, new FakeMovementModel());
             var data = new PlayerRuntimeData();
 
@@ -196,7 +197,7 @@ namespace Project.Tests.EditMode
             };
             StateMachineConfigSO config = BuildConfig(definition);
             config.Initialize();
-            var state = new ActionState(null, sink);
+            var state = new ActionState(null, CreateSinkMap(ActionSlot.Slot1, sink));
             state.Initialize(config, new FakeMovementModel());
             var data = new PlayerRuntimeData { IsGrounded = true };
 
@@ -226,7 +227,7 @@ namespace Project.Tests.EditMode
             ActionDefinitionSO definition = CreateDefinition("StartOnly", false, 0.1f);
             StateMachineConfigSO config = BuildConfig(definition);
             config.Initialize();
-            var state = new ActionState(null, sink);
+            var state = new ActionState(null, CreateSinkMap(ActionSlot.Slot1, sink));
             state.Initialize(config, new FakeMovementModel());
             var data = new PlayerRuntimeData();
 
@@ -355,6 +356,112 @@ namespace Project.Tests.EditMode
             Destroy(throwDefinition, config);
         }
 
+        [Test]
+        public void T22_LegacySlot1Definition_DoesNotResolveReactionRequest()
+        {
+            // 2026-09-02 真實回歸：舊 DamageDefinition 沒有序列化 Slot，因此吃到初始值 Slot1；
+            // projectile 提交 Reaction 後若仍讓它解析，反而會掩蓋身分填錯。相容退路保留資產結構，
+            // 不保證錯誤身分也能工作——這裡的正確期望就是拒絕，並在 Editor 大聲指出接線問題。
+            ActionDefinitionSO legacyDamage = CreateDefinition("Damage", false, 0.1f);
+            StateMachineConfigSO config = BuildConfig(legacyDamage);
+            var targetObject = new GameObject("Legacy-Damage-Target-Test");
+            ActionRequestTarget target = targetObject.AddComponent<ActionRequestTarget>();
+            var data = new PlayerRuntimeData { IsGrounded = true };
+            var machine = new FullBodyStateMachine();
+            machine.Initialize(config, data, new FakeMovementModel(), target);
+
+            LogAssert.Expect(LogType.Warning,
+                "[ActionState] ActionSlot.Reaction 沒有對應的 ActionDefinitionSO；" +
+                "請檢查 StateMachineConfig 的 actionDefinitions 與該 Definition 的 Slot 欄位。");
+            target.RequestAction(ActionSlot.Reaction);
+            machine.Tick(data, 0.016f);
+
+            Assert.AreEqual(StateType.Idle, machine.CurrentState.Type,
+                "Slot1 Definition 不得冒充 Reaction；應要求資產明確宣告正確身分");
+            Destroy(legacyDamage, config, targetObject);
+        }
+
+        [Test]
+        public void T23_LegacyReactionDefinition_ResolvesReactionRequest()
+        {
+            // 同樣不填 actionDefinitions，但把舊 Definition 的單一遷移欄位設對，即可沿用原資產與相容退路。
+            ActionDefinitionSO legacyDamage = CreateDefinition(
+                "Damage", false, 0.1f, slot: ActionSlot.Reaction);
+            StateMachineConfigSO config = BuildConfig(legacyDamage);
+            var targetObject = new GameObject("Legacy-Reaction-Target-Test");
+            ActionRequestTarget target = targetObject.AddComponent<ActionRequestTarget>();
+            var data = new PlayerRuntimeData { IsGrounded = true };
+            var machine = new FullBodyStateMachine();
+            machine.Initialize(config, data, new FakeMovementModel(), target);
+
+            target.RequestAction(ActionSlot.Reaction);
+            machine.Tick(data, 0.016f);
+
+            Assert.AreEqual(StateType.Action, machine.CurrentState.Type);
+            Assert.AreEqual("Damage", machine.CurrentState.AnimationKey,
+                "舊資產不必重建，但 Slot 必須明確遷移成 Reaction");
+            Destroy(legacyDamage, config, targetObject);
+        }
+
+        [Test]
+        public void T24_MeleeHitbox_OpensOnReleaseAndRequestsEachTargetOnce()
+        {
+            var hitboxObject = new GameObject("Melee-Hitbox-Test");
+            Collider collider = hitboxObject.AddComponent<BoxCollider>();
+            MeleeHitboxSink sink = hitboxObject.AddComponent<MeleeHitboxSink>();
+            var targetObject = new GameObject("Melee-Target-Test");
+            ActionRequestTarget target = targetObject.AddComponent<ActionRequestTarget>();
+
+            sink.Begin();
+            Assert.IsFalse(sink.TryRequestHit(target), "Release 前命中窗必須保持關閉");
+            sink.Release();
+            Assert.IsTrue(collider.enabled);
+            Assert.IsTrue(sink.TryRequestHit(target));
+            Assert.IsFalse(sink.TryRequestHit(target), "同一次揮擊對同一目標只能提交一次 Reaction");
+            sink.Cleanup();
+            Assert.IsFalse(collider.enabled);
+            Assert.IsFalse(sink.TryRequestHit(target), "Cleanup 後命中窗不得繼續提交");
+
+            Destroy(hitboxObject, targetObject);
+        }
+
+        [Test]
+        public void T25_Slot2Action_InvokesOnlySlot2LifecycleSink()
+        {
+            var slot1Sink = new CountingLifecycleSink();
+            var slot2Sink = new CountingLifecycleSink();
+            var slot3Sink = new CountingLifecycleSink();
+            var sinks = new IActionLifecycleSink[ActionState.SlotCount];
+            sinks[(int)ActionSlot.Slot1] = slot1Sink;
+            sinks[(int)ActionSlot.Slot2] = slot2Sink;
+            sinks[(int)ActionSlot.Slot3] = slot3Sink;
+
+            ActionDefinitionSO quickSpell = CreateDefinition(
+                "QuickSpell", true, 0.05f, slot: ActionSlot.Slot2);
+            StateMachineConfigSO config = BuildMultiActionConfig(quickSpell);
+            var data = new PlayerRuntimeData { IsGrounded = true };
+            var machine = new FullBodyStateMachine();
+            machine.Initialize(config, data, new FakeMovementModel(), null, sinks);
+
+            data.Intent.RequestedActionSlot = ActionSlot.Slot2;
+            machine.Tick(data, 0.016f);
+            machine.Tick(data, 0.05f);
+
+            Assert.AreEqual(0, slot1Sink.BeginCount);
+            Assert.AreEqual(0, slot1Sink.ReleaseCount);
+            Assert.AreEqual(0, slot1Sink.CleanupCount,
+                "Slot2 出手不得誤觸 Slot1 melee sink");
+            Assert.AreEqual(1, slot2Sink.BeginCount);
+            Assert.AreEqual(1, slot2Sink.ReleaseCount);
+            Assert.AreEqual(1, slot2Sink.CleanupCount);
+            Assert.AreEqual(0, slot3Sink.BeginCount);
+            Assert.AreEqual(0, slot3Sink.ReleaseCount);
+            Assert.AreEqual(0, slot3Sink.CleanupCount,
+                "Slot2 出手不得誤觸 Slot3 projectile sink");
+
+            Destroy(quickSpell, config);
+        }
+
         private static ActionDefinitionSO CreateDefinition(
             string key,
             bool emitsRelease,
@@ -429,6 +536,14 @@ namespace Project.Tests.EditMode
             SetPrivateField(config, "paramsMappings", new List<StateParamsMapping>());
             SetPrivateField(config, "actionDefinitions", new List<ActionDefinitionSO>(definitions));
             return config;
+        }
+
+        private static IActionLifecycleSink[] CreateSinkMap(
+            ActionSlot slot, IActionLifecycleSink sink)
+        {
+            var sinks = new IActionLifecycleSink[ActionState.SlotCount];
+            sinks[(int)slot] = sink;
+            return sinks;
         }
 
         private static void SetPrivateField<T>(StateMachineConfigSO config, string name, T value)

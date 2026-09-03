@@ -7,6 +7,18 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> ### 🧩 2026-09-03 — Multi-Action 程式批次完成；三 assembly 已編譯，EditMode／Play 待集中驗收
+>
+> - `AIMovementSource` 新增可調近戰距離帶與 hysteresis：太近後退、帶內停住、太遠前進；仍只寫 `MovementIntent`。
+> - 新增 `MeleeHitboxSink`：只由 Action lifecycle 的 `Release` 開窗、`Cleanup` 關窗；同一揮擊同一目標只送一次 `Reaction`，不以 VFX／particle collision 判定。
+> - Quick／Ice 法術直接重用 `ThrowProjectileEmitter`／`ThrownProjectile`，不新增對稱複製類別；差異留在 prefab、速度與 `appliesSlow`。
+> - 移除無 writer 的 `PlayerRuntimeData.AimTarget` 與 Editor 面板列；dev-spec schema 同步。
+> - legacy 相容退路維持嚴格 slot：補 T22（Slot1 不得解析 Reaction）／T23（明設 Reaction 才可解析）；解析不到時新增 Editor-only、每 slot 一次警告。另補 T24（melee lifecycle／去重）與 A26（VFX 紅線）。
+> - `Project.Runtime`／`Project.Editor`／`Project.Tests.EditMode` 均已由 `dotnet build` 編譯為 0 warning／0 error。⚠️ 不能在此環境跑 Unity Test Runner，故不得視為 EditMode 已通過。
+> - 多 sink 缺口已結案：Runner 新增 `List<ActionSinkBinding>`，組裝期轉成 `ActionState.SlotCount` 大小的稀疏陣列；ActionState 依 `_activeSlot` 只通知該格 sink。`IActionLifecycleSink` 簽章不變。T25 鎖住 Slot2 不得誤觸 Slot1／3。
+> - 相容規則為 all-or-nothing：新清單有任何一筆即完全忽略 legacy `actionReleaseSinkComponent`；清單全空才沿用單顆 sink。舊欄位名稱保留，既有 prefab 引用不會因欄位改名遺失。
+> - 使用者側待辦：讓 Unity 產生 `MeleeHitboxSink.cs.meta`；建立 melee trigger Collider；Player Runner 的 Action Sink Bindings 一次填完整 Slot1=Melee、Slot2=Quick emitter、Slot3=Ice emitter，填完後可清空 legacy 單顆欄位；調整敵人的三個距離欄位；完成 EditMode、Play 與 Profiler 驗收。
+>
 > ### 🧩 2026-09-02（本機）— **合併完成 ＋ EditMode 全綠 ＋ Slow 切片 Play 通過**；ADR-005 §4 的 D／F／G 成立，A／B／C／E 待接線與 Profiler（最新，請先讀這段）
 >
 > **一句話**：遠端 ADR-005 分支與本機 WP1 已合併於 `integrate-adr005`，衝突依「保留雙方」處理完，

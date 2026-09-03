@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using Project.Core.Actions;
 using Project.Core.Arbitration;
@@ -11,6 +12,17 @@ using Project.Presentation.Motion;
 
 namespace Project.Core.Pipeline
 {
+    /// <summary>
+    /// Inspector 上的 ActionSlot → lifecycle sink 接線。身分只負責選擇接收者；
+    /// sink 本身仍維持無參數介面，不知道自己屬於哪個技能。
+    /// </summary>
+    [Serializable]
+    public struct ActionSinkBinding
+    {
+        public ActionSlot Slot;
+        public MonoBehaviour Sink;
+    }
+
     public class CharacterPipelineRunner : MonoBehaviour
     {
         [Header("Setup")]
@@ -48,11 +60,17 @@ namespace Project.Core.Pipeline
         [SerializeField] private StateMachineConfigSO stateMachineConfig;
         [Tooltip("External gameplay event 的單格 Action request endpoint。留空時從同物件自動尋找；Player 可不掛。")]
         [SerializeField] private ActionRequestTarget actionRequestTarget;
-        [Tooltip("實作 IActionLifecycleSink 的元件。Player Throw 指向 ThrowProjectileEmitter；Enemy Damage 留空。")]
+
+        [Tooltip("每個 ActionSlot 對應的 IActionLifecycleSink。只要清單有任何一筆，就完全忽略下方 legacy 單顆欄位。")]
+        [SerializeField] private List<ActionSinkBinding> actionSinkBindings = new List<ActionSinkBinding>();
+
+        // 欄位名稱刻意保留：既有 prefab 已按名稱序列化 ThrowProjectileEmitter，改名會清空接線。
+        // 新清單為空時，這顆 sink 仍比照舊行為接收所有 slot；開始填清單後則 all-or-nothing。
+        [Tooltip("Legacy 單顆 sink 相容欄位。Action Sink Bindings 為空時才使用；既有 prefab 不需立即遷移。")]
         [SerializeField] private MonoBehaviour actionReleaseSinkComponent;
 
         private FullBodyStateMachine _stateMachine;
-        private IActionLifecycleSink _actionLifecycleSink;
+        private IActionLifecycleSink[] _actionLifecycleSinks;
 
         // 🆕（M2）表現層驅動骨架：Start 一次性收集，LateUpdate 順序 6.5 集中 Tick。
         private PresentationPipeline _presentationPipeline;
@@ -96,19 +114,7 @@ namespace Project.Core.Pipeline
             }
 
             if (actionRequestTarget == null) actionRequestTarget = GetComponent<ActionRequestTarget>();
-
-            if (actionReleaseSinkComponent != null)
-            {
-                _actionLifecycleSink = actionReleaseSinkComponent as IActionLifecycleSink;
-                if (_actionLifecycleSink == null)
-                {
-                    Debug.LogError($"[{gameObject.name}] actionReleaseSinkComponent 沒有實作 IActionLifecycleSink 介面！", this);
-                }
-            }
-            else
-            {
-                _actionLifecycleSink = GetComponent<IActionLifecycleSink>();
-            }
+            ResolveActionLifecycleSinks();
 
             // === 🆕（ADR-003 D2）Movement 意圖 producer 解析：明確指派優先，其次同物件自動尋找 ===
             if (movementIntentSourceComponent != null)
@@ -207,7 +213,67 @@ namespace Project.Core.Pipeline
             // 🆕（ADR-003 Stage 2）連同 active model 一併注入：狀態機是 model 的**唯一持有點**，
             // 由它發給所有 state，確保跨幀平滑狀態全域唯一（Idle↔Move 切換不重置收步）。
             _stateMachine.Initialize(
-                stateMachineConfig, _runtimeData, _movementModel, actionRequestTarget, _actionLifecycleSink);
+                stateMachineConfig, _runtimeData, _movementModel, actionRequestTarget, _actionLifecycleSinks);
+        }
+
+        /// <summary>
+        /// 組裝期把 Inspector 清單轉成與 Definition／冷卻同形的稀疏 slot 陣列；執行期只做 O(1) 索引。
+        /// 清單採 all-or-nothing，避免同一 slot 同時受新舊兩個接線來源影響。
+        /// </summary>
+        private void ResolveActionLifecycleSinks()
+        {
+            _actionLifecycleSinks = new IActionLifecycleSink[ActionState.SlotCount];
+
+            if (actionSinkBindings != null && actionSinkBindings.Count > 0)
+            {
+                for (int i = 0; i < actionSinkBindings.Count; i++)
+                {
+                    ActionSinkBinding binding = actionSinkBindings[i];
+                    int index = (int)binding.Slot;
+                    if (binding.Slot == ActionSlot.None || index < 0 || index >= _actionLifecycleSinks.Length)
+                    {
+                        Debug.LogError($"[{gameObject.name}] Action Sink Binding #{i} 的 Slot 無效。", this);
+                        continue;
+                    }
+
+                    IActionLifecycleSink sink = binding.Sink as IActionLifecycleSink;
+                    if (sink == null)
+                    {
+                        Debug.LogError(
+                            $"[{gameObject.name}] ActionSlot.{binding.Slot} 的 Sink 沒有實作 IActionLifecycleSink。",
+                            this);
+                        continue;
+                    }
+
+                    if (_actionLifecycleSinks[index] != null)
+                    {
+                        Debug.LogError(
+                            $"[{gameObject.name}] ActionSlot.{binding.Slot} 被重複綁定 sink；後者已忽略。",
+                            this);
+                        continue;
+                    }
+
+                    _actionLifecycleSinks[index] = sink;
+                }
+
+                return;
+            }
+
+            IActionLifecycleSink legacySink = actionReleaseSinkComponent != null
+                ? actionReleaseSinkComponent as IActionLifecycleSink
+                : GetComponent<IActionLifecycleSink>();
+            if (actionReleaseSinkComponent != null && legacySink == null)
+            {
+                Debug.LogError(
+                    $"[{gameObject.name}] actionReleaseSinkComponent 沒有實作 IActionLifecycleSink 介面！",
+                    this);
+                return;
+            }
+
+            // 舊版只有一顆 sink，語意就是所有 Action 共用。填入新清單後才改採逐 slot 路由。
+            if (legacySink == null) return;
+            for (int i = 1; i < _actionLifecycleSinks.Length; i++)
+                _actionLifecycleSinks[i] = legacySink;
         }
 
         private void Update()

@@ -68,7 +68,7 @@
 | **B1** | 一角色只能有一份 `ActionDefinitionSO` | `ActionState.Initialize` → `config.GetStateParams<ActionDefinitionSO>(Type)`；根因在 `StateMachineConfigSO` 的 `_paramsMap`／`_bakeMap`／`_priorityMap`／`_interruptMap` **全以 `StateType` 為鍵** | **整個工作包**（＝FU-2） |
 | **B2** | 輸入只有一顆 `FireRequested` | `IntentData` 僅有 `JumpRequested`／`RollRequested`／`FireRequested`；`CharacterPipelineRunner.ProcessIntents` 三行對應 | 三技能三個鍵（＝ADR-005 D4） |
 | **B3** | **完全沒有 hit／damage／effect 系統** | `ThrownProjectile` 命中後唯一動作是 `target.RequestAction()`。**無血量、無傷害、無狀態** | Ice 的 Slow（本輪唯一「真的新東西」） |
-| **B4** | 瞄準已有系統，但**黑板欄位仍是死的** | 🔄 **2026-09-02 依本機現況修正**：WP1 已落地 `Presentation/Camera/AimResolver`（螢幕中心射線 → 當幀 AimPoint），投射物方向改由 `ThrowProjectileEmitter` 讀 `TryGetAimPoint()` 決定、朝向由 `MotionDriver.RequestFacing` 承載。**但 `PlayerRuntimeData.AimTarget` 至今仍無任何 writer**——AimResolver 刻意不經黑板（AimPoint 是 per-frame 值，不是跨模組共享狀態），故該欄位依舊只被 `CharacterPipelineRunnerEditor` 除錯面板讀取 | 法術往哪飛（已解）／死欄位（未解） |
+| **B4** | 瞄準已有系統；黑板曾留有死欄位 | WP1 的 `Presentation/Camera/AimResolver` 以 `TryGetAimPoint()` 直供消費端，不寫黑板。`PlayerRuntimeData.AimTarget` 無 writer、僅被 Editor 面板讀取，已於 2026-09-03 連同面板列移除 | ✅ 法術方向與死欄位皆已解 |
 | **B5** | Action→Action 中斷不可能 | `FullBodyStateMachine.EvaluateInterrupts` 首行 `if (targetState.Type == _currentState.Type) continue;` | 揮劍被打斷（＝FU-1） |
 
 > B1／B2／B5 即 `docs/08` §11.1 已登記的 **FU-2／FU-3／FU-1**。
@@ -145,8 +145,8 @@ Definition 不再於 `Initialize` 綁死，因此 `OnEnter` 必須**重新解析
 | Action | Slot | Phases | `Bake` | `EmitsRelease` | `Interruptible` | Sink 實作 |
 |---|---|---|---|---|---|---|
 | **Melee Slash** | `Slot1`（滑鼠左鍵） | `Start` | ✅ **必要** | `Start` ＠ ~0.40 | `Start` = false | 近戰 hitbox 開關 |
-| **Quick Spell**（火／雷） | `Slot2`（Q） | `Start` | 留空 | `Start` ＠ ~0.35 | `Start` = false | 法術投射物發射器 |
-| **Ice Spell** | `Slot3`（E） | `Start` | 留空 | `Start` ＠ ~0.35 | `Start` = false | 同上（不同 prefab）＋ Slow 投遞 |
+| **Quick Spell**（火／雷） | `Slot2`（Q） | `Start` | 留空 | `Start` ＠ ~0.35 | `Start` = false | 重用 `ThrowProjectileEmitter`（法術 prefab／速度） |
+| **Ice Spell** | `Slot3`（E） | `Start` | 留空 | `Start` ＠ ~0.35 | `Start` = false | 同上（Ice prefab 開 `appliesSlow`） |
 
 **為什麼三格都只有 `Start`（法術不用素材自帶的 Load／Cast 分離）**：
 `Kevin Iglesias` 的 `MagicAttacks/` 每組都附 `Load`／`Cast`／合一三個檔，天生對應 `Start`／`End`。
@@ -173,13 +173,32 @@ Definition 不再於 `Initialize` 綁死，因此 `OnEnter` 必須**重新解析
 
 **素材**：`Assets/EEJANAI_Team/FreeSwordAnimations/FBX/slash1–9.fbx`（9 顆可挑）。
 
-**唯二的新 runtime 程式**（都是 `IActionLifecycleSink` 實作，各約 40 行，形狀比照既有 `ThrowProjectileEmitter`）：
+**實作結論（2026-09-03）**：只新增一支 runtime sink。
 
-1. **法術投射物發射器** — `Release()` 生成 projectile。可能直接沿用 `ThrowProjectileEmitter`（僅換 prefab 與速度），實作期判斷是否需要獨立類別。
-2. **近戰 hitbox 開關** — `Release()` 開啟命中窗、`Cleanup()` 關閉。
+1. **法術投射物發射器不新增類別** — 直接沿用 `ThrowProjectileEmitter`。它已把 prefab、速度、壽命、spawn point、held visual 與 `AimResolver` 全部資料化；Quick／Ice 的差異只在 prefab 與數值，另建同形類別只會複製 lifecycle 與瞄準邏輯。Ice 的 Slow 仍由 `ThrownProjectile.appliesSlow` 資產開關決定。
+2. **`MeleeHitboxSink`** — `Release()` 開啟 Collider 命中窗、`Cleanup()` 關閉；固定容量記錄本次揮擊已命中的 `ActionRequestTarget`，同一目標只提交一次 `Reaction`，命中熱路徑不配置集合。
+
+> ✅ **2026-09-03 接線缺口結案**：`CharacterPipelineRunner.actionSinkBindings` 以
+> `List<ActionSinkBinding>` 表達 Slot → sink，組裝時轉成與 Definition／冷卻相同尺寸的稀疏陣列，
+> `ActionState` 以已解析的 `_activeSlot` O(1) 選擇接收者。`IActionLifecycleSink` 簽章一字不動，
+> sink 不接收 slot、不依身分分支；路由只決定既有 lifecycle side effect 送給誰，不形成新權威。
+>
+> **相容規則同 `actionDefinitions`，也是 all-or-nothing**：`actionSinkBindings` 只要有任何一筆，
+> legacy `actionReleaseSinkComponent` 就完全不參與；清單為空時才把既有單顆 sink 套給所有 slot，維持舊 prefab 行為。
+> 舊欄位名稱刻意保留，避免清空已序列化的 `ThrowProjectileEmitter` 引用。開始接第二／第三招時，必須一次填完整三格。
 
 > ⚠️ **紅線**：VFX **不得**決定命中判定時機。命中窗由 `ActionPhase` ＋ `ReleaseNormalizedTime` 決定，
 > particle collision **不得**成為命中來源。這是 `CLAUDE.md`「Do NOT put gameplay logic inside Animation」的同構延伸。
+
+### 4.2 敵人近戰站位（2026-09-03 落地）
+
+`AIMovementSource` 在 producer 內以 `minimumEngagementDistance`／`maximumEngagementDistance` 判斷站位：
+太近輸出背離目標的 `MovementIntent`、太遠沿 NavMesh steering direction 前進、距離帶內輸出零意圖。
+`distanceHysteresis` 讓正在前進／後退的角色必須跨過帶內的第二道門檻才停住，避免距離誤差在邊界逐幀抖動。
+
+這三個值全是 producer 的 `[SerializeField]` 調整項；跨幀只保存 `Hold／Approach／Retreat` 私有模式，
+**不回讀 FSM、不新增黑板欄位、不讓 NavMeshAgent 取得 Transform authority**。後退也只輸出方向，
+實際位移仍走 `LocomotionModel → MotionDriver`。
 
 ---
 
@@ -324,7 +343,7 @@ apply/remove callback。`ThrownProjectile` 直接投遞 `Effect.Slow` 的 0.3 �
 
 - **朝向是 Presentation 關切**，比照 WP1 原本要證明的「相機／瞄準是純 Presentation」負面證明
 - **不需要黑板 schema 變更**（與 §5 的 D4 變更無關，兩者不得混為一談）
-- `PlayerRuntimeData.AimTarget` 死欄位：**本輪必須處置**——WP1 落地後它**更確定是死的**（`AimResolver` 走 `TryGetAimPoint` 直供消費端，不寫黑板）。要嘛給它真正的 writer 並登記進 `WriterRules`，要嘛**直接移除**（現況下移除是較誠實的選項）。留著一個無 writer 的公開 setter 是遲早會被 A5 抓到的破口
+- ✅ `PlayerRuntimeData.AimTarget` 已於 2026-09-03 移除，Editor 面板的唯一讀取列同步刪除。`AimResolver` 維持 `TryGetAimPoint()` 直供 Presentation 消費端；沒有為保留死欄位而虛構 writer
 
 ### 8.3 朝向規則（🟡 2026-09-02 使用者裁決方向，**尚未實作**）
 
@@ -383,6 +402,7 @@ apply/remove callback。`ThrownProjectile` 直接投遞 `Effect.Slow` 的 0.3 �
 | **A5 擴充** | 新 schema 欄位登記進 `WriterRules`，寫入者唯一 |
 | **🆕 identity 單一來源** | 守 ADR-005 **D1**：五個消費者不得各自造鍵 |
 | **🆕 Slow 無擴散**（＝Acceptance G 的機器化） | 五個 locomotion／presentation 檔案不得出現 Slow 相關符號 |
+| **A26 近戰命中時機** | `MeleeHitboxSink` 必須走 `IActionLifecycleSink` ＋ `Reaction`，且不得出現 ParticleSystem／particle collision 命中來源 |
 
 > 📌 依 `CLAUDE.md`「Test-as-Spec」：**新增不變量優先寫成測試而非散文**——同一個 artifact 同時給你enforcement 與最便宜的摘要。
 
@@ -450,6 +470,7 @@ apply/remove callback。`ThrownProjectile` 直接投遞 `Effect.Slow` 的 0.3 �
 | Definition 綁定 | `Initialize` 綁死 → **每次進入依 request 現查**（`TryResolveRequest`） |
 | mailbox | `RequestAction(ActionSlot)`；projectile 命中送 `Reaction`（FU-3 解） |
 | 重入 | `BaseState.CanReenter(data)` 預設 `false`；`ActionState` override（FU-1 解） |
+| Sink 路由 | Runner 的 `List<ActionSinkBinding>` 於組裝期轉成 `ActionState.SlotCount` 大小的稀疏陣列；`ActionState` 依 `_activeSlot` 查找。清單非空即完全取代 legacy 單顆欄位 |
 
 ### 沒有新增任何 abstraction
 
@@ -459,7 +480,13 @@ apply/remove callback。`ThrownProjectile` 直接投遞 `Effect.Slow` 的 0.3 �
 ### 向後相容
 
 `BuildActionSlotMap` 在 `actionDefinitions` 為空時，退回讀 `paramsMappings` 綁在 `StateType.Action` 的那份。
-⇒ **既有 Throw／Damage 資產不改一個欄位也能繼續跑**。T21 鎖住此路徑。
+相容退路保住的是「**不必改資產結構、不必重建 Definition**」，**不是**「一個欄位都不用改」。
+一份 ADR-004 時代的 Definition 若其身分**不是** `Slot1`（例如敵人的 Damage 實為 `Reaction`），
+**必須在 Inspector 把 `Slot` 設對**——那是一個欄位的遷移，不是重做。
+
+📌 **2026-09-02 實證**：`DamageDefinition.asset` 因缺 `Slot` 欄位而吃初始值 `Slot1`，
+導致敵人**安靜地**不播 Damage。已改為 `Reaction` 並經 Play 確認。程式維持嚴格身分解析；
+2026-09-03 起，缺少 request slot 對應 Definition 時會發出 Editor-only、同 slot 僅一次的警告，不再靜默。
 
 > 🔴 **接線陷阱（`BuildActionSlotMap` 的 `if (_actionSlotMap.Count > 0) return;`）**
 > 退路是 **all-or-nothing**：只要 `actionDefinitions` **有任何一筆**，相容路徑就整條不走。
@@ -470,8 +497,11 @@ apply/remove callback。`ThrownProjectile` 直接投遞 `Effect.Slow` 的 0.3 �
 ### 測試（✅ 2026-09-02 實跑全綠）
 
 新增 **T18**（兩份 Definition 獨立觸發且共用同一 `ActionState` 實例）、**T19**（per-slot 冷卻不連坐）、
-**T20**（同 slot 不重入／不同 slot 可互相打斷）、**T21**（舊資產相容），
-＋ **A24**（守 ADR-005 D1：身分只准宣告一次、冷卻不得外流至 `ActionState` 之外）。
+**T20**（同 slot 不重入／不同 slot 可互相打斷）、**T21**（舊 Slot1 資產相容）。2026-09-03 再補
+**T22／T23** 成對鎖住 legacy 嚴格語意（Slot1 不得解析 Reaction；明設 Reaction 才能解析）、
+**T24** 鎖住近戰命中窗 lifecycle 與單次去重；**T25** 鎖住 Slot2 出手只通知 Slot2 sink，
+Slot1／Slot3 的 Begin／Release／Cleanup 全為零；架構測試新增 **A26** 守 VFX 紅線。
+⚠️ T22–T25／A26 僅完成程式與編譯，尚未在 Unity Test Runner 實跑。
 
 ⚠️ **T19 當初是紅的，且抓到真 bug**：冷卻只寫在 `OnExit`，而 `Complete()` 會先清空 `_activeSlot`／`_definition`
 ⇒ **自然播完的 Action 永遠不進冷卻**。已抽出 `CommitCooldown()` 在兩個結束路徑各呼叫（冪等）。
@@ -491,5 +521,5 @@ apply/remove callback。`ThrownProjectile` 直接投遞 `Effect.Slow` 的 0.3 �
 
 | # | 發現 | 何時處理 |
 |---|---|---|
-| **FU-11-1** | `PlayerRuntimeData.AimTarget` 為無 writer 的死欄位（WP1 落地後仍成立） | 本輪 §8.2 一併處置（不得延後——A5 破口） |
-| **FU-09-2** | `ThrownProjectile` 與未來法術投射物可能重複，是否抽共用 projectile | **第二個投射物出現後**再談；本輪先複製，禁止預先抽象 |
+| **FU-11-1** | `PlayerRuntimeData.AimTarget` 為無 writer 的死欄位（WP1 落地後仍成立） | ✅ 2026-09-03 直接移除；未新增 writer／schema |
+| **FU-09-2** | `ThrownProjectile` 與法術投射物是否重複 | ✅ 2026-09-03 判定無第二種行為：法術直接重用 `ThrowProjectileEmitter`／`ThrownProjectile`，只換 prefab 與速度；未新增 abstraction 或複製類別 |

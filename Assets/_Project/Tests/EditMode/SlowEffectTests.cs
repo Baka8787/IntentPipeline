@@ -36,6 +36,41 @@ namespace Project.Tests.EditMode
         }
 
         [Test]
+        public void MeleeDistanceBand_TooCloseRetreats_InsideBandHolds_TooFarApproaches()
+        {
+            const float minimum = 1.25f;
+            const float maximum = 2f;
+            const float hysteresis = 0.15f;
+
+            Assert.AreEqual(AIMovementSource.EngagementMovement.Retreat,
+                AIMovementSource.ResolveEngagementMovement(
+                    AIMovementSource.EngagementMovement.Hold, 1f, minimum, maximum, hysteresis));
+            Assert.AreEqual(AIMovementSource.EngagementMovement.Hold,
+                AIMovementSource.ResolveEngagementMovement(
+                    AIMovementSource.EngagementMovement.Hold, 1.5f, minimum, maximum, hysteresis));
+            Assert.AreEqual(AIMovementSource.EngagementMovement.Approach,
+                AIMovementSource.ResolveEngagementMovement(
+                    AIMovementSource.EngagementMovement.Hold, 2.25f, minimum, maximum, hysteresis));
+        }
+
+        [Test]
+        public void MeleeDistanceBand_HysteresisPreventsBoundaryOscillation()
+        {
+            const float minimum = 1.25f;
+            const float maximum = 2f;
+            const float hysteresis = 0.15f;
+
+            Assert.AreEqual(AIMovementSource.EngagementMovement.Retreat,
+                AIMovementSource.ResolveEngagementMovement(
+                    AIMovementSource.EngagementMovement.Retreat, 1.3f, minimum, maximum, hysteresis),
+                "後退進入距離帶後，必須再跨過內側 dead zone 才停住");
+            Assert.AreEqual(AIMovementSource.EngagementMovement.Approach,
+                AIMovementSource.ResolveEngagementMovement(
+                    AIMovementSource.EngagementMovement.Approach, 1.9f, minimum, maximum, hysteresis),
+                "前進進入距離帶後，必須再跨過內側 dead zone 才停住");
+        }
+
+        [Test]
         public void NoEffect_MovementSpeedMultiplierIsOne()
         {
             AIMovementSource source = CreateMovementSource(out TemporaryGameplayEffectState effectState);

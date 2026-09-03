@@ -185,7 +185,6 @@ public class PlayerRuntimeData
 
     // === 引用區 ===
     public ItemInstance CurrentWeapon { get; internal set; }
-    public Transform AimTarget { get; set; }
 }
 
 ```
@@ -572,7 +571,15 @@ public class FullBodyStateMachine
 
     public BaseState CurrentState => _currentState;
 
-    public void Initialize(StateMachineConfigSO config, PlayerRuntimeData data) { ... }
+    public void Initialize(
+        StateMachineConfigSO config,
+        PlayerRuntimeData data,
+        IMovementModel movementModel,
+        ActionRequestTarget actionRequestTarget = null,
+        IActionLifecycleSink[] actionLifecycleSinks = null) { ... }
+
+    // ActionState 依自己已解析的 ActionSlot 索引 sink；路由只選 side-effect 接收者，
+    // 不改變 CanEnter／phase／release timing authority。
 
     public void Tick(PlayerRuntimeData data, float deltaTime)
     {
@@ -1177,6 +1184,8 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | **A22** ✅ | `ActionState` 不得 `Instantiate`／`Destroy`；Unity side effect 只交給 `IActionLifecycleSink` | ADR-004 D2／D7 | `ArchitectureRegressionTests.A22_*` | 掃描 `ActionState.cs`。⚠️ 斷言原寫成 `IActionReleaseSink`（專案中從未存在的名字），自 ADR-004 落地起一直是紅的，2026-08-31 首次實跑才暴露 |
 | **A23** 🆕 | **`AnimationKey` 不得每次讀取都配置**：連續兩次讀取必須回傳**同一個 string 實例** | Zero GC（順序 5 每帧讀取本屬性） | `ArchitectureRegressionTests.A23_*` | 構造四個 state，`ReferenceEquals` 比對兩次讀取。⚠️ **刻意不掃 `.ToString()` 字面**——那會過度擬合寫法（改成 `nameof`／字典／插值就漏掉），而**識別性**直接描述要的性質。<br>📌 **這是 A3 能力邊界的第二個實例**（第一個是介面型 `foreach` 裝箱）：ADR-004 把順序 5 由「比較 `StateType`」改為「比較 `AnimationKey` 字串」後，`=> Type.ToString()` 由每次轉場配置一次變成**每帧**配置，實測每角色 40 B。同樣沒有任何可疑 token，只有一個看起來正常的屬性 |
 | **A24** 🟡 Trial | **Action 身分單一來源**：①「Action 身分」enum 全專案恰好宣告一次於 `Core/Actions/ActionSlot.cs`；② 冷卻執行期狀態（`_cooldownEndTime`）只准住在 `ActionState` | ADR-005 D1／ADR-004 D2 | `ArchitectureRegressionTests.A24_*` | 掃描 `Assets/Scripts` 全樹。⚠️ 遠端分支上原編號 A23，與本機同輪的 AnimationKey 不變量撞號，合併時順延為 A24 |
+| **A25** 🟡 Trial | Slow 不得擴散到 MovementIntent 下游；速度階層、停步、Foot IK 與音效只能消費自然縮小後的同一份意圖 | ADR-005 Acceptance G／ADR-003 D2 | `ArchitectureRegressionTests.A25_*` | 掃描五個下游檔案，不得出現 Slow／effect state／multiplier 符號 |
+| **A26** 🟡 Trial | 近戰命中時機只能來自 Action lifecycle；VFX／particle collision 不得成為命中來源 | docs/11 §4 紅線／ADR-004 D2 | `ArchitectureRegressionTests.A26_*` | `MeleeHitboxSink` 必須實作 `IActionLifecycleSink`、提交 `Reaction`，且不得出現 `ParticleSystem`／`OnParticleCollision` |
 
 > **掃描法的已知精度（誠實記錄，非缺陷）**：①只掃 Runtime（`Core`／`Presentation`）——單一寫入者是**執行期**契約，`Editor/` 的除錯 Inspector 可手動改寫黑板意圖屬合法例外；②掃描前移除註解，避免文件性文字造成假陽性；字串常值內含 `//` 會被一併截斷，此偏差只會讓檢查**變寬鬆**（漏報），不會假陽性；③token 採子字串比對，刻意保守。
 
@@ -1287,4 +1296,3 @@ Profiler 連線目標為 `<機器名> - CharacterController`（非 `Play Mode`�
 | `CursorModeController.Update` | 每帧比對並可能寫 `Cursor` | 只在與現值不一致時才寫；比較與屬性設值皆無配置 |
 
 **紀律重申**：每次新增管線階段或自帶 `Update` 的元件都要重跑本 SOP——A3 的靜態掃描抓不到裝箱類配置（§7.1-A3 能力邊界），只有 Profiler 抓得到。
-

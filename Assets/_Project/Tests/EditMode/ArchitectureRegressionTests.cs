@@ -585,6 +585,7 @@ namespace Project.Tests.EditMode
             {
                 Path.Combine(ScriptsRoot, "Core", "Actions", "ActionRequestTarget.cs"),
                 Path.Combine(ScriptsRoot, "Presentation", "Actions", "ThrowProjectileEmitter.cs"),
+                Path.Combine(ScriptsRoot, "Presentation", "Actions", "MeleeHitboxSink.cs"),
                 Path.Combine(ScriptsRoot, "Presentation", "Actions", "ThrownProjectile.cs")
             };
             string[] forbidden = { "AnimationFacadeBase", "TransitionTo", "IntentData", ".Intent", ".Play(" };
@@ -729,6 +730,27 @@ namespace Project.Tests.EditMode
             CollectionAssert.IsEmpty(violations,
                 "Slow 必須只在 MovementIntent producer 上縮放；速度階層、停步、Foot IK 與音效應自動沿用同一份意圖：\n" +
                 string.Join("\n", violations));
+        }
+
+        // =====================================================================
+        // A26 — 近戰命中時機只能來自 Action lifecycle（docs/11 §4 紅線）
+        // =====================================================================
+
+        [Test]
+        public void A26_MeleeHitboxTiming_IsOwnedByActionLifecycle()
+        {
+            string path = Path.Combine(ScriptsRoot, "Presentation", "Actions", "MeleeHitboxSink.cs");
+            Assert.IsTrue(File.Exists(path), $"找不到 {path}");
+
+            string code = StripComments(File.ReadAllText(path));
+            StringAssert.Contains("IActionLifecycleSink", code,
+                "近戰命中窗必須由 ActionState 的 lifecycle seam 驅動");
+            StringAssert.Contains("RequestAction(ActionSlot.Reaction)", code,
+                "近戰命中必須沿用 projectile 的 Reaction request 處置");
+            StringAssert.DoesNotContain("ParticleSystem", code,
+                "VFX／particle collision 不得成為命中來源或決定命中時機");
+            StringAssert.DoesNotContain("OnParticleCollision", code,
+                "VFX／particle collision 不得成為命中來源或決定命中時機");
         }
     }
 }

@@ -103,7 +103,6 @@ namespace Project.Core.Pipeline
             // 3. 引用區
             string weaponName = data.CurrentWeapon != null ? data.CurrentWeapon.GetType().Name : "空手 (Null)";
             EditorGUILayout.LabelField("Current Weapon", weaponName);
-            EditorGUILayout.ObjectField("Aim Target", data.AimTarget, typeof(Transform), true);
 
             EditorGUILayout.Space();
 
