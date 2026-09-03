@@ -341,11 +341,18 @@ apply/remove callback。`ThrownProjectile` 直接投遞 `Effect.Slow` 的 0.3 �
 | 目標 | **鎖定中的目標** |
 | 適用範圍 | **所有 Action**，含 Melee Slash、兩個法術；`Reaction` 不適用（受擊不是出手） |
 
-#### 🔴 這條規則有一個尚未成立的前置
+#### 🔄 目標來源已改（2026-09-02 使用者裁決）
 
-**Lock-on 還不存在。** `docs/10-lock-on.md` 仍是 🟡 待 D1 裁決、未實作 ⇒ **「鎖定中的目標」目前沒有來源。**
-在它落地之前，可用的降級來源是 `AimResolver` 的 soft target（選**角度最小**者，非最近者）＋ AimPoint。
-⚠️ 規則寫下了不等於能實作——**引用本節時必須註明這個前置**。
+**不採 persistent lock-on。** 改為 **Action-time soft auto-target**：**Action 發動的那一刻**依 camera forward、
+距離與角度自動選最佳目標，**僅供 facing／targeting 使用**，不改 locomotion、不進入持續鎖定狀態。
+⇒ 上文的「鎖定中的目標」應讀作「**本次出手當下自動選中的目標**」。
+
+這與既有機制對得上：`AimResolver` 已經在做「沿相機射線 cast → 過濾 `ActionRequestTarget` → 排除自己 →
+取角度偏差最小者」。⇒ **auto-target ＝ 在出手瞬間取一次那個結果**，不是新的 targeting 系統。
+⛔ 不得新建 `ITargetable`／目標列表／註冊表／targeting service（`docs/10` §3-D3 既有禁令，仍然適用）。
+
+⚠️ **本輪不實作**（2026-09-02 批次範圍外）——先讓三招打得順。若 Play 顯示 facing 明顯難看再補。
+`docs/10-lock-on.md` 整體延後，狀態已同步更新。
 
 #### 開放（實作期決定，不在本輪）
 

@@ -1,6 +1,17 @@
 # Lock-on（FU-13）— 目標鎖定（規格）
 
-> **狀態**：🟡 **草案，待使用者裁決 §3 的 D1（Stage 1 / Stage 2）後才可派工。**
+> **狀態**：🔵 **2026-09-02 已裁決——persistent Lock-on 暫不做，本檔整體延後。**
+>
+> **使用者裁決**：不做持續鎖定狀態。改採 **Action-time soft auto-target**——
+> **Action 發動的那一刻**依 camera forward、距離與角度自動選最佳目標，**僅供 facing／targeting 使用**，
+> **不改 locomotion、不進入持續鎖定狀態**。⇒ D1 的 (a)/(b) 兩案**都沒有被選**，本檔的 Stage 1 設計（§4）暫不實作。
+>
+> 📌 **理由**：目前擋住展示的是「三招能不能順暢打起來」，不是鎖定。persistent lock-on 不是展示成立的必要條件。
+> 📌 **但自動鎖敵仍在路線上**——若之後 Play 顯示 targeting／facing 明顯難看，先補最小 auto-target；
+> 真的需要魂系繞圈走位時才回頭做本檔的 Stage 1／Stage 2。
+> 📌 **鎖定鍵已預先裁決**：滑鼠中鍵，Toggle 語意（原建議的 Q 已被 `ActionSlot.Slot2`／Quick Spell 佔用）。
+>
+> ⚠️ 本檔 §4 之後的內容維持有效，但**在上述裁決被推翻前不得據以派工**。
 > **來源**：FU-13。2026-08-31 使用者裁決開包。
 > **ADR 路由**：**取決於 D1**——
 > **Stage 1（不含 strafe）四條 ADR 判準全部不成立 ⇒ 不開 ADR，走本 Living Doc 分卷**（同 WP1 先例）；
