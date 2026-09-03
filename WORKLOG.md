@@ -91,30 +91,43 @@
 > ⇒ **Play 通過後**才把這筆正式補進 dev-spec §7.3。本段是它在此之前的暫存處。
 > revert 成本低——改動全是加法。
 >
-> **⑩ 下一步（剩下的都在 Unity）**
-> 1. ✅ Q／E 兩顆 InputAction —— **已完成**（`76a19a7`）
-> 2. **Y Bot 掛 `TemporaryGameplayEffectState`**
->    🔴 沒掛 ⇒ `GetComponent` 回 null ⇒ 倍率恆為 1 ⇒ **Slow 完全無效且不報錯**
-> 3. **Ice Spell 的 projectile prefab 勾 `Applies Slow`**（預設 false）
->    🔴 沒勾 ⇒ 命中只播 Damage、不減速，同樣**不報錯**
-> 4. **三份 `ActionDefinitionSO` 填進 Config 的 `actionDefinitions`**（**不是** `paramsMappings`）：
->    Slot2／Slot3 兩份新的，**外加現有的 Throw（Slot ＝ `Slot1`）**。
->    🔴 `BuildActionSlotMap` 的相容退路是 **all-or-nothing**——只要 `actionDefinitions` 有任何一筆，
->    `paramsMappings` 那條就整條不走 ⇒ **漏掉 Throw 它會安靜失效，不報錯**（詳見 `docs/11` §10）。
->    冷卻刻意設不同值，Play 時才看得出 per-slot 獨立。
-> 5. `AnimancerFacade` 的 Transition Mappings 補上新的 `AnimationKey`。
->    漏掉不會靜默失敗——`TryGetTransition` 會噴紅字，動作仍照 `FallbackDuration` 跑完，位移退回 base movement。
->    ⚠️ 但 Melee Slash 要展示 motion mapping ⇒ **對它而言這就是安靜失敗**（`IsPlaying` 為 false ⇒ 位移退回 base，
->    症狀是「劍揮了人不動」）。見 `docs/11` §4.1 的兩道 gate。
-> 6. **跑 EditMode 全套**（新增 `SlowEffectTests` 6 條 ＋ `A25`；紅燈回報）
-> 7. **Play 驗收 —— Slow 專項**：
->    - Ice 命中後敵人速度**剩 30%**（不是降 30%）
->    - **重複命中刷新 duration、不疊層**（連中兩次仍是 0.3 倍，不是 0.09）
->    - **到期自動恢復**
->    - **Acceptance G**：敵人的速度階層、停步選片、腳步節奏**自動正確**，五個下游檔案零修改（A25 守）
-> 8. **Play 驗收 —— 多 Action**：兩技能獨立觸發、冷卻不連坐、互相打斷、既有狀態無回歸 ⇒ 結掉 A／C
-> 9. **Profiler**：穩態 0 B/frame ⇒ 結掉 E
-> 10. 全過之後 ADR-005 才可 `Trial → Accepted`；⑨ 的 debt 同時裁決
+> **⑩ 下一步 —— 按「需要建多少資產」分層，不是按功能分**
+>
+> 📌 **先修正一個排序錯誤**：初版清單把三件成本天差地遠的事綁成一張表。
+> 實際上**只有 Melee Slash 需要烘焙**，而 Slow **一個新資產都不用建**。
+>
+> **第 1 層 — Slow（零新資產、零烘焙、今天就能測）**
+> 磁碟已備齊：`NavMesh-Navigation.asset`（已烘導航）、Y Bot 掛著 `AIMovementSource`＋`NavMeshAgent`＋
+> `ActionRequestTarget`、`ThrownProjectile.prefab`、`ThrowDefinition.asset`，且 Throw 是 ADR-004 `Accepted` 已驗證可動。
+> ⇒ **借用既有的 Throw 測 Slow**：
+> 1. Y Bot 掛 `TemporaryGameplayEffectState` — 🔴 沒掛 ⇒ 倍率恆 1、Slow 全無效且**不報錯**
+> 2. `ThrownProjectile.prefab` **暫時**勾 `Applies Slow` — ⚠️ Ice Spell prefab 做出來後要取消（§4：只有 Ice 減速）
+> 3. Play：丟中 Y Bot → 速度**剩 30%**（不是降 30%）／連中兩次仍 0.3 不是 0.09／到期自動恢復
+> 4. **Acceptance G**（本輪架構價值最高的一條）：敵人跑步動畫自己變走路、腳步聲自己變疏、停步選片自己換，
+>    而 `LocomotionModel`／`LocomotionSpeedSmoother`／`LocomotionStopSelector`／`FootIKController`／`AudioController`
+>    **五檔零修改**（`A25` 在守）。
+>    📌 **這條鏈用的是敵人既有的 locomotion，與任何新動畫無關**——最便宜的一層剛好是價值最高的一層。
+> 5. 通過後 ⇒ 裁決 ⑨ 的 debt（要不要收斂到 blackboard status region）
+>
+> **第 2 層 — 多 Action（要建 Definition，但不用烘焙）**
+> `docs/11` §4 明列**兩個法術 `Bake` 留空**，用 `FallbackDuration` 即可跑通。
+> 6. 兩份新 `ActionDefinitionSO`（Slot ＝ `Slot2`／`Slot3`），**冷卻設不同值**否則看不出 per-slot 獨立
+> 7. **連同現有 `ThrowDefinition`（Slot ＝ `Slot1`）一起**填進 Config 的 `actionDefinitions`（**不是** `paramsMappings`）
+>    🔴 `BuildActionSlotMap` 的退路是 **all-or-nothing** ⇒ 漏掉 Throw 它**安靜失效**（`docs/11` §10）
+> 8. `AnimancerFacade` 的 Transition Mappings 補上新 `AnimationKey`（漏掉會噴紅字，不是靜默）
+>    💡 想先驗機制的話，兩份 Definition 可暫時指向**既有** clip——per-slot 冷卻與互相打斷跟播什麼動畫無關
+> 9. Play：獨立觸發／冷卻不連坐／互相打斷／既有 Idle・Move・Jump・Roll・Throw 無回歸 ⇒ 結掉 A／C
+>
+> **第 3 層 — Melee Slash motion mapping（⛔ 唯一需要烘焙的一項）**
+> 10. FBX 匯入設定（`EEJANAI_Team/FreeSwordAnimations/FBX/slash1–9`）→ 烘 `MotionBakeData`
+>     🔴 **兩道 gate 都安靜失敗**：`BakedDuration = 0` ⇒ `hasBake` false；Transition Mapping 沒接 ⇒ `IsPlaying` false。
+>     兩者症狀都是「劍揮了人不動」，很容易誤判成烘焙壞掉。見 `docs/11` §4.1。
+>     ⚠️ 重烘策略一直是「用到再烘」，目前只有 Roll 有 `BakedDuration`。
+>
+> **收尾**
+> 11. EditMode 全套（新增 `SlowEffectTests` 6 條 ＋ `A25`）
+> 12. Profiler 穩態 0 B/frame ⇒ 結掉 E
+> 13. 全過之後 ADR-005 才可 `Trial → Accepted`
 >
 > ⚠️ 另有一筆與 ADR-005 無關但 Play 會撞到的：`ThirdPersonCamera.aimResolver` 在**場景實例**上仍是 `None`。
 >
