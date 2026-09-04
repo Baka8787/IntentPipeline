@@ -179,15 +179,58 @@ Code and documentation should never diverge.
 
 ---
 
-# Preferred Workflow
+# Preferred Workflow（改版 2026-09-04 — 正本在 `docs/12-workflow.md`）
 
-Read Docs & Code
+> ⚠️ **本段與 `CLAUDE.md` 同一段刻意逐字相同。** 兩個 agent 不得因為讀到不同 MD 而採取
+> 兩套相反的開發節奏——2026-09-04 前本檔寫的是 "Mandatory before making **any** file changes"，
+> 而 `CLAUDE.md` 早在 2026-08-29 就有 trivial／local／test-only 例外，這是已修正的 drift。
+
+**工作單位 ＝ Feature Slice，不是 component。** Feature Slice 是一個玩家或設計者看得懂的完整行為
+（「近戰打到敵人且敵人會播受擊」），不是一個 class／MonoBehaviour／欄位。
+
+```
+Define Feature Slice
 ↓
-Discuss Architecture & Specs (Mandatory before making any file changes)
+Identify Integration Risks（哪些部分最終一定需要人工接線／Play）
 ↓
-Modify Files (Write changes directly to the local working tree)
+Read Docs & Code（Context Discipline：locate first, read second）
+↓
+Discuss Architecture & Specs —— **只在真的需要時**
+  └─ Exception (2026-08-29): trivial / local changes — typo, comment, tooltip, a single
+     tunable value, test-only edit, or anything confined to one file with no contract impact —
+     do NOT require a full architecture discussion. Just make them and say what you did.
+  └─ Exception (2026-09-04): 同一個 Feature Slice 的做法一旦談定，**該 slice 內的後續實作
+     不需要重新開會**。
+↓
+Implement Runtime / Data **＋ 對應的 automated verification 一起寫**
+↓
+Iterate until the feature has a meaningful closed loop
+↓
+**Integration Gate** —— 只有在「沒有任何不需要人工 Editor 操作的工作可做」時才算到達
+↓
+Batch ALL human Editor work into ONE checklist（資產／接線／Play 驗收項）
+↓
+Human: Play & experience validation
+↓
+Fold back Living Docs
 ↓
 Stop (Do NOT perform any Git operations)
+```
+
+## 明確**不**構成 stop condition 的事（2026-09-04）
+
+新增一個 component、新增一個 `[SerializeField]`、或這東西**最終**會需要 prefab reference ——
+**都不結束這個 slice**。只要還有不需要使用者打開 Unity Editor 的工作，就繼續做完。
+
+允許用來推進到 Gate 的手段：test fixture、fake／stub、在測試中以程式建構 `GameObject`
+（**不是**改 prefab）、EditMode test、PlayMode test、`AssetDatabase`／`SerializedObject`
+**唯讀**檢查、`InputTestFixture`。
+
+## 把任何東西標成「人工」之前
+
+**「AI 不能操作 Unity Editor」≠「只能人工測」。** 先走一遍 `docs/12-workflow.md` §6 的
+Verification Ladder。人工 Play 保留給：animation／camera feel、visual quality、
+gameplay readability、control feel，以及**確實需要 Player build ＋ Profiler 才能成立的效能結論**。
 
 ---
 
@@ -207,7 +250,11 @@ Codex is NOT allowed to execute any Git mutation commands. The human developer o
 - **Local Only**: Assume the current checked-out branch is correct and the local working tree is the only target.
 - **File Changes Only**: Only edit, create, or delete physical files using file-system tools (e.g., `write_file`, `edit_file_multi`).
 - **No PRs**: Never attempt to interact with the GitHub API to create Pull Requests or remote branches.
-- **Stop After Edit**: Once files are modified, stop immediately. Leave verification, compilation checks, and Git commits to the human developer in the Unity Editor / Terminal.
+- **Stop After Edit → Verification Ownership**（語意收斂 2026-09-04）: Codex 不執行 Git，
+  也不擁有**最終**的編譯／Play 驗證——那些留給使用者在 Unity Editor／Terminal 完成。
+  ⚠️ **這條管的是「Git 與最終驗證的擁有權」，不是「每改一個檔案就停下來」。**
+  在同一個 Feature Slice 內，應繼續完成所有不需要使用者打開 Editor 的工作
+  （見 `docs/12-workflow.md` §1.1／§3），到 **Integration Gate** 才停，並一次交出整份 checklist。
 
 ---
 
