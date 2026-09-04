@@ -7,6 +7,171 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> ### 🎯 2026-09-04（晚）— **下個 session：把 ADR-005 Trial 結掉**（最新，請先讀這段）
+>
+> **一句話**：程式面已全部到位、Melee bake path 已 Play 確認走通；剩下的是**兩個法術的資產接線 ＋ 三輪驗收**，
+> 全部不需要再寫 runtime 程式。
+>
+> ---
+>
+> #### ① 開工前必做：重跑 EditMode（上一輪剛修完，未確認）
+>
+> 2026-09-04 首次對「擴張後的測試集」實跑，出現三條紅：
+> `T24_MeleeHitbox`／`ActiveSlow_...KeepsThirtyPercent`／`RepeatedSlow_RefreshesExpiry...`
+>
+> **成因（三條同一個）**：**EditMode 不在 Play mode ⇒ `AddComponent` 不呼叫 `Awake()`**
+> ⇒ `AIMovementSource._effectState`、`MeleeHitboxSink.hitbox` 兩個 sibling 快取恆為 null
+> ⇒ 倍率恆 1、命中窗開不了。**斷言沒錯，是 fixture 沒把環境建起來**（假性失敗：測到的是「沒有效果」那條路徑）。
+>
+> **已修**：抽出 `internal void ResolveEffectState()`（`AIMovementSource`）與 `internal void ResolveHitbox()`
+> （`MeleeHitboxSink`），`Awake()` 照樣呼叫、**production 行為一字未改**；測試 fixture 顯式補上該步。
+> 比照本專案既有慣例（`TemporaryGameplayEffectState.ApplySlowAt` 等 `internal` 顯式版本）。
+> ⇒ **兩個 assembly 編譯 0 error，但尚未重跑測試。第一件事就是跑它。**
+>
+> ⚠️ **這個坑會再咬**：往後任何寫在 `Awake` 裡的快取，在 EditMode 測試都是 null。
+> 值得寫進 `docs/12-workflow.md` 的 Verification Ladder（EditMode 那一階的已知限制）。
+>
+> ---
+>
+> #### ② 主線：ADR-005 §4 還缺 A／B／C／E
+>
+> | 條 | 缺什麼 | 需要 |
+> |---|---|---|
+> | **A** 兩份 Definition 獨立觸發 | Quick／Ice 兩份 Definition ＋ sink 接線 | 資產 ＋ Play |
+> | **B** 加下一個 Action ＝ 零 runtime 程式 | **真的加第 4 個 Action** 才算數 | 資產 |
+> | **C** 既有無回歸 | Play | ⚠️ 見下方 Throw 註記 |
+> | **D** EditMode 全綠 | 🔄 **勾已撤回**，需對當前測試集重跑（見①） | 跑測試 |
+> | **E** 零 GC | Profiler（dev-spec §7.4 SOP） | Development Build |
+>
+> **D／F／G 之外全部未成立。** F（無第二個 gate 權威，A24 守）與 G（Slow 跨系統傳播，A25 守）已通過。
+>
+> 🔴 **C 的 Throw 子句需重述**：`actionDefinitions` 一旦非空，`paramsMappings` 的相容退路整條不走
+> ⇒ **`ThrowDefinition` 已不再被解析**（Slot1 由 Melee 接手，`docs/11` §5.1 的既定移交）。
+> Throw 因此**無法再被觸發、也就無法被回歸測試** ⇒ 驗收時 C 應改為
+> 「Idle／Move／Jump／Roll 無回歸」，並註明 Throw 已依計畫退場。
+>
+> ---
+>
+> #### ③ 使用者側接線清單（一次做完）
+>
+> 1. **Quick Spell Definition**：`Slot2`／單一 `Start`／`Bake` 留空／`EmitsRelease` @0.35／**冷卻 1.5**
+> 2. **Ice Spell Definition**：`Slot3`／同上／**冷卻 4**（刻意與 Quick 不同，否則看不出 per-slot 獨立）
+> 3. 兩份都填進 `PlayerStateMachineConfig.actionDefinitions`
+>    （現在只有 `MeleeSlash1Definition` 一筆；**Melee 那筆要留著**）
+> 4. **兩個 `ThrowProjectileEmitter` 實例** ＋ 各自的法術 prefab；**Ice 的 prefab 勾 `Applies Slow`**
+> 5. Runner 的 `Action Sink Bindings` 三格填滿：Slot1→`MeleeHitboxSink`／Slot2→Quick emitter／Slot3→Ice emitter
+>    🔴 該清單同樣是 **all-or-nothing**——非空即完全取代舊的單顆 sink 欄位
+> 6. `AnimancerFacade.transitionMappings` 補兩列法術動畫鍵
+>    （Melee 的 `Melee_Slash1` 已在第 2476 行，不用再加）
+>
+> 📌 **法術素材**：`Kevin Iglesias/.../MagicAttacks/{Call,Directional,Omnidirectional}`，
+> 每組都有 `Load`／`Cast`／合一三個檔。**用合一檔**——`docs/11` §4 已裁決不做 Load/Cast 分段
+> （Throw 已展示過多 phase，且需求是「快速施展」）。
+>
+> ---
+>
+> #### ④ 明確延後、不進本輪
+>
+> | 項目 | 狀態 |
+> |---|---|
+> | **武器模型（劍）** | 🔴 沒有劍，近戰在**作品集影片**裡不成立（揮空手讀不出來）。但**不阻擋 ADR-005**——A／B／C／E 驗的是身分與冷卻，與手上有無道具無關。歸「作品集素材」線，與法術特效一起處理 |
+> | **Melee motion mapping 展示** | 同上，需要劍才有意義。bake path 本身**已 Play 確認走通**（位移 ＋ 約 90° 轉向皆出現） |
+> | 一維烘焙模型 → 三軸 root motion | dev-spec §7.3 已記完整調研與**兩個待驗前提**。⛔ 不在 Trial 期間動 |
+> | Lock-on／auto-target／朝向規則 | `docs/10` 已改為延後；`docs/11` §8.3 記著規則但未實作 |
+> | 冷卻 HUD | `docs/11` §6.2：曝光路徑是**黑板 schema 變更** ⇒ 要開 ADR，本輪不做 |
+> | `AIMovementSource` 直讀 effect 元件 | dev-spec §7.3 的 architecture debt，Play 已證明功能成立 ⇒ 償還與否與功能脫鉤 |
+>
+> ---
+>
+> #### ⑤ ⚠️ 一大批未 commit（含治理文件）
+>
+> ```
+>  M AGENTS.md / CLAUDE.md            ← 工作流改版
+>  M ArchitectureRegressionTests.cs   ← +128 行
+>  M AIMovementSource / MeleeHitboxSink / 三個測試檔  ← ①的修正
+> ?? docs/12-workflow.md              ← 239 行，工作流正本
+> ?? PrefabWiringTests.cs             ← 499 行，W0–W6 接線測試
+> ?? Assets/_Project/Tests/PlayMode/  ← 全新 assembly，P1–P4
+> ?? .codex/config.toml               ← 內容未審，決定是否進版控
+> ```
+> 四個 assembly（含 PlayMode）**皆已編譯 0 error**。使用者裁決：測試綠了再整理 commit。
+> `.codex/config.toml` 需先看內容（可能含個人設定）再決定。
+>
+> ---
+> ### 🧩 2026-09-04 — **開發工作流改版（Feature Slice）＋ 驗證階梯落地**；新增 L1 接線測試、A4 白名單、PlayMode 測試層
+>
+> **一句話**：工作單位從 component 改為 **Feature Slice**，並把「EditMode 做不到就歸類成人工」這個邏輯跳躍修掉——
+> 新增 **Verification Ladder**（L0–L6）作為往後選擇驗證方法的基準，同時補上三項現在就值得自動化的測試。
+> **本工作包是 workflow-doc ＋ test-only，未改動任何 runtime 架構、未動任何 `.prefab`／`.asset`／`.meta`／場景。**
+>
+> **① 文件變更**
+> | 檔案 | 內容 |
+> |---|---|
+> | **`docs/12-workflow.md`**（新） | 正本。Feature Slice 定義、明確**不**構成 stop condition 的清單、Integration Boundary／Batch Integration、Integration Spike 例外、**Verification Ladder L0–L6**、效能驗證保留條款 |
+> | `CLAUDE.md` ／ `AGENTS.md` | Preferred Workflow 改寫為 Feature Slice 版並**兩份逐字同步**；`Stop After Edit` 語意收斂為 **Verification Ownership** |
+> | `docs/00-map.md` | 加入 `docs/12` 指標 |
+> | `docs/02-dev-spec.md` | §0.2 加 `PlayMode/`；§7 加階梯對應；新增 **§7.1.1（W0–W6）**／**§7.1.2（P1–P4）**；A4 條目補白名單升級；M3／M8 標註已自動化的部分 |
+>
+> **🔴 已修正的 drift**：`AGENTS.md` 原本寫 "Mandatory before making **any** file changes"，
+> 而 `CLAUDE.md` 早在 2026-08-29 就有 trivial／local／test-only 例外 ⇒ Codex 與 Claude 讀到兩套節奏。已同步。
+>
+> **② 新增／修改的測試（全部 `dotnet build` 0 error 實跑驗證）**
+> | 測試 | 取代哪一類人工檢查 |
+> |---|---|
+> | **`PrefabWiringTests.cs`**（新，L1，W0–W6） | §7.2-**M3** 那一整面牆的接線指示中可機器判定的部分 |
+> | **`ArchitectureRegressionTests.A4`**（升級） | 黑名單 → **黑名單＋白名單**。`AIMovementSource → Core.Effects` 這個**已證實的漏網案例**改以明文例外留存，不再是靜默通過 |
+> | **`Assets/_Project/Tests/PlayMode/`**（新組件 ＋ P1–P4） | §7.2-**M8** 的 ①②⑦ |
+>
+> ⚠️ **A4 修法刻意是 generalized invariant，不是特判 class name**：升級的是機制（預設拒絕），
+> `AIMovementSource` 只是被它照出來的其中一個點。
+>
+> ---
+>
+> ### 📋 使用者側整合 checklist（**一次做完，不需要分批**）
+>
+> **A. 讓 Unity 生成 `.meta`（必要前置）**
+> - [ ] 開啟 Unity，讓它為以下新檔生成 `.meta`：
+>       `Assets/_Project/Tests/EditMode/PrefabWiringTests.cs`
+>       `Assets/_Project/Tests/PlayMode/`（資料夾）
+>       `Assets/_Project/Tests/PlayMode/Project.Tests.PlayMode.asmdef`
+>       `Assets/_Project/Tests/PlayMode/PauseLifecyclePlayModeTests.cs`
+> - [ ] 確認 Test Runner 出現 **PlayMode** 分頁（＝新 asmdef 已被辨識）
+>
+> **B. 跑自動驗證（預期全綠）**
+> - [ ] EditMode Run All —— 新增 7 條 W 測試應全過（W1–W6 對現況 prefab 應為綠）
+> - [ ] PlayMode Run All —— P1–P4
+> - [ ] ⚠️ 若 **W4** 變紅，那不是測試壞了，是**真的有 slot 沒接 sink**——訊息會直接指出是哪個 prefab／哪個 Action／該補哪一筆
+>
+> **C. 待裁決（我沒有動，因為超出 test-only scope）**
+> - [ ] 🔴 **`GamePauseController` ／ `CursorModeController` ／ `UiModeArbiterSource` 目前掛在 `X Bot` 角色 Root 上**，
+>       但 dev-spec §7.2-M3 與 design-doc §4.9 寫的是「在場景中另建一顆物件掛，**不要掛在角色 Root**」（全域狀態不屬於角色）。
+>       **功能上兩種接法都能運作**（掛在階層內時 `GetComponentsInChildren<IArbiterSource>` 會自己找到，因此 `externalArbiterSources` 空著也對），
+>       所以 W5 刻意**斷言結果而非位置**。**要嘛改資產、要嘛改文件——目前是文件與資產不一致。**
+> - [ ] ⚠️ **`ThrowDefinition.asset` 沒有 `Slot` 欄位值**（序列化早於該欄位存在 ⇒ 實際為 `None(0)`）。
+>       目前它**沒有**被註冊進任何 config，所以不會出事；但一旦加進 `actionDefinitions` 就會綁到 `None`。建議現在就在 Inspector 補上正確 slot。
+> - [ ] ⚠️ **`EnemyStateMachineConfig` 的 `actionDefinitions` 是空的**，而 `DamageDefinition`（Slot 100 `Reaction`）已存在、Y Bot 也已掛 `ActionRequestTarget`。
+>       ⇒ **近戰命中敵人時，敵人解析不到 Reaction definition**，受擊反應不會發生。這是既有交辦的接線缺口，不是新問題。
+>
+> **D. 人工驗收（真的只剩這些）**
+> - [ ] 近戰命中手感、受擊反應的動畫觀感
+> - [ ] 暫停／UI 模式的按鍵 interaction（Hold／Tap 分流）——需要真實輸入裝置，尚未自動化
+> - [ ] 游標的實際套用與自癒（M9）——Editor 視窗焦點會影響 `Cursor`，**已明示降級**為人工
+> - [ ] Profiler zero-GC（§7.4 正式 SOP）——**PlayMode 探針不能取代它**
+>
+> ---
+>
+> **③ 我判斷「現在不該自動化」的候選與理由**
+> | 候選 | 決定 | 理由 |
+> |---|---|---|
+> | **Mixer／Gait 校準不變量**（原構想 C） | ❌ 不做 | `GaitProfileSO` 與 `MotionBakeData` **之間沒有任何序列化連結**——`intensity = speed_i / speed_max` 的公式需要知道「哪個 clip 是 walk／run／sprint 檔位」，而那個對應只存在於 Animancer Mixer 的 internal `_Thresholds`（B11 Gate B）與人的腦中。要做就得新增 SO 欄位＝改資產 schema，超出 test-only scope。⚠️ 另外 §7.2-M4 自己也寫了 intensity「允許依手感偏離」⇒ 它本來就不是硬不變量；真正硬的那一半（Mixer threshold）正好是碰不得的那一半 |
+> | **Cursor 狀態的 PlayMode 斷言** | ❌ 不做 | Editor 視窗焦點會改動 `Cursor.lockState`（M9 已記錄），Test Runner 下噪音大。合併政策（`WantsFreeCursor`）本來就已由 EditMode 守住，PlayMode 只會加偽陽性 |
+> | **`ProfilerRecorder` zero-GC hard gate** | ⏸ 暫緩 | 可做**回歸警報**，但 Editor 下的數字含 Editor 開銷、不等同 Player。在確認噪音水準之前不設為 hard gate——紅了就無視的閘門比沒有閘門更糟（`docs/12` §7 已寫成保留條款） |
+> | **完整管線的 PlayMode 組裝測試**（按 Space 不進 JumpState 等） | ⏭ 下一個 slice | 需要 Runner ＋ Facade ＋ MotionDriver ＋ Config 全組裝；第一批先證明 PlayMode 這一層穩定可用，再往上疊。P3 已先鎖住它的必要條件 |
+> | **Input System `InputTestFixture`** | ⏭ 下一個 slice | 本輪的四條測試都不需要它，故 `Project.Tests.PlayMode.asmdef` **刻意還沒有**引用 `Unity.InputSystem.TestFramework`（Input System 1.19.0 有支援，要用時補一行 reference 即可） |
+>
+> **④ 本工作包是否涉及 architecture contract change**：**否**。無新 ADR。
+> 依 `CLAUDE.md` 的 routing rule，流程與驗證屬 Living Docs，不開 ADR。
+>
 > ### 🧩 2026-09-03 — Multi-Action 程式批次完成；三 assembly 已編譯，EditMode／Play 待集中驗收
 >
 > - `AIMovementSource` 新增可調近戰距離帶與 hysteresis：太近後退、帶內停住、太遠前進；仍只寫 `MovementIntent`。
