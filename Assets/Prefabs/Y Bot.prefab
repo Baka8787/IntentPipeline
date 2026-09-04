@@ -382,6 +382,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: Project.Runtime::Project.Core.Movement.AIMovementSource
   target: {fileID: 8480833622433434003, guid: 1166b9756cdbe5b49a34559de0988bf0, type: 3}
   desiredSpeedNormalized: 1
+  minimumEngagementDistance: 1.25
+  maximumEngagementDistance: 2
+  distanceHysteresis: 0.15
 --- !u!114 &539958097729564367
 MonoBehaviour:
   m_ObjectHideFlags: 0

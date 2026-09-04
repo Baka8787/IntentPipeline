@@ -2218,6 +2218,7 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 5452878524493562782}
+  - {fileID: -900000000000000002}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &5885071440779706115
@@ -2239,6 +2240,9 @@ MonoBehaviour:
   playerCamera: {fileID: 8097198700277537437, guid: a854bf73576c1db4694c741a78789aca, type: 3}
   stateMachineConfig: {fileID: 11400000, guid: c34d4d25d9c9268429d2ece56255761b, type: 2}
   actionRequestTarget: {fileID: 0}
+  actionSinkBindings:
+  - Slot: 1
+    Sink: {fileID: -900000000000000004}
   actionReleaseSinkComponent: {fileID: -7971596924591842964}
   animationFacade: {fileID: 5884176032741337020}
   motionDriver: {fileID: 4074466034556624722}
@@ -2469,6 +2473,8 @@ MonoBehaviour:
     Transition: {fileID: 11400000, guid: cdc00e9eb32f8aa49844072c1a89b199, type: 2}
   - StateKey: Throw_Cancel
     Transition: {fileID: 11400000, guid: 4bd71b1d9ae3318449e4c0a5c38adef9, type: 2}
+  - StateKey: Melee_Slash1
+    Transition: {fileID: 11400000, guid: 54790a61b1e4436492b7097201ad0780, type: 2}
 --- !u!114 &4074466034556624722
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2857,6 +2863,73 @@ MonoBehaviour:
     m_Bits: 128
   softTargetRadius: 1.2
   softTargetMaxAngle: 8
+--- !u!1 &-900000000000000001
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: -900000000000000002}
+  - component: {fileID: -900000000000000003}
+  - component: {fileID: -900000000000000004}
+  m_Layer: 6
+  m_Name: MeleeHitbox
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &-900000000000000002
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: -900000000000000001}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 1, z: 1.05}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 8480833622433434003}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!65 &-900000000000000003
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: -900000000000000001}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 1
+  m_ProvidesContacts: 0
+  m_Enabled: 0
+  serializedVersion: 3
+  m_Size: {x: 1.4, y: 1.5, z: 1.6}
+  m_Center: {x: 0, y: 0, z: 0}
+--- !u!114 &-900000000000000004
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: -900000000000000001}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2a90249e68e06e94f99edd185e74737e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Actions.MeleeHitboxSink
+  hitbox: {fileID: -900000000000000003}
 --- !u!1 &7481699873517314820
 GameObject:
   m_ObjectHideFlags: 0
