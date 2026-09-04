@@ -8,6 +8,7 @@
 | 文件 | 角色 | 什麼時候讀 |
 | --- | --- | --- |
 | `WORKLOG.md` 頂部「🔖 交辦」段 | 現在手上的工作、待使用者事項 | **每次會話開場必讀，且通常只需要讀這段** |
+| **`docs/12-workflow.md`** 🆕 | **開發工作流的正本**：Feature Slice 工作單位、Integration Gate、**Verification Ladder（L0–L6）**、效能驗證的保留條款。`CLAUDE.md`／`AGENTS.md` 的 Preferred Workflow 只是它的摘要 | **決定「這件事該自動測還是人工測」時必讀**；不確定「現在該不該停下來交回使用者」時也讀這裡 |
 | `docs/ADR/*.md` | 不可變決策紀錄（為什麼這樣設計、否決了什麼） | 動到該決策範圍的架構時 |
 | `docs/01-design-doc.md` | Living：當前架構、模組職責邊界、Trade-off 表 | 需要「為什麼」與職責界線時 |
 | `docs/02-dev-spec.md` | Living：**跨領域契約**（§0 命名/結構、§1 黑板 schema、§2 管線順序、§3.1 驅動介面、§3.3 State Matrix、§7 架構回歸檢核） | 實作時對照 API 與契約 |
@@ -17,7 +18,7 @@
 | `docs/changelog.md` | 最近 4 版；更早在 `changelog-archive.md` | 查近期沿革；考古才開歸檔卷 |
 | `docs/03-animation-roadmap.md` | 動畫 Runtime 品質路線（輪次順序） | 規劃下一輪時 |
 | `docs/04-locomotion-foundation.md` | Kubold 資產盤點＋ADR-003 的四輪評審全紀錄（§11–14） | 需要 ADR-003 的推導過程時 |
-| `docs/artifacts/*.html` | **技術解說／架構圖／研究筆記的原始檔**（source of truth）。發布成 Claude Artifact 只是方便閱讀的副本，兩者必須同步 | 想快速理解某個子系統的全貌時；規格細節仍以對應的 `docs/NN-*.md` 為準 |
+| `docs/artifacts/*.html` | **技術解說／架構圖／研究筆記的原始檔**（source of truth）。發布成 Claude Artifact 只是方便閱讀的副本，兩者必須同步。<br>目前收錄：**`architecture-tour.html`**＝全專案分層架構導覽（L1 全景 → L2 子系統 → L3 呼叫鏈，15 張圖，每張附「為什麼／否決了什麼／哪條測試守著」）；**`foot-ik.html`**＝Foot IK 單一子系統的深入圖解 | 想快速理解某個子系統的全貌時；**新會話想一次看懂整體架構時先讀 `architecture-tour.html`**；規格細節仍以對應的 `docs/NN-*.md` 為準 |
 
 ## 模組 → 檔案 → 治理章節
 
