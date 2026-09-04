@@ -115,6 +115,10 @@ namespace Project.Tests.EditMode
                 "Project.Runtime 不得引用 Project.Editor——依賴方向必須是 Editor → Runtime 單向，否則建置期會斷");
             Assert.IsFalse(Contains(runtime.references, "Project.Tests.EditMode"),
                 "Project.Runtime 不得引用測試組件");
+            // 🆕（2026-09-04）PlayMode 測試組件加入後，同一條依賴方向對它一樣成立。
+            // 刻意只斷言「Runtime 不引用它」而不載入該 asmdef——測試層的組態屬測試層自己的事。
+            Assert.IsFalse(Contains(runtime.references, "Project.Tests.PlayMode"),
+                "Project.Runtime 不得引用 PlayMode 測試組件");
             Assert.IsTrue(runtime.includePlatforms == null || runtime.includePlatforms.Length == 0,
                 "Project.Runtime 必須對所有平台開放（includePlatforms 為空）——這是它不可能相依 Editor-only 程式的結構性保證");
 
@@ -205,9 +209,30 @@ namespace Project.Tests.EditMode
         private struct LayerRule
         {
             public string Folder;        // 相對 Assets/Scripts 的資料夾
-            public string[] Forbidden;   // 該層原始碼中不得出現的 token
+            public string[] Forbidden;   // 該層原始碼中不得出現的 token（黑名單）
             public string Reason;
             public bool TopLevelOnly;    // true = 不遞迴子資料夾（子資料夾另有更精確的規則）
+
+            /// <summary>
+            /// 🆕（2026-09-04）該層**允許**參照的 <c>Project.*</c> 命名空間（白名單，前綴比對）。
+            /// null ＝ 本規則只做黑名單（例如 `Core` 那條擋的是第三方 API token，不是命名空間）。
+            ///
+            /// <para><b>為什麼要有白名單——黑名單漏過一次的實證</b></para>
+            /// A4 原本只有黑名單，於是它**只擋想得到的東西，想不到的預設放行**。
+            /// `AIMovementSource` 每帧直接讀 `Project.Core.Effects` 的 gameplay state
+            /// （與 ADR-003 D2「producer 必須 context-free」直接衝突）就是這樣**靜默通過**的——
+            /// dev-spec §7.3 原話：「A4 沒有擋下來⋯⋯這是靜默通過，不是被批准」。
+            ///
+            /// 白名單把預設值反過來：**沒列出的命名空間一律不通過**。
+            /// 新增一個合法依賴的成本是「在這裡補一行」，而那一行正是應該有人停下來想一秒的地方。
+            ///
+            /// <para><b>已知精度邊界（誠實記錄）</b></para>
+            /// 比對的是原始碼中出現的 `Project.X.Y` 文字，因此涵蓋 `using` 與完全限定名。
+            /// 同一 assembly 內以 rootNamespace 省略前綴的相對參照（例如 `Models.LocomotionModel`）
+            /// **掃不到**——本專案現況全部使用明確 `using Project.X;`，故實務上覆蓋完整。
+            /// 這個邊界與既有 token 掃描同級：保守、會漏報、不會假陽性。
+            /// </summary>
+            public string[] AllowedNamespaces;
         }
 
         private static readonly LayerRule[] LayerRules =
@@ -216,12 +241,27 @@ namespace Project.Tests.EditMode
             {
                 Folder = "Presentation",
                 Forbidden = new[] { "Project.Core.StateMachine", "StateType", "Project.Core.Pipeline", "IInputSource", "InputData" },
+                AllowedNamespaces = new[]
+                {
+                    "Project.Presentation",       // 自己
+                    "Project.Core.Blackboard",    // 只讀黑板——表現層的唯一合法輸入
+                    "Project.Core.Actions",       // ActionSlot／IActionLifecycleSink：Action seam 的身分與回呼
+                    "Project.Core.Effects",       // ThrownProjectile 施加 Slow（docs/11 §7.5，刻意的設計）
+                },
                 Reason = "表現層不得反向依賴狀態機或輸入層（禁止 Animation→StateMachine、Motion→Input）；表現層只讀黑板"
             },
             new LayerRule
             {
                 Folder = "Core/StateMachine",
                 Forbidden = new[] { "Project.Core.Pipeline", "CharacterPipelineRunner" },
+                AllowedNamespaces = new[]
+                {
+                    "Project.Core.StateMachine",  // 自己（含 .States／.Actions）
+                    "Project.Core.Blackboard",
+                    "Project.Core.Actions",       // ActionSlot：Action 身分的單一來源（ADR-005 D1）
+                    "Project.Core.Movement",      // IMovementModel：BaseState.Initialize 的 ambient delegate（ADR-003 D3）
+                    "Project.Presentation",       // MotionDriver／AnimationFacadeBase：狀態驅動位移與動畫的合法 seam
+                },
                 Reason = "State 不得認識 Controller（禁止 State→Controller）"
             },
             new LayerRule
@@ -239,12 +279,33 @@ namespace Project.Tests.EditMode
                 Folder = "Core/Movement",
                 TopLevelOnly = true,
                 Forbidden = new[] { "Project.Core.StateMachine", "StateType", "Project.Presentation" },
+                AllowedNamespaces = new[]
+                {
+                    "Project.Core.Movement",      // 自己
+                    "Project.Core.Blackboard",    // 寫 MovementIntent＝producer 的唯一輸出
+
+                    // ⚠️ **已知架構張力，不是被批准的模式**（dev-spec §7.3 紅字條目）。
+                    //    AIMovementSource 每帧回讀 TemporaryGameplayEffectState 的倍率，
+                    //    與本規則的 Reason（producer context-free）直接衝突，也與 CLAUDE.md
+                    //    「Gameplay reads data. Gameplay does not query other gameplay systems directly.」衝突。
+                    //    使用者 2026-09-02 裁決：先跑 Play 確認 Slow 的展示價值，再決定是否收斂到
+                    //    黑板的 status region。Play 已通過（Acceptance G），**這筆 debt 尚未償還**。
+                    //    📌 列在這裡的意義：把「靜默通過」變成「明文記載的例外」。
+                    //       償還時刪掉這一行即可，A4 會立刻指出剩下的違規點。
+                    "Project.Core.Effects",
+                },
                 Reason = "ADR-003 D2：producer 必須 context-free——不得回讀 gameplay state，否則 producer→state 同幀回圈重現"
             },
             new LayerRule
             {
                 Folder = "Core/Movement/Models",
                 Forbidden = new[] { "Project.Core.StateMachine", "StateType", "Project.Core.Pipeline", "CharacterPipelineRunner", "Project.Presentation.IK" },
+                AllowedNamespaces = new[]
+                {
+                    "Project.Core.Movement",      // 自己（含 .Models）
+                    "Project.Core.Blackboard",
+                    "Project.Presentation",       // ADR-003 D4：model 必須自驅 Facade／MotionDriver
+                },
                 Reason = "model 可驅動通用 Animation/Motion seam，但不得回讀 IK post-process 輸出"
             },
             // 🆕（輪 4）仲裁層：design-doc §4.5「不該直接呼叫任何表現層 Controller 的方法
@@ -254,13 +315,44 @@ namespace Project.Tests.EditMode
             {
                 Folder = "Core/Arbitration",
                 Forbidden = new[] { "Project.Presentation", "IPresentationController" },
+                AllowedNamespaces = new[]
+                {
+                    "Project.Core.Arbitration",   // 自己（含 .Sources）
+                    "Project.Core.Blackboard",    // 寫 Arbitration 區＝仲裁的唯一輸出
+                },
                 Reason = "design-doc §4.5：仲裁層只能透過黑板旗標與表現層溝通，不得直接呼叫表現層 Controller"
             },
             new LayerRule
             {
                 Folder = "Core/Blackboard",
                 Forbidden = new[] { "Project.Core.Pipeline", "Project.Core.StateMachine", "Project.Presentation" },
+                AllowedNamespaces = new[]
+                {
+                    "Project.Core.Blackboard",    // 自己
+                    "Project.Core.Actions",       // IntentData 的 RequestedActionSlot（ADR-005 D1）
+                    "Project.Core.Arbitration",   // PlayerRuntimeData 內嵌 ArbiterData（值型別欄位）
+                },
                 Reason = "黑板是純資料層，不得認識任何消費者（否則單向資料流退化成雙向耦合）"
+            },
+            // 🆕（2026-09-04）組裝根（composition root）。這一層本來就會看見很多東西——
+            //    白名單在此不是為了限制廣度，而是為了讓**新出現的**依賴必須被人明確承認。
+            //    刻意**不**列 `Project.Core.Effects`：Runner 若開始認識 gameplay effect，
+            //    那是管線重新沾上玩法概念（A9 守 locomotion，這裡守其餘）。
+            new LayerRule
+            {
+                Folder = "Core/Pipeline",
+                Forbidden = new string[0],
+                AllowedNamespaces = new[]
+                {
+                    "Project.Core.Pipeline",      // 自己
+                    "Project.Core.Blackboard",
+                    "Project.Core.Actions",
+                    "Project.Core.Arbitration",
+                    "Project.Core.Movement",      // 只透過 IMovementIntentSource／IMovementModel 介面（A9 另行守住具體型別）
+                    "Project.Core.StateMachine",
+                    "Project.Presentation",       // 組裝 MotionDriver／Facade／PresentationPipeline
+                },
+                Reason = "組裝根只認識介面與既有層；新增的依賴必須明確登記，不得靜默長出來"
             },
         };
 
@@ -278,16 +370,50 @@ namespace Project.Tests.EditMode
                 foreach (string path in Directory.GetFiles(root, "*.cs", depth))
                 {
                     string code = StripComments(File.ReadAllText(path));
+
+                    // ① 黑名單：擋「這一層絕對不能碰的具體東西」（含第三方 API token）
                     foreach (string token in rule.Forbidden)
                     {
                         if (!code.Contains(token)) continue;
                         violations.Add($"{RelativePath(path)} 出現 '{token}' → {rule.Reason}");
+                    }
+
+                    // ② 白名單：擋「沒有人想到要禁、因此預設放行」的新命名空間
+                    if (rule.AllowedNamespaces == null) continue;
+
+                    // 額外剝除字串常值：assembly 屬性（InternalsVisibleTo("Project.Tests.EditMode")）
+                    // 與 LogError 文字裡的命名空間是**文字**，不是型別依賴。
+                    string typeCode = StripStringLiterals(code);
+                    var reported = new HashSet<string>();
+
+                    foreach (Match match in Regex.Matches(typeCode, @"Project(?:\.[A-Za-z_][A-Za-z0-9_]*)+"))
+                    {
+                        if (IsNamespaceAllowed(rule.AllowedNamespaces, match.Value)) continue;
+                        if (!reported.Add(match.Value)) continue; // 同一個參照在同一檔只報一次
+
+                        violations.Add(
+                            $"{RelativePath(path)} 參照 '{match.Value}'，不在 {rule.Folder} 的白名單內 → {rule.Reason}\n" +
+                            $"        白名單：{string.Join("、", rule.AllowedNamespaces)}\n" +
+                            "        若這個依賴刻意且合法，請把它明確加進該層的 AllowedNamespaces。\n" +
+                            "        ⚠️ 預設不通過正是本檢查的重點：黑名單只擋想得到的，白名單擋所有沒想到的\n" +
+                            "           （dev-spec §7.3 的 AIMovementSource→Core.Effects 就是黑名單漏過的實例）。");
                     }
                 }
             }
 
             CollectionAssert.IsEmpty(violations,
                 "偵測到反向／跨層依賴：\n" + string.Join("\n", violations));
+        }
+
+        /// <summary>前綴比對：允許 <c>Project.Presentation</c> 即一併允許 <c>Project.Presentation.Motion</c>。</summary>
+        private static bool IsNamespaceAllowed(string[] allowed, string reference)
+        {
+            for (int i = 0; i < allowed.Length; i++)
+            {
+                if (reference == allowed[i]) return true;
+                if (reference.StartsWith(allowed[i] + ".", StringComparison.Ordinal)) return true;
+            }
+            return false;
         }
 
         // =====================================================================
