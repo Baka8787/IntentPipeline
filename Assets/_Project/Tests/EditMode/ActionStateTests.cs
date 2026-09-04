@@ -409,6 +409,8 @@ namespace Project.Tests.EditMode
             var hitboxObject = new GameObject("Melee-Hitbox-Test");
             Collider collider = hitboxObject.AddComponent<BoxCollider>();
             MeleeHitboxSink sink = hitboxObject.AddComponent<MeleeHitboxSink>();
+            // ⚠️ 同上：EditMode 不呼叫 Awake ⇒ hitbox 快取為空、命中窗永遠開不了。
+            sink.ResolveHitbox();
             var targetObject = new GameObject("Melee-Target-Test");
             ActionRequestTarget target = targetObject.AddComponent<ActionRequestTarget>();
 

@@ -32,7 +32,13 @@ namespace Project.Tests.EditMode
             var gameObject = new GameObject("SlowEffect-Test");
             _created.Add(gameObject);
             effectState = gameObject.AddComponent<TemporaryGameplayEffectState>();
-            return gameObject.AddComponent<AIMovementSource>();
+            var source = gameObject.AddComponent<AIMovementSource>();
+
+            // ⚠️ EditMode 不在 Play mode ⇒ AddComponent **不會呼叫 Awake** ⇒ 元件的 sibling 快取是空的。
+            //    這裡顯式補上 Awake 會做的那一步，否則 _effectState 恆為 null、倍率恆為 1，
+            //    下面所有 Slow 斷言都會「假性失敗」（測的其實是沒有效果的路徑）。
+            source.ResolveEffectState();
+            return source;
         }
 
         [Test]

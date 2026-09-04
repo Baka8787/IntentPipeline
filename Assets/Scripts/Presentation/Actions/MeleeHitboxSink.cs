@@ -22,8 +22,21 @@ namespace Project.Presentation.Actions
 
         private void Awake()
         {
-            if (hitbox == null) hitbox = GetComponent<Collider>();
+            ResolveHitbox();
             Cleanup();
+        }
+
+        /// <summary>
+        /// 補齊未在 Inspector 指派的 <c>hitbox</c>（退回同物件上的 Collider）。
+        /// **與 <see cref="Awake"/> 分開，是為了 EditMode 測試**——EditMode 不在 Play mode，
+        /// `AddComponent` **不會呼叫 `Awake`** ⇒ `hitbox` 恆為 null ⇒ `Release()` 只會噴
+        /// 「未綁定 Collider」警告、命中窗永遠開不了（2026-09-04 首跑實際踩到，T24 因此紅）。
+        ///
+        /// ⚠️ 不改變 production 行為：正式流程仍走 <see cref="Awake"/>，且 Inspector 已指派時本方法不覆寫。
+        /// </summary>
+        internal void ResolveHitbox()
+        {
+            if (hitbox == null) hitbox = GetComponent<Collider>();
         }
 
         public void Begin()

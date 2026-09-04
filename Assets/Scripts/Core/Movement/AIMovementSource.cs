@@ -34,9 +34,23 @@ namespace Project.Core.Movement
         private void Awake()
         {
             _agent = GetComponent<NavMeshAgent>();
-            _effectState = GetComponent<TemporaryGameplayEffectState>();
+            ResolveEffectState();
             _agent.updatePosition = false;
             _agent.updateRotation = false;
+        }
+
+        /// <summary>
+        /// 取得同物件上的效果持有元件。**與 <see cref="Awake"/> 分開，是為了 EditMode 測試**——
+        /// EditMode 不在 Play mode，`AddComponent` **不會呼叫 `Awake`** ⇒ `_effectState` 恆為 null
+        /// ⇒ 倍率恆為 1，Slow 相關斷言會全部假性失敗（2026-09-04 首跑實際踩到）。
+        ///
+        /// ⚠️ 這不是為測試而改行為：production 走 <see cref="Awake"/>，時機與結果完全不變。
+        /// 比照本專案既有慣例（<c>TemporaryGameplayEffectState</c> 的 <c>ApplySlowAt</c> 等
+        /// <c>internal</c> 顯式時間版本），把「生命週期外也能建立的前置」開成 <c>internal</c>。
+        /// </summary>
+        internal void ResolveEffectState()
+        {
+            _effectState = GetComponent<TemporaryGameplayEffectState>();
         }
 
         public void ProduceIntent(ref InputData input, PlayerRuntimeData data)
