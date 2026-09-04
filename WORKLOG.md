@@ -9,6 +9,19 @@
 
 > ### 🎯 2026-09-04（晚）— **下個 session：把 ADR-005 Trial 結掉**（最新，請先讀這段）
 >
+> #### ⛳ 開場指令（使用者 2026-09-04 明確裁決，優先於一切預設行為）
+>
+> **直接從下方 ③ 的 Quick／Ice Definition 接線開始。**
+> ⛔ **不重新規劃**、⛔ **不先整理文件**、⛔ 不重讀 design-doc／dev-spec「熟悉一下」。
+> 本段 ＋ `docs/11` §4 就是全部所需的 context。
+>
+> **一路推到「三技能可 Play 的切片」再集中驗收**——中途不要停下來要人工確認。
+> 唯一的例外：**實作證明現有架構走不通**（＝ `docs/12-workflow.md` 的 stop condition：
+> 架構假設被證偽／需要新 authority 或黑板 schema／規格互相衝突／無法安全繼續）。
+>
+> 📌 「新增一個 component、新增一個 `[SerializeField]`、最終會需要 prefab reference」
+> **都不是停下來的理由**（`CLAUDE.md`「明確不構成 stop condition 的事」）。
+>
 > **一句話**：程式面已全部到位、Melee bake path 已 Play 確認走通；剩下的是**兩個法術的資產接線 ＋ 三輪驗收**，
 > 全部不需要再寫 runtime 程式。
 >
