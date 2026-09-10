@@ -38,6 +38,7 @@ MonoBehaviour:
     BakeData: {fileID: 11400000, guid: a489df0f65c4c32438f39e9fa9cce8bf, type: 2}
   paramsMappings:
   - State: 3
-    Params: {fileID: 11400000, guid: a3c1461acedafba499451adcce40d749, type: 2}
-  - State: 5
-    Params: {fileID: 11400000, guid: f662023934bbb5e4d887242d6df1b9e9, type: 2}
+    Params: {fileID: 11400000, guid: 0e316e3590a04d4293fa99296d833932, type: 2}
+  actionDefinitions:
+  - {fileID: 11400000, guid: f662023934bbb5e4d887242d6df1b9e9, type: 2}
+  - {fileID: 11400000, guid: 1cd5af82f24742658161ce9dd0a4cdf1, type: 2}

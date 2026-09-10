@@ -58,6 +58,10 @@ Assets/
                          # FootIKTargetData / FootIKPoseData（兩條單向管道）, FootIKSettings
       Footstep/          # 🆕（M3.x-B）FootstepDetector（IPresentationEventSource 首個實作）,
                          # FootPlantTracker ＋ FootstepDetectionSettings（單腳跨帧偵測狀態，值型別）
+      Equipment/         # 🆕（2026-09-06）WeaponSocket —— 把武器視覺掛到骨骼上
+                         # ⚠️ **只做視覺附著，不是裝備系統**：沒有背包／切換／黑板欄位／EquipmentDriver。
+                         #    命中判定仍由 MeleeHitboxSink 負責（Action lifecycle 驅動）。
+                         #    第二把武器出現前不擴充（CLAUDE.md：第二個使用者出現前不建 abstraction）
     Editor/
       Project.Editor.asmdef  # Editor 組件（引用 Project.Runtime）
       Pipeline/          # CharacterPipelineRunnerEditor（Inspector 除錯擴充）
@@ -164,11 +168,16 @@ public class PlayerRuntimeData
     // 每帧統一寫入，供狀態邏輯讀取地面接觸狀態，取代 JumpState 內部原本固定計時器模擬落地判定的做法
     public bool IsGrounded;
 
-    // ⏸（v0.10 定案 → ADR-002 §6-1 延後，尚未實作）取代 MotionDriver 內部私有欄位 _verticalVelocity，
-    // 讓非 Jump 狀態（未來的擊退、彈跳台、翻越）也能直接改垂直速度。
-    // ADR-002 已定調：等出現「第二個垂直速度消費者」（wall-slide／擊飛／電梯）再落地，
-    // 屆時重新界定 Owner/Writer/Readers；目前垂直速度仍封裝於 MotionDriver（選項 A，跳躍經
-    // ApplyJumpLaunch 注入）。寫入權限規劃比照 CurrentWeapon 用 internal set。
+    // ✅（v0.10 定案 → ADR-002 §6-1 延後 → 2026-09-10 落地）取代 MotionDriver 內部私有欄位 _verticalVelocity，
+    // ⚠️ 注意：落地後的形狀與 v0.10 原意**不同**——原意是「讓非 Jump 狀態也能直接改垂直速度」，
+    // 實際落地的是「發布值、不外放寫入權」：未來的擊退／彈跳台／翻越仍必須經注入型 API（如
+    // ApplyJumpLaunch）改速度，不得直寫本欄位。
+    // YAGNI 閘門如何達成：walk-off falling 的落地分類就是 ADR-002 等的「第二個消費者」。
+    // 語意：上一次 Move() 結算後的實際垂直速度。寫入者**唯一**：MotionDriver.GetGravityThisFrame，
+    // 且必須在 reboundForce 貼地夾持**之前**發布——否則落地幀的 impact velocity 會被貼地力銷毀，
+    // 所有落地都會被誤分為 Normal。與同一段程式寫入的 IsGrounded／JustLanded／JustLeftGround
+    // 是同一瞬間的一致快照，因此 IsGrounded 由 false 轉 true 的那一幀，本值即 impact velocity。
+    // ⚠️ 寫入者比 v0.10 草案**收緊**：狀態類別不得直寫，仍只經 ApplyJumpLaunch 注入。
     public float VerticalVelocity { get; internal set; }
 
     // ✅（v0.10 定案 → 2026-07-14 定調延後 → M2 落地）單幀邊沿旗標，由 MotionDriver.GetGravityThisFrame(data)
@@ -202,7 +211,7 @@ public class PlayerRuntimeData
 | **Arbitration** | `ArbiterData` (struct) | 🆕（輪 4）`ArbiterPipeline`（順序 4.5）——**全專案唯一執行期寫入者** | 順序 2 的輸入閘門（`BlockInput`）／各表現層 Controller（`BlockIK`／`BlockAudio`） | 每帧**從 `default` 重算後整體覆寫**（不以現值為起點，否則旗標只會愈疊愈多、永遠關不掉）。⚠️ 唯一寫入者是**管線**而非任何 `IArbiterSource`：來源只回傳自己的請求（值複製），合併與寫黑板由管線獨佔——**多來源進場時 §7-A5 白名單不會跟著變長**。合併政策目前為**純 OR**（見 §1.4） |
 | **PresentationEvents** 🆕 | `PresentationEventData` (struct) | 🆕（M3.x-B）`PresentationPipeline`（順序 6.5 的**末尾**）——**全專案唯一執行期寫入者** | 各表現層 Controller（首個消費者＝`AudioController` 的腳步音；未來 VFX／鏡頭震動同窗口讀） | **廣播快照**：每帧從 `default` 重算後整體覆寫；**consumer 只讀不清除**，彼此不會吃掉事件。⚠️ 唯一寫入者是**管線**而非任何 `IPresentationEventSource`：來源只回傳自己的 value struct（回傳值設計讓「Controller 對黑板只讀不寫」的契約**一個字都不用改**）。⚠️ **刻意不參與順序 7 復位**——整體覆寫即是它的復位機制，且它必須活過順序 7 才能在**下一帧** 6.5 被消費（見 §2.1 順序 6.5） |
 | **IsGrounded** | `bool` | MotionDriver（於 `GetGravityThisFrame(data)` 內部統一寫入，所有移動路徑最終都會呼叫此方法，來源 `CharacterController.isGrounded`） | 狀態機（如 `JumpState.IsLanded`） | ✅ v0.7 規劃、v0.8 實作完成；已取代 `JumpState` 內部原本的固定計時器落地判定 |
-| **VerticalVelocity** | `float`（`internal set`） | MotionDriver、`Project.Core` 內的狀態類別 | 各表現層 Controller（唯讀） | ⏸ v0.10 定案 → **ADR-002 §6-1 延後**：等第二個垂直速度消費者（wall-slide／擊飛／電梯）再落地；目前垂直速度仍封裝於 `MotionDriver` |
+| **VerticalVelocity** | `float`（`internal set`） | **MotionDriver 唯一**（`GetGravityThisFrame(data)` 內、**reboundForce 貼地夾持之前**發布） | `JumpState`（落地 Normal／Hard 分類）；各表現層 Controller（唯讀） | ✅ v0.10 定案 → **ADR-002 §6-1 延後** → **2026-09-10 落地**（walk-off falling 的落地分類＝第二個消費者，YAGNI 閘門達成）。語意＝「上一次 `Move()` 結算後的實際垂直速度」，與 `IsGrounded`／`JustLanded` 是同一瞬間的一致快照。⚠️ 寫入者比 v0.10 草案（曾允許「`Project.Core` 內的狀態類別」）**收緊為 MotionDriver 唯一**：狀態仍只經 `ApplyJumpLaunch` 注入，不得直寫（§7-A5 守） |
 | **JustLanded / JustLeftGround** | `bool` | MotionDriver（於 `GetGravityThisFrame(data)` 內比較前後兩幀 `IsGrounded`，**唯一觸發源**；順序 7 `ResetTransientState()` 的統一復位屬生命週期管理，不視為第二寫入者） | PresentationPipeline 驅動的表現層 Controller（✅ M2 首個消費者：`AudioController` 落地音；未來鏡頭震動／特效同窗口讀取） | ✅ v0.10 定案 → 2026-07-14 定調延後 → **M2 落地**（第一個下游消費者出現，YAGNI 閘門通過）；單幀生命週期：順序 6 生 → 6.5 消費 → 7 死 |
 
 > ⚠️ **`ref struct` 相容性警語**：`InputData` 已升版為 `ref struct`（見 1.3 節），**絕對不能**成為 `PlayerRuntimeData` 的欄位。黑板只能持有處理後轉換的 `IntentData` 或一般參數。違反此邊界將導致編譯直接失敗。
@@ -743,7 +752,7 @@ public struct JumpStage
     public MotionBakeData Bake;
 }
 
-// 跳躍參數資產：內容（Stages）＋ 設計師微調倍率（預設 1）。
+// 跳躍參數資產：內容（Stages）＋ 設計師微調倍率（預設 1）＋ authored 落地速度門檻。
 // 不含 Coyote / Jump Buffer / Variable Jump（屬 ADR-002 §6 Deferred，未定案）。
 [CreateAssetMenu(fileName = "JumpStateParams", menuName = "Project/Core/StateParams/JumpStateParams")]
 public class JumpStateParams : StateParamsSO
@@ -752,6 +761,8 @@ public class JumpStateParams : StateParamsSO
     public float HeightMultiplier;          // 乘在 AutoApexHeight
     public float GravityMultiplier;         // 乘在 AutoCalculatedGravity
     public float LaunchVelocityMultiplier;  // 乘在逆推出的 v
+    [SerializeField] private JumpAnimationVariantTable animationVariants;
+    [SerializeField, Min(0f)] private float hardLandingSpeed = 8f; // m/s；須高於正常落地約 5.66 m/s
 }
 
 // 跳躍發射資料契約（readonly struct，傳值零 GC）：由 JumpState 逆推、傳給 MotionDriver
@@ -763,9 +774,17 @@ public readonly struct JumpLaunchData
 }
 ```
 
-**MotionDriver 注入 API**：`ApplyJumpImpulse(float)` 已由 `public void ApplyJumpLaunch(in JumpLaunchData launch)` 取代。`MotionDriver` 新增 `_activeGravity`：注入時覆寫為該段重力、落地（`IsGrounded`）時於 `GetGravityThisFrame` 內部回復預設；`_verticalVelocity` / `_activeGravity` 的唯一寫入者仍為 `MotionDriver`。
+**MotionDriver 注入／執行 API**：`ApplyJumpImpulse(float)` 已由 `public void ApplyJumpLaunch(in JumpLaunchData launch)` 取代。`MotionDriver` 新增 `_activeGravity`：注入時覆寫為該段重力、落地（`IsGrounded`）時於 `GetGravityThisFrame` 內部回復預設；`_verticalVelocity` / `_activeGravity` 的唯一寫入者仍為 `MotionDriver`。`ExecuteVerticalOnlyMovement(data)` 是 HardRecovery 的窄用途執行出口：仍消費當幀 facing request、執行重力、grounded 同步與 `CharacterController.Move` collision，但不讀取／施加 Movement Output 的水平速度。它不認識 Jump 語意，Transform writer 仍只有 `MotionDriver`。
 
 **逆推時機**：`JumpState.Initialize()` 逐段以 `v = √(2gh)`（g = `AutoCalculatedGravity` × `GravityMultiplier`、h = `AutoApexHeight` × `HeightMultiplier`，再乘 `LaunchVelocityMultiplier`）預算並快取 `JumpLaunchData`；`OnUpdateMotion` 於當前段 `AutoTakeoffDelay` 過後點火注入。查無 `Stages` 或該段無可信烘焙資料時安全退化為程式碼內建預設值。
+
+**三相動畫與落地分類**：`JumpState.AnimationKey` 可在 `Start → Falling → Land` 間變更；`Start → Falling` 只以拋體速度 `v_y <= 0` 判定，API 刻意不接受 clip duration。落地分類**只讀 `PlayerRuntimeData.VerticalVelocity`**（MotionDriver 於貼地夾持前發布的權威實際垂直速度）：`|v_y| > HardLandingSpeed`（預設 8 m/s）立即回傳 `JumpAnimationVariantTable.HardLand`。🆕 **2026-09-10 改為讀黑板**，取代原本以當前段 `JumpLaunchData` ＋ state-local elapsed 推導 `v_y = v − g·(elapsed − takeoffDelay)` 的公式——公式假設「本次滯空有已知 launch」，非主動失地（walk-off）沒有 launch，會被迫另立第二套公式。⚠️ 此讀取只在**第一個 grounded 幀**正確（其後發布值已是 `reboundForce`）；兩條入口都守住這一點：主動跳躍滯空遠超 `MinAirborneTimeBeforeLandingCheck`，非主動失地在 `OnEnter` 預先滿足該計時器。`HardLand` 是單一 `LocomotionStopVariant`，沒有 tier／LU-RU，也沒有 `HardLandToMove`；重落地本身即代表動量被吃掉。只有非重落地才依移動意圖選 `NormalLand`／`NormalLandToMove`（兩者皆為 `JumpAnimationVariantSet`），再以起跳時快照的 tier 與腳相交給 `LocomotionStopSelector.SelectByEntryPhase`。目前 launch data 的正常對稱落地速度 `√(2×16.78×0.9535) ≈ 5.66 m/s`，故 8 m/s 不會讓一般跳躍誤進 hard，並約等價於 1.9 m 落差。`MotionDriver` 仍是垂直速度的唯一**寫入**者（ADR-002 §6-1 的延後條件已達成，欄位於 2026-09-10 落地，見 §1.1）；狀態只讀不寫，注入一律經 `ApplyJumpLaunch`。
+
+**進入 `JumpState` 的兩條入口（🆕 2026-09-10）**：`CanEnter` 同時承接①**主動起跳**（`Intent.JumpRequested && IsGrounded`，起始 phase `Start`，照常注入 launch）與②**非主動失地**（walk-off ledge：連續未著地時間達 `FallEntryGrace`（預設 0.1 s），起始 phase 直接為 `Falling`，**不得注入任何 launch**，且**不得**因空中按跳而推進 `Stages`）。grace 以 `Time.time` 快照實作而非累加 `deltaTime`——`FullBodyStateMachine` 同一幀可能經 `EvaluateInterrupts` 與 `EvaluateTransitions` 各問一次 `CanEnter`，快照天然冪等。⚠️ **`FallEntryGrace` 不是 Coyote Time**：它只過濾斜坡／樓梯造成的 `isGrounded` 抖動，**不**讓離地後仍能起跳。進入原因由 `CanEnter` 一次裁決並鎖存，`OnEnter` **刻意不從 `data` 重新推導**（下游重算已承諾決策屬本專案明列的反模式）。
+
+**`JumpStateParams` 是 per-character 的，精簡表是合法配置（🆕 2026-09-10）**：`FullBodyStateMachine.Initialize` 對**每一隻**角色無條件註冊 `JumpState`，所以「這隻角色不會跳」不代表它進不了 `JumpState`——非主動失地就是一條與跳躍意圖無關的入口。角色只需要 author **它自己真的會請求的格子**：`JumpState.ResolveAnimationKey` 在變體無效時保留現有鍵、不會請求空鍵，因此只填 `falling`／`normalLand.idle`／`hardLand` 三格是完全合法的（先例：敵人 `EnemyJumpStateParams.asset`，Y Bot 只接三列 mapping）。⚠️ **不要與玩家共用同一份 `JumpStateParams`**：那會讓玩家的跳躍調參（`HardLandingSpeed` 等）靜默決定其他角色的落地分類。⚠️ 空 `walk[]`／`run[]` 的退化語意容易記錯——`SelectVariant` 只在 `tier == None` **或**沒有 foot phase 時退回 `Idle`；tier 有值且 foot phase 有解時走 `LocomotionStopSelector.SelectByEntryPhase`，空陣列回 `-1` ⇒ `default` ⇒ **保留現有鍵、`_landDuration = 0`、當幀退場**（不 NRE，但也不播落地動畫）。此契約由 `PrefabWiringTests.W13` 機器化：檢查每隻角色的四個 `BaseState.AnimationKey` ＋ 其 config 綁定的 `JumpStateParams` 變體表中**所有 authored 格子**，都必須在該角色 `AnimancerFacade.transitionMappings` 解析得到。
+
+**Landing gameplay phase（2026-09-09 實測修正）**：`JumpState` 私有區分 `None / NormalStop / NormalContinue / HardRecovery`，不新增 `StateType` 或黑板欄位。`NormalStop` 只在「落地當幀沒有有效 Move Intent」時成立；phase 開始後若出現新 Move Intent，當幀解除 transition lock，交由既有 FSM 自然轉入 Move 與 animation routing blend。`NormalContinue` 代表落地當幀已選中 Land2Move，持續同一意圖不會在下一幀把 transition clip 跳掉。`HardRecovery` 的 phase timer 由 gameplay `JumpState` 擁有，Bake duration 只是目前沿用的 authored 秒數來源、動畫只是表現；期間走 `ExecuteVerticalOnlyMovement` 禁止玩家水平位移，時間結束後依當前 movement model 狀態自然進 Move／Idle。Hard 動畫引用失效時仍至少使用 `LandFallbackDuration` 維持 recovery；Normal 動畫格失效則維持既有立即退場。第一版不設 minimum land animation time，只有 Play 實測出現 1–2 幀 flash 才另行處理。
 
 #### 動畫呈現三小節 → 已分卷至 `docs/06-animation-presentation.md`（2026-07-25）
 
@@ -864,7 +883,7 @@ public class MotionDriver : MonoBehaviour
 | --- | --- | --- | --- | --- | --- |
 | **Idle** | FullBody | 永遠 `true` | Move, Jump, Roll | Move | 無意圖且速度時回歸。 |
 | **Move** | FullBody | 永遠 `true` | Jump, Roll | Idle | MoveSpeed < 0.1f 時自動自然過渡回 Idle。 |
-| **Jump** | FullBody | `IsLanded == true` | 空中狀態不可被打斷 | Idle, Move | 落地瞬間依黑板 MoveSpeed 決定自然過渡目標。 |
+| **Jump** | FullBody | 已落地，且 landing phase duration 結束；`NormalStop` 收到落地後的新 Move Intent 可提前解除 | 空中與 `HardRecovery` 不可被意圖打斷；NormalStop 走自然過渡，不開全域 interrupt | Idle, Move | 私有 phase＝NormalStop／NormalContinue／HardRecovery；Hard 期間只結算垂直 motion，結束時依 movement model 當前狀態選 Move／Idle。🆕 **本狀態承載「所有滯空」，含非跳躍的 walk-off falling**（2026-09-10）——刻意**不**新增 `Falling`／`Airborne` StateType（A13' 守），名稱與承載範圍的落差是命名問題不是結構問題，亦刻意不改名。 |
 | **Roll** | FullBody | `IsRollFinished == true` | 翻滾中強制不可打斷 | Idle, Move | 動畫全程享有不可打斷的「無敵幀」語意。 |
 
 ---
@@ -1055,6 +1074,76 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 
 ---
 
+### 4.4 Bake 的定位釐清：**Animation Data Pipeline，不是 runtime dependency**（2026-09-07）
+
+> 起因：一次會話中把「哪些 clip 不烘也能跑」當成了「哪些 clip 該進資料層」的答案。
+> 使用者指出兩者是**不同的軸**。經核對——**使用者的理解才是本專案原本寫下的意圖**，本節把界線固定下來。
+
+#### 4.4.1 原本的意圖（兩處明文，先前被低估）
+
+1. **CLAUDE.md「Animation Assets: Immutable by Default」**：
+   > *an AnimationClip is a **Presentation Resource**; **MotionBakeData is the source of truth for the animation's real motion values** (displacement, speed, gravity, foot phase). **Read those numbers from Bake Data** — do not hand-copy them into configs.*
+2. **本章 §4 開篇的藍圖**：
+   > *本工具鏈最終將演進為標準的 **`Animation Build Pipeline`**：
+   > Source Discovery → Validation → Feature Extraction → Feature Post Process → Asset Generation → Dependency Update → Report*
+
+⇒ 兩段描述的都是**資料層**：`Raw AnimationClip → Baked/Analyzed Data → 消費端`。
+**不是**「某個 runtime feature 需要曲線才去烘」。
+
+#### 4.4.2 兩個常被混為一談的軸
+
+| | 問的問題 | 答案 | 用途 |
+|---|---|---|---|
+| **A. Runtime coupling** | 沒有 Bake，哪些程式會壞？ | 只有三類：`MotionDriver.moveSpeedSource`／走 `ExecuteBakedCurveMovement` 的 clip／需要腳相的 clip（收步、footstep） | 判斷**故障半徑** |
+| **B. Data-layer 準入** | 哪些 clip 該有資料表示？ | **正式納入 animation／locomotion library 的 clip**（Raw／prototype clip 可以還沒有） | 判斷**素材成熟度** |
+
+🔴 **用 A 的答案回答 B 是錯的。** A 是「今天的消費端耦合」，會隨功能增減而變動；B 是架構紀律。
+
+#### 4.4.3 磁碟現況：de-facto 已經在照 B 走
+
+| 類別 | 是否有 Bake |
+|---|---|
+| Locomotion library（Idle／Walk／Run／Sprint／各收步） | ✅ **全部有** |
+| 曲線驅動（Jump、Stand To Roll、Throw 四段） | ✅ 全部有 |
+| **尚未接線的轉身**（`Bake_TurnRt180`、`Bake_RunFwdTurn180_R_LU`） | ✅ **有，且引用次數 0** ⇒ **先有資料、後有功能**，正是 B 的思維 |
+| 純姿勢／計時的 Action（`Spell_Fireball_*`／`Spell_Ice`／`Enemy_Punch_R`／`Melee_Slash1`／`Damage`） | ❌ 無 |
+| **8 向 strafe（本輪要納入 locomotion library）** | ❌ **無 ⇒ 準入缺口，不是「這次剛好要量」** |
+
+⇒ 純姿勢 Action 沒有 Bake **不違反 B**——它們沒有可量測的運動語意（「不同動作可以只有適用的資料」）。
+但 8 向 strafe 是 **locomotion library 成員**，被接進 mixer 時**尚未取得資料表示** ⇒ 準入順序錯了。
+
+#### 4.4.4 管線今天真正停在哪（**這才是實際邊界**）
+
+| 階段 | 狀態 |
+|---|---|
+| Source Discovery ／ Validation | ❌ 未實作 |
+| Feature Extraction ／ Post Process ／ Asset Generation | ✅ 已實作（含批次） |
+| **Dependency Update** | ❌ **未實作，且一半屬刻意** |
+| Report | ❌ 未實作 |
+
+🔴 **缺的是 Dependency Update，那正是本輪踩到的坑**：1D mixer 的 `_Speeds`（1.3327742／1.3124558）
+是**人工**從 Bake 數字推導後填進 Animancer 資產的，**沒有任何機制維持同步**
+⇒ mixer 換成 2D 時那些推導值靜默失效，沒有人發現。
+
+⚖️ **這個缺口有一半是被決定的**：CLAUDE.md **B11** 已否決自動寫入 Animancer 內部序列化
+（Gate B）⇒ Animancer 側的 Dependency Update **刻意保持人工**。
+📌 **唯一自動接通的一條**：`MotionDriver.moveSpeedSource` 於 `Awake` 讀 `GetRepresentativeSpeed()`
+——全專案唯一「資料 → 配置」自動生效的連結，其餘全靠人手抄。
+
+#### 4.4.5 §4 開篇 🛑「殘留落差」註記**已過期**（本次核對）
+
+該註記稱腳相採樣與 `RotationFinishedTime` 後處理尚未實作。實際磁碟：
+`Bake_RunFwdLoop` **含實際 `FootPhaseCurve` 資料**、`Bake_TurnRt180` 的 `RotationFinishedTime = 1.5333`，
+且 ADR-005 Acceptance **G** 已在 Play 實證「腳步聲隨速度變疏、收步選對慢速變體」⇒ **腳相是通的**。
+僅 Pass 1／Pass 2 分離一項可能仍成立，其餘應視為**已完成**。
+
+#### 4.4.6 對後續的意義
+
+- 「納入 locomotion library 的 clip 必須有資料表示」**是一條可以成立的不變量**，
+  但**現在不寫成測試**（形狀未定案，見 `docs/13` §10）。先讓 prototype 回答形狀，再談機器化準入。
+- 補上 Dependency Update 之前，**任何從 Bake 推導的手填值都會靜默腐爛** ⇒
+  這類值應在資產旁註明來源公式（本輪已補在 `docs/13` §9.5.1）。
+
 ## 5. 待補充規格清單（Project Management）
 
 ### 第二階段進度（已完成）
@@ -1083,7 +1172,7 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 * [x] **（v0.7 提出，v0.7 當輪實作完成）** `AnimancerFacade.SetLayerWeight` 補上 `layerIndex < 0` 邊界檢查；`clipMappings` 補 `= new()` 保底。
 * [x] **（新增，v0.8，實測發現）** Jump「先蹲下再往上」問題：新增可設定的 `StateRule.JumpTakeoffDelay`，`JumpState` 延遲期間維持一般貼地移動，時間到才呼叫 `ApplyJumpImpulse`，讓物理起飛時機與動畫預備蹲下姿勢的時間軸對齊。**已實作，並於 v0.10 經手動調整數值、實機測試確認表現正常**（延遲秒數需依實際動畫預備動作長度手動填入，非自動偵測）。
 * [x] **（新增，v0.8）** `IsGrounded` 黑板同步收斂進 `MotionDriver.GetGravityThisFrame(data)` 內部，`ExecuteBakedCurveMovement`／`ApplyBakedCompensation` 簽名同步補上 `PlayerRuntimeData data` 參數，移除額外的 `SyncGroundedState` 呼叫點。**已實作**。
-* [ ] **（v0.9 提出，v0.10 已定案，⏸ ADR-002 §6-1 延後）** `VerticalVelocity` 從 `MotionDriver` 私有欄位移入 `PlayerRuntimeData` 黑板（`internal set`）。ADR-002 已定調實作時機：**等出現第二個垂直速度消費者**（wall-slide／擊飛／電梯）再做，屆時重新界定 Owner/Writer/Readers；在那之前垂直速度維持 `MotionDriver` 封裝（跳躍經 `ApplyJumpLaunch` 注入，選項 A）。介面設計見 §1.1。
+* [x] **（v0.9 提出，v0.10 已定案，⏸ ADR-002 §6-1 延後 → ✅ 2026-09-10 落地）** `VerticalVelocity` 進入 `PlayerRuntimeData` 黑板（`internal set`）。**第二個消費者＝walk-off falling 的落地分類**，YAGNI 閘門達成。重新界定的結果：Owner／Writer **收窄為 `MotionDriver` 唯一**（v0.10 草案曾允許 `Project.Core` 狀態類別直寫，現不允許），Readers＝`JumpState` ＋ 表現層 Controller（唯讀）；注入仍只經 `ApplyJumpLaunch`（選項 A 未破）。規格見 §1.1，機器守衛見 §7-A5。
 * [x] **（v0.9 提出，v0.10 定案，2026-07-14 定調延後，✅ M2 落地）** 新增 `JustLanded`／`JustLeftGround` 單幀邊沿旗標供音效/鏡頭震動等表現層 Controller 訂閱。延後紀律兌現：第一個下游消費者（M2 `AudioController` 落地音）出現，欄位隨之落地——MotionDriver 唯一觸發源、順序 7 `ResetTransientState()` 統一復位，規格見 §1.1／§2.1／§3.4。
 * [ ] **（新增，v0.9）** 角色 GameObject 階層遷移為 Root（Adapter）＋ Model 子物件兩層結構（詳見 §0.3、`docs/01-design-doc.md` §2.6）：既有場景/預製體需要一次性搬遷，並確認 `AnimancerFacade`、`ThirdPersonCamera` 等模組的 Inspector 引用在搬遷後仍正確指向 Root。
 * [ ] **（新增，v0.9）** 在 `Model` 子物件的 `Animator` 上，除了 Inspector 手動關閉 `applyRootMotion` 外，於 `AnimancerFacade.Awake()`（或等效初始化流程）加一道程式碼防線，強制覆寫 `applyRootMotion = false`，避免未來換模型時又被誤勾選。

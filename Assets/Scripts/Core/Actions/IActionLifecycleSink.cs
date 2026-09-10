@@ -8,7 +8,7 @@ namespace Project.Core.Actions
     public interface IActionLifecycleSink
     {
         void Begin();
-        void Release();
+        void Release(in ActionReleaseContext context);
         void Cleanup();
     }
 }

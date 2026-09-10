@@ -15,6 +15,18 @@ namespace Project.Presentation.Animation
         /// </summary>
         public const string ParamMoveSpeed = "MoveSpeed";
 
+        /// <summary>
+        /// Locomotion 2D 混合的本地橫向參數鍵。由 Locomotion model 在管線順序 3 每幀發布；
+        /// 訂閱者仍由 Transition 資產自行綁定，Facade 維持通用參數 sink。
+        /// </summary>
+        public const string ParamMoveX = "MoveX";
+
+        /// <summary>
+        /// Locomotion 2D 混合的本地前後參數鍵。由 Locomotion model 在管線順序 3 每幀發布；
+        /// 訂閱者仍由 Transition 資產自行綁定，Facade 維持通用參數 sink。
+        /// </summary>
+        public const string ParamMoveZ = "MoveZ";
+
         // === 播放控制 ===
         /// <summary>
         /// 播放指定狀態鍵的動畫。過渡時長／播放速度／起始時間全數由該鍵對應的 Transition 資產承載

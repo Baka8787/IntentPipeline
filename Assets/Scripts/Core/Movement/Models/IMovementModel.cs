@@ -56,4 +56,17 @@ namespace Project.Core.Movement
         /// </summary>
         void UpdateMotion(MotionDriver motionDriver, PlayerRuntimeData data);
     }
+
+    /// <summary>
+    /// 能提供「本幀 locomotion 播放頭」腳相快照的可選能力。Jump 只依賴這個窄介面，
+    /// 不需要知道具體 LocomotionModel，也不把動畫播放時間寫進跨系統黑板。
+    /// </summary>
+    public interface IFootPhaseSource
+    {
+        /// <summary>
+        /// 用呼叫端指定的 loop Bake Data，把管線順序 3 捕捉的當下 normalized time 轉成腳相。
+        /// 資料缺席、曲線為空或當時並非 locomotion 時回 false，呼叫端必須安全退化。
+        /// </summary>
+        bool TryGetCurrentFootPhase(MotionBakeData loopBakeData, out FootPhase phase);
+    }
 }

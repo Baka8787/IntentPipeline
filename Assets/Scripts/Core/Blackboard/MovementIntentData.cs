@@ -27,10 +27,10 @@ namespace Project.Core.Blackboard
         public float DesiredSpeedNormalized;
 
         /// <summary>
-        /// 期望移動方向（2D 平面輸入座標系，與 <see cref="InputData.MoveInput"/> 同語意；
-        /// 轉成世界方向是 MotionDriver 依相機基底的職責，本層不做）。零向量＝無方向意圖。
+        /// 期望移動方向（世界座標 XZ 平面，y 恆為 0，非相機空間）。
+        /// 非零方向須正規化；零向量＝無方向意圖。
         /// </summary>
-        public Vector2 DesiredDirection;
+        public Vector3 DesiredDirection;
 
         /// <summary>
         /// 🆕 Walk 型態是否啟用（**mode state，非單幀事件**）。

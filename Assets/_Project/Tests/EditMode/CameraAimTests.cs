@@ -7,8 +7,8 @@ using UnityEngine;
 namespace Project.Tests.EditMode
 {
     /// <summary>
-    /// Camera／Aim／Throw 的決策核心純函數測試。刻意不建立場景、不呼叫 Physics，
-    /// 讓 E3 行為中性、soft-target 排名與防穿牆非對稱成為可重現的契約。
+    /// Camera／AimPoint／Throw 的決策核心純函數測試。Combat target 選擇與 facing 已移至
+    /// CombatContextTests，避免 Presentation 再持有 gameplay target／方向權威。
     /// </summary>
     public sealed class CameraAimTests
     {
@@ -81,36 +81,6 @@ namespace Project.Tests.EditMode
         }
 
         [Test]
-        public void T5_IsWithinSoftTargetCone_HandlesInsideOutsideAndZeroDistance()
-        {
-            Vector3 origin = Vector3.zero;
-            Assert.IsTrue(AimResolver.IsWithinSoftTargetCone(
-                origin, Vector3.forward, new Vector3(0.5f, 0f, 10f), 8f, 20f));
-            Assert.IsFalse(AimResolver.IsWithinSoftTargetCone(
-                origin, Vector3.forward, new Vector3(5f, 0f, 10f), 8f, 20f));
-            Assert.IsFalse(AimResolver.IsWithinSoftTargetCone(
-                origin, Vector3.forward, origin, 8f, 20f),
-                "距離為 0 的退化輸入必須回 false，而不是讓 NaN 進入比較。");
-        }
-
-        [Test]
-        public void T6_SoftTargetSelection_PrefersSmallestAngleNotNearestDistance()
-        {
-            Vector3 origin = Vector3.zero;
-            Vector3 direction = Vector3.forward;
-            Vector3 nearerButWider = new Vector3(0.8f, 0f, 8f);
-            Vector3 fartherButStraighter = new Vector3(0.2f, 0f, 16f);
-
-            Assert.IsTrue(AimResolver.IsWithinSoftTargetCone(
-                origin, direction, nearerButWider, 8f, 20f));
-            Assert.IsTrue(AimResolver.IsWithinSoftTargetCone(
-                origin, direction, fartherButStraighter, 8f, 20f));
-            Assert.IsTrue(AimResolver.IsBetterSoftTarget(
-                origin, direction, fartherButStraighter, nearerButWider),
-                "兩者都在錐內時必須選角度偏差較小者，不能選較近者。");
-        }
-
-        [Test]
         public void T7_ResolveCameraDistance_UsesDesiredHitMinusSkinAndMinimum()
         {
             Assert.AreEqual(3.5f,
@@ -160,42 +130,15 @@ namespace Project.Tests.EditMode
         }
 
         [Test]
-        public void T10_ComputeAimFacingTarget_InsideDeadzoneReturnsCurrentExactly()
-        {
-            Quaternion current = Quaternion.Euler(0f, 25f, 0f);
-            Vector3 targetDirection = Quaternion.Euler(0f, 39f, 0f) * Vector3.forward;
-
-            Quaternion target = MotionDriver.ComputeAimFacingTarget(
-                current, targetDirection, 15f, out bool shouldTurn);
-
-            Assert.IsFalse(shouldTurn);
-            Assert.AreEqual(current, target,
-                "偏差在死區內時必須逐字回傳目前朝向，不能只是降低轉速。");
-        }
-
-        [Test]
-        public void T11_ComputeAimFacingTarget_OutsideDeadzoneStartsTurning()
-        {
-            Quaternion current = Quaternion.identity;
-            Vector3 targetDirection = Quaternion.Euler(0f, 15.1f, 0f) * Vector3.forward;
-
-            Quaternion target = MotionDriver.ComputeAimFacingTarget(
-                current, targetDirection, 15f, out bool shouldTurn);
-
-            Assert.IsTrue(shouldTurn, "偏差略大於單一死區門檻時必須開始轉向。");
-            Assert.Less(Vector3.Angle(target * Vector3.forward, targetDirection), Epsilon);
-        }
-
-        [Test]
-        public void T12_ComputeAimFacingTarget_FlattensVerticalDirection()
+        public void T12_ComputeFacingTarget_FlattensVerticalDirection()
         {
             Vector3 targetDirection = new Vector3(1f, 5f, 1f);
 
-            Quaternion target = MotionDriver.ComputeAimFacingTarget(
-                Quaternion.identity, targetDirection, 0f, out bool shouldTurn);
+            Quaternion target = MotionDriver.ComputeFacingTarget(
+                Quaternion.identity, targetDirection, out bool hasTarget);
             Vector3 targetForward = target * Vector3.forward;
 
-            Assert.IsTrue(shouldTurn);
+            Assert.IsTrue(hasTarget);
             Assert.AreEqual(0f, targetForward.y, Epsilon,
                 "AimPoint 高低差只能影響瞄準，不得把角色 root 轉出水平面產生 pitch。");
             Assert.Less(Vector3.Angle(targetForward, new Vector3(1f, 0f, 1f)), Epsilon);

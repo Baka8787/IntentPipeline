@@ -4,6 +4,8 @@ using UnityEditor;
 using UnityEngine;
 using Project.Core.Actions;
 using Project.Core.Arbitration;
+using Project.Core.Combat;
+using Project.Core.Facing;
 // 註：IMovementModel 雖然放在 Core/Movement/Models/ 資料夾，命名空間仍是 Project.Core.Movement
 //     （本專案的資料夾與命名空間刻意不一一對應）。
 using Project.Core.Movement;
@@ -235,6 +237,68 @@ namespace Project.Tests.EditMode
                 "偵測到多重 Movement 意圖 producer：\n\n" + string.Join("\n\n", violations));
         }
 
+        /// <summary>
+        /// ADR-007 D3 的「每個角色恰好一個 facing authority」同時適用玩家與 AI。
+        /// Runner 只會從自己的 Host 以 <c>GetComponent</c> 解析，因此掛在子物件也不算完成接線。
+        /// </summary>
+        [Test]
+        public void W11_AllCharacterRoots_HaveExactlyOneCharacterFacingSource()
+        {
+            var violations = new List<string>();
+
+            foreach (CharacterPrefab prefab in LoadCharacterPrefabs())
+            {
+                CharacterFacingSource[] sources = prefab.Host.GetComponents<CharacterFacingSource>();
+                if (sources.Length == 1) continue;
+
+                violations.Add(
+                    $"{prefab.Path} → '{prefab.Host.name}' 上有 {sources.Length} 顆 CharacterFacingSource\n" +
+                    "    contract : ADR-007 D3：每個角色恰好一個 facing authority\n" +
+                    "    expected : 角色 Root 上恰好 1 顆 CharacterFacingSource\n" +
+                    $"    actual   : {sources.Length} 顆");
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "角色 facing authority 接線不完整：\n" +
+                "請在 Y Bot 的角色 Root 加掛 CharacterFacingSource（ADR-007 D3：每個角色恰好一個 facing authority）。\n\n" +
+                string.Join("\n\n", violations));
+        }
+
+        /// <summary>
+        /// 玩家判別使用 Runner Host 上的 <see cref="PlayerLocomotionPolicy"/>：它是玩家 movement producer，
+        /// 敵人沒有，因此不會把 AI 錯當成需要玩家 combat context 的角色。
+        ///
+        /// 這條刻意檢查「恰好一顆」而非至少一顆。CombatContext 是 facing 與 Action soft-target
+        /// 共用的單一真相；重複 producer 與完全缺席都會讓結果失去唯一權威。
+        /// </summary>
+        [Test]
+        public void W12_PlayerCharacterRoots_HaveExactlyOnePlayerCombatContextSource()
+        {
+            var violations = new List<string>();
+
+            foreach (CharacterPrefab prefab in LoadCharacterPrefabs())
+            {
+                if (prefab.Host.GetComponent<PlayerLocomotionPolicy>() == null) continue;
+
+                PlayerCombatContextSource[] sources =
+                    prefab.Host.GetComponents<PlayerCombatContextSource>();
+                if (sources.Length == 1) continue;
+
+                violations.Add(
+                    $"{prefab.Path} → Runner Host '{prefab.Host.name}' 上有 {sources.Length} 顆 PlayerCombatContextSource\n" +
+                    "    contract : 玩家 CombatContext 必須有恰好一個 producer，否則 InCombat／Target 沒有單一真相\n" +
+                    "    expected : 玩家角色 Root 上恰好 1 顆 PlayerCombatContextSource\n" +
+                    $"    actual   : {sources.Length} 顆\n" +
+                    "    症狀     : 缺席時 CombatContext.InCombat 恆 false，HeadLook 與 Action soft-target 都不會啟動");
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "玩家 CombatContext producer 接線不完整：\n" +
+                "請在 `X Bot.prefab` 的 Root 加掛 `PlayerCombatContextSource`，並把 `targetMask` 設為 Layer 7 " +
+                "（m_Bits: 128）；其餘欄位保留程式預設值。\n\n" +
+                string.Join("\n\n", violations));
+        }
+
         // =====================================================================
         // W3 — Action Sink Bindings 的結構完整性
         // =====================================================================
@@ -393,6 +457,267 @@ namespace Project.Tests.EditMode
         }
 
         // =====================================================================
+        // W7 — 已註冊 Action 的動畫鍵必須在該角色的 transitionMappings 解析得到
+        // =====================================================================
+
+        /// <summary>
+        /// 這條抓的是 `docs/11` §4.1 記載的**安靜失敗①**：動畫鍵沒接 ⇒ `IsPlaying` 為 false
+        /// ⇒ 動畫不播、位移退回 base movement，但**流程照跑、Console 不報錯**。
+        /// 症狀看起來像「烘焙壞掉」或「AI 邏輯錯了」，很容易往錯的方向查。
+        ///
+        /// 2026-09-04／09-05 這個坑實際踩過兩次（法術四列漏拖、敵人出拳沒接鍵），
+        /// 兩次都是人眼比對字串才發現。字串比對正是機器該做的事。
+        ///
+        /// ⚠️ **連段段落也要檢查**：`ChainSegments` 的鍵不在 `Phases` 裡，
+        /// 只掃 `Phases` 會漏掉第 2、3 段——那正是「動畫只播第一段」的成因。
+        /// </summary>
+        [Test]
+        public void W7_RegisteredActionAnimationKeys_ResolveInTransitionMappings()
+        {
+            var violations = new List<string>();
+
+            foreach (CharacterPrefab prefab in LoadCharacterPrefabs())
+            {
+                var config = Field(prefab, "stateMachineConfig").objectReferenceValue as StateMachineConfigSO;
+                if (config == null) continue; // W1 已經報過
+
+                var facade = ResolveSeam<AnimancerFacade>(prefab, "animationFacade");
+                if (facade == null) continue; // W1 已經報過
+
+                HashSet<string> mappedKeys = CollectMappedAnimationKeys(facade);
+
+                var configSerialized = new SerializedObject(config);
+                SerializedProperty definitions = configSerialized.FindProperty("actionDefinitions");
+                if (definitions == null) continue;
+
+                for (int i = 0; i < definitions.arraySize; i++)
+                {
+                    var definition = definitions.GetArrayElementAtIndex(i).objectReferenceValue as ActionDefinitionSO;
+                    if (definition == null) continue;
+
+                    CollectUnmappedKeys(prefab, definition, definition.Phases, "Phases", mappedKeys, violations);
+                    CollectUnmappedKeys(
+                        prefab, definition, definition.ChainSegments, "ChainSegments", mappedKeys, violations);
+                }
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "已註冊 Action 的動畫鍵在 transitionMappings 找不到（Verification Ladder L1）：\n\n" +
+                string.Join("\n\n", violations));
+        }
+
+        private static HashSet<string> CollectMappedAnimationKeys(AnimancerFacade facade)
+        {
+            var keys = new HashSet<string>();
+            var serialized = new SerializedObject(facade);
+            SerializedProperty mappings = serialized.FindProperty("transitionMappings");
+            if (mappings == null) return keys;
+
+            for (int i = 0; i < mappings.arraySize; i++)
+            {
+                SerializedProperty element = mappings.GetArrayElementAtIndex(i);
+
+                // 只有 Transition 也指派了才算「接上」——鍵填了但資產留空，症狀與沒填一模一樣。
+                if (element.FindPropertyRelative("Transition").objectReferenceValue == null) continue;
+
+                string key = element.FindPropertyRelative("StateKey").stringValue;
+                if (!string.IsNullOrEmpty(key)) keys.Add(key);
+            }
+
+            return keys;
+        }
+
+        private static void CollectUnmappedKeys(
+            CharacterPrefab prefab,
+            ActionDefinitionSO definition,
+            ActionPhaseEntry[] entries,
+            string sourceLabel,
+            HashSet<string> mappedKeys,
+            List<string> violations)
+        {
+            if (entries == null) return;
+
+            for (int i = 0; i < entries.Length; i++)
+            {
+                string key = entries[i].AnimationKey;
+                if (string.IsNullOrEmpty(key) || mappedKeys.Contains(key)) continue;
+
+                violations.Add(
+                    $"{prefab.Path} → '{definition.name}' 的 {sourceLabel}[{i}] 動畫鍵 '{key}' 沒有對應的 transition mapping\n" +
+                    $"    contract : 每個 authored AnimationKey 都要在該角色的 AnimancerFacade.transitionMappings 有一列\n" +
+                    $"    expected : 補一列 StateKey='{key}' 並指派 TransitionAsset\n" +
+                    $"    症狀     : 該段**動畫不會播、但 Action 流程照跑完**，且 Console 不會有任何錯誤");
+            }
+        }
+
+        // =====================================================================
+        // W8 — 遷移到 actionDefinitions 之後，不得留著失效的 Action paramsMapping
+        // =====================================================================
+
+        /// <summary>
+        /// `StateMachineConfigSO.BuildActionSlotMap` 的相容退路是 **all-or-nothing**：
+        /// `actionDefinitions` 一旦非空，`paramsMappings` 裡綁在 `StateType.Action` 上的那一份
+        /// **完全不再被解析**。
+        ///
+        /// 留著它不會報錯，但它會變成一份**看起來還在生效、其實是死的**接線——
+        /// 下一個人（或三個月後的自己）看到 Inspector 有那一列，會合理推論 Damage 還走那條路。
+        /// Throw 退場（`docs/11` §5.1）與敵人 Damage 遷移（2026-09-05）都是被這條語意咬過的。
+        ///
+        /// ⇒ 遷移必須**做完**：搬進 `actionDefinitions`，並把死掉的那一列移除。
+        /// </summary>
+        [Test]
+        public void W8_MigratedConfigs_DoNotKeepDeadActionParamsMapping()
+        {
+            var violations = new List<string>();
+
+            foreach (CharacterPrefab prefab in LoadCharacterPrefabs())
+            {
+                var config = Field(prefab, "stateMachineConfig").objectReferenceValue as StateMachineConfigSO;
+                if (config == null) continue;
+
+                var configSerialized = new SerializedObject(config);
+                SerializedProperty definitions = configSerialized.FindProperty("actionDefinitions");
+                if (definitions == null || definitions.arraySize == 0) continue; // 還沒遷移，相容路徑仍合法
+
+                SerializedProperty paramsMappings = configSerialized.FindProperty("paramsMappings");
+                if (paramsMappings == null) continue;
+
+                for (int i = 0; i < paramsMappings.arraySize; i++)
+                {
+                    SerializedProperty element = paramsMappings.GetArrayElementAtIndex(i);
+                    if (element.FindPropertyRelative("State").intValue != (int)StateType.Action) continue;
+
+                    violations.Add(
+                        $"{prefab.Path} → {config.name} 同時有 actionDefinitions（{definitions.arraySize} 筆）" +
+                        $"與 paramsMappings[{i}] 的 Action 綁定\n" +
+                        $"    contract : actionDefinitions 非空 ⇒ paramsMappings 的 Action 退路完全不被解析\n" +
+                        $"    expected : 該 Definition 搬進 actionDefinitions 後，移除這一列\n" +
+                        $"    症狀     : 它看起來還在生效、其實是死接線；讀 Inspector 的人會被誤導");
+                }
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "遷移未做完（Verification Ladder L1）：\n\n" + string.Join("\n\n", violations));
+        }
+
+        // =====================================================================
+        // W9 — 真實 config 資產必須解析得出它自己註冊的每一個身分
+        // =====================================================================
+
+        /// <summary>
+        /// 比 W7／W8 高一階：不只看欄位填了什麼，而是**跑一次 `Initialize()`**，
+        /// 斷言 `GetActionDefinition(slot)` 真的拿得回同一份資產。
+        ///
+        /// 這條直接守住 2026-09-05 敵人遷移的三個要求：
+        /// Punch 進得了 `Slot1`、Damage 仍解析得到 `Reaction`、而且**兩者都不再經過 `paramsMappings` 退路**
+        /// （退路在 `actionDefinitions` 非空時本來就不會被走，因此這裡拿得到 ＝ 新路徑成立）。
+        ///
+        /// 也順帶守住身分唯一性：兩份 Definition 搶同一個 `Slot` 時，
+        /// `BuildActionSlotMap` 只會保留先到的那份並在 Editor 記一筆 LogError——
+        /// 那種「有註冊卻拿不回來」正是這條會抓到的形狀。
+        /// </summary>
+        [Test]
+        public void W9_ActionDefinitions_ResolveByTheirOwnSlot()
+        {
+            var violations = new List<string>();
+
+            foreach (CharacterPrefab prefab in LoadCharacterPrefabs())
+            {
+                var config = Field(prefab, "stateMachineConfig").objectReferenceValue as StateMachineConfigSO;
+                if (config == null) continue;
+
+                var configSerialized = new SerializedObject(config);
+                SerializedProperty definitions = configSerialized.FindProperty("actionDefinitions");
+                if (definitions == null || definitions.arraySize == 0) continue;
+
+                config.Initialize();
+
+                for (int i = 0; i < definitions.arraySize; i++)
+                {
+                    var definition = definitions.GetArrayElementAtIndex(i).objectReferenceValue as ActionDefinitionSO;
+                    if (definition == null)
+                    {
+                        violations.Add($"{prefab.Path} → {config.name}.actionDefinitions[{i}] 是空引用");
+                        continue;
+                    }
+
+                    if (definition.Slot == ActionSlot.None)
+                    {
+                        violations.Add(
+                            $"{prefab.Path} → '{definition.name}' 的 Slot 是 None ⇒ 永遠不會被索引，等同沒註冊");
+                        continue;
+                    }
+
+                    ActionDefinitionSO resolved = config.GetActionDefinition(definition.Slot);
+                    if (resolved == definition) continue;
+
+                    violations.Add(
+                        $"{prefab.Path} → '{definition.name}'（Slot {definition.Slot}）註冊了卻解析不回自己\n" +
+                        $"    actual   : {(resolved == null ? "null" : resolved.name)}\n" +
+                        $"    最可能的原因 : 同一個 Slot 被兩份 Definition 佔用（身分必須唯一，ADR-005 D1）");
+                }
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "config 註冊的身分解析不回來（Verification Ladder L1）：\n\n" + string.Join("\n\n", violations));
+        }
+
+        // =====================================================================
+        // W10 — 攻擊圈必須落在接戰帶內
+        // =====================================================================
+
+        /// <summary>
+        /// 敵人的「想出手距離」與「想站在哪」是**兩個元件各自的欄位**，
+        /// 沒有任何程式強制它們一致——而它們不一致時的症狀非常難猜：
+        ///
+        /// <list type="bullet">
+        /// <item><c>attackRange &gt; maximumEngagementDistance</c> ⇒ 還在 Approach 就開始出拳，
+        /// 一邊滑步一邊揮拳、動畫在 Move／Punch 之間反覆跳。**2026-09-05 的「敵人亂動」就是這個。**</item>
+        /// <item><c>attackRange &lt; minimumEngagementDistance</c> ⇒ 進到能打的距離前就先 Retreat，
+        /// **敵人永遠不會出手**，而且不會有任何錯誤訊息。</item>
+        /// </list>
+        ///
+        /// 兩者都是靜默失敗，都只能靠人眼看出來——正是該寫成測試的形狀。
+        /// ⚠️ 這條是**關聯式**的：不寫死任何數值，只斷言兩個元件的數值互相自洽。
+        /// </summary>
+        [Test]
+        public void W10_AttackRange_SitsInsideEngagementBand()
+        {
+            var violations = new List<string>();
+
+            foreach (CharacterPrefab prefab in LoadCharacterPrefabs())
+            {
+                var attackSource = prefab.Host.GetComponent<AIInputSource>();
+                var movementSource = prefab.Host.GetComponent<AIMovementSource>();
+                if (attackSource == null || movementSource == null) continue; // 玩家沒有這兩顆，跳過
+
+                var attackSerialized = new SerializedObject(attackSource);
+                var movementSerialized = new SerializedObject(movementSource);
+
+                float attackRange = attackSerialized.FindProperty("attackRange").floatValue;
+                float minimum = movementSerialized.FindProperty("minimumEngagementDistance").floatValue;
+                float maximum = movementSerialized.FindProperty("maximumEngagementDistance").floatValue;
+
+                if (attackRange > maximum)
+                {
+                    violations.Add(
+                        $"{prefab.Path} → attackRange {attackRange:0.##} > maximumEngagementDistance {maximum:0.##}\n" +
+                        $"    症狀 : 還在 Approach 就出拳 ⇒ 一邊滑步一邊揮拳，動畫在 Move／Punch 之間反覆跳");
+                }
+
+                if (attackRange < minimum)
+                {
+                    violations.Add(
+                        $"{prefab.Path} → attackRange {attackRange:0.##} < minimumEngagementDistance {minimum:0.##}\n" +
+                        $"    症狀 : 進到能打的距離前就先 Retreat ⇒ **敵人永遠不會出手**，且不會報錯");
+                }
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "AI 的攻擊圈與接戰帶不自洽（Verification Ladder L1）：\n\n" + string.Join("\n\n", violations));
+        }
+
+        // =====================================================================
         // W5 — 玩家角色的輸入必須是可封鎖的
         // =====================================================================
 
@@ -416,7 +741,12 @@ namespace Project.Tests.EditMode
 
             foreach (CharacterPrefab prefab in LoadCharacterPrefabs())
             {
-                bool isPlayerControlled = ResolveSeam<IInputSource>(prefab, "inputSourceComponent") != null;
+                // 🔴 **2026-09-05 修正判準**：原本寫的是「解析得到 `IInputSource` ⇒ 是玩家角色」。
+                //    那個 proxy 只在「玩家是唯一有輸入來源的角色」時碰巧成立——`AIInputSource`
+                //    上線的那一刻它就錯了（敵人被誤判成玩家，要求它掛 IArbiterSource）。
+                //    **「有輸入來源」不等於「由玩家操作」**；真正的判準是輸入來自輸入裝置，
+                //    也就是 PlayerInputSource。這條契約要保護的「暫停中按跳躍會卡住」本來就是玩家的問題。
+                bool isPlayerControlled = ResolveSeam<PlayerInputSource>(prefab, "inputSourceComponent") != null;
                 if (!isPlayerControlled) continue;
 
                 var inHierarchy = new List<IArbiterSource>();
@@ -494,6 +824,140 @@ namespace Project.Tests.EditMode
                 $"    expected : 一個非空引用\n" +
                 $"    actual   : None\n" +
                 $"    症狀     : 該來源的自由游標請求永遠不會被看見（例如暫停時游標不會出現）");
+        }
+
+        // =====================================================================
+        // W13 — FSM 可請求的每一個 state 動畫鍵，都必須在該角色的 transitionMappings 解析得到
+        // =====================================================================
+
+        /// <summary>
+        /// W7 守的是 **Action** 的動畫鍵；本條守的是 **state 自己的**動畫鍵。兩者是同一類安靜失敗
+        /// （鍵沒接 ⇒ 動畫不播、流程照跑），但來源不同，所以 W7 對 state 鍵的覆蓋率是零。
+        ///
+        /// 2026-09-10 實際踩到：walk-off falling 讓敵人**第一次**有辦法進入 <c>JumpState</c>
+        /// （在此之前 AI 從不設 <c>JumpRequested</c>，<c>CanEnter</c> 永遠 false），於是 Y Bot 開始請求
+        /// <c>FallingLoop</c>／<c>JumpIdleLandHard</c>——而它的 facade 一個 Jump 家族鍵都沒有。
+        /// 症狀只有兩行 Console 警告 ＋ 動畫維持原樣（<c>AnimancerFacade</c> 查表失敗的退化路徑），
+        /// 位移與 FSM 完全正常 ⇒ **EditMode 全綠、Play 也「看起來正常」**。這正是本條要消滅的盲區。
+        ///
+        /// 📌 <c>FullBodyStateMachine.Initialize</c> 對**每一隻**角色無條件註冊
+        /// Idle／Move／Jump／Roll／Action ⇒「這隻角色用不到那個狀態」不是可以不接線的理由。
+        /// 只要它 config 綁的 <c>JumpStateParams</c> authored 了某一格，它就可能請求那一格。
+        ///
+        /// 檢查範圍刻意是「**authored 的格子**」而不是「表裡所有格子」：
+        /// <c>JumpState.ResolveAnimationKey</c> 在變體無效時保留現有鍵、不會請求空鍵，
+        /// 沒填的格子本來就不會被請求。因此「敵人只給一套精簡的 falling／landing」是合法配置——
+        /// 它要接的不是全部 18 格，而是**它自己那張表填了幾格就接幾格**。
+        ///
+        /// ⚠️ 已知的保守偏差（刻意）：Walk／Run 陣列裡 authored 但缺 <c>FootPhaseCurve</c> 的格子，
+        /// 執行期 <c>SelectVariant</c> 其實選不到，本條仍要求接線。寧可多接一列，
+        /// 也不要讓「補上曲線之後才發現鍵沒接」變成下一次的 Play-only 發現。
+        /// 這裡刻意**不複製** <c>SelectVariant</c> 的可達性判斷——測試重述執行期邏輯只會製造第二份真相。
+        /// </summary>
+        [Test]
+        public void W13_ReachableStateAnimationKeys_ResolveInTransitionMappings()
+        {
+            var violations = new List<string>();
+
+            foreach (CharacterPrefab prefab in LoadCharacterPrefabs())
+            {
+                var config = Field(prefab, "stateMachineConfig").objectReferenceValue as StateMachineConfigSO;
+                if (config == null) continue; // W1 已經報過
+
+                var facade = ResolveSeam<AnimancerFacade>(prefab, "animationFacade");
+                if (facade == null) continue; // W1 已經報過
+
+                HashSet<string> mappedKeys = CollectMappedAnimationKeys(facade);
+
+                // ① BaseState.AnimationKey ＝ Type.ToString()。這四個狀態一律被註冊、一律可能被請求。
+                //    Action 的鍵來自 definition，已由 W7 覆蓋，不在此重複。
+                RequireMappedStateKey(prefab, nameof(StateType.Idle), "BaseState.AnimationKey", mappedKeys, violations);
+                RequireMappedStateKey(prefab, nameof(StateType.Move), "BaseState.AnimationKey", mappedKeys, violations);
+                RequireMappedStateKey(prefab, nameof(StateType.Jump), "BaseState.AnimationKey（相位解析失敗時的保留鍵）", mappedKeys, violations);
+                RequireMappedStateKey(prefab, nameof(StateType.Roll), "BaseState.AnimationKey", mappedKeys, violations);
+
+                // ② JumpState 的相位鍵全部來自 config 綁定的 JumpStateParams 變體表。
+                var jumpParams = config.GetStateParams<JumpStateParams>(StateType.Jump);
+                if (jumpParams == null) continue; // 未綁定 ⇒ JumpState 走硬編碼退化，不會請求變體鍵
+
+                JumpAnimationVariantTable table = jumpParams.AnimationVariants;
+                RequireMappedVariant(prefab, jumpParams, table.Falling, "Falling", mappedKeys, violations);
+                RequireMappedVariant(prefab, jumpParams, table.HardLand, "HardLand", mappedKeys, violations);
+                RequireMappedVariantSet(prefab, jumpParams, table.Start, "Start", mappedKeys, violations);
+                RequireMappedVariantSet(prefab, jumpParams, table.NormalLand, "NormalLand", mappedKeys, violations);
+                RequireMappedVariantSet(prefab, jumpParams, table.NormalLandToMove, "NormalLandToMove", mappedKeys, violations);
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "FSM 可請求的 state 動畫鍵在 transitionMappings 找不到（Verification Ladder L1）：\n\n" +
+                string.Join("\n\n", violations));
+        }
+
+        private static void RequireMappedStateKey(
+            CharacterPrefab prefab,
+            string key,
+            string sourceLabel,
+            HashSet<string> mappedKeys,
+            List<string> violations)
+        {
+            if (mappedKeys.Contains(key)) return;
+
+            violations.Add(
+                $"{prefab.Path} → state 動畫鍵 '{key}'（{sourceLabel}）沒有對應的 transition mapping\n" +
+                $"    contract : FullBodyStateMachine 對每隻角色都註冊 Idle／Move／Jump／Roll，四個鍵一律要接\n" +
+                $"    expected : 補一列 StateKey='{key}' 並指派 TransitionAsset\n" +
+                $"    症狀     : 進入該狀態時動畫不換、Console 只有一行警告，FSM 與位移看起來完全正常");
+        }
+
+        private static void RequireMappedVariantSet(
+            CharacterPrefab prefab,
+            JumpStateParams jumpParams,
+            JumpAnimationVariantSet set,
+            string label,
+            HashSet<string> mappedKeys,
+            List<string> violations)
+        {
+            RequireMappedVariant(prefab, jumpParams, set.Idle, label + ".Idle", mappedKeys, violations);
+            RequireMappedVariantArray(prefab, jumpParams, set.Walk, label + ".Walk", mappedKeys, violations);
+            RequireMappedVariantArray(prefab, jumpParams, set.Run, label + ".Run", mappedKeys, violations);
+        }
+
+        private static void RequireMappedVariantArray(
+            CharacterPrefab prefab,
+            JumpStateParams jumpParams,
+            LocomotionStopVariant[] variants,
+            string label,
+            HashSet<string> mappedKeys,
+            List<string> violations)
+        {
+            if (variants == null) return;
+
+            for (int i = 0; i < variants.Length; i++)
+            {
+                RequireMappedVariant(prefab, jumpParams, variants[i], $"{label}[{i}]", mappedKeys, violations);
+            }
+        }
+
+        private static void RequireMappedVariant(
+            CharacterPrefab prefab,
+            JumpStateParams jumpParams,
+            LocomotionStopVariant variant,
+            string label,
+            HashSet<string> mappedKeys,
+            List<string> violations)
+        {
+            // 沒 authored 的格子執行期不會被請求（ResolveAnimationKey 保留現有鍵），因此不要求接線。
+            if (!variant.IsValid) return;
+
+            string key = variant.AnimationKey;
+            if (string.IsNullOrEmpty(key) || mappedKeys.Contains(key)) return;
+
+            violations.Add(
+                $"{prefab.Path} → '{jumpParams.name}' 的 {label} 動畫鍵 '{key}' 沒有對應的 transition mapping\n" +
+                $"    contract : config 綁的 JumpStateParams 只要 authored 了這一格，這隻角色就可能請求它\n" +
+                $"    expected : 補一列 StateKey='{key}' 並指派 TransitionAsset，\n" +
+                $"               或改綁一份**這隻角色自己的** JumpStateParams（只 author 它真的需要的格子）\n" +
+                $"    症狀     : 空中／落地時動畫不換，Console 只有一行 AnimancerFacade 查表失敗警告");
         }
     }
 }

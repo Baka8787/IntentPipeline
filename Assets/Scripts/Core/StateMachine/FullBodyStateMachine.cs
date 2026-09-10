@@ -20,6 +20,18 @@ namespace Project.Core.StateMachine
         public BaseState CurrentState => _currentState;
 
         /// <summary>
+        /// 唯讀轉送目前 Action 段落已鎖定的方向承諾。FSM 不決定方向，也不送出 facing request。
+        /// </summary>
+        public bool TryGetActiveFacingCommitment(out Vector3 worldDirection)
+        {
+            if (_currentState is ActionState actionState)
+                return actionState.TryGetFacingCommitment(out worldDirection);
+
+            worldDirection = default;
+            return false;
+        }
+
+        /// <summary>
         /// 💡 修正安全性合約：要求傳入初始化完成的 data，杜絕 OnEnter(null) 隱性風險
         ///
         /// 🆕（ADR-003 Stage 2）新增 <paramref name="movementModel"/>：當下 active 的 Movement Model，
@@ -30,7 +42,9 @@ namespace Project.Core.StateMachine
             PlayerRuntimeData data,
             IMovementModel movementModel,
             ActionRequestTarget actionRequestTarget = null,
-            IActionLifecycleSink[] actionLifecycleSinks = null)
+            IActionLifecycleSink[] actionLifecycleSinks = null,
+            // 🆕（docs/11 §8.3）Action-time facing 的方向 seam。可為 null（敵人沒有相機式瞄準）。
+            IAimSource aimSource = null)
         {
             _config = config;
             _movementModel = movementModel;
@@ -41,7 +55,7 @@ namespace Project.Core.StateMachine
             RegisterState(new MoveState());
             RegisterState(new JumpState());
             RegisterState(new RollState());
-            RegisterState(new ActionState(actionRequestTarget, actionLifecycleSinks));
+            RegisterState(new ActionState(actionRequestTarget, actionLifecycleSinks, aimSource));
 
             _currentState = _stateRegistry[StateType.Idle];
             _currentState.OnEnter(data); // 💡 傳入實體數據

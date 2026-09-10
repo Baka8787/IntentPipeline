@@ -4,6 +4,8 @@ using UnityEngine;
 using Project.Core.Actions;
 using Project.Core.Arbitration;
 using Project.Core.Blackboard;
+using Project.Core.Combat;
+using Project.Core.Facing;
 using Project.Core.Movement;
 using Project.Core.StateMachine;
 using Project.Presentation;
@@ -23,6 +25,11 @@ namespace Project.Core.Pipeline
         public MonoBehaviour Sink;
     }
 
+    // 只有「所有角色都必備、且 Runner 從同物件解析」的具體元件能列在這裡。
+    // CharacterFacingSource 保證 ADR-007 D3 的單一 facing authority；MotionDriver 是所有角色共用的
+    // 位移／rotation 執行者。PlayerCombatContextSource 與 IAimSource 都是玩家專屬，⛔ 不得順手加入——
+    // RequireComponent 無法表達「只有玩家需要」，那條角色分類契約繼續由 PrefabWiringTests.W12 守住。
+    [RequireComponent(typeof(CharacterFacingSource), typeof(MotionDriver))]
     public class CharacterPipelineRunner : MonoBehaviour
     {
         [Header("Setup")]
@@ -52,6 +59,8 @@ namespace Project.Core.Pipeline
         private IInputSource _inputSource;
         private IMovementIntentSource _movementIntentSource;
         private IMovementModel _movementModel;
+        private PlayerCombatContextSource _combatContextSource;
+        private CharacterFacingSource _facingSource;
         private PlayerRuntimeData _runtimeData;
 
         public PlayerRuntimeData RuntimeData => _runtimeData;
@@ -114,6 +123,8 @@ namespace Project.Core.Pipeline
             }
 
             if (actionRequestTarget == null) actionRequestTarget = GetComponent<ActionRequestTarget>();
+            _combatContextSource = GetComponent<PlayerCombatContextSource>();
+            _facingSource = GetComponent<CharacterFacingSource>();
             ResolveActionLifecycleSinks();
 
             // === 🆕（ADR-003 D2）Movement 意圖 producer 解析：明確指派優先，其次同物件自動尋找 ===
@@ -212,8 +223,13 @@ namespace Project.Core.Pipeline
             _stateMachine = new FullBodyStateMachine();
             // 🆕（ADR-003 Stage 2）連同 active model 一併注入：狀態機是 model 的**唯一持有點**，
             // 由它發給所有 state，確保跨幀平滑狀態全域唯一（Idle↔Move 切換不重置收步）。
+            // IAimSource 注入鏈保留給 ActionReleaseContext 的無 combat target fallback；
+            // Runner 只認 Core seam，不再因組裝 Presentation 實作而把 CameraControl 洩漏進 Core。
+            // facing request 已收斂到順序 4.6 的 CharacterFacingSource。
             _stateMachine.Initialize(
-                stateMachineConfig, _runtimeData, _movementModel, actionRequestTarget, _actionLifecycleSinks);
+                stateMachineConfig, _runtimeData, _movementModel, actionRequestTarget, _actionLifecycleSinks,
+                GetComponent<IAimSource>());
+            _facingSource?.Initialize(motionDriver, _stateMachine);
         }
 
         /// <summary>
@@ -324,6 +340,10 @@ namespace Project.Core.Pipeline
             // 故 Ctrl toggle 的持久型態 WalkModeActive 不會被誤翻，封鎖解除後型態原樣保留。
             _movementIntentSource?.ProduceIntent(ref inputData, _runtimeData);
 
+            // 【順序 2.6】Combat Context Producer —— 順序 2 已寫好 Action intent，
+            // external ActionRequestTarget 也尚未在順序 4 評估後清除。Runner 只負責排程具體 S3a producer。
+            _combatContextSource?.Tick(_runtimeData, Time.time);
+
             // 【順序 3】🆕（ADR-003 D3／D4 Stage 2）Movement Model Tick —— 推進 active model 的 dynamics。
             // Runner 只呼介面方法：**不知道**平滑、MoveSpeed、gait 是什麼（原 DeriveMovementParameters 已整段遷出）。
             // ⚠️ 兩個時序理由讓這一步必須留在 Update、且**每幀無條件**（不看當前狀態）：
@@ -344,6 +364,9 @@ namespace Project.Core.Pipeline
             //    這是刻意的時序取捨，**不得為了消除延遲而把 4.5 提前**（見 dev-spec §2.1 脆弱點第 2／7 條）。
             // Runner 只呼叫管線、不認識任何 IArbiterSource 實作（比照順序 6.5 的 PresentationPipeline）。
             _arbiterPipeline?.Tick(_runtimeData);
+
+            // 【順序 4.6】單一 facing source —— FSM 已確定 Action commitment，LateUpdate 尚未消費 request。
+            _facingSource?.Tick(_runtimeData);
 
             // 【順序 5】AnimationFacade 同步 (預留位置，後續實作接上)
             SyncAnimation();
@@ -378,7 +401,7 @@ namespace Project.Core.Pipeline
 
                 // 🆕（v0.8）IsGrounded 的黑板同步已收斂進 MotionDriver.GetGravityThisFrame，
                 // 只要上面這行 OnUpdateMotion 實際呼叫了任一個移動方法（ExecuteBaseMovement /
-                // ExecuteBakedCurveMovement / ApplyBakedCompensation）就會自動更新，
+                // ExecuteVerticalOnlyMovement / ExecuteBakedCurveMovement / ApplyBakedCompensation）就會自動更新，
                 // 不再需要像 v0.7 那樣額外呼叫一次 SyncGroundedState。
             }
 

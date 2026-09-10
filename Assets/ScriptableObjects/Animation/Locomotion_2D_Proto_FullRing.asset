@@ -1,0 +1,63 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c5a8877f26e7a6a43aaf06fade1a064a, type: 3}
+  m_Name: Locomotion_2D_Proto_FullRing
+  m_EditorClassIdentifier: Kybernetik.Animancer::Animancer.TransitionAsset
+  _Transition:
+    rid: 1448047104660340736
+  references:
+    version: 2
+    RefIds:
+    - rid: 1448047104660340736
+      type: {class: MixerTransition2D, ns: Animancer, asm: Kybernetik.Animancer}
+      data:
+        _FadeDuration: 0.15
+        _Speed: 1
+        _Events:
+          _NormalizedTimes: []
+          _Callbacks: []
+          _Names: []
+        _Animations:
+        - {fileID: 7400002, guid: 6844dcb6a866ab34fa96c67e39eab693, type: 3}
+        - {fileID: 7400036, guid: 6844dcb6a866ab34fa96c67e39eab693, type: 3}
+        - {fileID: 7400050, guid: 87e6bba8b3ae86e4da9c84f6d832e37d, type: 3}
+        - {fileID: 7400052, guid: 87e6bba8b3ae86e4da9c84f6d832e37d, type: 3}
+        - {fileID: 7400054, guid: 87e6bba8b3ae86e4da9c84f6d832e37d, type: 3}
+        - {fileID: 7400056, guid: 87e6bba8b3ae86e4da9c84f6d832e37d, type: 3}
+        - {fileID: 7400060, guid: 87e6bba8b3ae86e4da9c84f6d832e37d, type: 3}
+        - {fileID: 7400062, guid: 87e6bba8b3ae86e4da9c84f6d832e37d, type: 3}
+        - {fileID: 7400058, guid: 87e6bba8b3ae86e4da9c84f6d832e37d, type: 3}
+        _Speeds:
+        - 1
+        - 1.749941
+        - 2.8285706
+        - 2.8924608
+        - 2.7639525
+        - 1.7288562
+        - 1.7288561
+        - 2.8285701
+        - 2.8285694
+        _SynchronizeChildren: 000000000000000000
+        _Thresholds:
+        - {x: 0, y: 0}
+        - {x: 0, y: 1}
+        - {x: 0, y: -1}
+        - {x: -1, y: 0}
+        - {x: 1, y: 0}
+        - {x: -0.7071, y: 0.7071}
+        - {x: 0.7071, y: 0.7071}
+        - {x: -0.7071, y: -0.7071}
+        - {x: 0.7071, y: -0.7071}
+        _DefaultParameter: {x: 0, y: 0}
+        _Type: 0
+        _ParameterNameX: {fileID: 11400000, guid: 778a27b90b340f445aecb49e9bba881c, type: 2}
+        _ParameterNameY: {fileID: 11400000, guid: ef428365df82d0a4b9d64cdae17ae683, type: 2}

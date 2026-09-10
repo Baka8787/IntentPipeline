@@ -231,7 +231,13 @@ AimResolver.Update():
 
 ---
 
-## 8. Stage 2（含 strafe）— **延後，需要 ADR-005**
+## 8. Stage 2（含 strafe）— **延後；預告的 ADR 已開出＝ADR-007**
+
+> **2026-09-06 更新**：本節第 1～3 點預告的「必開新 ADR」已成形為
+> **`docs/ADR/007-direction-authority.md`**（🟡 **Trial**，2026-09-06 裁決）＋ `docs/14-direction-authority.md`。
+> **FU-6 於該處結案**（移動意圖改世界座標、相機基底只留在玩家 producer）。
+> 第 4 點的 `LocomotionModel` 禁令已隨 ADR-005 `Accepted` 解除（`docs/13` §6）。
+> ⚠️ 本節標題原文「需要 ADR-005」是編號誤植——當時 005 尚未被 Multi-Action Identity 佔用。
 
 **觸發條件**：展示需要「鎖定中繞圈走位」而 §4.3 的降級不可接受。
 

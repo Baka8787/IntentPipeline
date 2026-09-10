@@ -166,6 +166,76 @@ namespace Project.Tests.EditMode
                 "Heel 穿 2cm、Toe 穿 6cm 時必須由 Toe argmax 決定抬升量");
         }
 
+        [Test]
+        public void SoleHeight_SlopePenetrationCrossover_IsContinuous()
+        {
+            const int Steps = 40;
+            const float HalfSweep = 0.004f;
+            const float FootBottomHeight = 0.1f;
+            float stepSize = HalfSweep * 2f / Steps;
+            float slopeRise = 0.25f * Mathf.Tan(12f * Mathf.Deg2Rad);
+            Vector3 soleNormal = Quaternion.AngleAxis(-12f, Vector3.right) * Vector3.up;
+            Vector3 ankleTarget = new Vector3(0f, 0.15f, 0f);
+            Vector3 heelGroundPoint = new Vector3(0f, 0f, -0.1f);
+            Vector3 worldHeel = new Vector3(0f, -0.01f, -0.1f);
+            Vector3 worldToe = new Vector3(0f, slopeRise - 0.01f, 0.15f);
+
+            float previous = 0f;
+            bool hasPrevious = false;
+            for (int i = 0; i <= Steps; i++)
+            {
+                // 中點時 heelPen == toePen == 0.01；但兩端地面 Y 相差約 5.3cm。
+                // 舊 argmax-groundY 寫法會在此跳完整坡高，新公式只能隨 penetration 步長連續變化。
+                float toeGroundY = slopeRise - HalfSweep + stepSize * i;
+                Vector3 toeGroundPoint = new Vector3(0f, toeGroundY, 0.15f);
+                float current = FootIKController.ComputeSoleHeight(
+                    ankleTarget,
+                    soleNormal,
+                    FootBottomHeight,
+                    worldHeel,
+                    heelGroundPoint,
+                    worldToe,
+                    toeGroundPoint,
+                    out _);
+
+                if (hasPrevious)
+                {
+                    Assert.LessOrEqual(Mathf.Abs(current - previous), stepSize + Epsilon,
+                        $"heel/toe penetration 交叉附近不得出現大於輸入步長的 GroundY 跳變（step={i}）");
+                }
+
+                previous = current;
+                hasPrevious = true;
+            }
+        }
+
+        [Test]
+        public void SoleHeight_FlatGround_EqualsAnkleOnlyPlane()
+        {
+            const float FootBottomHeight = 0.1f;
+            Vector3 ankleTarget = new Vector3(0f, FootBottomHeight, 0f);
+            Vector3 worldHeel = new Vector3(0f, 0f, -0.1f);
+            Vector3 worldToe = new Vector3(0f, 0f, 0.15f);
+            Vector3 heelGroundPoint = new Vector3(0f, 0f, -0.1f);
+            Vector3 toeGroundPoint = new Vector3(0f, 0f, 0.15f);
+            float ankleOnlyGroundY = (ankleTarget - Vector3.up * FootBottomHeight).y;
+
+            float twoPointGroundY = FootIKController.ComputeSoleHeight(
+                ankleTarget,
+                Vector3.up,
+                FootBottomHeight,
+                worldHeel,
+                heelGroundPoint,
+                worldToe,
+                toeGroundPoint,
+                out float lift);
+
+            Assert.AreEqual(0f, lift, Epsilon,
+                "平地且兩端都落在腳底平面時，兩點採樣不得引入額外抬升");
+            Assert.AreEqual(ankleOnlyGroundY, twoPointGroundY, Epsilon,
+                "平地兩點路徑必須退化為 ankle-only 的腳底平面公式，避免修正斜坡時改變既有平地行為");
+        }
+
         // === ComputeFootWeight（Q3：腳骨高度 → 貼地權重）===
 
         [Test]

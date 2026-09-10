@@ -6,6 +6,32 @@
 
 ---
 
+## [v0.36] - Walk-off Falling：`VerticalVelocity` 兌現 ADR-002 §6-1 的延後承諾（2026-09-10，已驗收）
+
+實測缺陷：角色不按 Jump 直接走出高台，物理正常下墜、FSM 卻留在 Move／Idle，動畫像在空中走路，落地也不經過 `JumpState` 的分類。根因不在重力（`MotionDriver` 每幀無條件加重力，與 state 無關），而在**沒有非主動失地的入口**——`JumpState.CanEnter` 只認 `JumpRequested && IsGrounded`。
+
+修法刻意不新增 state：非主動失地進**既有的** `JumpState`，起始 phase 直接是 `Falling`、不注入 launch、空中按跳一律拒絕。`A13'` 把 `StateType` 成員清單寫死，正是「不要隨便加 state」的機器守衛，本輪它一次都沒有變紅。入口走 `EvaluateInterrupts`（每幀對所有狀態問 `CanEnter`），**FSM config、transition 資產、動畫映射零改動**。副作用如實記錄：`JumpState` 自此承載「所有滯空」，名字與承載範圍有落差——那是命名問題不是結構問題，以 State Matrix 註記承載範圍，不改名。
+
+Fall-entry grace（預設 0.1 s，落在 `JumpStateParams`）只過濾斜坡／樓梯的 `isGrounded` 抖動，**不是 Coyote Time**，本輪也沒有實作 Coyote Time——兩者形狀都是計時器，目的完全不同。實作上用 `Time.time` **快照**而非累加 `deltaTime`：`FullBodyStateMachine` 同一幀可能經 `EvaluateInterrupts` 與 `EvaluateTransitions` 各問一次 `CanEnter`，累加會雙倍計時，快照則天然冪等（先例：`ActionState` 的冷卻閘門）。進入原因由 `CanEnter` 一次裁決並鎖存，`OnEnter` 刻意不從 `data` 重新推導——下游重算已承諾的決策是本專案 review protocol 明列的加重項。
+
+**`PlayerRuntimeData.VerticalVelocity` 於本輪落地**，兌現 ADR-002 §6-1 從 v0.10 起延後的承諾。閘門條件是「出現第二個垂直速度消費者」，而 walk-off falling 的落地分類正是那第二個：`JumpState` 原本以 `v₀ − g·elapsed` 自行推導 impact velocity，那個公式假設「本次滯空有已知 launch」——非主動失地沒有 launch，沿用下去必然分裂成「主動一套公式、walk-off 一套、未來擊退再一套」。這正是 ADR 當年要避免的東西，所以走理想路線而不是 fallback。
+
+發布點是本輪唯一容易寫錯的地方：**必須在 `reboundForce` 貼地夾持之前**。`GetGravityThisFrame` 在偵測到 grounded 的當幀就把 `_verticalVelocity` 覆寫成貼地力，發布晚一步，落地幀讀到的就是 −2，Hard Land 永遠不成立。放在 `IsGrounded`／`JustLanded`／`JustLeftGround` 的同一段裡，這四個欄位構成**同一瞬間的一致快照**——FSM 在 Update 讀到的 grounded 與速度來自同一次 LateUpdate 寫入。這其實比舊公式更準：舊公式的 `_stageElapsedTime` 累加在 Update、垂直積分發生在 LateUpdate，本來就是兩個時鐘。代價是「只在第一個 grounded 幀正確」，兩條入口都守住（主動跳躍滯空遠超 `MinAirborneTimeBeforeLandingCheck`；非主動失地在 `OnEnter` 預先滿足該計時器）。
+
+重新界定 owner/writer/readers 的結果**比 v0.10 草案更緊**：草案允許「MotionDriver、`Project.Core` 內的狀態類別」直寫，實際落地收窄為 **`MotionDriver` 唯一**，狀態只讀不寫、注入仍走 `ApplyJumpLaunch`（選項 A 未破）。也就是說**只發布值、不外放寫入權**，design-doc 當年擔心的「垂直速度變成可被任何模組寫入的公開狀態」並沒有發生。A5 加一條 `WriterRule` 把這件事機器化。
+
+**沒有開新 ADR**：ADR-002 §6-1 已經決定了這件事、只是延後時機並寫明「屆時重新界定 owner/writer/readers」，因此這是兌現既有決策，走 `JustLanded`／`JustLeftGround` 的同一條路徑（v0.10 定案 → 延後 → M2 消費者出現 → 寫進 Living Docs，當時同樣沒開 ADR）。ADR-002 一字未動。
+
+**驗證**：編譯 0 errors，EditMode ＋ PlayMode **全綠**，Play 實測未回報異常。新增六項 regression（grace 需連續離地／非主動入口進 Falling 且不注入／主動入口照舊注入／兩種入口都以黑板速度分類 Normal 與 Hard／walk-off 不得換到空中跳／A5 writer rule）。Hard Land 因換成實際積分速度而略易觸發，實測可接受，照裁決不調數值。
+
+**同日後續：敵人也會失地。** Play 冒出兩行 `AnimancerFacade` 查表失敗警告，來源是 Y Bot 而非玩家。診斷後確認**不是本輪的 bug，是本輪暴露的既有接線缺口**：`FullBodyStateMachine.Initialize` 對每一隻角色無條件註冊 `JumpState`，但在此之前敵人**永遠進不去**（AI 從不設 `JumpRequested`）；非主動失地給了它第一次進入機會，於是它開始請求玩家專屬的動畫鍵——而玩家與敵人當時**綁的是同一份 `JumpStateParams`**。
+
+一個有用的推論：`JumpIdleLandHard` 出現代表 `|v_y| ≥ 8 m/s`，而非主動失地不注入 launch ⇒ 用的是序列化的 `gravity = -9.81` 而非 bake 的 16.78 ⇒ 落差約 **3.3 m**。Y Bot 出生點 `y ≈ 0`，且 log 裡只有 hard land、沒有任何 normal land 鍵 ⇒ 敵人是真的從高處掉下來（追著玩家走下同一個高台），**反證了 0.1 s grace 沒有誤觸發**。
+
+處置是給敵人**自己一份精簡的 `JumpStateParams`**（只 author `falling`／`normalLand.idle`／`hardLand` 三格，Y Bot 對應補三列 mapping），而不是把玩家的 18 格複製過去。理由不是省接線工：共用一份表代表**玩家的跳躍調參會靜默決定敵人的落地分類**（同一個 `hardLandingSpeed`），而那 18 格對永不跳躍的敵人全是死重。順帶釐清一個容易記錯的退化語意——空的 `walk[]` **只在 `tier == None` 或沒有 foot phase 時**才退回 Idle 家族；走路離地且 foot phase 有解時會退成「保留現有鍵、`_landDuration = 0`、立即退場」，不會 NRE，但也不會播落地動畫。
+
+這個缺口只能等 Play 才浮現，因為 `PrefabWiringTests` 的 **W7** 只守 Action 的動畫鍵、沒有 state 鍵的版本。補上 **W13**：對每隻角色檢查四個 `BaseState.AnimationKey` ＋ 該角色 config 綁的 `JumpStateParams` 變體表裡**所有 authored 的格子**。判準刻意是「authored 的格子」而非「全部 18 格」，因此精簡表是合法配置，W13 不預設任何一種選擇。交付時 W13 刻意是紅的、作為接線提示（先例：`docs/14` 的 W11），接線後已轉綠。
+
 ## [v0.35] - ADR-005 Trial：ActionSlot 身分讓多 Action 共用一顆 ActionState（2026-09-02，✅ EditMode 全綠／⏳ Play 與零 GC 待驗）
 
 `docs/08` §11.1 登記的 FU-1／FU-2／FU-3 一次解掉。三者共同根因是「系統裡沒有『這是哪一個 Action』的概念」——概念不存在，查表就只能用 `StateType` 當鍵、mailbox 只能是無名旗標、中斷只能比型別。新增 `ActionSlot`（`None`／`Primary`／`Secondary`／`Tertiary`／`Reaction`）作為單一身分，輸入映射、per-slot 冷卻、external request、Action→Action 中斷全部以它為鍵。

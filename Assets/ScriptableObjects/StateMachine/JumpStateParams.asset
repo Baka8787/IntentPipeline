@@ -13,7 +13,62 @@ MonoBehaviour:
   m_Name: JumpStateParams
   m_EditorClassIdentifier: Project.Runtime::Project.Core.StateMachine.JumpStateParams
   Stages:
-  - Bake: {fileID: 11400000, guid: de633036526a931498f985475fbebdd8, type: 2}
+  - Bake: {fileID: 11400000, guid: ed1959b256c5b874d9e19ab503ab8146, type: 2}
   HeightMultiplier: 1
   GravityMultiplier: 1
   LaunchVelocityMultiplier: 1
+  animationVariants:
+    start:
+      idle:
+        bakeData: {fileID: 11400000, guid: c0bcdac18a136a54387a6a91947011b9, type: 2}
+        animationKey: JumpIdleStart
+      walk:
+      - bakeData: {fileID: 11400000, guid: 59f494e583fc18848b5cdbe146cb910b, type: 2}
+        animationKey: JumpWalkStart_LU
+      - bakeData: {fileID: 11400000, guid: 4cd03ec82c523894b93e35678c3a9724, type: 2}
+        animationKey: JumpWalkStart_RU
+      run:
+      - bakeData: {fileID: 11400000, guid: e6a6206f2b57c2443a59391399667d63, type: 2}
+        animationKey: JumpRunStart_LU
+      - bakeData: {fileID: 11400000, guid: d2ad9b29908807d4d8c1b53b0984c4d0, type: 2}
+        animationKey: JumpRunStart_RU
+    falling:
+      bakeData: {fileID: 11400000, guid: b919b782024ef664e9c79c0293758279, type: 2}
+      animationKey: FallingLoop
+    normalLand:
+      idle:
+        bakeData: {fileID: 11400000, guid: 43b3cf44d4db1914682f0b964f13487e, type: 2}
+        animationKey: JumpIdleLand
+      walk:
+      - bakeData: {fileID: 11400000, guid: 506d2658f300269458cbffd70a1304a8, type: 2}
+        animationKey: JumpWalk_LU_Land
+      - bakeData: {fileID: 11400000, guid: 386d6b7e95bceba4491ba645e84aa18a, type: 2}
+        animationKey: JumpWalk_RU_Land
+      run:
+      - bakeData: {fileID: 11400000, guid: 1c470abaaf4074a4195a2b8777896782, type: 2}
+        animationKey: JumpRun_LU_Land
+      - bakeData: {fileID: 11400000, guid: 5d53140465768aa4ea7a3302aaf5fdee, type: 2}
+        animationKey: JumpRun_RU_Land
+    normalLandToMove:
+      idle:
+        bakeData: {fileID: 11400000, guid: da318b4dda58aec4d86dd923794c4786, type: 2}
+        animationKey: JumpIdleLand2Walk
+      walk:
+      - bakeData: {fileID: 11400000, guid: 046cc3359575f32458d1ef3767ff5e0a, type: 2}
+        animationKey: JumpWalk_LU_Land2Walk
+      - bakeData: {fileID: 11400000, guid: 90dad330c2f42c5409634261c207aa38, type: 2}
+        animationKey: JumpWalk_RU_Land2Walk
+      run:
+      - bakeData: {fileID: 11400000, guid: 506f65f2928551048bee4e22cd3e39ed, type: 2}
+        animationKey: JumpRun_LU_Land2Run
+      - bakeData: {fileID: 11400000, guid: 72654bc478292104d8c8c4e9297d4b53, type: 2}
+        animationKey: JumpRun_RU_Land2Run
+    hardLand:
+      bakeData: {fileID: 11400000, guid: 6dfa0dfc9499e404db6fc577dfbde1a3, type: 2}
+      animationKey: JumpIdleLandHard
+  walkLoopBakeData: {fileID: 11400000, guid: c168624b83aacd642bb0d17a8561f704, type: 2}
+  runLoopBakeData: {fileID: 11400000, guid: 7c253da4ed9248b4fa1485ea300fb6ef, type: 2}
+  movementIntentThreshold: 0.2
+  runIntentThreshold: 0.75
+  hardLandingSpeed: 8
+  landFallbackDuration: 0.1

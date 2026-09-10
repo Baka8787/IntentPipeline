@@ -118,6 +118,57 @@ FootIKController ────寫──→ FootIKTargetData ────讀──
 
 ---
 
+#### 3.5.4.1 🔴 斜坡骨盆震盪（2026-09-08，probe 實測確診並修正）
+
+> **症狀**：角色**站在小斜坡上**時，在「骨盆高／膝蓋直」與「骨盆低／膝蓋彎」兩態間反覆跳動。
+> **平地完全正常。**
+
+**根因**——`SampleGround` 兩點採樣路徑的最後一行（已移除）：
+
+```csharp
+sample.GroundY = heelPenetration >= toePenetration ? heelHit.point.y : toeHit.point.y;
+```
+
+`lift = Max(0, Max(heelPen, toePen))` **對輸入連續**；
+但 `GroundY` 是「取 **argmax 的另一個屬性**」——在 `heelPen == toePen` 的交叉點上，
+回傳值從 `heelHit.point.y` **跳到** `toeHit.point.y`。斜坡上這兩點不等高 ⇒ **跳幅 ≈ heel-toe 跨距 × 坡度梯度**
+＝ `(HeelOffset + ToeOffset) × 梯度` ＝ `0.25 × 梯度`。
+
+📌 **`max()` 是連續的；「選出 argmax 之後改讀它的別的欄位」不是。** 這是本次最值得記住的一句。
+
+**為什麼只有斜坡發作**：平地上 `heelHit.point.y == toeHit.point.y` ⇒ 三元在兩個**相等**的值之間選 ⇒ 跳幅 0 ⇒ 不可觀察。
+讓兩者反覆交叉的是 idle 動畫的細微腳部位移 ＋ 角色沿坡面的緩慢滑動。
+
+**實測佐證（throwaway probe，已刪除）**：五次取樣震盪幅度 `0.042`～`0.069` m。
+反推梯度 `0.17`～`0.28` ⇒ **坡度 9.5°～15.5°**，與「小斜坡」吻合——**量化上對得起來，不是猜的**。
+probe 同時證明 `IsGrounded`／`L.hit`／`R.hit`／`ikAllowed` **全程未翻動** ⇒ 排除了
+「raycast 間歇落空」與「`CharacterController.isGrounded` 在斜坡上跳動」兩個更直覺的假說。
+
+**修法**——`GroundY` 改由**抬升後的實際腳底平面**導出（＝ ankle-only 路徑本來就在用的同一條公式）：
+
+```csharp
+sample.GroundY = ComputeSoleHeight(TargetPosition, SoleNormal, footBottomHeight,
+                                   worldHeel, heelHit.point, worldToe, toeHit.point, out float lift);
+sample.TargetPosition.y += lift;
+```
+
+**為什麼這是對的，而不只是「比較平滑」**：骨盆補償要問的是
+**「這隻腳最後被放在多低，骨盆得沉多少才搆得到」**——那是**解算後的腳底高度**，
+不是「某一端底下的地面高度」。新值是 `TargetPosition`（連續）與 `lift`（連續）的函數 ⇒
+**連續性由構造保證**，⛔ 不是靠加遲滯去掩蓋一個仍然存在的斷點
+（與 `docs/15` §18.3 的 HeadLook clamp 是同一條紀律）。
+
+- **平地逐字等價**：兩端無戳穿時 `lift = 0`，結果 ＝ `hitPoint.y` ＝ 舊值 ⇒ **不是行為改變**。
+- **斜坡上骨盆會比舊版少沉一點**（沉到腳實際被放的位置，而不是最低端底下的地面）⇒ **這是 Play 要看的差異**。
+- **不變量**：`FootIKTests.SoleHeight_SlopePenetrationCrossover_IsContinuous`
+  以 12° 斜面掃過交叉點 40 步，斷言相鄰輸出差 ≤ 輸入步長（舊寫法會跳 ~5.3 cm ＝ 步長的 265 倍）；
+  `SoleHeight_FlatGround_EqualsAnkleOnlyPlane` 守住平地等價。
+
+**⚠️ 刻意沒修的相鄰風險（已登記，勿當成遺漏）**：`Tick` 裡
+`pelvisTarget = (ikAllowed && left.HasHit && right.HasHit) ? ... : 0f` 同樣是「輸入不可用就硬切回 0」，
+結構上屬同一類缺陷。但 **probe 證明這條路徑本次根本沒觸發** ⇒ 依專案紀律
+（`CLAUDE.md`：沒有證據支撐的防呆一律擋下）**不加防呆**。它是潛在風險，不是已觀察到的缺陷。
+
 #### 3.5.5 Level 1 rigid sole approximation（🆕 2026-08-31，L1 落地；**視覺驗收暫時通過**）
 
 > **狀態**：Level 1 完成，**不再繼續修**。剩餘誤差已降級為 `docs/03` §1.3-**L7**（設計接受）。

@@ -1,6 +1,5 @@
 using UnityEngine;
 using Project.Core.Actions;
-using Project.Presentation.CameraControl;
 
 namespace Project.Presentation.Actions
 {
@@ -15,22 +14,31 @@ namespace Project.Presentation.Actions
         [SerializeField] private GameObject heldVisual;
         [SerializeField, Min(0f)] private float projectileSpeed = 5f;
         [SerializeField, Min(0.01f)] private float projectileLifetime = 5f;
-        [SerializeField] private AimResolver aimResolver;
 
         private const float MinAimSqrDistance = 0.000001f;
-        private bool _releasedThisExecution;
 
         public void Begin()
         {
-            _releasedThisExecution = false;
             if (heldVisual != null) heldVisual.SetActive(true);
         }
 
-        public void Release()
+        /// <summary>
+        /// 🐞 **2026-09-05 移除本方法原有的 <c>_releasedThisExecution</c> 去重**。
+        ///
+        /// 它是 ADR-004 期的第二道保險：`ActionState` 已經以 `_releaseEmittedThisExecution`
+        /// 保證「一次執行只發一次 Release」，這裡再擋一次是多餘的。
+        ///
+        /// **連段（docs/11 §4.3）讓這層多餘變成 bug**：連段刻意每段各發一次 Release
+        /// （每段各出一顆投射物），但本地旗標只在 `Begin()` 重置、而 `Begin()` 一次執行只呼叫一次
+        /// ⇒ 第 2、3 段的 Release **被這裡靜默吞掉**，畫面上只會看到第一顆。
+        ///
+        /// ⚖️ 修法選擇：不是「加一個 per-segment 重置的回呼」，而是**移除這層去重**——
+        /// release 時點的唯一權威是 `ActionState`（ADR-004 D2）。sink 自帶第二套判斷正是
+        /// 該條決策要防的「第二個權威」，它在這裡具體害了一次。
+        /// </summary>
+        public void Release(in ActionReleaseContext context)
         {
             Cleanup();
-            if (_releasedThisExecution) return;
-            _releasedThisExecution = true;
 
             if (projectilePrefab == null)
             {
@@ -39,17 +47,12 @@ namespace Project.Presentation.Actions
             }
 
             Transform origin = spawnPoint != null ? spawnPoint : transform;
-            Quaternion rotation = ResolveThrowRotation(origin.position);
+            Quaternion fallback = transform.rotation;
+            Quaternion rotation = context.HasAim
+                ? ComputeThrowRotation(origin.position, context.AimPoint, fallback)
+                : fallback;
             ThrownProjectile projectile = Instantiate(projectilePrefab, origin.position, rotation);
             projectile.Initialize(projectileSpeed, projectileLifetime, transform.root);
-        }
-
-        private Quaternion ResolveThrowRotation(Vector3 spawnPosition)
-        {
-            Quaternion fallback = transform.rotation;
-            if (aimResolver == null || !aimResolver.TryGetAimPoint(out Vector3 aimPoint)) return fallback;
-
-            return ComputeThrowRotation(spawnPosition, aimPoint, fallback);
         }
 
         internal static Quaternion ComputeThrowRotation(Vector3 spawn, Vector3 aimPoint, Quaternion fallback)

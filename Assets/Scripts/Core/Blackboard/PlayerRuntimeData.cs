@@ -27,6 +27,11 @@ namespace Project.Core.Blackboard
         // 讀取者：Locomotion dynamics（Stage 1＝Runner 持有的 LocomotionSpeedSmoother，Stage 2 遷入 model）。
         public MovementIntentData MovementIntent;
 
+        // === Combat Context 區（ADR-007 S3a）===
+        // 連續型 mode state：每幀由 active combat context producer 整體覆寫，
+        // 不參與 ResetTransientState() 的單幀事件復位。
+        public CombatContextData CombatContext;
+
         // === 表現層事件區（🆕 M3.x-B）===
         // 每帧由 PresentationPipeline 於順序 6.5 的**末尾**整體覆寫（發布），各 Controller 於**下一帧**讀取。
         // 廣播快照語意：consumer 只讀不清除，彼此不會吃掉事件；整體覆寫即是復位機制，
@@ -51,10 +56,11 @@ namespace Project.Core.Blackboard
         public float MoveSpeed { get; set; }
 
         /// <summary>
-        /// 有效移動方向（2D 輸入座標系）。同 <see cref="MoveSpeed"/>，為 <see cref="MovementIntent"/>
-        /// 的下游衍生值（含減速滑行期保留最後方向的 dynamics），非獨立真相。
+        /// 有效移動方向（世界座標 XZ 平面，y 恆為 0）。同 <see cref="MoveSpeed"/>，為
+        /// <see cref="MovementIntent"/> 的下游衍生值（含減速滑行期保留最後方向的 dynamics），
+        /// 非獨立真相。
         /// </summary>
-        public Vector2 MoveDirection { get; set; }
+        public Vector3 MoveDirection { get; set; }
 
         /// <summary>上半身動畫混合權重。同上，由 active model 於順序 3 一併發布。</summary>
         public float UpperBodyWeight { get; set; }
@@ -74,6 +80,21 @@ namespace Project.Core.Blackboard
         /// 這是 CharacterController 架構下的正常延遲，非 Bug，使用端只需知悉即可。
         /// </summary>
         public bool IsGrounded;
+
+        /// <summary>
+        /// 角色在上一次 <c>CharacterController.Move()</c> 結算後的實際垂直速度。
+        /// 寫入者：MotionDriver（於 <c>GetGravityThisFrame</c> 內、貼地夾持之前）——唯一寫入者。
+        /// 與同一段程式寫入的 <see cref="IsGrounded"/>／<see cref="JustLanded"/>／
+        /// <see cref="JustLeftGround"/> 是同一瞬間的一致快照；因此 <see cref="IsGrounded"/>
+        /// 由 false 轉 true 的那一幀，本值就是撞地當下的 impact velocity，尚未被
+        /// <c>reboundForce</c> 貼地力覆寫。
+        /// 讀取者：JumpState（落地 Normal／Hard 分類）、表現層 Controller（唯讀）。
+        /// 兌現紀錄：v0.10 定案 → ADR-002 §6-1 延後至「出現第二個垂直速度消費者」→
+        /// walk-off falling 的落地分類即為該第二消費者，閘門達成。
+        /// ⚠️ 時序注意：與 <see cref="IsGrounded"/> 相同，Update 讀到的是上一幀 LateUpdate
+        /// 結算後的結果，這是 CharacterController 架構下的正常延遲。
+        /// </summary>
+        public float VerticalVelocity { get; internal set; }
 
         // === 單幀事件區（🆕 M2：當幀生、當幀死，由順序 7 統一復位）===
         /// <summary>

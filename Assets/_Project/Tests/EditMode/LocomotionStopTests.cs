@@ -221,10 +221,10 @@ namespace Project.Tests.EditMode
             var runIntent = new MovementIntentData
             {
                 DesiredSpeedNormalized = 0.75f,
-                DesiredDirection = Vector2.up
+                DesiredDirection = Vector3.forward
             };
             for (int i = 0; i < 120; i++)
-                smoother.Tick(in runIntent, 0.12f, 0.18f, 1f / 60f);
+                smoother.Tick(in runIntent, 0.12f, 0.18f, 720f, 1f / 60f);
 
             Assert.Less(smoother.Speed, 0.75f,
                 "SmoothDamp 以漸近方式收斂，真實穩態不應被測試假造為精確 0.75。");
@@ -271,10 +271,10 @@ namespace Project.Tests.EditMode
             var walkIntent = new MovementIntentData
             {
                 DesiredSpeedNormalized = 0.3651f,
-                DesiredDirection = Vector2.up
+                DesiredDirection = Vector3.forward
             };
             for (int i = 0; i < 120; i++)
-                smoother.Tick(in walkIntent, 0.12f, 0.18f, 1f / 60f);
+                smoother.Tick(in walkIntent, 0.12f, 0.18f, 720f, 1f / 60f);
 
             SetPrivateField(model, "_smoother", smoother);
             SetPrivateField(model, "_wasIntending", true);

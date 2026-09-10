@@ -1,10 +1,14 @@
 using System.Collections;
+using System.Collections.Generic;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
 using Project.App;
 using Project.Core.Arbitration;
 using Project.Core.Blackboard;
+using Project.Core.Facing;
+using Project.Core.Pipeline;
 
 namespace Project.Tests.PlayMode
 {
@@ -32,6 +36,8 @@ namespace Project.Tests.PlayMode
     /// </summary>
     public class PauseLifecyclePlayModeTests
     {
+        private const string GameplayScenePath = "Assets/Scenes/SampleScene.unity";
+
         private GameObject _host;
         private float _timeScaleAtSetup;
 
@@ -203,6 +209,61 @@ namespace Project.Tests.PlayMode
                 "停用 GamePauseController 之後世界仍然凍結。\n" +
                 "  contract : OnDisable 必須把 timeScale 還回去（GamePauseController.OnDisable 防禦線）\n" +
                 "  症狀     : 場景切換或物件被銷毀時，遊戲永久凍結且沒有任何東西能解除");
+        }
+
+        // =====================================================================
+        // P5 — 場景合併結果中，每隻角色恰好一顆 facing authority
+        // =====================================================================
+
+        /// <summary>
+        /// W11 只能讀 prefab 本體，無法看見「prefab 新增元件 ＋ 場景實例仍保留 added override」
+        /// 的合併結果。那種組合在 Editor 接線表面上兩邊都合理，執行期卻會同時出現兩顆
+        /// <see cref="CharacterFacingSource"/>，使 <c>GetComponent</c> 的回傳順序變成權威選擇器。
+        ///
+        /// 因此這條載入真實 gameplay scene，且只檢查該場景自己的角色；測完先卸載場景再斷言，
+        /// 即使契約故意變紅，也不會把角色與全域元件遺留給後續 PlayMode 測試。
+        /// </summary>
+        [UnityTest]
+        public IEnumerator P5_LoadedSceneCharacters_HaveExactlyOneCharacterFacingSource()
+        {
+            AsyncOperation loadOperation =
+                SceneManager.LoadSceneAsync(GameplayScenePath, LoadSceneMode.Additive);
+            Assert.IsNotNull(loadOperation,
+                $"無法載入 gameplay scene：{GameplayScenePath}（請確認它仍在 Build Settings）");
+            yield return loadOperation;
+
+            Scene gameplayScene = SceneManager.GetSceneByPath(GameplayScenePath);
+            Assert.IsTrue(gameplayScene.IsValid() && gameplayScene.isLoaded,
+                $"gameplay scene 載入完成後仍無法取得：{GameplayScenePath}");
+
+            var violations = new List<string>();
+            GameObject[] roots = gameplayScene.GetRootGameObjects();
+            for (int rootIndex = 0; rootIndex < roots.Length; rootIndex++)
+            {
+                CharacterPipelineRunner[] runners =
+                    roots[rootIndex].GetComponentsInChildren<CharacterPipelineRunner>(true);
+                for (int runnerIndex = 0; runnerIndex < runners.Length; runnerIndex++)
+                {
+                    CharacterPipelineRunner runner = runners[runnerIndex];
+                    CharacterFacingSource[] sources =
+                        runner.GetComponents<CharacterFacingSource>();
+                    if (sources.Length == 1) continue;
+
+                    violations.Add(
+                        $"{GameplayScenePath} → '{runner.gameObject.name}' 執行期有 {sources.Length} 顆 CharacterFacingSource\n" +
+                        "    contract : ADR-007 D3：每個角色恰好一個 facing authority\n" +
+                        "    expected : CharacterPipelineRunner 同物件上恰好 1 顆 CharacterFacingSource\n" +
+                        $"    actual   : {sources.Length} 顆\n" +
+                        "    症狀     : GetComponent 抓到哪顆取決於元件順序，朝向權威不再唯一");
+                }
+            }
+
+            AsyncOperation unloadOperation = SceneManager.UnloadSceneAsync(gameplayScene);
+            if (unloadOperation != null) yield return unloadOperation;
+
+            CollectionAssert.IsEmpty(violations,
+                "場景中的 facing authority 合併結果違反 ADR-007 D3：\n\n" +
+                string.Join("\n\n", violations));
         }
     }
 }

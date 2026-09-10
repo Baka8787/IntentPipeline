@@ -91,7 +91,7 @@ namespace Project.Core.Pipeline
             // 2. Movement Output 區（🆕 ADR-003 Stage 2：由當下 active 的 IMovementModel 於順序 3 發布；
             //    §13.4——皆為 MovementIntent 的下游衍生值，非獨立真相）
             EditorGUILayout.LabelField("<b>=== 2. Movement Output（active model 發布）===</b>", GUILayout.ExpandWidth(true));
-            EditorGUILayout.Vector2Field("Move Direction（derived）", data.MoveDirection);
+            EditorGUILayout.Vector3Field("Move Direction（derived）", data.MoveDirection);
             EditorGUILayout.FloatField("Move Speed Magnitude（derived）", data.MoveSpeed);
             EditorGUILayout.Slider("Upper Body Weight", data.UpperBodyWeight, 0f, 1f);
             EditorGUILayout.ObjectField("Camera Transform", data.CameraTransform, typeof(Transform), true);

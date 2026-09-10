@@ -278,6 +278,23 @@ gameplay readability、control feel，以及**確實需要 Player build ＋ Prof
 
 ---
 
+# Code Review Protocol（decided 2026-09-08，使用者明確裁決）
+
+**任何 code review 一律依 `docs/16-review-protocol.md` 執行**——含 AI 自審、交接前檢查、
+以及使用者明確要求的 review。⛔ **不得自創替代標準**，⛔ 不得只挑順手的部分做。
+
+摘要（正本在 `docs/16`）：
+- **只讀不改**，先出報告；⛔ 不得為了批評而發明新的架構原則
+- 依序審：①Correctness ②Contract violations ③Dependency direction ④Decision ownership ⑤Scope ⑥Tests
+- 每條 finding 必須有：**Severity ／ File+symbol ／ Evidence ／ 為什麼在「本 repo」是問題 ／ 最小修法**
+- 結尾必須有三段：**Must fix before merge ／ Worth fixing later ／ No issue（已對照架構確認的刻意偏離）**
+- **某類沒有 finding 就明講**，⛔ 不得湊數；⛔ 不報純風格偏好；⛔ 不誇獎、不摘要未變動的程式碼
+- **本專案加重項**：方向性資料流／單一真相來源／決策擁有權／**下游重新推導已 commit 的狀態**
+
+⚠️ **除非使用者明確更改，此規則對後續所有會話持續有效。**
+
+---
+
 # Git Policy & Permissions (Solo Developer Mode)
 
 Claude is NOT allowed to execute any Git mutation commands. The human developer owns 100% of the Git lifecycle.

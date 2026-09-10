@@ -10,8 +10,10 @@ namespace Project.Presentation.Actions
     /// </summary>
     public sealed class ThrownProjectile : MonoBehaviour
     {
-        /// <summary>Slow 的倍率＝「速度剩原本的 30%」（`docs/11` §7.4，使用者裁決，不得自行更動）。</summary>
-        private const float SlowMovementSpeedMultiplier = 0.3f;
+        // Slow 倍率的單一真相已移到 TemporaryGameplayEffectState（2026-09-05，見該處說明）——
+        // Ice 改走地面 AoE 後多了第二個投遞者，同一個常數不再各留一份。
+        private const float SlowMovementSpeedMultiplier =
+            TemporaryGameplayEffectState.SlowMovementSpeedMultiplier;
 
         // ⚠️ `ThrownProjectile` 是**共用**的投射物元件——Throw、Quick Spell、Ice Spell 走同一支程式、
         //    只換 prefab。因此 Slow **必須由資產決定，不能寫死在程式裡**：

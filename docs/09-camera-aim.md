@@ -294,6 +294,16 @@ ThrownProjectile projectile = Instantiate(projectilePrefab, origin.position, tra
 > 2. **敵人**也需要 aim（＝它不再是玩家專屬的表現層關切）；
 > 3. aim 需要**跨幀保存**並被順序 7 的復位語意管理。
 
+> ### 🔴 2026-09-06 — trip-wire ① 確認**已被跨過**（回溯認列）
+>
+> `docs/11` §8.3 的 action-time facing 於 **2026-09-05** 落地時，`ActionState`／`FullBodyStateMachine`／
+> `CharacterPipelineRunner` 三個 **Core** 檔案開始 `using Project.Presentation.CameraControl` 並持有
+> **具體類別** `AimResolver`——這正是 trip-wire ①，而且是最重的形式（依賴具體類別而非抽象）。
+> 當時**沒有停下來開 ADR**（`Core/StateMachine` 的 `LayerRules` 放行整個 `Project.Presentation`，機器也沒擋）。
+> ⇒ 處置已補上：**`docs/ADR/007-direction-authority.md`**（🟡 **Trial**，2026-09-06 裁決）＋ `docs/14-direction-authority.md`。
+> ⚠️ 本節下方 §4-D3(c) 的兩條紅線（「不得新增黑板欄位」「不得長成 facing system」）
+> **由 ADR-007 §7 重新處置**：前者保留推翻權（僅限 S3），後者語意收窄為「禁止多送出者，允許單一 authority 內部有優先序」。
+
 ### 5.3 為什麼**不**把相機輸入接回輸入管線（FU-11，登記不處理）
 
 現況：`InputData.LookInput` 有採樣、無消費者；相機直接讀 `Mouse.current.delta`（E6）。看似「順手接一下」，實際上做不到：

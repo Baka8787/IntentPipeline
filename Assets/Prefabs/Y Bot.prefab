@@ -23,6 +23,9 @@ GameObject:
   - component: {fileID: 1868996060426550972}
   - component: {fileID: 539958097729564367}
   - component: {fileID: -1831002889493471418}
+  - component: {fileID: -920000000000000001}
+  - component: {fileID: -930000000000000002}
+  - component: {fileID: 8271955464518154860}
   m_Layer: 7
   m_Name: Y Bot
   m_TagString: Untagged
@@ -58,13 +61,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d53f70463cfb3bf42bd83951b00a9845, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Project.Core.Pipeline.CharacterPipelineRunner
-  inputSourceComponent: {fileID: 0}
+  inputSourceComponent: {fileID: -920000000000000001}
   movementIntentSourceComponent: {fileID: 0}
   movementModelComponent: {fileID: 0}
   externalArbiterSources: []
   playerCamera: {fileID: 8097198700277537437, guid: a854bf73576c1db4694c741a78789aca, type: 3}
   stateMachineConfig: {fileID: 11400000, guid: 146314fad13dbeb41bfb149cb1750019, type: 2}
   actionRequestTarget: {fileID: 539958097729564367}
+  actionSinkBindings: []
   actionReleaseSinkComponent: {fileID: 0}
   animationFacade: {fileID: 54884182455450058}
   motionDriver: {fileID: 2182275756087650678}
@@ -100,6 +104,14 @@ MonoBehaviour:
     Transition: {fileID: 11400000, guid: 52d726cd0dd53d340a8e31c3e6062a55, type: 2}
   - StateKey: Damage
     Transition: {fileID: 11400000, guid: 9c87e669ec711cb4bab12f83df5aa9d0, type: 2}
+  - StateKey: Enemy_Punch_R
+    Transition: {fileID: 11400000, guid: cd70b7930cef4bf99fadae86fbf33c9a, type: 2}
+  - StateKey: FallingLoop
+    Transition: {fileID: 11400000, guid: b0e90db94eced7d4c909720cf2f73945, type: 2}
+  - StateKey: JumpIdleLand
+    Transition: {fileID: 11400000, guid: 0ee98dbff19f4fb4a8ade5ae74b76972, type: 2}
+  - StateKey: JumpIdleLandHard
+    Transition: {fileID: 11400000, guid: a0d465638390d4d4daad31c9a1d7b264, type: 2}
 --- !u!114 &2182275756087650678
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -118,7 +130,6 @@ MonoBehaviour:
   overrideMoveSpeed: 0
   gravity: -9.81
   reboundForce: -2
-  aimFacingAngleDeadzone: 15
   aimFacingTurnSpeed: 8
 --- !u!114 &8988644841951324072
 MonoBehaviour:
@@ -312,6 +323,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Project.Runtime::Project.Core.Movement.LocomotionModel
   moveSpeedAccelTime: 0.12
   moveSpeedDecelTime: 0.18
+  directionTurnDegreesPerSecond: 720
   walkLoopBakeData: {fileID: 11400000, guid: c168624b83aacd642bb0d17a8561f704, type: 2}
   walkStopVariants:
   - bakeData: {fileID: 11400000, guid: 727128432b3f50f46bc7cf1ffb7417e5, type: 2}
@@ -385,6 +397,8 @@ MonoBehaviour:
   minimumEngagementDistance: 1.25
   maximumEngagementDistance: 2
   distanceHysteresis: 0.15
+  holdStrafeSpeedNormalized: 0.35
+  strafeDirectionFlipInterval: 2.5
 --- !u!114 &539958097729564367
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -409,6 +423,51 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 216ff09ccec53084894855e1213cc524, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Project.Runtime::Project.Core.Effects.TemporaryGameplayEffectState
+--- !u!114 &-920000000000000001
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7863296372082958677}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b2f1232f91de9e50d5c5af6c220440ef, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Project.Runtime::Project.Core.Pipeline.AIInputSource
+  target: {fileID: 8480833622433434003, guid: 1166b9756cdbe5b49a34559de0988bf0, type: 3}
+  attackRange: 1.8
+--- !u!114 &-930000000000000002
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7863296372082958677}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5bc031f051a70edd366f061067e418a7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Equipment.WeaponSocket
+  weaponPrefab: {fileID: 0}
+  socket: {fileID: 0}
+  socketBoneName: mixamorig:RightHand
+  localPosition: {x: 0, y: 0, z: 0}
+  localEulerAngles: {x: 0, y: 0, z: 0}
+  localScale: {x: 1, y: 1, z: 1}
+--- !u!114 &8271955464518154860
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7863296372082958677}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5943b1d168d4cff4b862965bfb958dd8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Project.Runtime::Project.Core.Facing.CharacterFacingSource
+  facingAngleDeadzone: 8
 --- !u!1001 &8929059010494798423
 PrefabInstance:
   m_ObjectHideFlags: 0

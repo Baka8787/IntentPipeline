@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.AI;
 using Project.Core.Blackboard;
 using Project.Core.Actions;
 using Project.Core.Movement;
@@ -18,6 +19,7 @@ namespace Project.Tests.EditMode
     public class MovementIntentTests
     {
         private const float Tolerance = 1e-4f;
+        private const float DefaultTurnDegreesPerSecond = 720f;
 
         private readonly List<Object> _created = new();
 
@@ -127,10 +129,10 @@ namespace Project.Tests.EditMode
         // =====================================================================
 
         [Test]
-        public void ProduceIntent_WithoutProfile_IsEquivalentToPreMigrationBehaviour()
+        public void ProduceIntent_WithoutProfile_PreservesIntensityAndProjectsWorldDirection()
         {
             PlayerLocomotionPolicy policy = CreatePolicy(null);
-            var data = new PlayerRuntimeData();
+            var data = new PlayerRuntimeData { CameraTransform = policy.transform };
             InputData input = default;
             input.MoveInput = new Vector2(0.6f, 0f);
 
@@ -138,8 +140,48 @@ namespace Project.Tests.EditMode
 
             Assert.AreEqual(0.6f, data.MovementIntent.DesiredSpeedNormalized, Tolerance,
                 "未指派 GaitProfileSO 時，強度＝原始推桿量——這是 Stage 1『行為等價』的程式保證");
-            Assert.AreEqual(new Vector2(0.6f, 0f), data.MovementIntent.DesiredDirection,
-                "方向為純意圖，直接沿用原始輸入向量（世界方向換算是 MotionDriver 的職責）");
+            Assert.AreEqual(Vector3.right, data.MovementIntent.DesiredDirection,
+                "方向應在玩家 producer 內投影並正規化成世界方向；強度仍由獨立欄位保存");
+        }
+
+        [Test]
+        public void ProjectInputToWorld_UsesFlattenedCameraBasis_AndIgnoresPitch()
+        {
+            Quaternion pitchedRotation = Quaternion.Euler(55f, 35f, 0f);
+            Quaternion levelRotation = Quaternion.Euler(0f, 35f, 0f);
+
+            Vector3 pitched = PlayerLocomotionPolicy.ProjectInputToWorld(
+                Vector2.right,
+                pitchedRotation * Vector3.forward,
+                pitchedRotation * Vector3.right);
+            Vector3 level = PlayerLocomotionPolicy.ProjectInputToWorld(
+                Vector2.right,
+                levelRotation * Vector3.forward,
+                levelRotation * Vector3.right);
+            Vector3 expectedRight = levelRotation * Vector3.right;
+            expectedRight.y = 0f;
+            expectedRight.Normalize();
+
+            Assert.Less((pitched - expectedRight).sqrMagnitude, Tolerance * Tolerance,
+                "輸入 (1,0) 必須投影成相機的水平 right");
+            Assert.Less((pitched - level).sqrMagnitude, Tolerance * Tolerance,
+                "相機仰俯角不得改變水平世界方向");
+            Assert.AreEqual(0f, pitched.y, Tolerance);
+            Assert.AreEqual(1f, pitched.magnitude, Tolerance);
+        }
+
+        [Test]
+        public void ProduceIntent_WithoutCamera_ProducesZeroWorldDirection()
+        {
+            PlayerLocomotionPolicy policy = CreatePolicy(null);
+            var data = new PlayerRuntimeData();
+            InputData input = default;
+            input.MoveInput = Vector2.up;
+
+            policy.ProduceIntent(ref input, data);
+
+            Assert.AreEqual(Vector3.zero, data.MovementIntent.DesiredDirection,
+                "玩家相機缺席時必須退化為無方向意圖，不能把 2D 輸入誤當世界方向");
         }
 
         [Test]
@@ -173,8 +215,78 @@ namespace Project.Tests.EditMode
 
             Assert.AreEqual(0f, data.MovementIntent.DesiredSpeedNormalized, Tolerance,
                 "放開輸入後意圖即為 0——『減速滑行期保留方向』屬 model dynamics，不得洩漏進 producer");
-            Assert.AreEqual(Vector2.zero, data.MovementIntent.DesiredDirection,
+            Assert.AreEqual(Vector3.zero, data.MovementIntent.DesiredDirection,
                 "意圖是當幀真相，不帶記憶；記憶屬 LocomotionSpeedSmoother");
+        }
+
+        [Test]
+        public void AIMovementSource_WithoutCamera_ProducesNonZeroWorldDirection()
+        {
+            NavMeshBuildSettings settings = NavMesh.GetSettingsByIndex(0);
+            var sources = new List<NavMeshBuildSource>
+            {
+                new NavMeshBuildSource
+                {
+                    shape = NavMeshBuildSourceShape.Box,
+                    size = new Vector3(20f, 0.2f, 20f),
+                    transform = Matrix4x4.TRS(new Vector3(0f, -0.1f, 0f), Quaternion.identity, Vector3.one),
+                    area = 0
+                }
+            };
+            NavMeshData navMeshData = NavMeshBuilder.BuildNavMeshData(
+                settings,
+                sources,
+                new Bounds(Vector3.zero, new Vector3(20f, 4f, 20f)),
+                Vector3.zero,
+                Quaternion.identity);
+            Assert.IsNotNull(navMeshData, "測試用平面 NavMesh 建置失敗");
+            _created.Add(navMeshData);
+
+            NavMeshDataInstance navMeshInstance = NavMesh.AddNavMeshData(navMeshData);
+            try
+            {
+                Assert.IsTrue(NavMesh.SamplePosition(Vector3.zero, out NavMeshHit origin, 2f, NavMesh.AllAreas));
+                Assert.IsTrue(NavMesh.SamplePosition(Vector3.forward * 1.5f, out NavMeshHit destination, 2f, NavMesh.AllAreas));
+
+                var agentObject = new GameObject("AI-Movement-Without-Camera");
+                _created.Add(agentObject);
+                agentObject.transform.position = origin.position;
+                NavMeshAgent agent = agentObject.AddComponent<NavMeshAgent>();
+                AIMovementSource source = agentObject.AddComponent<AIMovementSource>();
+
+                // ⚠️ **EditMode 無法保證 NavMeshAgent 真的被註冊到 NavMesh 上**：agent 的內部註冊
+                //    依賴 Play 的生命週期／模擬步進，`Warp` 在 EditMode 會不定期回傳 false。
+                //    這是**環境限制，不是 AIMovementSource 的缺陷** ⇒ 誠實跳過，不製造假紅燈。
+                // 📌 本測項驗的「行為面」；它主張的**架構不變量**（AI 不得依賴 CameraTransform）
+                //    已由 `ArchitectureRegressionTests.A30` 以靜態掃描守住，**不會因為這裡跳過而失守**。
+                if (!agent.Warp(origin.position))
+                {
+                    Assert.Ignore(
+                        "EditMode 無法把 NavMeshAgent 放上臨時 NavMesh（Warp 回傳 false）——環境限制。\n" +
+                        "架構面由 A30 守住；行為面若要確定驗證，應移到 PlayMode 測試層。");
+                }
+
+                var targetObject = new GameObject("AI-Movement-Target");
+                _created.Add(targetObject);
+                targetObject.transform.position = destination.position;
+
+                SetPrivateField(source, "_agent", agent);
+                SetPrivateField(source, "target", targetObject.transform);
+                source.ResolveEffectState();
+
+                var data = new PlayerRuntimeData();
+                InputData input = default;
+                source.ProduceIntent(ref input, data);
+
+                Assert.Greater(data.MovementIntent.DesiredDirection.sqrMagnitude, 0f,
+                    "AI 的世界移動方向不得依賴玩家相機；CameraTransform 為 null 仍須產生方向");
+                Assert.AreEqual(0f, data.MovementIntent.DesiredDirection.y, Tolerance);
+                Assert.AreEqual(1f, data.MovementIntent.DesiredDirection.magnitude, Tolerance);
+            }
+            finally
+            {
+                if (navMeshInstance.valid) NavMesh.RemoveNavMeshData(navMeshInstance);
+            }
         }
 
         // =====================================================================
@@ -286,7 +398,7 @@ namespace Project.Tests.EditMode
             data.JustLanded = true;
             data.JustLeftGround = true;
             data.MovementIntent.DesiredSpeedNormalized = 0.75f;
-            data.MovementIntent.DesiredDirection = Vector2.right;
+            data.MovementIntent.DesiredDirection = Vector3.right;
             data.MovementIntent.WalkModeActive = true;
 
             data.ResetTransientState();
@@ -300,7 +412,7 @@ namespace Project.Tests.EditMode
 
             Assert.AreEqual(0.75f, data.MovementIntent.DesiredSpeedNormalized, Tolerance,
                 "MovementIntent 是連續型 domain intent（每幀由 producer 整體覆寫），不得被單幀復位清零（ADR-003／docs/04 §14.2）");
-            Assert.AreEqual(Vector2.right, data.MovementIntent.DesiredDirection,
+            Assert.AreEqual(Vector3.right, data.MovementIntent.DesiredDirection,
                 "MovementIntent 是連續型 domain intent，不得被單幀復位清零");
             Assert.IsTrue(data.MovementIntent.WalkModeActive,
                 "WalkModeActive 是**持久型態**（mode state），被每帧復位清零就永遠關不起來——" +
@@ -316,12 +428,17 @@ namespace Project.Tests.EditMode
             var smoother = new LocomotionSpeedSmoother();
             foreach (MovementIntentData frame in frames)
             {
-                smoother.Tick(in frame, accelTime: 0.12f, decelTime: 0.18f, deltaTime: dt);
+                smoother.Tick(
+                    in frame,
+                    accelTime: 0.12f,
+                    decelTime: 0.18f,
+                    maxTurnDegreesPerSecond: DefaultTurnDegreesPerSecond,
+                    deltaTime: dt);
             }
             return smoother;
         }
 
-        private static MovementIntentData[] Frames(int count, float speed, Vector2 direction)
+        private static MovementIntentData[] Frames(int count, float speed, Vector3 direction)
         {
             var frames = new MovementIntentData[count];
             for (int i = 0; i < count; i++)
@@ -332,9 +449,34 @@ namespace Project.Tests.EditMode
         }
 
         [Test]
+        public void LocomotionParameters_FacingForward_WorldRightProjectsToLocalRight()
+        {
+            const float speed = 0.75f;
+
+            Vector2 local = LocomotionModel.ProjectMoveParameters(
+                Quaternion.identity, Vector3.right, speed);
+
+            Assert.AreEqual(speed, local.x, Tolerance);
+            Assert.AreEqual(0f, local.y, Tolerance);
+        }
+
+        [Test]
+        public void LocomotionParameters_FacingRight_WorldRightProjectsToLocalForward()
+        {
+            const float speed = 0.75f;
+            Quaternion facingRight = Quaternion.LookRotation(Vector3.right, Vector3.up);
+
+            Vector2 local = LocomotionModel.ProjectMoveParameters(
+                facingRight, Vector3.right, speed);
+
+            Assert.AreEqual(0f, local.x, Tolerance);
+            Assert.AreEqual(speed, local.y, Tolerance);
+        }
+
+        [Test]
         public void Smoother_RisesTowardsIntent_WithoutOvershooting()
         {
-            LocomotionSpeedSmoother smoother = RunSmoother(Frames(10, 1f, Vector2.up));
+            LocomotionSpeedSmoother smoother = RunSmoother(Frames(10, 1f, Vector3.forward));
 
             Assert.Greater(smoother.Speed, 0f, "有移動意圖時，平滑速度必須開始爬升");
             Assert.Less(smoother.Speed, 1f, "10 幀（≈0.17s）內不應已達滿速——平滑時間常數必須實際生效");
@@ -343,25 +485,75 @@ namespace Project.Tests.EditMode
         [Test]
         public void Smoother_ConvergesToIntent_GivenEnoughTime()
         {
-            LocomotionSpeedSmoother smoother = RunSmoother(Frames(120, 0.6f, Vector2.up));
+            LocomotionSpeedSmoother smoother = RunSmoother(Frames(120, 0.6f, Vector3.forward));
 
             Assert.AreEqual(0.6f, smoother.Speed, 0.01f,
                 "長時間持續同一意圖後，衍生速度必須收斂到意圖值（gait 檔位才會對應到正確的 Mixer tier）");
         }
 
         [Test]
+        public void Smoother_TurnsTowardsDesiredDirection_AtAngularSpeedLimit()
+        {
+            const float deltaTime = 0.25f;
+            const float turnDegreesPerSecond = 90f;
+            var smoother = new LocomotionSpeedSmoother();
+            var forward = new MovementIntentData { DesiredSpeedNormalized = 1f, DesiredDirection = Vector3.forward };
+            var right = new MovementIntentData { DesiredSpeedNormalized = 1f, DesiredDirection = Vector3.right };
+
+            smoother.Tick(in forward, 0.12f, 0.18f, turnDegreesPerSecond, deltaTime);
+            smoother.Tick(in right, 0.12f, 0.18f, turnDegreesPerSecond, deltaTime);
+
+            Assert.AreEqual(22.5f, Vector3.Angle(Vector3.forward, smoother.Direction), Tolerance,
+                "90°/s 經過 0.25 秒只能推進 22.5°，不得瞬間跳到 desired direction");
+            Assert.Greater(Vector3.Angle(smoother.Direction, Vector3.right), 0f,
+                "中間幀必須仍未抵達 90° 目標方向");
+        }
+
+        [Test]
+        public void Smoother_ExactReverse_RemainsHorizontalThroughoutTurn()
+        {
+            const float deltaTime = 0.25f;
+            const float turnDegreesPerSecond = 90f;
+            var smoother = new LocomotionSpeedSmoother();
+            var forward = new MovementIntentData { DesiredSpeedNormalized = 1f, DesiredDirection = Vector3.forward };
+            var reverse = new MovementIntentData { DesiredSpeedNormalized = 1f, DesiredDirection = Vector3.back };
+
+            smoother.Tick(in forward, 0.12f, 0.18f, turnDegreesPerSecond, deltaTime);
+            for (int i = 0; i < 8; i++)
+            {
+                smoother.Tick(in reverse, 0.12f, 0.18f, turnDegreesPerSecond, deltaTime);
+                Assert.AreEqual(0f, smoother.Direction.y,
+                    "180° 反向的每個中間結果都必須留在 XZ 平面，禁止未定義旋轉平面帶出垂直分量");
+            }
+        }
+
+        [Test]
+        public void Smoother_FromRest_SnapsDirectlyToDesiredDirection()
+        {
+            var smoother = new LocomotionSpeedSmoother();
+            var moving = new MovementIntentData { DesiredSpeedNormalized = 1f, DesiredDirection = Vector3.left };
+
+            smoother.Tick(in moving, 0.12f, 0.18f, 1f, 1f / 60f);
+
+            Assert.AreEqual(Vector3.left, smoother.Direction,
+                "靜止時沒有合法的 current yaw；起步第一幀必須直接採用 desired，而非從任意方向旋轉");
+        }
+
+        [Test]
         public void Smoother_SnapsToExactZero_WhenIntentReleased()
         {
             var smoother = new LocomotionSpeedSmoother();
-            var moving = new MovementIntentData { DesiredSpeedNormalized = 1f, DesiredDirection = Vector2.up };
-            for (int i = 0; i < 120; i++) smoother.Tick(in moving, 0.12f, 0.18f, 1f / 60f);
+            var moving = new MovementIntentData { DesiredSpeedNormalized = 1f, DesiredDirection = Vector3.forward };
+            for (int i = 0; i < 120; i++)
+                smoother.Tick(in moving, 0.12f, 0.18f, DefaultTurnDegreesPerSecond, 1f / 60f);
 
             var released = new MovementIntentData();
-            for (int i = 0; i < 240; i++) smoother.Tick(in released, 0.12f, 0.18f, 1f / 60f);
+            for (int i = 0; i < 240; i++)
+                smoother.Tick(in released, 0.12f, 0.18f, DefaultTurnDegreesPerSecond, 1f / 60f);
 
             Assert.AreEqual(0f, smoother.Speed,
                 "完全停止時必須 snap 到精確 0（清 SmoothDamp 殘尾），否則 Mixer 回不到純 Idle、狀態機也收斂不進 Idle");
-            Assert.AreEqual(Vector2.zero, smoother.Direction,
+            Assert.AreEqual(Vector3.zero, smoother.Direction,
                 "速度歸零後方向必須一併歸零，關閉 ExecuteBaseMovement 的方向閘門");
         }
 
@@ -369,14 +561,15 @@ namespace Project.Tests.EditMode
         public void Smoother_KeepsLastDirectionWhileCoasting()
         {
             var smoother = new LocomotionSpeedSmoother();
-            var moving = new MovementIntentData { DesiredSpeedNormalized = 1f, DesiredDirection = Vector2.right };
-            for (int i = 0; i < 120; i++) smoother.Tick(in moving, 0.12f, 0.18f, 1f / 60f);
+            var moving = new MovementIntentData { DesiredSpeedNormalized = 1f, DesiredDirection = Vector3.right };
+            for (int i = 0; i < 120; i++)
+                smoother.Tick(in moving, 0.12f, 0.18f, DefaultTurnDegreesPerSecond, 1f / 60f);
 
             var released = new MovementIntentData(); // 放開：意圖歸零，但速度尚在滑行
-            smoother.Tick(in released, 0.12f, 0.18f, 1f / 60f);
+            smoother.Tick(in released, 0.12f, 0.18f, DefaultTurnDegreesPerSecond, 1f / 60f);
 
             Assert.Greater(smoother.Speed, LocomotionSpeedSmoother.Epsilon, "放開後第一幀應仍在減速滑行");
-            Assert.AreEqual(Vector2.right, smoother.Direction,
+            Assert.AreEqual(Vector3.right, smoother.Direction,
                 "滑行期必須保留最後方向，否則方向瞬歸零會造成『身體停、動畫動』的滑步（B9 契約）");
         }
 
@@ -392,7 +585,7 @@ namespace Project.Tests.EditMode
                 script[i] = new MovementIntentData
                 {
                     DesiredSpeedNormalized = speed,
-                    DesiredDirection = speed > 0f ? new Vector2(0f, 1f) : Vector2.zero
+                    DesiredDirection = speed > 0f ? Vector3.forward : Vector3.zero
                 };
             }
 

@@ -52,11 +52,50 @@ namespace Project.Tests.EditMode
         }
 
         /// <summary>移除區塊／行註解（保留換行以維持行號），讓掃描只看真正的程式碼。</summary>
+        /// <summary>
+        /// 以檔名在 `Assets/Scripts` 下唯一定位一支腳本。
+        /// 檔案搬家時測試仍然有效；真的重複命名時**明講是重複**，而不是報一個誤導的「找不到」。
+        /// </summary>
+        private static string FindSingleScript(string fileName)
+        {
+            string[] matches = Directory.GetFiles(ScriptsRoot, fileName, SearchOption.AllDirectories);
+
+            Assert.AreEqual(1, matches.Length,
+                $"在 Assets/Scripts 下找到 {matches.Length} 個 {fileName}（期望剛好 1 個）：\n" +
+                string.Join("\n", matches));
+
+            return matches[0];
+        }
+
         private static string StripComments(string source)
         {
             string withoutBlock = Regex.Replace(source, @"/\*.*?\*/",
                 m => Regex.Replace(m.Value, @"[^\r\n]", string.Empty), RegexOptions.Singleline);
             return Regex.Replace(withoutBlock, @"//[^\r\n]*", string.Empty);
+        }
+
+        /// <summary>擷取指定方法的大括號內容，供只針對單一路徑的架構文字檢查使用。</summary>
+        private static string ExtractMethodBody(string source, string methodName)
+        {
+            string code = StripStringLiterals(StripComments(source));
+            Match signature = Regex.Match(
+                code,
+                @"\b" + Regex.Escape(methodName) + @"\s*\([^;{}]*\)\s*\{");
+            Assert.IsTrue(signature.Success, $"找不到方法 {methodName} 的實作");
+
+            int openBrace = code.IndexOf('{', signature.Index);
+            int depth = 0;
+            for (int i = openBrace; i < code.Length; i++)
+            {
+                if (code[i] == '{') depth++;
+                else if (code[i] == '}' && --depth == 0)
+                {
+                    return code.Substring(openBrace + 1, i - openBrace - 1);
+                }
+            }
+
+            Assert.Fail($"方法 {methodName} 的大括號不成對");
+            return string.Empty;
         }
 
         /// <summary>
@@ -260,7 +299,10 @@ namespace Project.Tests.EditMode
                     "Project.Core.Blackboard",
                     "Project.Core.Actions",       // ActionSlot：Action 身分的單一來源（ADR-005 D1）
                     "Project.Core.Movement",      // IMovementModel：BaseState.Initialize 的 ambient delegate（ADR-003 D3）
-                    "Project.Presentation",       // MotionDriver／AnimationFacadeBase：狀態驅動位移與動畫的合法 seam
+                    // 🔒 ADR-007 §7-E6 的實證：原本放行整個 Project.Presentation 前綴，讓
+                    //    CameraControl.AimResolver 的具體依賴靜默通過。只保留 State 真正需要的兩類 seam。
+                    "Project.Presentation.Motion",      // MotionDriver／MotionBakeData：狀態驅動位移的合法 seam
+                    "Project.Presentation.Animation",   // AnimationFacadeBase：狀態驅動動畫的合法 seam
                 },
                 Reason = "State 不得認識 Controller（禁止 State→Controller）"
             },
@@ -351,6 +393,13 @@ namespace Project.Tests.EditMode
                     "Project.Core.Movement",      // 只透過 IMovementIntentSource／IMovementModel 介面（A9 另行守住具體型別）
                     "Project.Core.StateMachine",
                     "Project.Presentation",       // 組裝 MotionDriver／Facade／PresentationPipeline
+                    // 🆕（ADR-007 S3a，2026-09-08 明確登記）順序 2.6 的 PlayerCombatContextSource
+                    // 與順序 4.6 的 CharacterFacingSource。⚠️ 這裡登記的是**具體型別**而非介面，
+                    // 屬刻意：AI 版 facing source 是 S3b 才出現，CLAUDE.md「第二個使用者出現前
+                    // 不得建立 production abstraction」⇒ 現在抽 IFacingSource 是提前抽象。
+                    // 📌 S3b 落地時應改為介面並回頭把這兩列收斂（docs/15 §13.1）。
+                    "Project.Core.Combat",
+                    "Project.Core.Facing",
                 },
                 Reason = "組裝根只認識介面與既有層；新增的依賴必須明確登記，不得靜默長出來"
             },
@@ -431,6 +480,8 @@ namespace Project.Tests.EditMode
         {
             new WriterRule { Member = "MovementIntent", AllowedFiles = new[] { "PlayerLocomotionPolicy.cs", "AIMovementSource.cs" },
                              Owner = "每隻角色當下唯一 active 的 IMovementIntentSource（ADR-003 D2 single-writer）" },
+            new WriterRule { Member = "CombatContext", AllowedFiles = new[] { "PlayerCombatContextSource.cs" },
+                             Owner = "每隻角色當下唯一 active 的 combat context producer（ADR-007 D3）" },
             new WriterRule { Member = "Intent", AllowedFiles = new[] { "CharacterPipelineRunner.cs" },
                              Owner = "Intent Processor（管線順序 2）" },
             // 🆕（ADR-003 Stage 2）以下三欄自此為「active Movement Model 發布的 **Movement Output**」，
@@ -443,6 +494,10 @@ namespace Project.Tests.EditMode
                              Owner = "active IMovementModel（順序 3 Tick；同上）" },
             new WriterRule { Member = "IsGrounded", AllowedFiles = new[] { "MotionDriver.cs" },
                              Owner = "MotionDriver.GetGravityThisFrame" },
+            // v0.10 草案曾允許「MotionDriver、Project.Core 內的狀態類別」；此處刻意收窄為
+            // MotionDriver 唯一寫入，狀態只經 ApplyJumpLaunch 注入，永不直接寫黑板欄位。
+            new WriterRule { Member = "VerticalVelocity", AllowedFiles = new[] { "MotionDriver.cs" },
+                             Owner = "MotionDriver.GetGravityThisFrame（貼地夾持前發布；唯一寫入者）" },
             new WriterRule { Member = "JustLanded", AllowedFiles = new[] { "MotionDriver.cs" },
                              Owner = "MotionDriver.GetGravityThisFrame（唯一觸發源）" },
             new WriterRule { Member = "JustLeftGround", AllowedFiles = new[] { "MotionDriver.cs" },
@@ -712,7 +767,10 @@ namespace Project.Tests.EditMode
                 Path.Combine(ScriptsRoot, "Core", "Actions", "ActionRequestTarget.cs"),
                 Path.Combine(ScriptsRoot, "Presentation", "Actions", "ThrowProjectileEmitter.cs"),
                 Path.Combine(ScriptsRoot, "Presentation", "Actions", "MeleeHitboxSink.cs"),
-                Path.Combine(ScriptsRoot, "Presentation", "Actions", "ThrownProjectile.cs")
+                Path.Combine(ScriptsRoot, "Presentation", "Actions", "ThrownProjectile.cs"),
+                // 🆕 2026-09-05：Ice 的地面 AoE seam。新增 sink 就把它掛進這條不變量，
+                // 否則「外部 seam 不得持有動畫／轉移權威」會隨著實作變多而逐漸失去覆蓋。
+                Path.Combine(ScriptsRoot, "Presentation", "Actions", "GroundEffectSink.cs")
             };
             string[] forbidden = { "AnimationFacadeBase", "TransitionTo", "IntentData", ".Intent", ".Play(" };
             var violations = new List<string>();
@@ -877,6 +935,151 @@ namespace Project.Tests.EditMode
                 "VFX／particle collision 不得成為命中來源或決定命中時機");
             StringAssert.DoesNotContain("OnParticleCollision", code,
                 "VFX／particle collision 不得成為命中來源或決定命中時機");
+        }
+
+        /// <summary>
+        /// **A27 — 攻擊 trigger 只能由 `IInputSource`（順序 1）產生。**
+        ///
+        /// 這條守的是一個**時序**事實，不是風格偏好：`CharacterPipelineRunner` 的順序是
+        /// **2 `ProcessIntents` → 2.5 `ProduceIntent`**，且每幀開頭 `InputData inputData = default`。
+        /// ⇒ 在 movement source 的 `ProduceIntent` 裡寫 `Slot*ButtonDown`，本幀已錯過 `ProcessIntents`、
+        /// 下一幀又被歸零，**那個旗標永遠不會被任何人讀到**。
+        ///
+        /// 症狀會是「敵人就是不出手，但沒有任何錯誤訊息」——這種靜默失敗值得用測試釘死，
+        /// 因為它看起來就像「AI 邏輯寫錯了」，很容易往錯的方向查。
+        /// </summary>
+        [Test]
+        public void A27_AttackTrigger_IsProducedByInputSourceOnly()
+        {
+            // ⚠️ 刻意用搜尋而不是寫死資料夾：本專案的資料夾與命名空間不一一對應
+            //    （`IMovementModel` 在 Models/ 但命名空間是 Project.Core.Movement），
+            //    寫死路徑會在檔案搬家時變成「找不到檔案」的假性失敗——那正是 2026-09-05 首跑踩到的。
+            string movementSourcePath = FindSingleScript("AIMovementSource.cs");
+
+            string movementCode = StripComments(File.ReadAllText(movementSourcePath));
+            foreach (string slotFlag in new[] { "Slot1ButtonDown", "Slot2ButtonDown", "Slot3ButtonDown" })
+            {
+                StringAssert.DoesNotContain(slotFlag, movementCode,
+                    $"{RelativePath(movementSourcePath)} 不得寫入 {slotFlag}：\n" +
+                    "    管線順序是 2 ProcessIntents → 2.5 ProduceIntent ⇒ 在此寫入的攻擊旗標永遠讀不到。\n" +
+                    "    攻擊決策屬於 IInputSource（順序 1），見 AIInputSource。");
+            }
+
+            string inputSourcePath = FindSingleScript("AIInputSource.cs");
+
+            string inputCode = StripComments(File.ReadAllText(inputSourcePath));
+            StringAssert.Contains("IInputSource", inputCode,
+                "AIInputSource 必須是 IInputSource（順序 1），否則它產生的攻擊旗標同樣會被錯過");
+            StringAssert.DoesNotContain("IMovementIntentSource", inputCode,
+                "攻擊來源不得同時扮演 movement producer——兩者刻意分屬不同管線階段");
+
+            // AI 不得自行節流：能不能出手的唯一回答者是 ActionState（ADR-004 D2）。
+            foreach (string forbidden in new[] { "Time.time", "Time.deltaTime", "Cooldown", "cooldown" })
+            {
+                StringAssert.DoesNotContain(forbidden, inputCode,
+                    $"AIInputSource 出現 {forbidden}：AI 不得自建冷卻／計時節流，" +
+                    "那會讓「這一拳能不能出」有第二個回答者（ActionState 已持有 per-slot 冷卻）。");
+            }
+        }
+
+        // =====================================================================
+        // A28～A32 — ADR-007：方向權威
+        // =====================================================================
+
+        [Test]
+        public void A28_ProceduralMovement_DoesNotUseTransformForward()
+        {
+            string path = Path.Combine(ScriptsRoot, "Presentation", "Motion", "MotionDriver.cs");
+            Assert.IsTrue(File.Exists(path), $"找不到 {path}");
+
+            string methodBody = ExtractMethodBody(File.ReadAllText(path), "ExecuteBaseMovement");
+            StringAssert.DoesNotContain("transform.forward", methodBody,
+                "ExecuteBaseMovement 的 procedural 位移不得以 facing（transform.forward）冒充世界移動方向；" +
+                "烘焙曲線路徑的同名參照不在本方法體掃描範圍內。");
+        }
+
+        [Test]
+        public void A29_ActionLifecycleSinks_DoNotResolveDirectionAuthority()
+        {
+            string[] sinkFiles =
+            {
+                "ThrowProjectileEmitter.cs",
+                "GroundEffectSink.cs",
+                "MeleeHitboxSink.cs"
+            };
+            string[] forbidden = { "AimResolver", "TryGetAimPoint", "transform.root.forward" };
+            var violations = new List<string>();
+
+            foreach (string fileName in sinkFiles)
+            {
+                string path = FindSingleScript(fileName);
+                string code = StripStringLiterals(StripComments(File.ReadAllText(path)));
+                foreach (string token in forbidden)
+                {
+                    if (code.Contains(token)) violations.Add($"{RelativePath(path)} 出現 {token}");
+                }
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "IActionLifecycleSink 實作只能消費 ActionState 交付的方向承諾，不得自行解算方向：\n" +
+                string.Join("\n", violations));
+        }
+
+        [Test]
+        public void A30_OnlyPlayerMovementProducer_MayReferenceCameraTransform()
+        {
+            string movementRoot = Path.Combine(ScriptsRoot, "Core", "Movement");
+            Assert.IsTrue(Directory.Exists(movementRoot), $"找不到 {movementRoot}");
+
+            var violations = new List<string>();
+            foreach (string path in Directory.GetFiles(movementRoot, "*.cs", SearchOption.TopDirectoryOnly))
+            {
+                if (string.Equals(Path.GetFileName(path), "PlayerLocomotionPolicy.cs", StringComparison.Ordinal)) continue;
+
+                string code = StripStringLiterals(StripComments(File.ReadAllText(path)));
+                if (code.Contains("CameraTransform")) violations.Add(RelativePath(path));
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "相機基底只能是玩家 producer 的輸入投影工具；Core/Movement 頂層其他檔案不得引用 CameraTransform：\n" +
+                string.Join("\n", violations));
+        }
+
+        [Test]
+        public void A31_CharacterFacingSource_IsOnlyFacingRequestSender()
+        {
+            var senders = new List<string>();
+            var invocation = new Regex(@"\bRequestFacing\s*\(");
+
+            foreach (string path in RuntimeScriptPaths())
+            {
+                if (string.Equals(Path.GetFileName(path), "MotionDriver.cs", StringComparison.Ordinal)) continue;
+
+                string code = StripStringLiterals(StripComments(File.ReadAllText(path)));
+                if (invocation.IsMatch(code)) senders.Add(RelativePath(path));
+            }
+
+            Assert.AreEqual(1, senders.Count,
+                "MotionDriver.RequestFacing 必須在全 Runtime 恰好只有一個送出檔案：\n" +
+                string.Join("\n", senders));
+            Assert.AreEqual("Assets/Scripts/Core/Facing/CharacterFacingSource.cs", senders[0],
+                "ADR-007 D3 的唯一 facing authority 必須是 CharacterFacingSource。");
+        }
+
+        [Test]
+        public void A32_MotionDriver_DoesNotDecideFacing()
+        {
+            string path = Path.Combine(ScriptsRoot, "Presentation", "Motion", "MotionDriver.cs");
+            Assert.IsTrue(File.Exists(path), $"找不到 {path}");
+
+            string methodBody = ExtractMethodBody(File.ReadAllText(path), "ExecuteBaseMovement");
+            string[] forbidden = { "LookRotation", "Slerp", "transform.rotation", "transform.Rotate" };
+            foreach (string token in forbidden)
+            {
+                StringAssert.DoesNotContain(token, methodBody,
+                    $"ExecuteBaseMovement 出現 '{token}'：ADR-007 D2／D3 規定 MotionDriver 是 rotation 執行者，" +
+                    "不是『往哪面向／本幀該不該轉』的決策者；請把 facing 政策收斂回 CharacterFacingSource。");
+            }
         }
     }
 }

@@ -11,7 +11,7 @@ namespace Project.Core.Movement
     /// （ADR-003 §9-L1 的殘餘耦合，本輪結案）：
     /// 1. **B9 平滑**（<see cref="LocomotionSpeedSmoother"/>，整顆從 Runner 換持有者搬來，計算邏輯零改寫）
     /// 2. **運動輸出導出**（速度／方向／上半身權重）
-    /// 3. **自驅動畫參數**（<c>SetFloat(MoveSpeed)</c>）——D4「每個 model 驅動自己的參數」
+    /// 3. **自驅動畫參數**（<c>MoveSpeed</c>／<c>MoveX</c>／<c>MoveZ</c>）——D4「每個 model 驅動自己的參數」
     ///
     /// 遷移後 <c>CharacterPipelineRunner</c> 不再認識任何 locomotion 概念（無 MoveSpeed、無平滑時間、無 gait）。
     /// </summary>
@@ -29,7 +29,7 @@ namespace Project.Core.Movement
     /// D4 的最終形態（欄位完全內化、不經黑板）目標不變，但需連動 MotionDriver API 與 Jump 空中控制，
     /// 留待後續階段；本輪刻意不一次做完（migration intermediate state，見 dev-spec §7.3）。
     /// </remarks>
-    public class LocomotionModel : MonoBehaviour, IMovementModel
+    public class LocomotionModel : MonoBehaviour, IMovementModel, IFootPhaseSource
     {
         /// <summary>
         /// ambient 門檻：平滑速度達此值即視為「正在移動」（Move），低於則為 Idle。
@@ -48,6 +48,8 @@ namespace Project.Core.Movement
         [SerializeField] private float moveSpeedAccelTime = 0.12f;
         [Tooltip("MoveSpeed 滿→0 的減速平滑時間（秒）。通常略大於加速＝放開後自然滑行收步。")]
         [SerializeField] private float moveSpeedDecelTime = 0.18f;
+        [Tooltip("世界 XZ 移動方向的最大轉向角速度（度／秒）。720 表示 90° 轉向至少跨 0.125 秒。")]
+        [SerializeField, Min(0f)] private float directionTurnDegreesPerSecond = 720f;
 
         [Header("Forward Stop (C1 / C1.1)")]
         [Tooltip("Walk loop Bake Data：只用 authored FootPhaseCurve 配合 Locomotion 主導子動作時間選 LU/RU；不是 tier 表。")]
@@ -71,6 +73,8 @@ namespace Project.Core.Movement
         private int _lastMotionFrame = int.MinValue;
         private int _nextWalkFallbackVariantIndex;
         private int _nextRunFallbackVariantIndex;
+        private float _locomotionNormalizedTime;
+        private bool _hasLocomotionTimeSnapshot;
 
 #if UNITY_EDITOR
         private int _missingPhaseWarningMask;
@@ -83,6 +87,10 @@ namespace Project.Core.Movement
         /// <inheritdoc />
         public void Tick(PlayerRuntimeData data, AnimationFacadeBase animationFacade, float deltaTime)
         {
+            // 順序 3 發生在 FSM 切入 Jump 之前；此處先快照 locomotion 播放頭，JumpState.OnEnter
+            // 才能在同一幀承諾 LU／RU。若等到順序 6，順序 5 已開始 cross-fade 到 Jump，來源可能消失。
+            CaptureLocomotionTime(animationFacade);
+
             float desiredSpeed = Mathf.Clamp01(data.MovementIntent.DesiredSpeedNormalized);
             bool isIntending = desiredSpeed >= LocomotionSpeedSmoother.Epsilon;
 
@@ -113,7 +121,12 @@ namespace Project.Core.Movement
             // 輸出依然只由 MovementIntent ＋ 本 dynamics 導出，沒有第二寫入者或手填輸出。
             if (!_stop.IsPending)
             {
-                _smoother.Tick(in data.MovementIntent, moveSpeedAccelTime, moveSpeedDecelTime, deltaTime);
+                _smoother.Tick(
+                    in data.MovementIntent,
+                    moveSpeedAccelTime,
+                    moveSpeedDecelTime,
+                    directionTurnDegreesPerSecond,
+                    deltaTime);
             }
 
             data.MoveSpeed = _smoother.Speed;
@@ -121,15 +134,48 @@ namespace Project.Core.Movement
             data.UpperBodyWeight = _smoother.Speed > LocomotionSpeedSmoother.Epsilon ? 0.5f : 0.0f;
 
             // 🆕（ADR-003 D4）**model 自驅動畫參數**：由 Locomotion Transition 資產內的 ParameterName
-            // 綁定驅動 1D Mixer 混合，本層不認識任何 Mixer（tier 門檻是資料，住在 Locomotion.asset）。
+            // 自行訂閱；MoveSpeed 保留給現行 1D Mixer，MoveX／MoveZ 供後續 2D Mixer 使用。
+            // 本層不認識任何 Mixer（tier 門檻是資料，住在 Locomotion.asset）。
             // ⚠️ 驅動點刻意留在 Update（順序 3）而非 LateUpdate：Animator 評估卡在兩者之間，
             //    移到 LateUpdate 會讓動畫參數比位移晚一幀。
             if (animationFacade != null)
             {
                 animationFacade.SetFloat(AnimationFacadeBase.ParamMoveSpeed, _smoother.Speed);
+
+                Vector2 localMove = ProjectMoveParameters(
+                    transform.rotation, data.MoveDirection, _smoother.Speed);
+                animationFacade.SetFloat(AnimationFacadeBase.ParamMoveX, localMove.x);
+                animationFacade.SetFloat(AnimationFacadeBase.ParamMoveZ, localMove.y);
             }
 
             _wasIntending = isIntending;
+        }
+
+        /// <summary>
+        /// 將世界移動方向投影到角色本地 XZ，再以平滑後速度縮放。
+        /// 只依賴值型別輸入，供 2D locomotion 參數與 EditMode 測試共用，執行期零配置。
+        /// </summary>
+        internal static Vector2 ProjectMoveParameters(
+            Quaternion actorRotation, Vector3 worldMoveDirection, float speed)
+        {
+            // Quaternion inverse 與 Transform.InverseTransformDirection 等價：兩者都只反轉旋轉、忽略縮放。
+            Vector3 local = Quaternion.Inverse(actorRotation) * worldMoveDirection;
+            return new Vector2(local.x * speed, local.z * speed);
+        }
+
+        /// <inheritdoc />
+        public bool TryGetCurrentFootPhase(MotionBakeData loopBakeData, out FootPhase phase)
+        {
+            phase = default;
+            if (!_hasLocomotionTimeSnapshot || loopBakeData == null || loopBakeData.Duration <= 0f ||
+                loopBakeData.FootPhaseCurve == null || loopBakeData.FootPhaseCurve.length == 0)
+            {
+                return false;
+            }
+
+            float loopTime = Mathf.Repeat(_locomotionNormalizedTime, 1f) * loopBakeData.Duration;
+            phase = loopBakeData.GetFootPhaseAt(loopTime);
+            return true;
         }
 
         /// <inheritdoc />
@@ -292,15 +338,9 @@ namespace Project.Core.Movement
             MotionBakeData loopBakeData,
             out FootPhase phase)
         {
-            phase = default;
-            if (!TryGetCurrentLoopTime(animationFacade, loopBakeData, out float normalizedTime))
-            {
-                return false;
-            }
-
-            float loopTime = Mathf.Repeat(normalizedTime, 1f) * loopBakeData.Duration;
-            phase = loopBakeData.GetFootPhaseAt(loopTime);
-            return true;
+            // CaptureLocomotionTime 與 Jump 共用同一份播放頭快照；Stop 與 Jump 因而不會各自
+            // 查一次動畫圖、在同一幀得到不同答案。animationFacade 參數保留既有私有 API 形狀。
+            return TryGetCurrentFootPhase(loopBakeData, out phase);
         }
 
         private bool TryGetCurrentLoopTime(
@@ -308,18 +348,33 @@ namespace Project.Core.Movement
             MotionBakeData loopBakeData,
             out float normalizedTime)
         {
-            normalizedTime = 0f;
+            normalizedTime = _locomotionNormalizedTime;
             if (loopBakeData == null || loopBakeData.Duration <= 0f ||
                 loopBakeData.FootPhaseCurve == null || loopBakeData.FootPhaseCurve.length == 0 ||
-                !animationFacade.IsPlaying(locomotionAnimationKey) ||
-                !animationFacade.TryGetDominantChildNormalizedTime(
-                    locomotionAnimationKey, out normalizedTime) ||
-                float.IsNaN(normalizedTime) || float.IsInfinity(normalizedTime))
+                !_hasLocomotionTimeSnapshot)
             {
                 return false;
             }
 
             return true;
+        }
+
+        private void CaptureLocomotionTime(AnimationFacadeBase animationFacade)
+        {
+            _hasLocomotionTimeSnapshot = false;
+            _locomotionNormalizedTime = 0f;
+
+            if (animationFacade == null || string.IsNullOrEmpty(locomotionAnimationKey) ||
+                !animationFacade.IsPlaying(locomotionAnimationKey) ||
+                !animationFacade.TryGetDominantChildNormalizedTime(
+                    locomotionAnimationKey, out float normalizedTime) ||
+                float.IsNaN(normalizedTime) || float.IsInfinity(normalizedTime))
+            {
+                return;
+            }
+
+            _locomotionNormalizedTime = normalizedTime;
+            _hasLocomotionTimeSnapshot = true;
         }
 
         private bool TryGetActiveVariant(out LocomotionStopVariant variant)

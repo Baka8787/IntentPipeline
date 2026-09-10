@@ -167,13 +167,22 @@ namespace Project.Presentation.IK
             // 落空代表額外資訊不足，不是關 IK 的理由：保留已算好的 ankle-only 結果。
             if (!heelHasHit || !toeHasHit) return sample;
 
-            float heelPenetration = heelHit.point.y - worldHeel.y;
-            float toePenetration = toeHit.point.y - worldToe.y;
-            float lift = ComputePenetrationLift(worldHeel, heelHit.point, worldToe, toeHit.point);
+            sample.GroundY = ComputeSoleHeight(
+                sample.TargetPosition,
+                sample.SoleNormal,
+                footBottomHeight,
+                worldHeel,
+                heelHit.point,
+                worldToe,
+                toeHit.point,
+                out float lift);
             sample.TargetPosition.y += lift;
 
-            // 誰穿得最深誰就是抬升後的真實接觸端點；骨盆讀取該接觸高度。
-            sample.GroundY = heelPenetration >= toePenetration ? heelHit.point.y : toeHit.point.y;
+            // 🔴 2026-09-08 probe 實測定位：舊版以「誰穿得深就取誰的地面 Y」作 GroundY。
+            // lift 的 max() 本身連續，但 argmax 切換後再取另一個屬性（heel/toe ground Y）不連續；
+            // 交叉時會跳約「heel-toe 跨距 × 坡度梯度」，平地因兩端等高才看不出來。
+            // 骨盆真正需要的是解算後腳底平面高度，現由同一份連續 TargetPosition＋lift 導出，
+            // 不以遲滯掩蓋斷點，也不再讓端點選擇決定骨盆高度。
             return sample;
         }
 
@@ -292,6 +301,28 @@ namespace Project.Presentation.IK
             float heelPenetration = heelGroundPoint.y - worldHeel.y;
             float toePenetration = toeGroundPoint.y - worldToe.y;
             return Mathf.Max(0f, Mathf.Max(heelPenetration, toePenetration));
+        }
+
+        /// <summary>
+        /// （純函數）由兩端戳穿量抬升腳踝後，回傳解算後的實際腳底平面高度。
+        /// <c>max()</c> 對輸入連續，因此本結果在 heel／toe penetration 交叉時也連續；
+        /// 不可改回以 argmax 選另一個端點的 ground Y——斜坡上兩端不等高，會產生跨距 × 坡度梯度的跳變。
+        /// <paramref name="lift"/> 同行回傳，讓 TargetPosition 與 GroundY 消費同一份抬升真相且不重算。
+        /// </summary>
+        public static float ComputeSoleHeight(
+            Vector3 ankleTargetBeforeLift,
+            Vector3 soleNormal,
+            float footBottomHeight,
+            Vector3 worldHeel,
+            Vector3 heelGroundPoint,
+            Vector3 worldToe,
+            Vector3 toeGroundPoint,
+            out float lift)
+        {
+            lift = ComputePenetrationLift(
+                worldHeel, heelGroundPoint, worldToe, toeGroundPoint);
+            ankleTargetBeforeLift.y += lift;
+            return (ankleTargetBeforeLift - soleNormal * footBottomHeight).y;
         }
 
         /// <summary>

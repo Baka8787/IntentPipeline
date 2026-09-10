@@ -3,10 +3,15 @@
 > **本檔是 `docs/ADR/005-multi-action-identity.md` 的 Living Spec。**
 > ADR 只凍結 D1–D5 五條決策；**其餘所有細節在本檔，且允許在 Trial 期間依實作發現修改**（ADR-005 §8 清單）。
 >
-> ✅ **狀態：ADR-005 已於 2026-09-02 翻牌為 `Trial`**（前置的 ADR-004 同日 `Accepted`，P-0 結案）。
-> 本檔自此**是目前的實作基線**，P-A 可以開工。
+> ✅ **狀態：ADR-005 已於 2026-09-06 翻牌為 `Accepted`**（A–G 七條全數由使用者實跑通過）。
+> 2026-09-02 `Proposed → Trial`，2026-09-06 `Trial → Accepted`。本檔是**已驗證的實作基線**。
 >
-> 📌 引用本檔時必須註明狀態：**使用者已裁決方向 ≠ 工程上已驗證。**
+> 🔓 **§10.2 的 ⛔ 不得改動名單自此解除**——那是 Acceptance **G**（五個下游檔案零修改）的觀察期前提，
+> 觀察期已結束並通過。`MotionDriver` 位移路徑／`AnimationFacadeBase` 契約／`LocomotionModel`
+> 不再被本 ADR 擋住。**後續實作順序見 `docs/13` §7。**
+>
+> ⚠️ **ADR 的決策內容（D1／D2）自此凍結**——要改決策請開新 ADR 並 Supersede。
+> 但**本檔（Living Spec）仍然是活的**，繼續隨實作更新。
 
 ---
 
@@ -18,7 +23,7 @@
 
 | 展示名 | 形狀 | 側效果 | 動畫來源 |
 |---|---|---|---|
-| **Quick Spell** | 短前搖 → 投射物 | 生成 projectile | Human Spellcasting Animations FREE（快速法術） |
+| **Fireball** | 短前搖 → 投射物 | 生成 projectile | Human Spellcasting Animations FREE（快速法術） |
 | **Ice Spell** | 短前搖 → 投射物 → **命中後 Slow** | 生成 projectile ＋ 對目標施加減速 | Human Spellcasting Animations FREE（冰系施法） |
 | **Melee Slash** | 揮擊 → 命中窗 | 開啟／關閉 hitbox | `EEJANAI_Team/FreeSwordAnimations` 既有 `slash*` |
 
@@ -59,7 +64,7 @@
 | 命中 → 對方反應 | `ThrownProjectile.OnTriggerEnter` → `ActionRequestTarget.RequestAction()` → 敵人播 Damage | 法術投射物照抄同一條鏈 |
 | 打斷矩陣 | `StateRule.CanBeInterruptedBy` ＋ 逐 phase `Interruptible` | 資產層可調，不需程式 |
 
-> 📌 **盤點結論：Quick Spell 幾乎是免費的。** 它 ＝ Throw 砍掉 `Loop`／`WaitForTrigger` ＋ 換一份 Definition ＋ 換一個 prefab ＋ 加一列動畫映射。
+> 📌 **盤點結論：Fireball 幾乎是免費的。** 它 ＝ Throw 砍掉 `Loop`／`WaitForTrigger` ＋ 換一份 Definition ＋ 換一個 prefab ＋ 加一列動畫映射。
 
 ### 2.2 真正的缺口
 
@@ -145,8 +150,8 @@ Definition 不再於 `Initialize` 綁死，因此 `OnEnter` 必須**重新解析
 | Action | Slot | Phases | `Bake` | `EmitsRelease` | `Interruptible` | Sink 實作 |
 |---|---|---|---|---|---|---|
 | **Melee Slash** | `Slot1`（滑鼠左鍵） | `Start` | ✅ **必要** | `Start` ＠ ~0.40 | `Start` = false | 近戰 hitbox 開關 |
-| **Quick Spell**（火／雷） | `Slot2`（Q） | `Start` | 留空 | `Start` ＠ ~0.35 | `Start` = false | 重用 `ThrowProjectileEmitter`（法術 prefab／速度） |
-| **Ice Spell** | `Slot3`（E） | `Start` | 留空 | `Start` ＠ ~0.35 | `Start` = false | 同上（Ice prefab 開 `appliesSlow`） |
+| **Fireball** | `Slot2`（Q） | `Start` ＋ **2 段 Chain**（§4.3） | 留空 | 每段 ＠0.35 | 每段 = **true** | 重用 `ThrowProjectileEmitter`（法術 prefab／速度） |
+| **Ice Spell** | `Slot3`（E） | `Start` | 留空 | `Start` ＠ ~0.35 | `Start` = false | **`GroundEffectSink`（地面 AoE，§4.4）** |
 
 **為什麼三格都只有 `Start`（法術不用素材自帶的 Load／Cast 分離）**：
 `Kevin Iglesias` 的 `MagicAttacks/` 每組都附 `Load`／`Cast`／合一三個檔，天生對應 `Start`／`End`。
@@ -154,6 +159,70 @@ Definition 不再於 `Initialize` 綁死，因此 `OnEnter` 必須**重新解析
 且需求是「**快速**施展」，快速本來就不該有蓄力段。改用合一檔、單一 `Start`。
 ⇒ 三格的展示價值不重疊：**Slot1 ＝ motion mapping**、**Slot2／3 ＝ 多身分共用一顆 `ActionState` ＋ per-slot 冷卻**、
 **Slot3 額外 ＝ Slow 的跨系統自動傳播**。
+
+#### 🔩 已落地的 Definition 資產（2026-09-04）
+
+`Assets/ScriptableObjects/StateMachine/Actions/` 下已建立兩份 `ActionDefinitionSO`：
+
+| 資產 | `Slot` | `AnimationKey` | `FallbackDuration` | `EmitsRelease` | `Cooldown` | 對應 clip |
+|---|---|---|---|---|---|---|
+| `FireballDefinition.asset` | `Slot2`（Q） | **`Spell_Fireball_1`** | 1.2 | ✅ ＠0.35 | **0.4** | `HumanF@MagicAttackDirect1H01_L`（36 frames） |
+| `IceSpellDefinition.asset` | `Slot3`（E） | **`Spell_Ice`** | 1.366667 | ✅ ＠0.35 | **1.5** | `HumanF@MagicAttackCall1H01_L`（41 frames） |
+
+> 🔄 **2026-09-04 使用者裁決（取代上表初版）**：Ice 改用 **Call**（單手上舉召喚），Fireball 改用 **Directional 的
+> `HumanF` 版本並做成三連段**。全部改用 `HumanF` 素材——X Bot 是 Humanoid，`HumanF`／`HumanM` 只是動作風格差異，
+> 不是骨架差異（兩者皆 `animationType: 3`，重定向路徑與現用的 `slash1.fbx` 相同）。
+>
+> 🏷️ **同時改名（2026-09-04）**：`Quick Spell`／`QuickSpellDefinition`／`Spell_Quick_N` 是**還沒決定法術種類前的暫名**
+> （「快速施展」是形容詞，不是身分）。種類定案後一律改用種類命名：
+>
+> | 舊 | 新 |
+> |---|---|
+> | `QuickSpellDefinition.asset` | **`FireballDefinition.asset`** |
+> | `Spell_Quick_1/2/3.asset`（＋同名 `AnimationKey`） | **`Spell_Fireball_1/2/3`** |
+> | 投射物 prefab（尚未建立） | **`Projectile_Fireball`**／**`Projectile_Icebolt`** |
+>
+> `IceSpellDefinition`／`Spell_Ice` **不動**——它們本來就以種類命名。
+> `ActionSlot.Slot2/Slot3` 也不動：slot 是位置身分，**刻意不叫技能名**（見 `ActionSlot.cs` 的說明）。
+>
+> **Fireball 三連段的 clip 分配**（三份 `TransitionAsset` 已建）：
+>
+> | 段 | `AnimationKey` | clip | frames → 秒 |
+> |---|---|---|---|
+> | 1 | `Spell_Fireball_1` | `HumanF@MagicAttackDirect1H01_L` | 36 → 1.2 |
+> | 2 | `Spell_Fireball_2` | `HumanF@MagicAttackDirect1H01_R` | 36 → 1.2 |
+> | 3 | `Spell_Fireball_3` | `HumanF@MagicAttackDirect2H01` | 48 → 1.6 |
+>
+> 🟡 **第 3 段用 `Direct2H01` 是我的補完**：使用者指定的 `Direct1H01` 只有 `_L`／`_R` 兩顆，湊不出三段。
+> 選雙手版當收尾可讓三段有「左 → 右 → 雙手」的漸強，換掉只是換一個 clip guid。
+>
+> ⚠️ **連段需要 runtime 機制，目前尚未實作**——`FireballDefinition` 現在仍只有第 1 段，
+> 可以先跑 ADR-005 的資產驗收。連段設計見 §4.3。
+
+- **兩個 `AnimationKey` 是契約**：`AnimancerFacade.transitionMappings` 必須以**一字不差**的這兩個鍵註冊
+  對應的 `TransitionAsset`，否則 `IsPlaying` 為 false（docs/11 §4.1 的安靜失敗①）。
+  ⇒ 對應的 `TransitionAsset` 已建：`Assets/ScriptableObjects/Animation/` 下的 `Spell_Fireball_1/2/3.asset` ＋ `Spell_Ice.asset`
+  （`_FadeDuration` 0.15、`_Speed` 1，比照 `Melee_Slash1.asset`）。**剩下只差 prefab 上補四列映射。**
+
+> 🔧 **取得 FBX 子 clip `fileID` 的方法（往後可重用）**
+>
+> 🔄 **2026-09-05 更正——有更直接的一條**：`.fbx.meta` 裡的 **`fileIDToRecycleName`** 直接列出
+> `<fileID>: <clip 名稱>` 的完整對照表（例：`7400016: Fists_Punch_R`）。
+> 先前寫「該 ID 不在 `.meta` 裡」是**錯的**——我只查了 `internalIDToNameTable`（那個確實恆為 `[]`），
+> 沒查同一份檔案裡的 `fileIDToRecycleName`。
+> ⇒ **優先查 `fileIDToRecycleName`**；查不到時才退回下面的 AnimatorController 法。
+> 📌 教訓：同一份 `.meta` 有兩張 ID 表，只看其中一張為空就下結論，等於用局部證據否定整體。
+> Animancer 的 `ClipTransition._Clip` 需要 FBX 內 AnimationClip 的 `fileID`，而**該 ID 不在 `.fbx.meta` 裡**
+> （`internalIDToNameTable` 即使匯入後仍是 `[]`），一般只能靠 Editor 拖曳。
+> **但廠商 demo 的 `.controller` 會把它寫出來**——`Kevin Iglesias/.../AnimatorControllers/HumanM@MagicAttack*.controller`
+> 的 `m_Motion:` 欄位同時給出 clip `fileID` 與 FBX `guid`。本包 5 個合一 clip 共用 `fileID: 3094330708855449807`
+> （每個 FBX 只有單一 take）。
+> ⇒ **凡是廠商附了 AnimatorController 的動畫包，clip 接線都不必開 Editor。**
+- **冷卻刻意不同（1.5 vs 4）**：ADR-005 Acceptance **A** 驗的是 per-slot 冷卻互相獨立；
+  兩格同值會看不出差異。
+- 🟡 **`FallbackDuration` 由 frame 數 ÷ 30 推得**（`Bake` 留空 ⇒ 它就是 Action 的實際長度，
+  也是 `ReleaseNormalizedTime` 的分母）。素材 fps 未經 Editor 確認，**Play 時若前搖過長／動畫被切掉，
+  優先調這個值**——它是 Data 層 tunable，不需要動程式。
 
 ### 4.1 Melee Slash 的 Bake（motion mapping 展示）
 
@@ -209,7 +278,7 @@ Definition 不再於 `Initialize` 綁死，因此 `OnEnter` 必須**重新解析
 
 **實作結論（2026-09-03）**：只新增一支 runtime sink。
 
-1. **法術投射物發射器不新增類別** — 直接沿用 `ThrowProjectileEmitter`。它已把 prefab、速度、壽命、spawn point、held visual 與 `AimResolver` 全部資料化；Quick／Ice 的差異只在 prefab 與數值，另建同形類別只會複製 lifecycle 與瞄準邏輯。Ice 的 Slow 仍由 `ThrownProjectile.appliesSlow` 資產開關決定。
+1. **法術投射物發射器不新增類別** — 直接沿用 `ThrowProjectileEmitter`。它已把 prefab、速度、壽命、spawn point、held visual 與 `AimResolver` 全部資料化；Fireball／Ice 的差異只在 prefab 與數值，另建同形類別只會複製 lifecycle 與瞄準邏輯。Ice 的 Slow 仍由 `ThrownProjectile.appliesSlow` 資產開關決定。
 2. **`MeleeHitboxSink`** — `Release()` 開啟 Collider 命中窗、`Cleanup()` 關閉；固定容量記錄本次揮擊已命中的 `ActionRequestTarget`，同一目標只提交一次 `Reaction`，命中熱路徑不配置集合。
 
 > ✅ **2026-09-03 接線缺口結案**：`CharacterPipelineRunner.actionSinkBindings` 以
@@ -227,12 +296,142 @@ Definition 不再於 `Initialize` 綁死，因此 `OnEnter` 必須**重新解析
 ### 4.2 敵人近戰站位（2026-09-03 落地）
 
 `AIMovementSource` 在 producer 內以 `minimumEngagementDistance`／`maximumEngagementDistance` 判斷站位：
-太近輸出背離目標的 `MovementIntent`、太遠沿 NavMesh steering direction 前進、距離帶內輸出零意圖。
-`distanceHysteresis` 讓正在前進／後退的角色必須跨過帶內的第二道門檻才停住，避免距離誤差在邊界逐幀抖動。
+太近輸出背離目標的 `MovementIntent`、太遠沿 NavMesh steering direction 前進、距離帶內則沿水平 `toTarget`
+的切線持續側移。`distanceHysteresis` 讓正在前進／後退的角色必須跨過帶內的第二道門檻才切入側移，
+避免距離誤差在邊界逐幀抖動。
 
-這三個值全是 producer 的 `[SerializeField]` 調整項；跨幀只保存 `Hold／Approach／Retreat` 私有模式，
+距離帶三個值與 `holdStrafeSpeedNormalized`／`strafeDirectionFlipInterval` 都是 producer 的
+`[SerializeField]` 調整項。Hold 的順／逆時針符號是 producer 私有跨幀狀態，每次間隔加入 ±25% 隨機後翻轉，
+避免多隻敵人長時間同向或同步繞圈；側移與既有速度輸出共用 Slow 倍率解析。
 **不回讀 FSM、不新增黑板欄位、不讓 NavMeshAgent 取得 Transform authority**。後退也只輸出方向，
 實際位移仍走 `LocomotionModel → MotionDriver`。
+
+> **現階段的視覺邊界**：這裡只有模型無關的移動方向，沒有新增面向權威；`MotionDriver` 目前仍朝移動方向旋轉，
+> 所以結果是「面朝切線繞行」，不是「身體持續面向玩家的專用 strafe 動畫」。後者需要獨立 combat-facing seam，
+> 不得由 movement producer 回讀 FSM 或越層呼叫 Presentation 來偷渡。
+
+### 4.3 連段（Chain，2026-09-04 落地）
+
+**Fireball 是三連段**：按 Q 出第 1 段，在段內再按一次 Q 就接第 2 段，再一次接第 3 段；沒接到就自然收尾。
+
+#### 為什麼不重用 `ActionPhase`
+
+`ActionPhase` 只有 `Start`／`Loop`／`End`／`Cancel` 四個**語意固定**的階段，沒有「第 N 段」的位置。
+`Loop` 的 `WaitForTrigger` 是 Throw 的**蓄力等待**（按住 → 放開），與連段的**重新按壓推進**不是同一件事——
+硬套會把 Throw 的語意弄髒，且三段以上就再也塞不下。
+
+替代方案「每段一份 `ActionDefinitionSO` ＋ 段間轉移表」更通用，但會打掉 slot ↔ definition 的 1:1 關係，
+而那正是 ADR-005 D1 的核心（**不得有第二把鍵**）。代價遠大於收益，不採用。
+
+#### 資料形狀（`ActionDefinitionSO`）
+
+| 欄位 | 意義 |
+|---|---|
+| `ChainSegments` | 第 2 段起的 `ActionPhaseEntry[]`。**留空 ⇒ 這不是連段技**。依索引順序推進，元素的 `Phase` 欄位不被讀取 |
+| `ChainInputOpenNormalized` | 接受「再按一次」的窗口**起點**（當前段的 normalized time）。窗口終點固定是該段結束。預設 0.25 |
+
+第 1 段永遠是 `Phases` 的 `Start`，所以三連段 ＝ 1 個 `Start` ＋ 2 筆 `ChainSegments`。
+
+#### 執行期規則（`ActionState`）
+
+- **連段期間 `_phase` 一直是 `Start`**——連段是「同一個 `Start` 換素材重播」，不是新 phase。
+  因此 `CanTransitionAway`／`CancelMoveIntentThreshold`／`Loop` 的既有語意**一字不必改**。
+- **只排隊、不立刻切段**：窗口內偵測到再按 ⇒ 標記；實際切段固定發生在**當前段播完**。
+  否則第 2 段會從第 1 段中途插進來，動作看起來像被吃掉。
+- **冷卻整條共用一次**，在最後一段結束時提交（`Cooldown` 屬於「這次出手」，不屬於「每一段」）。
+- **`Interruptible` 逐段 authored**：三段打滿約 4 秒不能移動，所以 `FireballDefinition` 的三段
+  全部 `Interruptible = true`，讓翻滾／跳躍切得出去。
+
+> 🔴 **唯一被改動的既有語意**：`_releaseEmittedThisExecution` 原本是「整次執行只發一次 Release」
+> （Throw 只丟一顆）；連段改為**切段時重置**，因而**每段各發一次**（每段各出一顆投射物）。
+> 單段 Action 走不到切段路徑，行為不變。
+
+> 🐞 **2026-09-05，Play 才抓到的後續**：上面那條改動有一個**沒被 EditMode 測到的下游**——
+> `ThrowProjectileEmitter` 自己也有一份 `_releasedThisExecution`，只在 `Begin()` 重置，
+> 而 `Begin()` 一次執行只呼叫一次 ⇒ **第 2、3 段的 `Release()` 被 sink 靜默吞掉**，
+> 連段動畫照播、但只會飛出第一顆投射物。
+>
+> **修法是移除 sink 那層去重，不是加一個 per-segment 重置回呼**：release 時點的唯一權威是
+> `ActionState`（ADR-004 D2），sink 自帶第二套判斷正是該條決策要防的「第二個權威」。
+> 📌 **教訓**：T26–T29 用 `CountingLifecycleSink` 驗到「`ActionState` 發了三次 Release」就收工，
+> 但沒有任何測試驗「真實 sink 收到三次後真的做了三件事」。**測試驗到介面就停，缺口就落在介面之外。**
+
+#### 為什麼不需要防「進場那一幀被誤判成連按」
+
+`IntentData` 的 trigger 旗標是「當幀生、當幀死」（`PlayerRuntimeData.ResetTransientState`，管線順序 7），
+而 `FullBodyStateMachine.Tick` 是**先 `OnTick` 才 `OnEnter`** ⇒ 新進入的 state 第一次 `OnTick` 已經是下一幀，
+進場的那次按壓早被清掉。**不需要額外的 first-tick 守衛**——這是既有管線契約的自然結果，不是巧合。
+
+#### 測試
+
+`ActionStateTests` 的 **T26–T29**：依序推進且每段各一次 Release ／ 不連按就停在第 1 段 ／
+窗口未開的按壓不推進 ／ 最後一段再按不會長出第 4 段。
+
+#### 路由
+
+**不開 ADR。** 對照 CLAUDE.md 的四條判準：沒動黑板 schema（連段狀態是 `ActionState` 私有欄位）、
+沒動 FSM 拓撲、沒動管線順序或核心驅動介面、沒推翻既有不變量 ⇒ 走 Living Docs。
+
+### 4.4 Ice ＝ 地面 AoE（2026-09-05 使用者裁決，取代「Ice 也是投射物」）
+
+#### 為什麼改
+
+原規劃 Ice 與 Fireball 都走投射物、只差 `appliesSlow` 開關。**使用者裁決推翻**：
+「投射物 ＋ Slow 已經驗證過，再做一個飛行冰法只是重複同一條路徑，資訊增量太低。」
+
+改為地面爆發之後，兩格的展示價值不再重疊：
+
+| | Fireball（Slot2） | Ice（Slot3） |
+|---|---|---|
+| execution shape | 飛行投射物 | **地面 AoE 爆發** |
+| 命中判定 | `OnTriggerEnter` | 一次 `OverlapSphere` |
+| 目標數 | 單一 | 範圍內全部 |
+| 證明什麼 | 連段 ＋ per-slot 冷卻 | **同一套 Action 架構可以接不同的 execution shape** |
+
+📌 **這才是這一格真正的架構論證**：`ActionState`／`ActionDefinitionSO`／輸入層／冷卻
+**一行都沒有為了 Ice 改動**，變的只有 `IActionLifecycleSink` 的實作。
+換句話說——`docs/11` §2.1 說「側效果接縫是最大一筆重用」，這一格把它兌現了第三次。
+選用的 `MagicAttackCall1H01_L`（單手上舉召喚）與地面爆發本來就是配套的動畫語意。
+
+#### 形狀（`GroundEffectSink`）
+
+`Presentation/Actions/GroundEffectSink.cs`，第三個 `IActionLifecycleSink` 實作。
+`Release()` 做三件事：**解算落點 → 生成視覺 → 一次 `OverlapSphereNonAlloc` 投遞**。
+
+| 決策 | 內容 |
+|---|---|
+| 落點 | `AimResolver` 的瞄準點 → **只夾水平距離**到 `maxCastRange` → 從上方往下探地 |
+| 沒瞄準／瞄到腳下 | 退回「角色正前方 `defaultCastDistance`」。距離 0 會讓方向正規化除以零，這條退路同時是防呆 |
+| 探不到地 | 用水平落點，**不放棄施放**——寧可高度不完美，也不要技能靜默消失 |
+| 投遞 | `ActionRequestTarget.RequestAction(Reaction)` ＋ `TemporaryGameplayEffectState.ApplySlow(...)`，兩者都是**既有**機制 |
+| 去重 | 以 root `Transform` 為鍵、固定容量 16 的陣列（比照 `MeleeHitboxSink`）。多 collider 的敵人只結算一次 |
+| 零 GC | `Physics.OverlapSphereNonAlloc` ＋ 預配置緩衝，施放期間不配置 |
+| 視覺 | `Instantiate` prefab 後定時 `Destroy`。**粒子必須自帶 `Play On Awake`**——本元件刻意不呼叫任何播放 API |
+
+#### ⛔ 明確沒有做的事
+
+**沒有 AoE framework**（只有球，沒有形狀抽象）、**沒有 Targeting framework**
+（只有「瞄準點夾距離後探地」）、**沒有 StatusEffect framework**（只有既有的 Slow）。
+第二個地面技能出現前不擴充——這與 ADR-005 D5、`docs/08` §11 的既有紅線一致。
+
+#### 一個常數被提升了
+
+`SlowMovementSpeedMultiplier = 0.3f` 原本是 `ThrownProjectile` 的 private const。
+Ice 改走地面 AoE 後出現**第二個投遞者**，同一個「§7.4 明令不得更動」的數字散在兩個檔案
+就是它開始漂移的方式 ⇒ 提升為 `TemporaryGameplayEffectState.SlowMovementSpeedMultiplier`。
+⚖️ 這是**共用常數，不是 framework**：沒有新型別、沒有介面、沒有擴充點。
+
+#### 測試
+
+`SlowEffectTests` 三條：投遞走的是與投射物**相同**的兩條 seam ／ 同一目標只結算一次 ／
+無瞄準時退回正前方且不產生 NaN。
+`ArchitectureRegressionTests.A21` 的外部 seam 清單**已把 `GroundEffectSink.cs` 掛進去**——
+新增 sink 就補進不變量，否則「外部 seam 不得持有動畫／轉移權威」會隨實作變多而失去覆蓋。
+
+#### 路由
+
+**不開 ADR。** `docs/11` §10.1 本來就明列「新增 `IActionLifecycleSink` 實作」屬於允許改動範圍；
+沒動黑板 schema、FSM 拓撲、管線順序或核心驅動介面 ⇒ Living Docs。
 
 ---
 
@@ -242,7 +441,7 @@ Definition 不再於 `Initialize` 綁死，因此 `OnEnter` 必須**重新解析
 
 | 鍵 | Action | 備註 |
 |---|---|---|
-| **Q** | Quick Spell | ✅ 已綁（`Slot2Action`） |
+| **Q** | Fireball | ✅ 已綁（`Slot2Action`） |
 | **E** | Ice Spell | ✅ 已綁（`Slot3Action`） |
 | **滑鼠左鍵**（`Slot1Action`，原 `FireAction`） | Melee Slash | **P-0 結案前仍指向 Throw**；ADR-005 實作時才移交 |
 
@@ -379,20 +578,75 @@ apply/remove callback。`ThrownProjectile` 直接投遞 `Effect.Slow` 的 0.3 �
 - **不需要黑板 schema 變更**（與 §5 的 D4 變更無關，兩者不得混為一談）
 - ✅ `PlayerRuntimeData.AimTarget` 已於 2026-09-03 移除，Editor 面板的唯一讀取列同步刪除。`AimResolver` 維持 `TryGetAimPoint()` 直供 Presentation 消費端；沒有為保留死欄位而虛構 writer
 
-### 8.3 朝向規則（🟡 2026-09-02 使用者裁決方向，**尚未實作**）
+### 8.3 Action Targeting Policy（🔄 **2026-09-08 使用者重新裁決，取代原「一律朝向目標」**）
 
-> **規則：所有 Action 在起手前，一律先朝向鎖定中的目標。**
-> 「所有」是重點——**不是每個 Action 自己決定要不要轉向**。
+> ## 核心規則（一句話）
+> **普通招式永遠可預測地朝鏡頭方向；只有明確標成 soft-target 的技能，才會自動修正到敵人。**
 
-**為什麼是全域規則而不是逐 Action 的欄位**：只要有一個 Action 不轉向，玩家就無法預測命中方向，
-「miss 可歸因於自己」（§8.1）當場破功。轉不轉向若做成 authored 欄位，等於把一致性交給資產填寫者，
-那是遲早會不一致的地方。⇒ **由單一位置強制**，不下放到 Definition。
+#### 三種 policy（第一版就這三種，**不得擴充**）
+
+| Policy | 語意 | 用在哪 |
+|---|---|---|
+| **`CameraForward`**（**預設**） | 方向 ＝ **camera forward**。**永不**自動修正到敵人 | 一般攻擊、指向技 |
+| **`CameraConeSoftTarget`** | **僅當**鏡頭前方角錐內有合法敵人時修正到該敵人；**否則退回 `CameraForward`** | 明確標記的吸敵技能 |
+| **`SelfCentered`** | **不需要** target／facing，不產生方向承諾 | 自身中心技。⚠️ **目前沒有合適素材 ⇒ 只保留概念，不做內容** |
+
+#### 🔄 為什麼推翻原本的「全域規則、不得下放 Definition」
+
+原規則的理由是：**「轉不轉向若做成 authored 欄位，等於把一致性交給資產填寫者」**——
+**這個顧慮本身仍然成立**，但它針對的是一個**布林開關**（勾＝轉、不勾＝不轉）：
+忘了勾就得到「這招不轉向」這種**不可預測**的行為，而且沒有任何線索。
+
+新形狀不是布林，是**帶預設值的 enum**，而**預設值恰好是最可預測的那一個**：
+
+- 沒填 ⇒ `CameraForward` ⇒ **朝鏡頭**，與其他普通招式**完全一致**
+- 要吸敵**必須明確標記** ⇒ 例外是**顯性**的，不是遺漏造成的
+
+⇒ **原本要防的失敗模式（忘了填就不一致）在新形狀下不存在**：忘了填得到的是**正確的預設行為**。
+可預測性由「**一句話講得完的規則**」保證，而不是由「禁止任何 per-Action 差異」保證。
+
+📌 這也讓 §8.1「miss 可歸因於自己」**更成立**——玩家永遠知道普通攻擊朝鏡頭飛，
+吸敵是少數幾個**他自己選的**技能才有的特權。
+
+#### 邊界
 
 | 項目 | 裁決 |
 |---|---|
-| 觸發點 | **起手瞬間一次性轉向**（使用者用詞是「**先**朝向」） |
-| 目標 | **鎖定中的目標** |
-| 適用範圍 | **所有 Action**，含 Melee Slash、兩個法術；`Reaction` 不適用（受擊不是出手） |
+| 觸發點 | **段落邊界取得一次承諾**（ADR-007 D5；連段每段各一次） |
+| 適用範圍 | 所有 Action slot；**`Reaction` 不適用**（受擊不是出手，維持原裁決） |
+| ⛔ 不做 | 不新增第四種 policy；不做 per-Action 的角度上限／吸敵強度旋鈕；**不為 `SelfCentered` 硬做技能** |
+
+#### ✅ 那個開放問題的實作期答案（2026-09-08 落地）
+
+> 原問題：`CameraConeSoftTarget` 的目標，要用**當下的相機錐查詢**，還是 **Combat Context 的黏性目標**？
+
+**採第三種形狀：以 Combat Context 為目標的唯一供應商，但每個段落邊界重跑一次角錐閘門。**
+
+| 為什麼不是「另外查一次相機錐」 | `docs/10` §3-D3 明文禁止新建 targeting service／目標列表／註冊表。combat context producer **已經是**目標的唯一供應商；再開一條查詢就是第二份真相，而它要回答的問題（「誰是敵人」）跟既有那條**一模一樣** |
+|---|---|
+| **為什麼不是「直接用黏性目標」** | 那就是 2026-09-08 之前的行為——無條件讓 target 壓過 aim point ⇒ **所有 Action 都等同 soft-target**，正是這次裁決要推翻的東西 |
+| **實際形狀** | 目標**來源**是黏性的（Combat Context），但**方向修正的判定不是**：每次取得承諾時重測一次「target 在不在瞄準方向的角錐內」。⇒ 連段中甩相機把敵人甩出角錐，下一段就不再修正 |
+| **角錐** | 水平半角 **30°**，`ActionState.SoftTargetConeHalfAngleDegrees`，⛔ **全專案一顆常數**（見上方「不做」欄）。垂直方向刻意不算進去——它由相機俯仰主導，與「敵人在不在正前方」無關，算進去只會讓低頭時吸不到人 |
+
+**⇒ Combat Context 的黏性仍然有存在必要**，但理由換了：它現在服務的是 **facing／HeadLook 的穩定性**
+（不要因為目標瞬間出視野就左右搖擺），**不再**是 action targeting 的決定者。
+
+#### 🔩 落地紀錄（2026-09-08）
+
+| 改動 | 檔案 |
+|---|---|
+| 新增 `ActionTargetingPolicy` enum（三個成員，`CameraForward = 0`） | `Core/StateMachine/Actions/ActionDefinitionSO.cs`（與 `ActionPhaseEntry` 同檔，**未新增檔案** ⇒ 不需要新的 `.meta`） |
+| 新增 authored 欄位 `Targeting`，預設 `CameraForward` | 同上 |
+| `CaptureReleaseContext` 依 policy 分支 | `Core/StateMachine/States/ActionState.cs` |
+| `TrySelectAimPoint` → **`TrySoftTarget`**（無條件壓過 → 角錐閘門） | 同上 |
+| `ShouldFaceTargetOnEnter` 的職責收斂為 **slot 層級閘門**（「會不會取得承諾」），policy 回答「朝哪取得」 | 同上 |
+| 測試：`TC7` 改寫為角錐語意；新增 `TC7B` 釘住預設值 | `CombatContextTests.cs` |
+
+⚠️ **既有 Definition 資產不需要重新接線**：`Targeting` 是**新增欄位** ⇒ 既有 `.asset` 吃程式預設
+`CameraForward`。這也正是「忘了填得到正確行為」的實際兌現——三份既有 Definition
+（Melee／Fireball／Ice）**自動從「全部吸敵」變成「全部朝鏡頭」**。
+📌 ⇒ **要哪一招吸敵，是 Play 之後的手感決定**，在 Inspector 把該份 Definition 改成
+`CameraConeSoftTarget` 即可，不需要改程式。
 
 #### 🔄 目標來源已改（2026-09-02 使用者裁決）
 
@@ -404,15 +658,47 @@ apply/remove callback。`ThrownProjectile` 直接投遞 `Effect.Slow` 的 0.3 �
 取角度偏差最小者」。⇒ **auto-target ＝ 在出手瞬間取一次那個結果**，不是新的 targeting 系統。
 ⛔ 不得新建 `ITargetable`／目標列表／註冊表／targeting service（`docs/10` §3-D3 既有禁令，仍然適用）。
 
-⚠️ **本輪不實作**（2026-09-02 批次範圍外）——先讓三招打得順。若 Play 顯示 facing 明顯難看再補。
+~~⚠️ **本輪不實作**（2026-09-02 批次範圍外）——先讓三招打得順。若 Play 顯示 facing 明顯難看再補。~~
 `docs/10-lock-on.md` 整體延後，狀態已同步更新。
+
+#### ✅ 2026-09-05 已實作（觸發條件滿足）
+
+上面那條「若 Play 顯示 facing 明顯難看再補」的條件在 2026-09-05 的 Play 錄影中成立：
+相機朝著敵人施法，角色卻側著身把法術打向自己的正面方向。**規格未改一字，只是開始執行。**
+
+| 職責 | 落點 |
+|---|---|
+| **何時轉**（哪些 Action、從何時到何時） | `ActionState` |
+| **轉向哪裡**（soft auto-target 解算） | `AimResolver` ——`RequestFacing` 的唯一送出者不變（`docs/10` §4.3） |
+| **怎麼轉**（slerp、deadzone、與 WASD 的優先權） | `MotionDriver.ApplyFacingRequest`，一行未改 |
+
+**🔴 實作推翻的一個字面理解**：§8.3 寫「起手瞬間**一次性**轉向」，但
+`MotionDriver.ApplyFacingRequest` **每幀只消化一次請求並 slerp 一小步**——只送一次等於幾乎沒轉。
+⇒ 「一次性」鎖的是**目標方向**（`TryLatchAutoTargetFacing` 在 `OnEnter` 取一次快照），
+送出則是**逐帧重送**（`SubmitLatchedFacing`）直到 Action 結束。
+這樣相機在揮擊途中亂晃也不會讓角色跟著轉——**這正是「一次性」原本想要的性質**。
+
+**時序**：重送點在 `ActionState.OnUpdateMotion` 的**最前面**，早於兩條位移路徑。
+兩者都會呼叫 `ApplyFacingRequest`，而它只認當幀請求 ⇒ 朝向與位移必然同幀結算，
+**不依賴 `AimResolver` 與 Runner 的 Unity 執行順序**。
+
+**敵人沒有 `AimResolver`** ⇒ 整條安靜退化為「不轉向」，不是錯誤（`T31` 守）。
+敵人要面向玩家是另一件事，不走這條路。
+
+**測試**：`ActionStateTests.T30`（全域規則 ＋ `Reaction` 例外）／`T31`（無 resolver 仍走完）、
+`CameraAimTests.T5/T6`（方向水平化、退化回零）。
+⚠️ 「真的轉到面向目標」需要相機 ＋ Physics ＋ 帧迴圈，**留 Play 驗收**。
 
 #### 開放（實作期決定，不在本輪）
 
-- **強制點放哪**：`ActionState` 起手時統一 `MotionDriver.RequestFacing`（單一位置、但 Core 要碰 facing），
-  或由各 sink 自行處理（分散、易不一致）。**傾向前者**，但需確認不會變成第二個 facing 權威。
-- 揮劍**過程中**要不要持續追向目標（使用者只裁決了「先朝向」，未及於持續）。
-- 無目標時的行為（維持當前朝向 vs 朝相機正前方）。
+> **2026-09-06：前兩項已由 `docs/ADR/007-direction-authority.md`（🟡 Trial）回答**，
+> 第三項仍開放（登記於 `docs/14` §7-1）。
+
+- ~~**強制點放哪**~~ → **ADR-007 D3／D5**：承諾由 `ActionState` 持有（它本來就擁有 release 時點，ADR-004 D2），
+  但**送出者維持一個**（`docs/14` §2.2 的薄轉送），因此不會變成第二個 facing 權威。
+- ~~揮劍**過程中**要不要持續追向目標~~ → **ADR-007 D5**：段落內**不**追蹤（保留「甩相機不跟著轉」的原意），
+  承諾在**帶 release 的段落邊界**重取——這同時解掉 A6 的「人與火球分家」。
+- 無目標時的行為（維持當前朝向 vs 朝相機正前方）。**仍開放。**
 
 ⚖️ 朝向仍是 **Presentation 關切**（§8.2），本規則不改變這一點，**不需要黑板 schema 變更**。
 
@@ -456,10 +742,19 @@ apply/remove callback。`ThrownProjectile` 直接投遞 `Effect.Slow` 的 0.3 �
 `ActionState`／`ActionDefinitionSO`／`StateMachineConfigSO`／`FullBodyStateMachine.EvaluateInterrupts`／
 `ActionRequestTarget`／`AIMovementSource`（Slow 係數）／新增 `IActionLifecycleSink` 實作 ＋ HUD
 
-### 10.2 ⛔ 不得改動
+### 10.2 ~~⛔ 不得改動~~ → 🔓 **2026-09-06 解除**
 
-`LocomotionModel`／`LocomotionSpeedSmoother`／`LocomotionStopSelector`／`FootIKController`／`AudioController`
-（＝Acceptance **G** 的名單）、`MotionDriver` 的位移路徑、`AnimationFacadeBase` 契約、`IPresentationController` 契約
+> **這份名單是 Acceptance G 的觀察期前提，不是永久禁令。**
+> G 要證明的是「Slow 跨系統自動傳播時，五個下游檔案零修改」——
+> 那是一個**觀察**，觀察期間不能動被觀察的對象。
+> ADR-005 於 2026-09-06 `Accepted`（G 已通過）⇒ **觀察期結束，名單失效。**
+
+~~`LocomotionModel`／`LocomotionSpeedSmoother`／`LocomotionStopSelector`／`FootIKController`／`AudioController`
+（＝Acceptance **G** 的名單）、`MotionDriver` 的位移路徑、`AnimationFacadeBase` 契約、`IPresentationController` 契約~~
+
+⚠️ **解除的是「本 ADR 的凍結」，不是「可以隨便改」**：這些檔案仍受各自的 ADR 與架構不變量約束
+（`LocomotionModel` → ADR-003；`AnimationFacadeBase` → ADR-001／A4；`MotionDriver` 位移路徑 → A20）。
+動它們之前照舊走 routing rule 判斷要不要開 ADR。**下一步的順序見 `docs/13` §7。**
 
 ### 10.3 使用者側（**AI 不碰**）
 

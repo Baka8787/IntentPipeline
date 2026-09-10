@@ -20,7 +20,7 @@ namespace Project.Core.Actions
     /// （原註解就是這樣寫的：Primary ＝ 左鍵、Secondary ＝ Q）。**按鍵是 Presentation 的事，不是身分。**
     /// 改成明確編號後，「這是第幾格」與「這格綁哪顆鍵」重新分開：後者住在管線順序 2 的輸入映射。
     ///
-    /// <para><b>為什麼不用具體技能名（QuickSpell／IceSpell…）</b></para>
+    /// <para><b>為什麼不用具體技能名（Fireball／IceSpell…）</b></para>
     /// 那會讓 <c>Core</c> 認識遊戲內容，與本專案「可獨立抽取的通用套件」定位直接衝突
     /// （README／UPM <c>com.baka8787.intentpipeline</c>）。技能叫什麼是資產的事，
     /// Core 只需要知道「有幾格、哪一格」。

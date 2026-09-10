@@ -127,7 +127,8 @@ namespace Project.Presentation.CameraControl
                 _pitch = Mathf.Clamp(_pitch, minPitch, maxPitch);
             }
 
-            float targetBlend = aimResolver != null && aimResolver.IsAiming ? 1f : 0f;
+            // TODO(docs/15 §16-1): S3a 先固定探索取景；戰鬥取景的 feel 與合法黑板 seam 另案裁決。
+            const float targetBlend = 0f;
             _framingBlend = Mathf.MoveTowards(_framingBlend, targetBlend,
                 framingBlendSpeed * Time.deltaTime);
 

@@ -181,7 +181,7 @@ namespace Project.Tests.EditMode
 
             Assert.AreEqual(0f, data.MovementIntent.DesiredSpeedNormalized, 1e-6f,
                 "封鎖幀的意圖必須歸零（而非凍結在最後一幀），否則角色會以最後速度無限前進");
-            Assert.AreEqual(Vector2.zero, data.MovementIntent.DesiredDirection,
+            Assert.AreEqual(Vector3.zero, data.MovementIntent.DesiredDirection,
                 "方向同為純意圖，封鎖時一併歸零；滑行期的方向保留屬 model dynamics");
         }
 

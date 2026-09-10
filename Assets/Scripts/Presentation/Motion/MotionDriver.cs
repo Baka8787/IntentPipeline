@@ -26,14 +26,8 @@ namespace Project.Presentation.Motion
         [SerializeField] private float gravity = -9.81f;
         [SerializeField] private float reboundForce = -2f; // 踩在地面時的固定貼地力
 
-        [Header("Aim Facing")]
-        // 🔄 2026-08-31 使用者實測後由 15° 收到 8°：15° 下「球明顯不是從身體正前方離開」，
-        //    前丟動畫與彈道對不上的違和比腳被微調更難接受。
-        // ⚠️ 這兩個值在**同一條軸的兩端**，不可能同時消掉：
-        //    死區太小 ⇒ 半蹲姿勢的腳被連續微調（看起來一直被扭）；
-        //    死區太大 ⇒ 球不從身體正前方離開（前丟動畫失去說服力）。
-        //    調參目標是「腳看起來站定、球又大致從身體前方離開」的平衡點，不是把某一端歸零。
-        [SerializeField, Min(0f)] private float aimFacingAngleDeadzone = 8f;
+        [Header("Facing Execution")]
+        // 朝向方向與「本幀該不該轉」都由 CharacterFacingSource 決定；此處只保留執行速率。
         [SerializeField, Min(0f)] private float aimFacingTurnSpeed = 10f;
 
         private float _verticalVelocity;
@@ -136,46 +130,45 @@ namespace Project.Presentation.Motion
 
         /// <summary>
         /// 🚀 【大一統完全體：順序 6a】基礎常規運動
-        /// 融合了相機視角解耦、procedural 水平轉向、以及世界重力結算
+        /// 融合了 procedural 水平轉向、世界方向位移、以及世界重力結算
         /// </summary>
         public void ExecuteBaseMovement(PlayerRuntimeData data)
         {
             if (IsTimeFrozen) return; // 見 IsTimeFrozen 的說明：零位移的 Move 會毀掉 isGrounded
 
-            bool hasFacingRequest = ApplyFacingRequest();
+            ApplyFacingRequest();
 
             Vector3 horizontalVelocity = Vector3.zero;
 
-            // 只有在玩家有推搖桿(WASD)且相機引用存在時，才計算轉向與 procedural 速度
-            if (data.MoveDirection.sqrMagnitude > 0.001f && data.CameraTransform != null)
+            // Movement Output 已是水平、正規化的世界方向；MotionDriver 只負責照著積分。
+            if (data.MoveDirection.sqrMagnitude > 0.001f)
             {
-                // 1. 取得相機在水平面上的 forward 與 right 向量（忽略仰角與俯角，防止角色往前跌倒）
-                Vector3 camForward = data.CameraTransform.forward;
-                Vector3 camRight = data.CameraTransform.right;
-                camForward.y = 0f;
-                camRight.y = 0f;
-                camForward.Normalize();
-                camRight.Normalize();
-
-                // 2. 將玩家的輸入方向，投影到相機的世界座標系中，算出「期望的世界移動方向」
-                Vector3 targetDirection = camForward * data.MoveDirection.y + camRight * data.MoveDirection.x;
-
-                if (!hasFacingRequest && targetDirection.sqrMagnitude > 0.001f)
-                {
-                    // 3. 讓角色身體平滑地 Slerp 轉向這個期望的世界移動方向
-                    Quaternion targetRotation = Quaternion.LookRotation(targetDirection.normalized);
-                    transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, 12f * Time.deltaTime);
-                }
-
-                // 4. 水平速度採用 transform.forward（角色當前肉體正前方），使轉彎具備流暢的體重弧線感
                 float currentSpeed = data.MoveSpeed * moveSpeed;
-                horizontalVelocity = transform.forward * currentSpeed;
+                horizontalVelocity = data.MoveDirection * currentSpeed;
             }
 
-            // 5. 疊加單幀快取重力（保持原有的自由落體與貼地力優化），同時同步觸地狀態回黑板
+            // 疊加單幀快取重力（保持原有的自由落體與貼地力優化），同時同步觸地狀態回黑板
             Vector3 finalMovement = horizontalVelocity + GetGravityThisFrame(data);
 
-            // 6. 總出口呼叫
+            // 總出口呼叫
+            characterController.Move(finalMovement * Time.deltaTime);
+        }
+
+        /// <summary>
+        /// 只執行朝向、垂直重力、grounded 同步與 CharacterController collision，不施加
+        /// Movement Output 的水平速度。首個使用者是 JumpState 的 HardRecovery；本方法不認識
+        /// Jump 或 recovery 語意，且 Transform 寫入仍集中在 MotionDriver。
+        /// </summary>
+        public void ExecuteVerticalOnlyMovement(PlayerRuntimeData data)
+        {
+            if (IsTimeFrozen) return; // 見 IsTimeFrozen 的說明：零位移的 Move 會毀掉 isGrounded
+
+            ApplyFacingRequest();
+
+            // 疊加單幀快取重力（保持原有的自由落體與貼地力優化），同時同步觸地狀態回黑板
+            Vector3 finalMovement = GetGravityThisFrame(data);
+
+            // 總出口呼叫
             characterController.Move(finalMovement * Time.deltaTime);
         }
 
@@ -249,70 +242,53 @@ namespace Project.Presentation.Motion
         }
 
         /// <summary>
-        /// 消費當帧 request，並回報它是否取代了 procedural movement 的朝向權威。
-        /// Throw loop 是半蹲且腳掌釘地；連續微轉會把站定姿勢讀成腳被拖著扭，視覺上比不轉更差。
-        /// 因此小偏差完全不轉，單一門檻外才平順轉向；不做遲滯，避免引入第二套跨帧狀態。
+        /// 消費當帧 request 並以序列化速率執行旋轉。方向與是否送出 request 已由唯一 facing authority
+        /// 決定；此處不得再依角差或 movement 狀態建立第二套 facing 政策（ADR-007 D2／D3）。
         /// </summary>
-        private bool ApplyFacingRequest()
+        private void ApplyFacingRequest()
         {
             if (_facingRequestFrame != Time.frameCount)
             {
                 _requestedFacingDirection = Vector3.zero;
                 _facingRequestFrame = -1;
-                return false;
+                return;
             }
 
             Vector3 requestedDirection = _requestedFacingDirection;
             _requestedFacingDirection = Vector3.zero;
             _facingRequestFrame = -1;
 
-            if (requestedDirection.sqrMagnitude <= 0f) return false;
+            if (requestedDirection.sqrMagnitude <= 0f) return;
 
             Quaternion currentRotation = transform.rotation;
-            Quaternion targetRotation = ComputeAimFacingTarget(
-                currentRotation, requestedDirection, aimFacingAngleDeadzone, out bool shouldTurn);
-            if (shouldTurn)
+            Quaternion targetRotation = ComputeFacingTarget(
+                currentRotation, requestedDirection, out bool hasTarget);
+            if (hasTarget)
             {
                 transform.rotation = Quaternion.Slerp(
                     currentRotation, targetRotation, aimFacingTurnSpeed * Time.deltaTime);
             }
-
-            return true;
         }
 
         /// <summary>
-        /// 將 facing 的判定保持為無場景依賴的純函數，讓死區與水平約束可由 EditMode 直接守住。
+        /// 將 request 壓平並換成目標 rotation。這個純函數只做執行前的幾何轉換；
+        /// 它不判斷角差、不決定是否該轉，讓 MotionDriver 維持 facing executor 的單一責任。
         /// </summary>
-        internal static Quaternion ComputeAimFacingTarget(
+        internal static Quaternion ComputeFacingTarget(
             Quaternion currentRotation,
             Vector3 worldDirection,
-            float angleDeadzone,
-            out bool shouldTurn)
+            out bool hasTarget)
         {
             worldDirection.y = 0f;
             if (worldDirection.sqrMagnitude <= 0f)
             {
-                shouldTurn = false;
+                hasTarget = false;
                 return currentRotation;
             }
 
             worldDirection.Normalize();
-            Quaternion targetRotation = Quaternion.LookRotation(worldDirection, Vector3.up);
-
-            Vector3 currentForward = currentRotation * Vector3.forward;
-            currentForward.y = 0f;
-            if (currentForward.sqrMagnitude > 0f)
-            {
-                currentForward.Normalize();
-                if (Vector3.Angle(currentForward, worldDirection) <= Mathf.Max(0f, angleDeadzone))
-                {
-                    shouldTurn = false;
-                    return currentRotation;
-                }
-            }
-
-            shouldTurn = true;
-            return targetRotation;
+            hasTarget = true;
+            return Quaternion.LookRotation(worldDirection, Vector3.up);
         }
 
         /// <summary>
@@ -360,7 +336,8 @@ namespace Project.Presentation.Motion
         /// <summary>
         /// 工業級實作：獲取本影格重力（保證一影格內即使被多處調用，也只做一次垂直速度積分）
         /// 把 IsGrounded 同步回黑板收斂進這裡，
-        /// 因為所有移動路徑（ExecuteBaseMovement / ExecuteBakedCurveMovement / ApplyBakedCompensation）
+        /// 因為所有移動路徑（ExecuteBaseMovement / ExecuteVerticalOnlyMovement /
+        /// ExecuteBakedCurveMovement / ApplyBakedCompensation）
         /// 最終都會呼叫這個方法，等於「只要角色這幀有移動，IsGrounded 就保證是新的」，
         /// 不再需要額外從 CharacterPipelineRunner 顯式呼叫一次 SyncGroundedState，
         /// 也不用擔心未來新增移動路徑時忘記同步。
@@ -379,6 +356,10 @@ namespace Project.Presentation.Motion
             data.JustLeftGround = _wasGrounded && !grounded;
             data.IsGrounded = grounded;
             _wasGrounded = grounded;
+
+            // 必須在 reboundForce 貼地夾持前發布；否則落地幀的 impact velocity 會被銷毀，
+            // 所有落地都只會拿到貼地力並被誤分為 Normal。
+            data.VerticalVelocity = _verticalVelocity;
 
             if (data.IsGrounded && _verticalVelocity < 0f)
             {

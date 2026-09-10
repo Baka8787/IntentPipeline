@@ -3,6 +3,7 @@ using UnityEditor;
 using UnityEngine;
 using System.IO;
 using System.Collections.Generic;
+using System.Text;
 using Project.Presentation.Motion;
 
 namespace Project.Editor
@@ -10,6 +11,13 @@ namespace Project.Editor
     public class MotionBakeEditor : EditorWindow
     {
         private const string OutputFolderPath = "Assets/ScriptableObjects/Motion";
+        private const HumanBodyBones DefaultLeftFootBone = HumanBodyBones.LeftFoot;
+        private const HumanBodyBones DefaultRightFootBone = HumanBodyBones.RightFoot;
+        private const float DefaultRotationAngleToleranceDeg = 5f;
+        private const bool DefaultBakeTargetLocalDirection = true;
+        private const float DefaultLocalDirFilterAngleDeg = 12f;
+        private const float DefaultLocalDirMinDistance = 0.02f;
+        private const float DefaultTakeoffFootLiftThreshold = 0.03f;
 
         private AnimationClip sourceClip;
 
@@ -24,16 +32,16 @@ namespace Project.Editor
         private float sampleRate = 30f;
 
         // 進階物理特徵參數（v0.7 新增，取自參考演算法的純數學部分，不含其反射注入架構）
-        private HumanBodyBones leftFootBone = HumanBodyBones.LeftFoot;
-        private HumanBodyBones rightFootBone = HumanBodyBones.RightFoot;
-        private float rotationAngleToleranceDeg = 5f;
-        private bool bakeTargetLocalDirection = true;
-        private float localDirFilterAngleDeg = 12f;
-        private float localDirMinDistance = 0.02f;
+        private HumanBodyBones leftFootBone = DefaultLeftFootBone;
+        private HumanBodyBones rightFootBone = DefaultRightFootBone;
+        private float rotationAngleToleranceDeg = DefaultRotationAngleToleranceDeg;
+        private bool bakeTargetLocalDirection = DefaultBakeTargetLocalDirection;
+        private float localDirFilterAngleDeg = DefaultLocalDirFilterAngleDeg;
+        private float localDirMinDistance = DefaultLocalDirMinDistance;
 
         // 🆕（自動化特徵分析）腳的世界高度超過「自身 Rest Pose 基線 + 此容忍度」視為該腳騰空；
         // 雙腳同時騰空判定為離地，落地偵測沿用同一容忍度（預設 0.03 以吸收蹬伸期踝骨抬升雜訊）
-        private float takeoffFootLiftThreshold = 0.03f;
+        private float takeoffFootLiftThreshold = DefaultTakeoffFootLiftThreshold;
 
         // 內部姿態採樣單元，僅用於腳相判定
         private struct PoseInfo { public Vector3 LeftLocal; public Vector3 RightLocal; }
@@ -225,7 +233,7 @@ namespace Project.Editor
 
         private void RunBatchBake()
         {
-            if (!TryBuildBatch(out AnimationClip[] clips, out string batchError))
+            if (!TryBuildBatch(batchClips, out AnimationClip[] clips, out string batchError))
             {
                 EditorUtility.DisplayDialog("批次烘焙無法開始", batchError, "了解");
                 return;
@@ -247,32 +255,21 @@ namespace Project.Editor
                 return;
             }
 
-            AnimationClip originalSource = sourceClip;
-            int completed = 0;
-
-            try
+            if (!BatchBake(
+                    characterPrefab,
+                    sampleRate,
+                    clips,
+                    out string batchReport,
+                    leftFootBone,
+                    rightFootBone,
+                    rotationAngleToleranceDeg,
+                    bakeTargetLocalDirection,
+                    localDirFilterAngleDeg,
+                    localDirMinDistance,
+                    takeoffFootLiftThreshold))
             {
-                for (int i = 0; i < clips.Length; i++)
-                {
-                    sourceClip = clips[i];
-                    if (!BakeClipMotion(showResultDialog: false))
-                        throw new System.InvalidOperationException($"'{clips[i].name}' 烘焙器回報失敗。");
-                    completed++;
-                }
-            }
-            catch (System.Exception exception)
-            {
-                Debug.LogException(exception);
-                EditorUtility.DisplayDialog(
-                    "批次烘焙中止",
-                    $"已完成 {completed}/{clips.Length} 支；失敗原因已寫入 Console。\n\n{exception.Message}",
-                    "了解");
+                EditorUtility.DisplayDialog("批次烘焙中止", batchReport, "了解");
                 return;
-            }
-            finally
-            {
-                sourceClip = originalSource;
-                EditorUtility.ClearProgressBar();
             }
 
             Debug.Log($"[Motion Bake Batch] 已以 {sampleRate:F0} FPS 完成 {clips.Length} 支動畫；輸出：{OutputFolderPath}");
@@ -290,21 +287,182 @@ namespace Project.Editor
                 "了解");
         }
 
-        private bool TryBuildBatch(out AnimationClip[] clips, out string error)
+        /// <summary>
+        /// 以明確 clip 清單執行既有的單支採樣／分析／CreateAsset 管線，不讀取 EditorWindow 狀態。
+        /// </summary>
+        /// <summary>
+        /// **Clip-local ground baseline**（2026-09-09 定義）：從採樣資料本身導出「這支 clip 的地面在哪」，
+        /// 供 Feature Analysis 的騰空／觸地分類使用。
+        ///
+        /// <para><b>⚠️ 這是通用的 feature-analysis baseline，不是為了「讓所有 JumpStart 都能成功 Bake」而存在。</b></para>
+        /// 使用者 2026-09-09 明確要求寫清楚這一點：本函式的職責是**忠實描述採樣資料裡的地面**。
+        /// 某些 clip 本來就沒有可觀測的地面（從跑步腳相蹬地起飛後不再接地、或整段都在空中），
+        /// 那類 clip 得到退化結果是**資訊缺失的正確反映**——
+        /// ⛔ **不要為了讓它們也「烘得出數字」而繼續加規則**。已否決的嘗試見下方。
+        ///
+        /// <para><b>演算法：滾動最小值 ＋ 前瞻，遇第一段持續騰空即凍結</b></para>
+        /// 從第 0 幀往前走，累積每隻腳的世界高度最小值；每一步用**當下的滾動最小值**當臨時基線，
+        /// 前瞻判斷「從這一幀起雙腳是否持續騰空 ≥ MinAirTime」，成立即凍結、停止累積。
+        ///
+        /// <para><b>為什麼是這個形狀（三個被實測否決的候選）</b></para>
+        /// <list type="bullet">
+        /// <item><b>A（原版，採樣前取 Rest Pose 踝高）</b>：與採樣不同框，**對所有 clip 都給 0**（含 Mixamo）。</item>
+        /// <item><b>B（t=0 採樣後取）</b>：對起始姿勢敏感——`RunFwdStop_LU` 從跑步中開始、腳正抬起，
+        ///       基線被墊高到 1.08 ⇒ 退化為 0（磁碟既有值是 0.052/0.1274）。</item>
+        /// <item><b>C（整段最低）</b>：被 clip 後段拖走——MAP 的 `Jump*Start` 結尾是無界自由落體
+        ///       （實測 −52m～−78m），「整段最低」取到虛空底部 ⇒ 全部退化為 0。</item>
+        /// </list>
+        /// 本版對三者的失效都免疫，且**沒有固定秒數的 magic window**——窗口邊界由資料自己決定。
+        ///
+        /// <para><b>實測 regression</b></para>
+        /// Mixamo `Jump` 0.7340/0.9268/0.6488（磁碟 0.7363/0.9244/0.6462）／
+        /// `RunFwdStop_LU` 0.0519（磁碟 0.0520）／`Stand To Roll` 0.1697/1.1715（磁碟 0.1696/1.1715）。
+        /// 📌 `FootPhaseCurve` **完全不受基線取法影響**（A/B/C/D 的 key 數逐支相同）。
+        /// </summary>
+        private static void ResolveClipLocalGroundBaseline(
+            List<MotionFeatureSample> samples,
+            float footLiftThreshold,
+            out float leftBaselineY,
+            out float rightBaselineY)
         {
-            if (batchClips == null || batchClips.Count == 0)
+            if (samples == null || samples.Count == 0)
+            {
+                leftBaselineY = 0f;
+                rightBaselineY = 0f;
+                return;
+            }
+
+            leftBaselineY = samples[0].LeftFootWorldY;
+            rightBaselineY = samples[0].RightFootWorldY;
+
+            for (int i = 0; i < samples.Count; i++)
+            {
+                if (IsSustainedAirborneFrom(
+                        samples, i,
+                        leftBaselineY + footLiftThreshold,
+                        rightBaselineY + footLiftThreshold))
+                {
+                    break;
+                }
+
+                if (samples[i].LeftFootWorldY < leftBaselineY) leftBaselineY = samples[i].LeftFootWorldY;
+                if (samples[i].RightFootWorldY < rightBaselineY) rightBaselineY = samples[i].RightFootWorldY;
+            }
+        }
+
+        /// <summary>
+        /// 從 <paramref name="start"/> 起雙腳是否連續高於各自門檻線並持續達 <see cref="MotionFeatureContext"/>
+        /// 的預設 MinAirTime。⚠️ 刻意**不做擦地容忍**（真正的偵測器有）：這裡只用來決定
+        /// 「基線窗口在哪結束」，寧可提早停、少採幾幀接地資料，也不要讓自由落體的資料混進基線。
+        /// **保守的失效方向是基線偏高一點，不是偏低 50 公尺。**
+        /// </summary>
+        private static bool IsSustainedAirborneFrom(
+            List<MotionFeatureSample> samples, int start, float leftLine, float rightLine)
+        {
+            const float MinAirTime = 0.1f;
+
+            if (samples[start].LeftFootWorldY <= leftLine || samples[start].RightFootWorldY <= rightLine)
+                return false;
+
+            for (int j = start + 1; j < samples.Count; j++)
+            {
+                if (samples[j].LeftFootWorldY > leftLine && samples[j].RightFootWorldY > rightLine)
+                {
+                    if (samples[j].Time - samples[start].Time >= MinAirTime) return true;
+                    continue;
+                }
+                return false;
+            }
+
+            return samples[samples.Count - 1].Time - samples[start].Time >= MinAirTime;
+        }
+
+        internal static bool BatchBake(
+            GameObject characterPrefab,
+            float sampleRate,
+            IReadOnlyList<AnimationClip> clips,
+            out string report,
+            HumanBodyBones leftFootBone = DefaultLeftFootBone,
+            HumanBodyBones rightFootBone = DefaultRightFootBone,
+            float rotationAngleToleranceDeg = DefaultRotationAngleToleranceDeg,
+            bool bakeTargetLocalDirection = DefaultBakeTargetLocalDirection,
+            float localDirFilterAngleDeg = DefaultLocalDirFilterAngleDeg,
+            float localDirMinDistance = DefaultLocalDirMinDistance,
+            float takeoffFootLiftThreshold = DefaultTakeoffFootLiftThreshold)
+        {
+            if (!TryBuildBatch(clips, out AnimationClip[] validatedClips, out report))
+                return false;
+
+            if (float.IsNaN(sampleRate) || float.IsInfinity(sampleRate) || sampleRate < 10f || sampleRate > 120f)
+            {
+                report = $"採樣率必須介於 10 與 120 FPS；目前值為 {sampleRate}。";
+                return false;
+            }
+
+            if (!TryResolveHumanoidAnimator(characterPrefab, out _, out report))
+                return false;
+
+            MotionBakeEditor worker = CreateInstance<MotionBakeEditor>();
+            worker.characterPrefab = characterPrefab;
+            worker.sampleRate = sampleRate;
+            worker.leftFootBone = leftFootBone;
+            worker.rightFootBone = rightFootBone;
+            worker.rotationAngleToleranceDeg = rotationAngleToleranceDeg;
+            worker.bakeTargetLocalDirection = bakeTargetLocalDirection;
+            worker.localDirFilterAngleDeg = localDirFilterAngleDeg;
+            worker.localDirMinDistance = localDirMinDistance;
+            worker.takeoffFootLiftThreshold = takeoffFootLiftThreshold;
+
+            var reportBuilder = new StringBuilder();
+            int completed = 0;
+
+            try
+            {
+                for (int i = 0; i < validatedClips.Length; i++)
+                {
+                    AnimationClip clip = validatedClips[i];
+                    worker.sourceClip = clip;
+                    if (!worker.BakeClipMotion(showResultDialog: false))
+                        throw new System.InvalidOperationException($"'{clip.name}' 烘焙器回報失敗。");
+
+                    completed++;
+                    reportBuilder.AppendLine($"clip={clip.name}|assetPath={GetOutputAssetPath(clip)}");
+                }
+            }
+            catch (System.Exception exception)
+            {
+                Debug.LogException(exception);
+                report = $"已完成 {completed}/{validatedClips.Length} 支；失敗原因已寫入 Console。\n\n{exception.Message}\n{reportBuilder}";
+                return false;
+            }
+            finally
+            {
+                DestroyImmediate(worker);
+                EditorUtility.ClearProgressBar();
+            }
+
+            report = $"completed={completed}|sampleRate={sampleRate:F0}|outputFolder={OutputFolderPath}\n{reportBuilder}";
+            return true;
+        }
+
+        internal static string GetOutputAssetPath(AnimationClip clip)
+            => $"{OutputFolderPath}/Bake_{clip.name}.asset";
+
+        private static bool TryBuildBatch(IReadOnlyList<AnimationClip> batch, out AnimationClip[] clips, out string error)
+        {
+            if (batch == null || batch.Count == 0)
             {
                 clips = null;
                 error = "待烘焙清單不可為空。";
                 return false;
             }
 
-            clips = new AnimationClip[batchClips.Count];
+            clips = new AnimationClip[batch.Count];
             var unique = new HashSet<AnimationClip>();
 
-            for (int i = 0; i < batchClips.Count; i++)
+            for (int i = 0; i < batch.Count; i++)
             {
-                AnimationClip clip = batchClips[i];
+                AnimationClip clip = batch[i];
                 if (clip == null)
                 {
                     clips = null;
@@ -378,13 +536,17 @@ namespace Project.Editor
             {
                 rootTransform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
 
-                // 🆕 世界空間相對足跡基線：在第一次 SampleAnimation「之前」快取替身雙腳的 Rest Pose 世界高度。
-                // 基線屬於 rig 本身（踝骨自然離地高度），與 clip 內容完全解耦——這是起跳/落地偵測
-                // 免疫「根節點蹲伏下沉被反相混疊成腳抬起」誤判的關鍵。骨骼引用一併快取，供迴圈內重複讀取。
                 Transform leftFootT = animator.GetBoneTransform(leftFootBone);
                 Transform rightFootT = animator.GetBoneTransform(rightFootBone);
-                float leftFootBaselineY = leftFootT != null ? leftFootT.position.y : 0f;
-                float rightFootBaselineY = rightFootT != null ? rightFootT.position.y : 0f;
+
+                // 🔴 接地基線改為 **clip-local ground baseline**，於採樣完成後導出（見迴圈下方）。
+                // 舊版在 SampleAnimation「之前」取 Rest Pose 踝高，理由是「基線屬於 rig、與 clip 解耦」——
+                // 那個理由只在「Y 已烘進姿勢」的 clip 上成立（該類 clip 的 SampleAnimation 不移動 root，
+                // 基線與採樣自然同框）。**Jump 家族 preset 刻意不把 Y 烘進姿勢**（dev-spec §0.4），
+                // SampleAnimation 會把 root 放到 clip 自身的 root 高度 ⇒ 兩個參考框整整差一個 root 高度
+                // ⇒ 每一幀都判成騰空 ⇒ 找不到「觸地→騰空」邊沿 ⇒ 跳躍特徵全部退化為 0。
+                float leftFootBaselineY = 0f;
+                float rightFootBaselineY = 0f;
 
                 for (int i = 0; i < totalFrames; i++)
                 {
@@ -433,6 +595,11 @@ namespace Project.Editor
                     lastPos = currentPos;
                     lastRot = currentRot;
                 }
+
+                // 🆕（2026-09-09）clip-local ground baseline：採樣完成後才導出，交給 Feature Analysis 使用。
+                ResolveClipLocalGroundBaseline(
+                    featureSamples, takeoffFootLiftThreshold,
+                    out leftFootBaselineY, out rightFootBaselineY);
 
                 // 🆕 旋轉收斂裁剪：曲線已經烤完，直接用完成的 rotationCurve 算收斂時間，不需要再多跑一次採樣
                 float rotationFinishedTime = CalculateRotationFinishedTime(rotationCurve, duration);
@@ -581,10 +748,10 @@ namespace Project.Editor
         /// </summary>
         private void SaveAsset(AnimationCurve speedCurve, AnimationCurve rotationCurve, float rotationFinishedTime, FootPhase endPhase, Vector3 targetLocalDirection, MotionFeatureContext featureContext, bool showResultDialog)
         {
-            string dirPath = "Assets/ScriptableObjects/Motion/";
+            string dirPath = OutputFolderPath + "/";
             if (!Directory.Exists(dirPath)) Directory.CreateDirectory(dirPath);
 
-            string path = $"{dirPath}Bake_{sourceClip.name}.asset";
+            string path = GetOutputAssetPath(sourceClip);
             MotionBakeData asset = AssetDatabase.LoadAssetAtPath<MotionBakeData>(path);
             bool isNewAsset = false;
 

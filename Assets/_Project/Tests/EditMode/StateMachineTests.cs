@@ -90,6 +90,49 @@ namespace Project.Tests.EditMode
             return (sm, data, model);
         }
 
+        /// <summary>
+        /// Land 的入口依賴真實 CharacterController grounded 邊沿；這組 FSM 測試只需要驗證
+        /// 「已進入哪種 landing phase 之後」的確定性轉移政策，因此直接注入 JumpState 私有狀態。
+        /// Physics 與 MotionDriver 的水平抑制另由 PlayMode 測試覆蓋。
+        /// </summary>
+        private static JumpState EnterLandingPhase(
+            FullBodyStateMachine sm,
+            PlayerRuntimeData data,
+            string phaseName,
+            float duration,
+            float elapsed = 0f)
+        {
+            data.IsGrounded = true;
+            data.Intent.JumpRequested = true;
+            sm.Tick(data, 0.016f);
+            data.Intent.JumpRequested = false;
+
+            Assert.AreEqual(StateType.Jump, sm.CurrentState.Type, "測試前置：必須先進入 Jump");
+            var jump = (JumpState)sm.CurrentState;
+
+            PropertyInfo isLanded = typeof(JumpState).GetProperty(
+                nameof(JumpState.IsLanded), BindingFlags.Public | BindingFlags.Instance);
+            Assert.IsNotNull(isLanded);
+            isLanded.GetSetMethod(true).Invoke(jump, new object[] { true });
+
+            FieldInfo phase = typeof(JumpState).GetField(
+                "_landingPhase", BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.IsNotNull(phase);
+            phase.SetValue(jump, System.Enum.Parse(phase.FieldType, phaseName));
+
+            SetPrivateField(jump, "_landDuration", duration);
+            SetPrivateField(jump, "_landElapsedTime", elapsed);
+            return jump;
+        }
+
+        private static void SetPrivateField(JumpState jump, string fieldName, object value)
+        {
+            FieldInfo field = typeof(JumpState).GetField(
+                fieldName, BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.IsNotNull(field, $"找不到 JumpState.{fieldName} 私有欄位");
+            field.SetValue(jump, value);
+        }
+
         // === 測試 A：著地 + 跳躍意圖 → 成功轉移至 Jump ===
         [Test]
         public void Jump_WhenGroundedAndRequested_TransitionsToJump()
@@ -156,6 +199,78 @@ namespace Project.Tests.EditMode
             data.Intent.JumpRequested = true;
             sm.Tick(data, 0.016f);
             Assert.AreEqual(StateType.Jump, sm.CurrentState.Type, "地面移動中發出跳躍意圖應被打斷為 Jump");
+        }
+
+        [Test]
+        public void HardLand_MoveIntentDoesNotExitBeforeRecoveryEnds()
+        {
+            var (sm, data, model) = BuildMachine();
+            JumpState jump = EnterLandingPhase(sm, data, "HardRecovery", 0.5f);
+            data.MovementIntent.DesiredSpeedNormalized = 1f;
+            model.IsProducingMotion = true;
+
+            sm.Tick(data, 0.1f);
+
+            Assert.AreSame(jump, sm.CurrentState,
+                "HardRecovery 期間即使有 Move Intent 也不得提前離開 Jump");
+            Assert.IsFalse(jump.CanTransitionAway);
+        }
+
+        [Test]
+        public void HardLand_RecoveryEndsWithIntent_TransitionsToMove()
+        {
+            var (sm, data, model) = BuildMachine();
+            EnterLandingPhase(sm, data, "HardRecovery", 0.5f, 0.49f);
+            data.MovementIntent.DesiredSpeedNormalized = 1f;
+            model.IsProducingMotion = true;
+
+            sm.Tick(data, 0.02f);
+
+            Assert.AreEqual(StateType.Move, sm.CurrentState.Type,
+                "HardRecovery 結束時若 model 正在產生移動，FSM 應自然轉入 Move");
+        }
+
+        [Test]
+        public void HardLand_RecoveryEndsWithoutIntent_TransitionsToIdle()
+        {
+            var (sm, data, model) = BuildMachine();
+            EnterLandingPhase(sm, data, "HardRecovery", 0.5f, 0.49f);
+            data.MovementIntent.DesiredSpeedNormalized = 0f;
+            model.IsProducingMotion = false;
+
+            sm.Tick(data, 0.02f);
+
+            Assert.AreEqual(StateType.Idle, sm.CurrentState.Type,
+                "HardRecovery 結束時若沒有有效移動，FSM 應自然轉入 Idle");
+        }
+
+        [Test]
+        public void NormalLand_StartedWithoutIntent_NewIntentTransitionsToMoveImmediately()
+        {
+            var (sm, data, model) = BuildMachine();
+            EnterLandingPhase(sm, data, "NormalStop", 0.5f);
+            data.MovementIntent.DesiredSpeedNormalized = 1f;
+            model.IsProducingMotion = true;
+
+            sm.Tick(data, 0.016f);
+
+            Assert.AreEqual(StateType.Move, sm.CurrentState.Type,
+                "NormalStop 開始後的新 Move Intent 應解除 landing lock，交由 FSM 自然轉入 Move");
+        }
+
+        [Test]
+        public void NormalLandContinue_HeldIntent_DoesNotImmediatelySkipTransition()
+        {
+            var (sm, data, model) = BuildMachine();
+            JumpState jump = EnterLandingPhase(sm, data, "NormalContinue", 0.5f);
+            data.MovementIntent.DesiredSpeedNormalized = 1f;
+            model.IsProducingMotion = true;
+
+            sm.Tick(data, 0.016f);
+
+            Assert.AreSame(jump, sm.CurrentState,
+                "落地當幀已選中的 Land2Move 不得因下一幀仍維持同一意圖就被跳過");
+            Assert.IsFalse(jump.CanTransitionAway);
         }
 
         // === 迴歸：Bake 資產存在但沒有可用時長時，Roll 不得秒退（🆕 2026-07-26）===

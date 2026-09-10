@@ -5,7 +5,8 @@ namespace Project.Core.Movement
 {
     /// <summary>
     /// 🆕（ADR-003 Migration Stage 1）B9 MoveSpeed 平滑的**純運算單元**：
-    /// 把模型無關的 <see cref="MovementIntentData"/> 轉為 Locomotion 的實際 dynamics（平滑速度＋有效方向）。
+    /// 把模型無關的 <see cref="MovementIntentData"/> 轉為 Locomotion 的實際 dynamics
+    /// （平滑速度＋角速度受限的有效方向）。
     ///
     /// **定位＝Stage 1 過渡 shim，也是 Stage 2 的遷移單位。**
     /// 依 ADR-003 D4／§9-L1，B9 平滑與 gait→tier 是 **Locomotion model 的內部 dynamics**，
@@ -29,14 +30,14 @@ namespace Project.Core.Movement
 
         private float _speed;
         private float _smoothVelocity;   // Mathf.SmoothDamp 的 ref 速度緩存
-        private Vector2 _lastDirection;  // 減速滑行期保留的最後移動方向
-        private Vector2 _direction;      // 本幀輸出方向
+        private Vector3 _lastDirection;  // 減速滑行期保留的最後世界移動方向
+        private Vector3 _direction;      // 本幀輸出的世界方向
 
         /// <summary>本幀平滑後的移動強度 [0-1]（黑板 <c>MoveSpeed</c> 的來源）。</summary>
         public float Speed => _speed;
 
         /// <summary>本幀有效移動方向（黑板 <c>MoveDirection</c> 的來源）。</summary>
-        public Vector2 Direction => _direction;
+        public Vector3 Direction => _direction;
 
         /// <summary>
         /// 依本幀意圖推進 dynamics。純運算：<c>deltaTime</c> 由呼叫端傳入（不隱式取 <c>Time.deltaTime</c>），
@@ -45,8 +46,14 @@ namespace Project.Core.Movement
         /// <param name="intent">本幀 Movement 意圖（唯一輸入真相）。</param>
         /// <param name="accelTime">0→滿 的加速平滑時間（秒）。</param>
         /// <param name="decelTime">滿→0 的減速平滑時間（秒），通常略大於加速＝放開後自然滑行收步。</param>
+        /// <param name="maxTurnDegreesPerSecond">方向在世界 XZ 平面內的最大角速度（度／秒）。</param>
         /// <param name="deltaTime">本幀時間步長。</param>
-        public void Tick(in MovementIntentData intent, float accelTime, float decelTime, float deltaTime)
+        public void Tick(
+            in MovementIntentData intent,
+            float accelTime,
+            float decelTime,
+            float maxTurnDegreesPerSecond,
+            float deltaTime)
         {
             // 鍵盤輸入強度為 0/1 二值，直送會讓 1D Mixer 一幀從 Idle 跳到 Sprint、中間 Walk/Run tier 踩不到。
             // 以 SmoothDamp 隨時間平順爬升/回落，經過各速度 tier；加速/減速採不同時間常數。
@@ -61,17 +68,62 @@ namespace Project.Core.Movement
                 _smoothVelocity = 0f;
             }
 
-            // 有意圖時直接採用並記憶；放開（desired≈0）但仍在減速滑行（speed>0）時保留最後方向，
-            // 讓 MotionDriver 以殘速續走該方向，動畫與位移同步收步、不滑步；
-            // 完全停止才歸零 → ExecuteBaseMovement 的方向閘門關閉，乾淨停步。
+            // 方向只在世界 XZ 平面內以固定角速度推進。刻意不用 Vector3.RotateTowards：恰好 180°
+            // 反向時旋轉平面未定義；yaw 推進再重建向量可確保 y 恆為 0，且反向路徑確定。
             if (desired > Epsilon)
             {
-                _lastDirection = intent.DesiredDirection;
-                _direction = intent.DesiredDirection;
+                Vector3 desiredDirection = new Vector3(
+                    intent.DesiredDirection.x,
+                    0f,
+                    intent.DesiredDirection.z);
+                float desiredDirectionSqrMagnitude = desiredDirection.sqrMagnitude;
+
+                if (desiredDirectionSqrMagnitude > Epsilon * Epsilon)
+                {
+                    desiredDirection *= 1f / Mathf.Sqrt(desiredDirectionSqrMagnitude);
+
+                    // 從靜止起步沒有合理的旋轉起點，第一幀直接採用 desired；非零方向才套角速度上限。
+                    if (_direction.sqrMagnitude <= Epsilon * Epsilon)
+                    {
+                        _direction = desiredDirection;
+                    }
+                    else
+                    {
+                        float currentYaw = Mathf.Atan2(_direction.x, _direction.z) * Mathf.Rad2Deg;
+                        float desiredYaw = Mathf.Atan2(desiredDirection.x, desiredDirection.z) * Mathf.Rad2Deg;
+                        float maxDelta = Mathf.Max(0f, maxTurnDegreesPerSecond) * Mathf.Max(0f, deltaTime);
+                        float nextYawDegrees = Mathf.MoveTowardsAngle(currentYaw, desiredYaw, maxDelta);
+
+                        // ⚠️ **轉完就直接採用目標向量，不再經三角函數往返**。
+                        // `Atan2 → Sin/Cos` 是有損的：直線前進（每幀 delta 為 0）時
+                        // `Atan2(1,0)=π/2`、`Cos(π/2) = -4.37e-8` ⇒ 方向會停在 (1, 0, -4.37e-8)
+                        // 而不是 (1, 0, 0)。量值無關痛癢，但它讓「安定後的方向恆等於意圖方向」
+                        // 這條性質不成立，也讓每幀白付兩次三角函數（順序 3 熱路徑）。
+                        // `MoveTowardsAngle` 在剩餘角差小於 maxDelta 時**原樣回傳 target**，
+                        // 因此這個判斷同時涵蓋「已對齊」與「本幀轉到位」兩種情形。
+                        if (Mathf.Approximately(nextYawDegrees, desiredYaw))
+                        {
+                            _direction = desiredDirection;
+                        }
+                        else
+                        {
+                            float nextYaw = nextYawDegrees * Mathf.Deg2Rad;
+                            _direction = new Vector3(Mathf.Sin(nextYaw), 0f, Mathf.Cos(nextYaw));
+                        }
+                    }
+                }
+                else
+                {
+                    _direction = Vector3.zero;
+                }
+
+                _lastDirection = _direction;
             }
             else
             {
-                _direction = _speed > Epsilon ? _lastDirection : Vector2.zero;
+                // 放開（desired≈0）但仍在減速滑行（speed>0）時保留最後的已平滑方向，
+                // 讓 MotionDriver 以殘速續走該方向；完全停止才歸零，維持既有收步語意。
+                _direction = _speed > Epsilon ? _lastDirection : Vector3.zero;
             }
         }
     }

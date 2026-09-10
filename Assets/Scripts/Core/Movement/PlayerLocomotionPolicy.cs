@@ -52,9 +52,30 @@ namespace Project.Core.Movement
                 ? gaitProfile.ResolveIntensity(magnitude, input.SprintButtonHeld, walkActive)
                 : magnitude;
 
-            // 方向為**純意圖**：放開即歸零。減速滑行期的「保留最後方向」屬 model dynamics，
-            // 不在 producer（Stage 1 暫由 LocomotionSpeedSmoother 承擔，Stage 2 隨之遷入 Locomotion model）。
-            data.MovementIntent.DesiredDirection = input.MoveInput;
+            // 相機只作為玩家輸入的投影基底，不是角色方向真相。投影在 producer 邊界完成後，
+            // 下游一律只接觸水平、正規化的世界方向。相機缺席時退化為無方向意圖。
+            Transform cameraTransform = data.CameraTransform;
+            data.MovementIntent.DesiredDirection = cameraTransform != null
+                ? ProjectInputToWorld(input.MoveInput, cameraTransform.forward, cameraTransform.right)
+                : Vector3.zero;
+        }
+
+        /// <summary>
+        /// 將 2D 輸入依相機的水平基底投影成正規化世界方向。純數值運算，供 EditMode 確定性驗證。
+        /// </summary>
+        internal static Vector3 ProjectInputToWorld(
+            Vector2 moveInput,
+            Vector3 cameraForward,
+            Vector3 cameraRight)
+        {
+            cameraForward.y = 0f;
+            cameraRight.y = 0f;
+            cameraForward.Normalize();
+            cameraRight.Normalize();
+
+            Vector3 worldDirection = cameraForward * moveInput.y + cameraRight * moveInput.x;
+            worldDirection.y = 0f;
+            return worldDirection.sqrMagnitude > 0f ? worldDirection.normalized : Vector3.zero;
         }
     }
 }

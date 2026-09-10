@@ -7,11 +7,1445 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
-> ### 🎯 2026-09-04（晚）— **下個 session：把 ADR-005 Trial 結掉**（最新，請先讀這段）
+> # ✅ 2026-09-10（同日後續）— 敵人失地：精簡 Jump 資產 ＋ Y Bot 映射已接線，W13 綠
+>
+> ## 實測回報
+>
+> Play 後兩行警告，來源是 **Y Bot（敵人）**，不是玩家：
+> ```
+> [AnimancerFacade] 狀態機請求播放 'FallingLoop'，但 Transition Mappings 查表失敗！
+> [AnimancerFacade] 狀態機請求播放 'JumpIdleLandHard'，但 Transition Mappings 查表失敗！
+> ```
+> 表現正常、EditMode 全綠。
+>
+> ## 診斷（已核對 prefab／config YAML）
+>
+> | | |
+> |---|---|
+> | Y Bot 的 StateKey | `Idle` `Move` `Jump` `Roll` `Damage` `Enemy_Punch_R` `WalkStop_*` `RunStop_*` —— **Jump 家族零個** |
+> | X Bot 的 StateKey | 含 `FallingLoop` 等 **18 個** Jump 家族鍵 |
+> | Missing 欄位 | **沒有**（掃過 `Transition: {fileID: 0}`，零筆）——警告訊息那句提示這次不適用 |
+> | 兩邊的 `JumpStateParams` | **同一份資產**（guid `a3c1461a…`）⇒ 敵人繼承玩家的完整 18 格變體表 |
+>
+> **因果**：`FullBodyStateMachine.Initialize` 對**每一隻**角色無條件註冊 `JumpState`；
+> 在此之前敵人**永遠進不去**（AI 從不設 `JumpRequested`，`CanEnter` 恆 false）。
+> 非主動失地入口給了它第一次進入機會 ⇒ 開始請求玩家專屬的鍵。
+> **不是本輪的 bug，是本輪把既有接線缺口暴露出來。**
+>
+> `AnimancerFacade.TryGetTransition` 查不到就 warn ＋ 保留當前動畫、procedural 位移不受影響
+> ⇒ 這就是「表現正常」的原因，是設計好的退化路徑。
+>
+> ## 📐 有用的推論：敵人真的摔了約 3.3 公尺
+>
+> `JumpIdleLandHard` 出現代表 `|v_y| ≥ 8 m/s`。**非主動失地不注入 launch ⇒ 用序列化的
+> `gravity = -9.81`**（不是 bake 的 16.78，`_activeGravity` 只有 `ApplyJumpLaunch` 會覆寫）：
+> ```
+> h = 8² / (2 × 9.81) ≈ 3.26 m
+> ```
+> Y Bot 在場景的 `m_LocalPosition.y ≈ 1.4e-7`（不是出生點懸空），
+> 且 log 裡**只有 hard land、沒有任何 normal land 鍵** ⇒ 每次落地都是重落地。
+> **⇒ 敵人是真的從三公尺以上掉下來**（最可能是追著玩家走下同一個高台）。
+> 反證了「不是 grounded 抖動誤判」——0.1 s grace 沒有誤觸發。
+>
+> ## 裁決（使用者 2026-09-10）
+>
+> **「既然敵人可能失地，就至少要有一套能表現 falling / landing 的資料。」**
+> ⇒ 走**精簡自有表**路線，不是把玩家的 18 格複製過去。
+>
+> ⚠️ **修正我先前的說法**：我說過「缺 Walk／Run 會依 D3 退回 Idle」——**只在 `tier == None`
+> 或沒有 foot phase 時成立**。敵人走路離地且 foot phase 有解時，`walk[]` 為空會讓
+> `SelectByEntryPhase` 回 −1 ⇒ `default` ⇒ 保留現有鍵、`_landDuration = 0` ⇒ **立即退場**。
+> 已核對 `LocomotionStopSelector.SelectByEntryPhase` 開頭就有 `variants == null || Length == 0 → -1`，
+> **不會 NRE**。所以精簡表是安全的，只是「一般落地不播落地動畫、直接接回 locomotion」——
+> 對敵人而言這個退化是可接受的，但要知道自己買到的是什麼。
+>
+> ## 🎮 Editor 接線 checklist（我不能做）
+>
+> **1. ✅ 已新建敵人專屬的 `JumpStateParams` 資產**：`EnemyJumpStateParams.asset`
+>    - `animationVariants.falling` → `FallingLoop`
+>    - `animationVariants.normalLand.idle` → `JumpIdleLand`
+>    - `animationVariants.hardLand` → `JumpIdleLandHard`
+>    - `start`／`normalLandToMove`／所有 `walk[]`／`run[]` **留空**
+>    - `stages` **留空** —— 已核對：`jumpParams` 非 null 就不會有 `[JumpState] 查無 JumpStateParams` 警告，
+>      `BuildStages` 會靜默合成一段 fallback，而非主動失地根本不注入，所以那段永遠用不到
+>    - `hardLandingSpeed`／`landFallbackDuration`／`fallEntryGrace` 依敵人手感設定
+>
+> **2. ✅ `EnemyStateMachineConfig` 的 Jump `Params` 已改綁這份新資產**
+>    （已核對磁碟：guid 由玩家的 `a3c1461a…` 改為 `0e316e35…`，兩隻角色自此不再共用同一份表）
+>
+> **3. ✅ Y Bot 的 `AnimancerFacade.transitionMappings` 已補 3 列**：
+>    `FallingLoop`／`JumpIdleLand`／`JumpIdleLandHard`
+>
+> **4. ✅ 重跑 EditMode** —— `W13` 已轉綠。
+>
+> 🔑 **為什麼給敵人自己一份表，而不是共用玩家那份**：現在共用代表
+> **玩家的跳躍調參會靜默決定敵人的落地分類**（`hardLandingSpeed` 同一個值），
+> 而敵人永遠不跳、玩家那 18 格對它全是死重。這是單一真相來源的問題，不只是省接線。
+>
+> ## 🆕 W13：把這類問題壓回 EditMode
+>
+> `PrefabWiringTests` 已有 **W7** 守 *Action* 的動畫鍵，但**沒有 state 鍵的版本**——
+> 所以這個缺口只能等 Play 才浮現。新增
+> `W13_ReachableStateAnimationKeys_ResolveInTransitionMappings`：
+> 對每隻角色檢查 ①`Idle`／`Move`／`Jump`／`Roll` 四個 `BaseState.AnimationKey`
+> ②該角色 config 綁的 `JumpStateParams` 變體表裡**所有 authored 的格子**。
+>
+> 判準刻意是「authored 的格子」而不是「表裡全部 18 格」——`ResolveAnimationKey` 對無效變體
+> 保留現有鍵、不會請求空鍵，所以**精簡表是合法配置，它要接的是自己填了幾格就接幾格**。
+> W13 因此不預設任何一種選擇，A（共用完整表）與 B（精簡自有表）都能通過。
+>
+> ✅ **已結案**：接線完成、`W13` 轉綠、測試全綠、Play 無異常。
+>
+> 📌 W13 交付當下**刻意是紅的**——它就是上面那份 checklist 的機器版本。
+> 這個做法有先例：`docs/14` 的 **W11** 同樣以「Y Bot 接線前是紅的」作為給使用者的接線提示。
+> 交付紅燈只在「紅燈本身就是待辦清單」時成立，不是繞過 `CLAUDE.md`「交付驗收必須全綠」的通則。
+
+> # ✅ 2026-09-10 — **Walk-off Falling ＋ VerticalVelocity 落地**（已驗收：測試全綠 ＋ Play 無異常）
+>
+> ## 這輪完成什麼
+>
+> **① 走出高台不再空中走路。** `JumpState.CanEnter` 現在有兩條入口：
+>
+> | 進入原因 | 起始 phase | launch velocity | 空中按跳 |
+> |---|---|---|---|
+> | **主動 Jump**（`JumpRequested && IsGrounded`） | `Start` | ✅ 照常注入 | ✅ 可推進 `Stages` |
+> | **非主動失地**（連續離地 ≥ `FallEntryGrace`） | **`Falling`** | ⛔ **不注入** | ⛔ **拒絕**（守 ADR-002 無限空中跳禁令） |
+>
+> **零資產變更**：走的是 `EvaluateInterrupts`（每幀對所有狀態問 `CanEnter`），FSM config、
+> transition 資產、`Falling` 動畫映射全部沿用既有接線。**未新增 StateType**，`A13'` 不受影響。
+>
+> **Fall-entry grace** 預設 **0.1 s**，落在 `JumpStateParams.fallEntryGrace`（`[SerializeField]`，
+> 既有 `.asset` 缺 key 時由欄位初始化值安全退化，**不需要動資產**）。
+> 以 `Time.time` **快照**實作而非累加 `deltaTime`——`CanEnter` 同一幀可能被
+> `EvaluateInterrupts` 與 `EvaluateTransitions` 各問一次，快照天然冪等（`ActionState` 冷卻閘門同款）。
+> ⚠️ **不是 Coyote Time**，本輪也沒有實作 Coyote Time。
+>
+> **② impact velocity 統一來源。** `PlayerRuntimeData.VerticalVelocity` 落地（ADR-002 §6-1 的
+> 「第二個消費者」閘門由 walk-off falling 的落地分類達成）。`JumpState` 的 Normal／Hard 分類
+> 改讀黑板，**不再用 `v₀ − g·elapsed` 公式**——公式假設「本次滯空有已知 launch」，非主動失地沒有，
+> 沿用下去必然分裂成兩套公式。
+>
+> ## 🔑 發布點的關鍵細節（改動它就會壞）
+>
+> ```csharp
+> data.JustLanded / JustLeftGround / IsGrounded   // 上一次 Move() 的結果
+> data.VerticalVelocity = _verticalVelocity;      // ← 必須在這裡
+> if (grounded && v < 0) v = reboundForce; ...    // 貼地夾持會銷毀 impact velocity
+> ```
+> 發布**必須**在 `reboundForce` 夾持之前，否則落地幀只會讀到 −2、所有落地都被分成 Normal。
+> 這四行構成**同一瞬間的一致快照**：FSM 在 Update 讀到的 `IsGrounded` 與 `VerticalVelocity`
+> 來自同一次 LateUpdate 寫入。⚠️ 代價是「只在**第一個 grounded 幀**正確」——
+> 主動跳躍滯空遠超 `MinAirborneTimeBeforeLandingCheck`；非主動失地在 `OnEnter` 預先滿足該計時器。
+>
+> **唯一寫入者＝`MotionDriver`**，比 v0.10 草案（曾允許 `Project.Core` 狀態類別直寫）**更緊**。
+> 狀態只讀不寫，注入仍走 `ApplyJumpLaunch`（ADR-002 選項 A 未破）。A5 已加對應 `WriterRule`。
+>
+> ## 為什麼沒開 ADR
+>
+> ADR-002 §6-1 **已經**決定了這件事，只是把時機延後並寫明「屆時重新界定 owner/writer/readers」。
+> 這是**兌現既有決策**，走 `JustLanded`／`JustLeftGround` 同一條路徑（v0.10 定案 → 延後 →
+> M2 消費者出現 → 寫進 Living Docs，當時也沒開 ADR）。**ADR-002 一字未動。**
+>
+> ## 自動驗證
+>
+> | | 結果 |
+> |---|---|
+> | `Project.Runtime.csproj` | **0 warnings / 0 errors** |
+> | `Project.Tests.EditMode.csproj` | **0 errors**（4 個既有 `MSB3277` 組件版本 warning） |
+> | EditMode ＋ PlayMode **執行** | ✅ **全綠**（使用者於 Unity 實跑） |
+>
+> 新增 EditMode regression（已跑，全綠）：
+> `JumpState_FallEntryGrace_RequiresContinuousUngroundedTime`、
+> `JumpState_PassiveFallEntry_StartsFallingAndDoesNotInjectLaunch`、
+> `JumpState_ActiveEntry_StartsStartAndInjectsLaunchAsBefore`、
+> `JumpState_LandingClassification_UsesBlackboardVelocityForEveryAirborneOrigin`（4 個 TestCase，兩種入口 × Normal／Hard）、
+> `JumpState_PassiveFall_DoesNotGrantAirJump`，以及 A5 的 `VerticalVelocity` writer rule。
+>
+> ## ✅ 人工驗收：通過（使用者 2026-09-10 實跑）
+>
+> ⚠️ 使用者回報的是**整體無 bug、測試全綠**，不是逐項勾選。
+> 以下 checklist 保留作為「這一輪交出去要驗什麼」的紀錄；
+> 若日後出現 crossfade 或斜坡手感問題，**不應**把本節當成「已逐項驗過」的證據。
+>
+>
+> 1. **跑 EditMode ＋ PlayMode 測試**（本輪只驗到編譯，測試尚未執行）。
+> 2. **走出高台**（Walk／Run／左右腳 stride 中途離地）：是否在 ~0.1 s 內切到 `FallingLoop`？
+>    有沒有明顯 pose snap／腿部抽回？第一版**刻意用一般 crossfade**，
+>    不自然才依序考慮 ①transition duration ②`FallingLoop` 起播時間 ③最後才做專用短 Fall transition。
+> 3. **斜坡／樓梯來回走**：不得出現 Move ↔ Falling 抽動。會抖就調高 `fallEntryGrace`（Inspector 可直接調）。
+> 4. **空中按跳**：走出高台後按跳**必須沒有反應**。
+> 5. **落地分類**：一般跳躍落地仍是 Normal；從高台走下去落到更低處應更容易觸發 Hard。
+>    ⚠️ 換成實際速度後，離散積分會讓 |v_y| 比舊公式**略大**，Hard 可能比以前稍容易觸發——
+>    **這是預期的**，屬 threshold tuning，本輪照裁決不調數值。
+> 6. **回歸**：主動 Jump 的 Start／Falling／Land、Land2Move／Land2Run、LU／RU 左右腳選擇、
+>    Hard Land recovery 鎖水平、NormalStop 被新意圖中斷——這些路徑本輪未改，但入口動過，值得回看一次。
+>
+> ## ⚠️ 本輪副作用（需要 Play 觀察，不是 bug）
+>
+> `CanEnter` 是 `EvaluateInterrupts` 每幀對**所有**狀態問的，所以現在**從 Roll 或 Action 中走出高台**
+> 也會在 grace 後被 Jump 中斷進 Falling——是否發生完全由既有的 `CanBeInterruptedBy` 政策決定，
+> 本輪**沒有**動那套政策。若實測覺得「翻滾出平台不該被打斷」，那是 interrupt 政策問題，不是本輪入口問題。
+>
+> ## 明確沒做（維持裁決）
+>
+> ⛔ Coyote Time　⛔ 新的 `Falling`／`Airborne` StateType　⛔ Hard Land threshold 調值
+> ⛔ 專用 WalkOffLedge／RunOffLedge 動畫或 foot-phase 系統　⛔ 改 `ShouldEnterFalling`（主動跳躍的過頂判定維持公式）
+> ⛔ 任何 `.asset`／`.prefab`／場景變更　⛔ 任何 Git 操作
+
+> # ✅ 2026-09-09 — Jump Landing gameplay phase 修正：HardRecovery 鎖水平、NormalStop 可被新意圖中斷
+>
+> ## 根因與修正
+>
+> - 診斷與實測描述吻合：`JumpState` 落地後只累加 land timer；`CanTransitionAway` 一律等 duration，
+>   所以 NormalStop 看不到落地後才出現的新 Move Intent；同時 `OnUpdateMotion` 始終走
+>   `ExecuteBaseMovement`，Hard Land 仍會施加 Movement Output 的水平速度。
+> - `JumpState` 新增**私有** `LandingPhase`：`None / NormalStop / NormalContinue / HardRecovery`。
+>   沒有新增全域 state、interrupt 或 movement-lock framework。
+> - `NormalStop` 若在 land 開始後收到有效 Move Intent，立即把 phase 釋放為 `None`；仍由 FSM
+>   自然轉入 Move，再由既有 state-key routing 播動畫。`NormalContinue` 不接受這條提前釋放，
+>   因此持續同一 Move Intent 不會在下一幀跳過 Land2Move／Land2Run。
+> - `HardRecovery` 必須等 gameplay timer 結束；有意圖轉 Move，無意圖轉 Idle。duration 目前沿用
+>   Bake／fallback 的 authored 秒數，但 owner 是 gameplay timer，不依賴 clip 播完 callback。
+>   即使 Hard Land 視覺引用失效，也會用既有 `LandFallbackDuration`，不會靜默解除 recovery。
+> - `MotionDriver.ExecuteVerticalOnlyMovement` 是窄用途執行出口：保留 facing、重力、grounded
+>   同步與 `CharacterController.Move` collision，只不施加水平 Movement Output；沒有清空
+>   `MoveDirection`，且 Transform writer 仍只有 MotionDriver。
+>
+> ## 自動驗證
+>
+> - Runtime／EditMode／PlayMode 三個 C# 專案：**0 compile errors**（只有既有 Unity 參考組件 warning）。
+> - Unity EditMode：**283 total／282 passed／0 failed／1 skipped**（既有 NavMesh 環境限制）。
+> - Unity PlayMode：**6 total／6 passed／0 failed**。
+> - 新增六項 regression：`HardLand_HorizontalMotionIsSuppressedDuringRecovery`、
+>   `HardLand_MoveIntentDoesNotExitBeforeRecoveryEnds`、
+>   `HardLand_RecoveryEndsWithIntent_TransitionsToMove`、
+>   `HardLand_RecoveryEndsWithoutIntent_TransitionsToIdle`、
+>   `NormalLand_StartedWithoutIntent_NewIntentTransitionsToMoveImmediately`、
+>   `NormalLandContinue_HeldIntent_DoesNotImmediatelySkipTransition`。
+> - 既有 selector tests 已守住 Normal Land／Land2Move／Land2Run 與 LU／RU landing selection；
+>   architecture regressions 守住 MotionDriver single Transform writer。airborne／非 Hard landing 的
+>   `ExecuteBaseMovement` 分支未改，已做 targeted code-path 檢查；實際 control feel 仍列在人工驗收。
+>
+> ## 🎮 仍需人工 Play 驗收（只剩 feel／視覺銜接）
+>
+> 1. 高處重落地時持續推方向：recovery 期間不得水平滑動，結束後有意圖進 Move、無意圖進 Idle。
+> 2. 無輸入開始 Normal Land，動畫剛開始後立刻推方向：應立即 blend 到 Move；第一版不加 minimum land time。
+> 3. 落地當幀已有輸入的 Land2Move／Land2Run：持續按住時 transition clip 必須完整保有既定作用。
+> 4. 回看空中控制、Normal Land、Land2Move／Land2Run 與 LU／RU 左右腳視覺選擇；若真的看到
+>    1–2 frame flash，再以實測證據決定 minimum land time，本輪不預建。
+
+> # ✅ 2026-09-09 — **MAP 跳躍全鏈打通**：物理來自 MAP、動畫已分段接線、EditMode 278 條全綠
+>
+> ## 這輪完成什麼
+>
+> ```
+> Jump_place_ALL_short → Bake_Jump_place_ALL_short → JumpStateParams.Stages[0].Bake
+>    （MAP 素材）           apex 0.9535 / g 16.78          （gameplay launch physics）
+> ```
+> **跳躍物理自此完全來自 MAP 自己的量測，Mixamo `Bake_Jump` 退場。**
+>
+> 🔑 **為什麼用 `_short` 而不是長版**（使用者裁決，實測支持）：兩者 apex **完全相同**（0.9535），
+> 但 `AutoTakeoffDelay` 差 5.6 倍——長版 **0.4871s** vs `_short` **0.0873s**。
+> 該欄位直接閘住 `ApplyJumpLaunch` ⇒ 用長版等於按下跳躍後乾等 0.49 秒才離地。
+>
+> ## 落地選擇規則（使用者 2026-09-09 裁決，已實作）
+>
+> ```
+> 先判斷是不是重落地
+> ├─ 是 → JumpIdleLandHard（單一，短路，不看移動意圖）
+> └─ 否 → 再看移動意圖
+>        ├─ 沒移動 → NormalLand（依 tier / LU-RU）
+>        └─ 有移動 → NormalLandToMove（依 tier / LU-RU）
+> ```
+> - 重落地判準＝**落地瞬間垂直速度** `|v_y| > hardLandingSpeed`（預設 8 m/s），
+>   由 state 自己的 launch 參數推導 ⇒ **零黑板變更**（ADR-002 §6-1 的 `VerticalVelocity` 仍未落地）。
+>   ⛔ **刻意不用高度差**：落地點越低 elapsed 越長、`|v_y|` 自然越大，「摔得比跳得深」自動成立。
+> - 門檻推導：正常跳躍落地 `√(2×16.78×0.9535) ≈ 5.66 m/s` ⇒ 門檻**必須高於它**；8 m/s ≈ 1.9m 落差。
+> - `hardLand` 收斂成**單一** variant、`hardLandToMove` **移除**（重落地＝動量被吃掉，不存在「重落地且續走」）。
+> - `didEnterFalling` 已移除（判準改速度後無讀者）。
+>
+> ## 接線實際落地（**先前一直沒跑，這是使用者看到「動作還是舊的」的原因**）
+>
+> | | 結果 |
+> |---|---|
+> | Transition 資產 | 17 個新建（＋舊 `Jump.asset`） |
+> | Facade 映射 | 17 → **34 筆** |
+> | 既有映射 | `Idle`／`Move`／`Roll`／`Jump`／`Throw_*`／`Spell_*`／收步 **全部完好** |
+> | 變體表 | **17 格全滿** |
+>
+> 📌 **易混淆**：`Locomotion` 是 transition **資產名**，Facade 的 StateKey 是 **`Move`**
+> （`BaseState.AnimationKey` 回傳 `Type.ToString()`）。查「Locomotion 映射還在嗎」會查到 0，那是正常的。
+>
+> ## 🔒 PHYSICS_GUARD 的期望值已更新（**不要刪掉這道守衛**）
+>
+> `WireJumpAnimationSet` 有一道守衛，斷言 `Stages[0].Bake` 是預期的 launch 來源。
+> 它原本期望 Mixamo `Bake_Jump`（工具誕生時的前提是「接線只碰視覺」），**本輪 verify 時實際攔下了**
+> 這個已被推翻的前提。期望值已改為 `LaunchSourceBakePath`，**形狀刻意不變**——
+> 要守的性質是「接線工具不得偷改物理來源」。⛔ 換來源請走 `PointJumpPhysicsAtLaunchSource`。
+>
+> ## 測試
+>
+> **EditMode 278 條：277 passed／0 failed／1 skipped**（既有的 NavMesh 自我 `Assert.Ignore`）。
+> 新測試全綠：`JumpAnimation_LandingSpeed_SelectsSameHardLandRegardlessOfMovement`／
+> `_HardLandingSpeedBoundary_FlipsOnlyAboveThreshold`／`_CurrentLaunchData_NormalJumpDoesNotSelectHardLand`／
+> `JumpLoop_NoLanding_ReportsTakeoffAndApexButHonestZeroAirTime`。既有 `A31`／`A32`／`W11`／`W12` 亦綠。
+>
+> ## 🎮 待 Play 驗收（重點在後兩項，是這輪新判準）
+>
+> 1. **idle 起跳** —— 前搖 0.087s，應明顯比先前俐落
+> 2. **跑步起跳落地續跑** —— LU/RU 是否選對腳；`Land2Run` 僅 0.43s，應幾乎無停頓
+> 3. 🆕 **空中急停** —— 跑步中起跳、**空中放開輸入** ⇒ 應播 `Land` 而非 `Land2Run`
+> 4. 🆕 **重落地** —— 落差 > 1.9m 跳下 ⇒ 應播 `JumpIdleLandHard`，且**不論當下有無移動意圖**
+>
+> ## ⛔ 已知缺口（素材限制，非邏輯錯誤）
+>
+> `hardLand` 只有 `JumpIdleLandHard` 一支 ⇒ **跑步時重落地也會播站定的硬落地**。
+>
+> ## 🧹 待清理
+>
+> - `PointJumpPhysicsAtLaunchSource` 是一次性遷移入口，驗收後應刪除
+> - Mixamo `Bake_Jump` 已成孤兒資產，檔案仍在，未刪
+> - 備份：`_BACKUP_MAP_importsettings/`（含 `X Bot.prefab` 與 `JumpStateParams.asset` 的接線前快照）
+
+> # 📐 2026-09-09 — MAP 跳躍：**量測來源與播放來源的配對定案（待使用者確認）**
+>
+> ## 結論一句話
+>
+> **配對不是 1:1。只有一支 clip 有資格當 launch data 來源（`Jump_place_ALL`）；播放則是五個家族。**
+> ⇒ 需要的是「**一組物理 ＋ 五組視覺**」，不是「五組物理 ＋ 五組視覺」。
+>
+> ## 證據
+>
+> **① `Jump_place_ALL` 跨基線模式完全收斂**（B/C/D 三種演算法）：
+> base 0.7650~0.7656（差 0.6mm）／**apex 0.9535（四位小數完全相同）**／air 0.7400~0.7457／g 13.72~13.93。
+> ⇒ 它自己就能無歧義定義地面 ⇒ **有資格當單一真相來源**。
+> 交叉驗證：`JumpIdleStart` 0.954／`Jump_place_ALL_short` 0.954／Mixamo 0.924 —— 三個獨立窗口一致。
+>
+> **② walk/run 的 `_ALL` 同樣不自足**（推翻我先前「`_ALL` 當量測來源」的推廣）：
+> `Jump_run_lu_ALL` 的 apex 在 0.379~0.668、g 在 20~52 之間隨模式跑；
+> `Jump_run_ru_ALL` 的 C 模式甚至測到完全不同的事件（apex 0）。
+> **根因（使用者指出）**：run/walk 從跑步腳相蹬地起飛後**不再回到同一個地面** ⇒
+> 換剪裁窗口變不出地面，**這是資訊缺失，不是偵測器不夠聰明**。
+>
+> **③ 但每家族各自的 launch data 是不需要的**：播放端是**條件驅動**（Kubold 模型，
+> `m_HasExitTime: 0`）⇒ `*Start` 一定被落地事件切斷，**它的固有弧線本來就播不完** ⇒
+> 「走路起跳弧線 0.57／跑步 0.67」這些數字沒有一個會被完整播出來。
+>
+> ## 提議的配對
+>
+> ```
+> 量測（唯一 launch source）：Jump_place_ALL → JumpStateParams.Stages[0].Bake
+> 播放（五家族視覺）        ：*Start / FallingLoop / *Land / *Land2Move → 變體表
+> ```
+>
+> ⇒ **`JumpStateParams.Stages[]` 維持單段**，不需要依速度階層選 stage。
+>
+> ## 連帶：baseline detector 的取捨也定了
+>
+> 只需要量一支、且它跨模式收斂 ⇒ **不需要為 walk/run 繼續複雜化偵測器**（使用者已叫停 E）。
+> 但 baker 仍必須修（現況 A 對**所有** clip 都給 0，含 Mixamo）。四模式 regression 結果：
+>
+> | | Mixamo | JumpIdleStart | RunFwdStop_LU | Roll | FootPhaseCurve |
+> |---|---|---|---|---|---|
+> | **B**（t=0 後） | ✅ | ✅ | ❌ 0 vs 磁碟 0.052 | ✅ | ✅ 不受影響 |
+> | **D**（起飛前最低） | ✅ | ✅ | ✅ 0.0519 | ✅ 逐位吻合 | ✅ 不受影響 |
+>
+> ⇒ **建議採 D 當正式的 clip-local ground baseline 定義**（B 目前暫留在 `MotionBakeEditor`，未定案）。
+> 📌 **`FootPhaseCurve` 完全不受基線取法影響**（A/B/C/D 的 key 數逐支相同）——這條風險已退場。
+>
+> ## ✅ 四件事已全部執行完畢（2026-09-09，使用者核可）
+>
+> | | 狀態 |
+> |---|---|
+> | ① baker baseline → **D** | ✅ `MotionBakeEditor.ResolveClipLocalGroundBaseline`。**定位已寫進 XML 註解**：這是通用的 feature-analysis baseline，**不是**為了讓所有 JumpStart 都能成功 Bake；沒有可觀測地面的 clip 退化為 0 是**資訊缺失的正確反映**，⛔ 不得為此再加規則。A/B/C 三個被否決的候選與各自失效證據一併留在註解裡 |
+> | ② 烘 `Jump_place_ALL` | ✅ apex **0.95352**／takeoff **0.48706**／air **0.74001**／g **13.930**——與唯讀探針的 D 模式預測**逐位吻合** |
+> | ③ `Stages[0].Bake` 改指 MAP | ✅ `Bake_Jump` → `Bake_Jump_place_ALL`（guid `13bd3553…`）。**跳躍物理自此完全來自 MAP 自己的量測** |
+> | ④ 清 throwaway probe | ✅ `AnimationBatchOps` 1724 → 1326 行，殘留掃描 0 |
+>
+> **無波及**：時間戳確認只有跳躍家族被重烘（Mixamo `Bake_Jump` 22:23／`Bake_RunBwdLoop` 17:49／
+> `Bake_Stand To Roll` 17:16 皆為舊值）。`JumpStateParams` 的 diff 只有 `Bake` 一個 guid 變更，
+> 其餘是 Unity 補上 `animationVariants` schema 的空欄位（切片 A 加的，本來就會在下次存檔時出現）。
+>
+> ## 🎮 Play 要驗的具體預測（不是「感覺看看」）
+>
+> | | 舊（Mixamo） | 新（MAP） | 變化 |
+> |---|---|---|---|
+> | apex | 0.9244 | 0.9535 | **+3%（幾乎不變）** |
+> | g | 17.712 | 13.930 | −21% |
+> | 發射初速 `v=√(2gh)` | 5.72 m/s | 5.15 m/s | −10% |
+> | **滯空時間** | 0.646 s | 0.740 s | **+15%** |
+>
+> ⇒ **跳同樣高，但明顯更「飄」**（滯空多 15%）。若 Play 感覺跳躍變慢變浮，那是**預期的正確結果**，
+> 不是 bug；要調回原本手感就動 `JumpStateParams` 的三個 Multiplier，⛔ 不要回頭改 Bake。
+>
+> ## ⛔ 仍未做（刻意）
+>
+> - **Walk／Run 的 `*Start` 不追自己的 `AutoApexHeight`**（使用者裁決）：它們只提供左右腳視覺／
+>   起跳姿態／gait 對應動畫。第一版 Idle／Walk／Run **共用同一組垂直 launch physics**。
+> - 「跑步起跳是否該更低更遠」＝**下一層 gameplay design**，不是 Bake 工具該決定的。
+> - `Bake_Jump`（Mixamo）成為孤兒資產，**檔案仍在**，未刪除。
+> - `PointJumpPhysicsAtLaunchSource` 是一次性遷移入口，**驗收後應刪除**。
+
+> # 🔴 2026-09-09 — **烘焙器 bug 確診**：跳躍物理特徵對**所有** clip 都量不出來
+>
+> ## 一句話
+>
+> `MotionBakeEditor.cs:450` 的 `rootTransform.SetPositionAndRotation(Vector3.zero, ...)`
+> 讓**基線與採樣分屬兩個參考框** ⇒ 起跳偵測從第 0 幀就恆為「騰空」⇒ 找不到邊沿 ⇒ 全欄位退化為 0。
+> ⚠️ **這不是 MAP 素材的問題——連 Mixamo 的 `X Bot@Jump` 也一樣量不出來。**
+>
+> ## 單變數對照實驗（唯讀探針，同一份採樣、只切換那一行）
+>
+> | | 基線 | `JumpIdleStart` 分析結果 |
+> |---|---|---|
+> | **不重設 root** | 0.7643 | takeoffDelay **0.0855**／apex **0.9538**／airTime **0.6854**／g 16.24 |
+> | **重設 root**（＝烘焙器現況） | 0.0873 | **0／0／0**／g 9.81 |
+>
+> 四支 clip（含 Mixamo 對照）**行為完全一致**。
+> 📌 兩個基線的差 `0.7643 − 0.0873 = 0.677` ≈ 這批 clip 的起始 root Y（0.68）——**算術對得上，機制確認**。
+>
+> ## 機制
+>
+> 基線在 root 歸零、**未套用動畫**時捕捉 ⇒ 得到 rig 真實踝高 0.0873。
+> 但 `SampleAnimation` 之後會把 root 放到 **clip 自身的 root 高度**（≈0.68m，因為 Jump preset
+> **刻意不把 Y 烘進姿勢**）⇒ 每一幀的腳高 ≈ 0.68 ＋ 踝高，遠超 `0.0873 + 0.03` 門檻。
+>
+> ⇒ 🔑 **world-space 基線法只在「Y 已烘進姿勢」的 clip 上成立**（locomotion 那批 Y ✅ 所以沒事）。
+> **Jump 家族 preset 的 Y ❌ 正好使它失效**——preset 與偵測器互相矛盾，而這個矛盾一直沒被發現，
+> 因為在此之前**沒有人重烘過任何跳躍 clip**（`Bake_Jump` 的好數值是更早期的產物）。
+>
+> ## ⚠️ 連帶影響
+>
+> `Bake_Jump.asset` 現存的值（0.736／0.924／0.646）**無法用目前的烘焙器重現**。
+> ⛔ 任何人重烘它都會把跳躍物理清成 fallback 常數。**修好偵測器之前不要重烘 `Bake_Jump`。**
+>
+> ## ✅ 已確立（都靠量測，非推論）
+>
+> - **素材資料充足**：`JumpIdleStart` 有 0.0855s 前搖／0.95m 頂點／0.685s 滯空，`v = √(2gh)` 三輸入齊全
+> - **`takeoff detector` 判準不粗**：`IsAirborne` 是雙腳 AND，單腳墊腳／抬跟不會誤判
+> - **不需要裁 clip、不需要補資料模型、不需要留 Mixamo 當長期方案**
+>
+> ## ⛔ 我在這輪連續錯了三次，全是同一類錯誤（留作教訓）
+>
+> ①「`*Start` 第一幀已離地」→ 否證（`firstGroundedFrame = 0`）
+> ②「50m 墜落是刻意設計、所以不落地量不到」→ 否證（它**有**落地，airTime 0.685）
+> ③「資料在 `_ALL` 裡，`*Start` 不適合當量測來源」→ 否證（`*Start` 量得到且數字健康）
+> **三次都是把工具行為誤讀成素材性質。** 使用者的提醒（「避免把工具缺陷誤認成素材限制」）擋下了
+> 一個會讓資料模型繞著假限制設計的方向。
+
+> # 🟡 2026-09-09 — **切片 A（跳躍視覺分段）程式完成**，待接線＋測試
+>
+> Codex 實作、Claude review。純 `.cs`，零資產、零 Git。`dotnet build` Runtime ＋ Tests.EditMode
+> **Claude 獨立複驗 0 error**（不是只採信 Codex 自述）。
+>
+> ## 落地形狀
+>
+> - `JumpState` 新增內部相位 `Start / Falling / Land` ＋ 可變 `AnimationKey`（沿用順序 5 既有的「鍵變更即重播」）
+> - **`Start → Falling` 用物理不用 clip 長度**：`v_y = v − g·(elapsed − takeoffDelay) <= 0` 且未落地
+>   ⇒ ⛔ 沒有新增黑板欄位（垂直速度依 ADR-002 §6-1 仍封裝在 `MotionDriver`）
+> - **Land 變體＝路徑決定**（Kubold 核心規則）：`Start→Land` 普通／`Start→Falling→Land` **Hard**
+> - LU/RU **重用 `LocomotionStopSelector.SelectByEntryPhase`**，⛔ 沒有另寫一套選腳
+> - 變體表是 authored data（`JumpStateParams` ＋ 既有 `LocomotionStopVariant`），⛔ 不是 Core 字串常數
+> - 新介面 `IFootPhaseSource`（窄介面，`LocomotionModel` 實作）——**刻意不塞進 `IMovementModel`**：
+>   未來的游泳／飛行 model 沒有腳相，塞進去會變 fat interface
+>
+> ## 🔴 我漏烘了 `FallingLoop`（Codex 抓到的）
+>
+> 前一輪那 16 支**不含 `FallingLoop`** ⇒ 沒有 `Bake_FallingLoop.asset` ⇒
+> `LocomotionStopVariant.IsValid` 對 Falling 格恆為 false ⇒ **`Falling` 相位無法啟用
+> ⇒ `LandHard` 那半條路是死的**。⚠️ **接線前必須補烘**（`AnimationBatchOps` 已有機制，加一個 clip 名即可）。
+>
+> ## ⚖️ Codex 的一處偏離（已審，接受）
+>
+> 我原本傾向本切片不動 `CanTransitionAway`。Codex 改了，理由成立：
+> **FSM 在 `IsLanded` 為 true 的同一次 Tick 就離開 Jump ⇒ 順序 5 永遠看不到 Land 鍵。**
+> 新式 `IsLanded && (!_hasLandVisual || _landElapsedTime >= _landDuration)` ——
+> **未接線時 `_hasLandVisual == false` ⇒ 逐字等於舊行為**，退化閘門正確。
+> 📌 語意區別已寫進註解：**進入** Land 相位由落地事件驅動；**相位長度**才讀 clip 長度。
+>
+> ## 🚧 待辦
+>
+> 1. **補烘 `FallingLoop`**（我來，需要 Unity 關閉）
+> 2. **接線**（見下方清單）
+> 3. **跑 EditMode**（⚠️ Unity 現在開著 ⇒ 我跑不了 batchmode，請用 Test Runner）
+>
+> # 📐 2026-09-09 — Kubold 對 MAP 跳躍的**原始用法**（從 `PlayerMaleController.controller` 實拆）
+>
+> 來源：`Assets/MovementAnimsetPro/Mecanim/PlayerMaleController.controller`（資產自帶，比任何文件都準）。
+>
+> ## 五條事實
+>
+> 1. **所有跳躍轉移都是 `m_HasExitTime: 0`** ⇒ **完全條件驅動，不看 clip 播完**。
+>    ⇒ 「Start 要不要播到結束」這題**在 Kubold 的模型裡不存在**——它由旗標決定，clip 長度不參與。
+> 2. 只用三個參數：**`IsJump`／`IsFalling`／`InputMagnitude`**。
+> 3. **`JumpIdleStart` 的兩條出口**（都 `HasExitTime: 0`）：
+>    - `IsJump == false` ＋ `InputMagnitude < 0.2` → **`JumpIdleLand`**（停）
+>    - `IsJump == false` ＋ `InputMagnitude > 0.2` → **`JumpIdleLand2Walk`**（續走）
+> 4. **`FallingLoop` 不是接在 Start 後面的直線**，而是「你在空中」的**匯流點**：
+>    由 `IsFalling == true` 從 **5＋ 個來源**拉進去（controller 另有 49 條 AnyState 轉移）。
+> 5. 🔑 **重落地的判準是「路徑」不是「量測」**：
+>    - `Start → Land` ＝ 普通落地（`JumpIdleLand`）
+>    - `Start → FallingLoop → Land` ＝ **`JumpIdleLandHard`**
+>    ⇒ ⛔ **不需要量落下時間或高度**。`FallingTime` 參數雖然存在，但**這些轉移沒有用到它**。
+>
+> ## 對映：三個訊號我們**全部已經有**，不需要新黑板欄位
+>
+> | Kubold | 我們 |
+> |---|---|
+> | `IsJump` | `JumpState` 為 active（`_phase`／`IsLanded`） |
+> | `IsFalling` | `!data.IsGrounded` |
+> | `InputMagnitude`（門檻 0.2） | `MovementIntent.DesiredSpeedNormalized`（我們 FSM 既有門檻 0.1，同量級） |
+>
+> ## 🔑 這解掉了排序問題：視覺與物理可以拆成兩個獨立切片
+>
+> **動畫切換完全不需要 `AutoApexHeight`／`AutoAirTime`** ——它們只餵物理
+> （`JumpState.BuildStages` 的 `v = √(2gh)`）。⇒
+>
+> - **切片 A（視覺分段）**：`JumpState.AnimationKey` 可變 ＋ 依上表三訊號選鍵。
+>   **現在就能做，不依賴重烘、不依賴裁 clip。**
+> - **切片 B（物理對齊）**：需要 `AutoTakeoffDelay`（何時 `ApplyJumpLaunch`）與
+>   `AutoApexHeight`／`AutoCalculatedGravity`。**卡在分析器對 MAP clip 偵測不到起跳**（全 0）。
+>
+> ⚠️ **B 未解時 A 仍可上**：物理沿用既有 `Bake_Jump`（Mixamo）的參數，視覺換成 MAP 分段。
+> 兩者不對齊的部分是**起跳瞬間的腳離地時機**，屬手感，不是壞掉。
+>
+> # 🟡 2026-09-08（夜）— MAP 跳躍：**SOP ＋ 烘焙已完成**，Start clip 影格範圍的疑慮**已排除**
+> ### ⚠️ 更正：先前「`*Start` 沒修剪」的判斷**是錯的**——每支子 clip 都有自己的 `takeName`，
+> ### 是各自獨立的 take，不是同一條時間軸的切片，`Jump_place_ALL` 的 0–68 不能拿來當基準比較。
+>
+> ## ✅ 已完成（Claude 以 batchmode 執行並逐項驗證）
+>
+> **新增兩個入口**：`MotionClipImportSOP.ApplyJumpTo`（per-clip Jump preset，與既有 Locomotion-位移
+> 入口共用抽出的實作——**第二個使用者出現才抽**）＋ `AnimationBatchOps.ApplyJumpSopAndBake`。
+>
+> **16 支分段跳躍 clip 已套 Jump preset ＋ 烘焙**，產出 `Assets/ScriptableObjects/Motion/Bake_Jump*.asset`（**有進版控**）。
+>
+> ⛔ **刻意不含 `Jump_*_ALL`**：那是把「起跳→滯空→落地」烘成**固定長度**的整段 clip，
+> 與 **ADR-002（Accepted）**「滯空時間由物理決定」直接衝突。分段版才對得上物理時點。
+>
+> ### 🔒 隔離驗證（這是本輪最重要的檢查）
+>
+> 跳躍住在**主檔** `MovementAnimsetPro.fbx`——那支同時裝著 `Throw_*`（ADR-004 已結案）、
+> `RunFwdLoop`（locomotion 前進取樣點）、Crouch、ButtonPush。**整檔套 preset 會全部灌壞。**
+>
+> ✅ diff 新舊 `.meta`：**160 個變更行，每一行都落在我指名的那 16 支**，其他家族零波及。
+> ✅ `JumpIdleStart` 實際值＝`loopBlendOrientation: 1`／`loopBlendPositionY: 0`／`loopBlendPositionXZ: 1`／
+> `heightFromFeet: 1`／`loopTime: 0` ⇒ **與 dev-spec §0.4「Jump 家族」逐項相符**。
+> ✅ `RunFwdLoop` 仍是 `Y=1／XZ=0／loopTime=1`（Locomotion-位移），**未被動**。
+> 📌 備份：`D:/Unity Project/_BACKUP_MAP_importsettings/`（MAP 不在版控，git 救不回來）。
+> 📌 ⚠️ Unity 的 YAML 欄位名是 **`loopBlend*`** 不是 API 的 `lockRoot*`——查證時別找錯欄位。
+>
+> ## 🔴 需要裁決：`*Start` clip 的影格範圍看起來沒修剪過
+>
+> | clip | firstFrame–lastFrame | BakedDuration |
+> |---|---|---|
+> | `JumpIdleStart` | **14–120** | **3.53 s** |
+> | `JumpRunStart_LU` | **0–120** | **4.00 s** |
+> | `JumpIdleLand` | 37–68 | 1.03 s |
+> | `Jump_place_ALL`（未套用） | 0–68 | 2.27 s |
+>
+> **Land 類的範圍是收斂的（31 影格），Start 類卻一路到 120＝整個 take 的尾端**——
+> 而 `Jump_place_ALL` 證明整段跳躍只到 frame 68。⇒ **`*Start` 的 `lastFrame` 極可能是未修剪的預設值。**
+>
+> **影響**：分段方案要用 `BakedDuration` 當起跳段的長度；3.5–4 秒顯然不是起跳時間 ⇒ **接線前必須先修剪**。
+> ⛔ **我沒有自己改**：修剪影格範圍是 authoring（「起跳在第幾格結束」要看畫面），
+> 而且 SOP 工具明文不碰影格範圍（由 Unity 填入）。**這是你在 Editor 看著決定的事。**
+>
+> ## ⏭️ 下一步（程式，不依賴上面那個裁決就能開始）
+>
+> `JumpState` 目前**沒有覆寫 `AnimationKey`** ⇒ 整個跳躍只播一個鍵。要做分段需要讓它可變——
+> **機制早就存在**：管線順序 5 已支援「動畫鍵變更時重新提交 `Play()`」（ADR-004 落地，
+> dev-spec §2.1 還註明「Idle／Move／Jump／Roll 的鍵為常數」）。
+> 左右腳起跳同理：`LocomotionStopSelector` **已經在用 `FootPhaseCurve` 選 LU/RU 收步變體**，
+> 起跳選 LU/RU 是同一個問題形狀 ⇒ 第二個使用者，合法一般化。
+> ⇒ **三件事都不需要新 ADR**，走 Living Docs。
+
+> # 🟡 2026-09-08（第二輪）— **S3b facing 收斂 ＋ HeadLook 回正** 程式已落地，**尚未驗證**
+>
+> **開場**：讀本段 ＋ `docs/16-review-protocol.md`（⚠️ 持續有效）。
+> 規格正本：`docs/14` §4「S3b」／`docs/15` §18.3 的兩份修正紀錄。
+>
+> ## ✅ 殘留已清（2026-09-08）
+>
+> - **throwaway 接線方法已從 `AnimationBatchOps.cs` 整段刪除**（649 → 500 行）。
+>   ⚠️ 該檔**仍有另一個既有 spike**（2026-09-07～08 的 7 支 strafe clip SOP），**那個不是本輪的，別誤刪**。
+> - `IAimSource` 已進 `Project.Runtime.csproj`、`.meta` 已生成（Unity 重生過）。
+> - 📌 曾出現 `dotnet build` 對 `Kybernetik.Animancer.csproj` 失敗（Burst 屬性找不到，5 個 error，
+>   **我們的程式 0 error**）——那是 Unity 重生 csproj 時掉了 Burst 參考的側路問題，
+>   Unity 自己的編譯器不受影響。開一次 Unity 即恢復。
+>
+> ## 🚫 Codex **不能**跑 Unity batchmode（本機實測，2026-09-08）
+>
+> Codex 的沙箱**連不到 Unity 的授權 IPC**（`Connection to channel LicenseClient-USER refused`），
+> 且讀不到 `C:\Users\USER\AppData\...`。⚠️ **這不是可重試的錯誤，是結構限制**——
+> 本機的 Unity Hub 與 Licensing Client 當時都正常執行中，是沙箱擋住的。
+> ⇒ **凡是需要 Unity Editor／batchmode 的工作，不要交給 Codex**；它只能做純 `.cs`。
+>
+> ## 🔬 2026-09-08 Play 回報的三件事（已逐項查到根因）
+>
+> ### ① 敵人沒有受擊 —— **真 bug：距離幾何互斥，玩家根本打不到**
+>
+> 整條授權鏈**全部正確**：`MeleeSlash1Definition` 的 `EmitsRelease: 1`／`ReleaseNormalizedTime: 0.4`；
+> `actionSinkBindings` Slot 1 → `MeleeHitboxSink`；hitbox 與 sink **同一顆 GameObject**、`m_IsTrigger: 1`、
+> 初始 disabled；`DamageDefinition`（Slot 100 ＝ Reaction）**確實**在 `EnemyStateMachineConfig` 裡。
+>
+> **根因（使用者提出「為什麼之前可以」後才查對方向）**：
+>
+> | 量 | 值 |
+> |---|---|
+> | 敵人的交戰帶（`Y Bot`） | `minimumEngagementDistance: 1.25` ～ `maximumEngagementDistance: 2` |
+> | 敵人的攻擊距離 | `attackRange: 1.8` |
+> | **玩家 hitbox 的可及範圍** | BoxCollider `1.4 × 1.5 × 1.6`、center `(0,0,0)` ⇒ **水平僅 ±0.7 (x)／±0.8 (z)** |
+>
+> ⇒ **敵人最近只站到 1.25 m，玩家最遠只打得到 0.8 m。兩者永不重疊。**
+> 敵人卻能從 1.8 m 打到玩家 ⇒ **單方面挨打**，與影片一致。
+>
+> **為什麼「之前可以」**：`AIMovementSource` 的 **engagement band（Hold／Approach／Retreat）＋ hold strafe
+> 是新加的**（`git diff` 可見 `holdStrafeSpeedNormalized`／`ResolveHoldStrafeDirection`／band gizmo 全是 `+`）。
+> 在那之前敵人是**一路貼上來**的，自然落在 0.8 m 的盒子裡。
+> ⚠️ **`Y Bot` 的 collider 與 `MeleeHitboxSink` 的命中邏輯一行都沒改**
+> （`MeleeHitboxSink` 只改了 `Release()` → `Release(in context)` 的簽章）——**不是它們壞掉，是距離設計走開了。**
+>
+> **⛔ 已被推翻的假說（留著避免重蹈）**：我第一版判斷是「`Y Bot` 只有 `CharacterController`、沒有 Rigidbody
+> ⇒ `OnTriggerEnter` 不觸發」。**那個條件在「之前可以」的時候同樣成立** ⇒ 解釋不了時間差，**不是根因**。
+> ⚠️ 但它**也還沒被證偽**——因為敵人從來沒進到盒子裡，trigger 事件根本沒機會被測到。
+> ⇒ **等距離對上之後若仍打不到，才回頭驗這條**（`Y Bot` 加 `Rigidbody` ＋ `Is Kinematic`）。
+>
+> **要裁決的是設計，不是修 bug**：三個數字要對齊成一套（玩家可及／敵人交戰帶／敵人攻擊距離）。
+> 📌 順帶暴露的不對稱：**敵人有明確的 `attackRange`，玩家沒有**——玩家的「攻擊距離」是
+> BoxCollider 的尺寸隱含的，而且 center `(0,0,0)` 表示**背後也打得到**。
+>
+> ⚠️ **測試覆蓋缺口（誠實記錄）**：`CombatContextTests.CreateEnemy` 治具**額外加了 `SphereCollider`**，
+> 比真實 prefab 寬鬆；而 `MeleeHitboxSink` 的測試是直接呼叫 `TryRequestHit`，**完全沒有經過
+> `OnTriggerEnter`** ⇒ **目前沒有任何測試涵蓋真正的命中路徑**。A26 守的是「時機的擁有權」，不是「打得到」。
+>
+> ### ② 攻擊沒有軟鎖定 —— **預期行為，不是 bug**
+>
+> 兩份 Definition 的 YAML 裡**都沒有 `Targeting` 欄位** ⇒ 吃程式預設 `CameraForward`
+> ⇒ 一律朝鏡頭、不吸敵。**這正是 `docs/11` §8.3 裁決要的。**
+> **修法＝Inspector 一個欄位**：把 `MeleeSlash1Definition` 的 **Targeting** 改成 `CameraConeSoftTarget`。⛔ 不必改程式。
+>
+> ### ③ 武器破圖 —— **洋紅＝shader 在當前管線下不存在**
+>
+> 專案 `GraphicsSettings.m_CustomRenderPipeline` **有指定**（URP）；而 EEJANAI 那批材質
+> （含 `swordmaterial.mat`）全部指向 shader guid `be891319084e9d147b09d89e80ce60e0`，
+> 該 guid **在 `Assets/` 與 `Packages/` 都找不到** ⇒ 那是 **Built-in RP 的 shader** ⇒ URP 下渲染成洋紅。
+> **修法**：Render Pipeline Converter，或直接把材質 shader 改成 `Universal Render Pipeline/Lit`。
+>
+> **位置沒調過**：`WeaponSocket` 的 `localPosition`／`localEulerAngles`／`localScale` 全是預設值。
+> 這是**設計預期的手動步驟**——該欄位的 Header 寫著「進 Play 後選中生成出來的武器即可讀出對的數值」。
+>
+> ✅ 順帶：`weaponPrefab` 已改指 `Sword.prefab`（guid `06851bed…`）⇒ 先前的 `InvalidCastException` 應已消失 ⇒ **P5 應該會轉綠**。
+>
+> ## ✅ 測試已實跑（2026-09-08，Claude 以 batchmode 執行，非推測）
+>
+> | 套件 | 結果 |
+> |---|---|
+> | **EditMode** | **272 條：271 passed／0 failed／1 skipped** |
+> | **PlayMode** | **5 條：4 passed／1 failed** ← 見下，**不是契約違規** |
+>
+> 本輪新增／修改的測試**全部 passed**：`W11`／`W12`／`A32`／`TC6C`／`TC6D`／`TC6E`／`TC7`／`TC7B`／
+> `TC6A`／`TC6B`／`SoleHeight_SlopePenetrationCrossover_IsContinuous`／`SoleHeight_FlatGround_EqualsAnkleOnlyPlane`；
+> 既有的 `A28`／`A31`／`T30`／`T31`／`TD5` 亦未被打壞。
+>
+> 唯一 skipped ＝ `AIMovementSource_WithoutCamera_ProducesNonZeroWorldDirection`，
+> **既有的自我 `Assert.Ignore`**（EditMode 放不上臨時 NavMesh，架構面由 A30 守住），非本輪造成。
+>
+> ## 🔴 P5 紅了，但**不是 facing 違規**——它抓到了別的東西
+>
+> P5 自己的斷言**零違規**（XML 裡沒有任何「顆 CharacterFacingSource」訊息）⇒ **每隻角色都恰好一顆，契約成立**。
+> 它是被**載入場景時拋出的既有例外**打紅的——Unity Test Framework 會把未預期的 log exception 視為失敗：
+>
+> ```
+> InvalidCastException: Specified cast is not valid.
+>   at UnityEngine.Object.Instantiate[T](T original, Transform parent)
+>   at WeaponSocket.Rebuild()  WeaponSocket.cs:71
+>   at WeaponSocket.Awake()    WeaponSocket.cs:44
+> ```
+>
+> **根因（已查到具體資產）**：`X Bot.prefab` 的 `weaponPrefab` 欄位是
+> ```
+> weaponPrefab: {fileID: 100100000, guid: 8e3055a60484b194489bc7cded1491cc, type: 3}
+> ```
+> 那個 guid ＝ **`Sword.obj`（模型資產，ModelImporter）**，但 **`100100000` 是 prefab 主資產的 fileID 慣例**
+> ——模型不用這個 ID（該 `.meta` 的 `internalIDToNameTable` 是空的）。
+> ⇒ **引用是壞的**：prefab 式的 fileID 指向模型資產 ⇒ 執行期解析出來的東西不是 `GameObject`
+> ⇒ `Instantiate<GameObject>` 當場 cast 失敗 ⇒ **劍從來沒有掛上去過**。
+>
+> **修法（Inspector 一次拖曳）**：把 `weaponPrefab` 改指
+> `Assets/EEJANAI_Team/FreeSwordAnimations/Prefabs/Sword.prefab`
+> （guid `06851bed1a7a2f941a32ff65c949c382`，**是真的 prefab**），而不是 `Sword.obj`。
+>
+> 📌 **這個例外在 Console 被容忍了兩天**（2026-09-07 的紀錄寫「維持獨立缺陷、不夾帶修復」）。
+> **P5 上線第一次跑就把它從「可以忽略的紅字」變成「擋住 CI 的紅燈」** —— 這正是加這條測試的價值。
+>
+> ## ✅ 接線已全部完成（2026-09-08，逐項核對磁碟確認）
+>
+> | 元件 | X Bot.prefab | Y Bot.prefab | 場景 override |
+> |---|---|---|---|
+> | `CharacterFacingSource` | ✅ 1 | ✅ 1 | ✅ 0（無重複） |
+> | `HeadLookController` | ✅ 1（`headBone` 已指定，含兩個新欄位） | – | ✅ 0 |
+> | `PlayerCombatContextSource` | ✅ 1（`targetMask` = **Layer 7**／`m_Bits: 128`，其餘為程式預設） | – | ✅ 0 |
+>
+> ⚠️ **場景 override 全為 0 很重要**：若 prefab 有元件、場景實例又留著自己 added 的那顆，
+> 執行期會變成兩顆，`GetComponent` 的回傳順序就成了權威選擇器。**`P5` 專門守這個。**
+>
+> 📌 **學到的事**：`CharacterFacingSource`／`HeadLookController`／`PlayerCombatContextSource`
+> 這三顆 2026-09-06/07 新增的元件，當初**全部只加在場景實例、沒進 prefab**
+> （舊元件如 `PlayerLocomotionPolicy`／`LocomotionModel`／`AimResolver` 都在 prefab 上）。
+> ⇒ 把 `X Bot.prefab` 拖進新場景會得到一個殘廢的角色。**W11 第一次跑就抓到了這個漂移。**
+>
+> ## 這輪做了什麼（Codex 實作、Claude review，純 `.cs`，零資產、零 Git）
+>
+> | 工作包 | 內容 |
+> |---|---|
+> | **A：HeadLook 回正** | 回正改走 `lookDegreesPerSecond`（原本只有權重在淡出 ⇒ ≈560°/秒）；權重改成**角度歸零後才淡出**；新增 `releaseYawHysteresis = 10°` 消除邊界抖動 |
+> | **B：S3b facing 收斂** | 刪掉 `MotionDriver` 的 `12f` fallback；**死區從執行者搬到決策者**並改成**只適用 Action commitment**；`ApplyFacingRequest` 只剩 slerp |
+>
+> 新不變量 **A32**（`ExecuteBaseMovement` 不得出現 `LookRotation`／`Slerp`／`transform.rotation`）
+> ＋ **W11**（每個角色 Root 恰好一顆 `CharacterFacingSource`）。
+> 新測試 `TC6A`／`TC6B`／`TC6E`；`TC6`／`T12` 因簽章變更一併改寫。
+> `dotnet build` Runtime ＋ Tests.EditMode **皆 0 error（Claude 獨立複驗過，不是只採信 Codex 自述）**。
+>
+> ## ⚠️ Play 必須確認的行為變更
+>
+> **玩家的「移動朝向」原本有 8° 死區，現在沒有了** ⇒ 轉向變成連續。這是刻意的
+> （死區的理由是「站定出手時腳掌釘地」，不適用於移動），但**手感會不一樣**。
+> 要調就調 `aimFacingTurnSpeed`（X Bot 10／Y Bot 8），⛔ 不要把死區加回 `MotionDriver`。
+>
+> ## ✅ 「站小斜坡上一直抽搐」——**H3 確診並已修正**（2026-09-08）
+>
+> **結論**：`FootIKController.SampleGround` 用「誰穿得深就取誰的地面 Y」當 `GroundY`——
+> 那在 `heelPen == toePen` 的交叉點上**不連續**，跳幅 ＝ heel-toe 跨距 × 坡度梯度。
+> **`max()` 連續；「取 argmax 的另一個屬性」不連續。**
+> 已改為由**抬升後的實際腳底平面**導出（＝ ankle-only 路徑本來就在用的公式）。
+> **平地逐字等價**；斜坡上骨盆會比舊版少沉一點 ⇒ **這是 Play 要看的差異**。
+>
+> probe 實測 `0.042`～`0.069` m ⇒ 反推坡度 9.5°～15.5°，**與症狀量化吻合**；
+> 同時證明 `IsGrounded`／`L.hit`／`R.hit` 全程未翻動 ⇒ H1／H2 排除。
+> 新不變量 `FootIKTests.SoleHeight_SlopePenetrationCrossover_IsContinuous`（＋平地等價那條）。
+> **probe 已整段刪除**（`CLAUDE.md` Spike/Probe Exception）。完整推導：`docs/05` §3.5.4.1。
+>
+> ⚠️ **刻意沒修**：`pelvisTarget` 的 `: 0f` 硬切屬同一類缺陷，但 probe 證明本次未觸發
+> ⇒ 依專案紀律不加無證據的防呆。**已登記為潛在風險，不是遺漏。**
+>
+> <details><summary>（存查）確診前的三假說與 probe 設計</summary>
+>
+> **已排除頭部**：使用者提供的兩張截圖是**骨盆高度 ＋ 膝蓋彎曲**在兩態間反覆，
+> 而 `HeadLookController` 只寫 `headBone.rotation` ⇒ 從構造上改不了骨盆 ⇒ **與 look-at 無關**。
+>
+> **定位**：`FootIKController.Tick` 這一行是硬切——
+> ```csharp
+> float pelvisTarget = (ikAllowed && left.HasHit && right.HasHit)
+>     ? ComputePelvisOffset(...) : 0f;
+> ```
+> **任一輸入不可用 ⇒ `pelvisTarget` 硬切回 0。** 平地上 `ComputePelvisOffset` 本來就 ≈0 ⇒ 看不出來；
+> 斜坡上它是明顯負值 ⇒ 一旦輸入間歇失效，骨盆就在「補償」與「不補償」之間彈跳 ＝ 那兩張圖。
+>
+> 📌 **這與這輪 HeadLook 的 clamp 是同一類缺陷**：「輸入不可用時 snap 回預設值」，而不是「連續地保持或衰減」。
+>
+> ### 三個候選觸發源（⛔ 尚未確診，**不得先修**）
+>
+> | | 假說 | 分辨方式 |
+> |---|---|---|
+> | **H1** | 某一腳 ankle raycast 間歇落空（`HasHit` false）——斜坡／邊緣幾何，`RaycastDistance 1.1`／`RaycastUpOffset 0.5` 在邊緣可能不夠 | probe 會看到 `L.hit`／`R.hit` 翻動 |
+> | **H2** | `IsGrounded` 在斜坡上逐幀翻動（`CharacterController.isGrounded` 的經典行為；`reboundForce = -2` 貼地力）⇒ `ikAllowed` 翻動 | probe 會看到 `grounded` 翻動 |
+> | **H3** | `GroundY` 自己在震盪（`ComputeAnkleTarget` 的泰勒斯修正在**斜面**上會放大 `rayStart` 的變化；平地因 `ibLength≈0` 早退，所以只在斜坡發作） | **所有 bool 都不會翻動** ⇒ 只有震盪偵測抓得到 |
+>
+> ### ✅ 探針已就位（throwaway，查清後**整段刪除**）
+>
+> `FootIKController` 已加 `#if UNITY_EDITOR` 的 `logSlopeDiagnostics`（預設 false，**新欄位 ⇒ 不必改資產**）。
+>
+> **使用者操作**：Play → 角色 Root 的 `FootIKController` Inspector 勾 **Log Slope Diagnostics**
+> → 站上會抽搐的斜坡數秒 → 把 Console 所有 `[FootIK-Probe]` 行貼回來。
+>
+> 它只在**狀態邊沿**輸出（不刷屏），另有 30 幀環形窗在「所有 bool 全穩定」時仍偵測 `pelvisTarget` 震盪
+> ——**那條就是專門用來抓 H3 的**，因為 H3 不會讓任何 bool 翻動。
+>
+> ⛔ **拿到資料前不要修**：三個假說的修法完全不同（H1 改採樣幾何／H2 改 grounded 判定或讓 IK 不看它／
+> H3 改骨盆的連續性），猜著修會在這個 repo 留下沒有證據支撐的防呆。
+>
+> </details>
+>
+> 📌 **方法論存查**：這次「先寫探針取資料、再修」比直接猜快——三個假說裡最直覺的兩個
+> （raycast 落空／`isGrounded` 跳動）**都是錯的**，真凶是唯一不會讓任何 bool 翻動的那一個。
+> 若當時照直覺修，會加上兩層無效防呆並且**症狀照舊**。
+>
+> ## ⏭️ 下一個切片：**F6 —— Core 不得直接持有具體 `AimResolver`**
+>
+> 使用者已裁決：**排下一個獨立切片，⛔ 不與 S3b 混做**，屆時以**最小介面**收斂依賴。
+> 現況：`ActionState`／`FullBodyStateMachine`／`CharacterPipelineRunner` 仍持有具體
+> `Presentation.CameraControl.AimResolver`；`CharacterFacingSource` 亦持有具體 `MotionDriver`。
+> `A4 LayerRules` 仍放行整個 `Project.Presentation`。背景見 ADR-007 §7 ／ `docs/09` §5.2。
+
+> # ✅ 2026-09-08（晚）— 交辦 ① ② **程式已落地**，等使用者跑測試 ＋ Play
+>
+> **開場**：讀本段 ＋ `docs/16-review-protocol.md`（⚠️ 持續有效）。下方 2026-09-08（日間）那份
+> 交接的 **①② 已經做完**，③④⑤ 原封不動仍然有效。
+>
+> ## 這輪做了什麼（純 `.cs`，零資產、零 Git）
+>
+> | # | 內容 | 檔案 |
+> |---|---|---|
+> | **①** | **Action Targeting Policy 落地**：`ActionTargetingPolicy` enum（`CameraForward` = 0 為預設）＋ `ActionDefinitionSO.Targeting` 欄位；`CaptureReleaseContext` 依 policy 分支；`TrySelectAimPoint` → **`TrySoftTarget`**（水平半角 30° 的角錐閘門） | `ActionDefinitionSO.cs`／`ActionState.cs` |
+> | **②-F1** | **BLOCKER**：`TryComputeLookAngles` 超出 `maxYaw` 改**回傳 false**（不再 clamp）⇒ 權重淡回 0、頭回正，`SignedAngle` 的 ±180° wrap 翻轉**從構造上消失** | `HeadLookController.cs` |
+> | **②-F2** | **HIGH**：新增 `lookDegreesPerSecond`（預設 360）＋ `Mathf.MoveTowards` ⇒ 角度本身有速率上限，不再瞬間指派 | 同上 |
+> | **②-F9** | `CombatContextTests.TC6C` **改寫**：舊版斷言 clamp ＝把缺陷寫成正確行為。新版掃 360° 斷言連續性；另加 `TC6D`（pitch 仍 clamp）。`TC7` 一併改寫為角錐語意，新增 `TC7B` 釘住預設值 | `CombatContextTests.cs` |
+>
+> **文件 fold-back 已完成**：`docs/11` §8.3（落地紀錄 ＋ 開放問題的答案）／`docs/15` §18.3（修正紀錄）
+> ＋ §19.7（「這次沒有改變的事」已失效）／ADR-007 §11（多一列落地紀錄，**D1–D5 一字未動**）。
+>
+> ## 🚧 Integration Gate —— 需要使用者做的事
+>
+> 1. **跑 EditMode 測試**。⚠️ 我跑不了：Unity Editor 開著 ⇒ batchmode 被 project lock 擋下。
+>    我能驗到的只有 `dotnet build` **Runtime ＋ Tests.EditMode 皆 0 error**——**編譯 ≠ 測試**。
+>    重點看：`TC6C`／`TC6D`／`TC7`／`TC7B`，以及**既有的** `ActionStateTests.T30/T31`、`CameraAimTests.T5/T6`。
+> 2. **Play 驗收（②）**：貼著敵人繞圈跑到**正後方** ⇒ 頭應該**平順地放棄目標並回正**，⛔ 不得再出現單幀翻到另一邊。
+> 3. **Play 驗收（①）**：普通攻擊／火球現在**一律朝鏡頭**（三份既有 Definition 都吃到新欄位的預設值）。
+>    ⇒ 手感上想讓**哪一招**吸敵，在 Inspector 把該份 `ActionDefinition` 的 **Targeting** 改成
+>    `CameraConeSoftTarget` 即可，**不需要改程式**。角錐要調寬窄改
+>    `ActionState.SoftTargetConeHalfAngleDegrees`（⛔ 一顆全域常數，不下放 per-Action）。
+> 4. **新欄位不需要重新接線**：`Targeting` 與 `lookDegreesPerSecond` 都是**新增**欄位 ⇒ 既有
+>    `.asset`／場景實例吃程式預設值。⛔ 不必手動改任何資產。
+>
+> ## ⚠️ 三件必須誠實說的事
+>
+> - **①的行為預設值變了**：既有三份 Definition 從「全部吸敵」→「全部朝鏡頭」。這**正是裁決要的**，
+>   但體感差異明顯，**不要誤判成回歸**。
+> - **②-F2 的平滑手感只能人工驗**：節流發生在 `Tick`（需要 `Time.deltaTime` ＋ 真實 `Transform`），
+>   EditMode 測不到。可自動測的是 F1 的結構性連續性——那也是 BLOCKER 的所在。
+> - **③ 的 F4／F6 我沒有動**：兩者都需要架構裁決（見本段最後的「需要裁決」）＋ 敵人端接線，
+>   ⛔ 不是「忘了做」。
+
+> # 📦 2026-09-08 — 交接（依五類分開，**不要混談**）
+> ### ⚠️ ① 與 ② 已於同日稍晚落地，見上方那段；③④⑤ 仍然有效。
+>
+> **開場**：讀本段 ＋ `docs/16-review-protocol.md`（review 規則，⚠️ 持續有效）。
+> 其餘按需取用；⛔ 不要通讀 `docs/13`／`14`／`15`，它們很長。
+>
+> ## 🟢 目前基準狀態
+>
+> - `Locomotion.asset` ＝ **1D 三階**（已還原，正常）
+> - 兩份**量測用** prototype 存在：`Locomotion_2D_Proto_RunRing`（前進 1.0×／側後 1.6×）與 `_FullRing`（1.75–2.89×）
+>   ⇒ 使用者實測 **RunRing「除了停步外還 OK」** ⇒ **單環在數據與觀感上都成立**
+> - 7 支 strafe clip：**已套 SOP ＋ 已烘焙**（batchmode），native speed 見 `docs/13` §10.7
+> - facing：**已移除常駐目標朝向**（`docs/15` §19.7）⇒ 平常跟移動方向，只有出手期間跟承諾
+>
+> ---
+>
+> ## ① 已決定但未實作 —— **Action Targeting Policy**
+>
+> **裁決已完成**（`docs/11` §8.3，ADR-007 §11 有修訂紀錄），**程式一行未動**。
+>
+> | Policy | 語意 |
+> |---|---|
+> | `CameraForward`（**預設**） | 方向＝camera forward，**永不**自動修正 |
+> | `CameraConeSoftTarget` | **僅當**鏡頭前方角錐內有合法敵人才修正 |
+> | `SelfCentered` | 不需要 target／facing。⚠️ **只保留概念，不做內容** |
+>
+> 🔴 **現況與裁決不符**：`ActionState.CaptureReleaseContext` 無條件優先取 `CombatContext.TargetPosition`
+> ⇒ **目前所有 Action 都等同 `CameraConeSoftTarget`**，「普通攻擊朝鏡頭」**還沒生效**。
+>
+> **落點**：`ActionDefinitionSO` 加 enum 欄位（預設 `CameraForward`）＋ `CaptureReleaseContext` 依 policy 分支。
+> **開放問題**（實作期決定）：`CameraConeSoftTarget` 用**當下相機錐**還是 **Combat Context 的黏性目標**？
+> ⚠️ 這同時決定 Combat Context 的黏性還有沒有存在必要。
+>
+> ---
+>
+> ## ② Confirmed bug —— **HeadLook 翻轉 ／ 未平滑**（使用者 Play 實證）
+>
+> **F1 BLOCKER** `HeadLookController.TryComputeLookAngles`：
+> `Vector3.SignedAngle` 值域 `(-180,180]`，目標繞到**正後方**時 `+175° → -175°`，
+> clamp 後成為 **`+70° → -70°` 的單幀翻轉**。⇒ 這就是「頭會一瞬間轉到另一邊」。
+> **最小修法**：`|未 clamp 的 yaw| > maxYaw` 時**回傳 false**（視為沒有目標）⇒ 權重淡回 0、頭回正，
+> **從構造上消除不連續**，而不是修補 wrap。
+>
+> **F2 HIGH** 同檔 `Tick`：`_yaw`／`_pitch` **直接指派、完全沒平滑**；`blendSpeed` 只管淡入淡出。
+> ⇒ 任何目標變化都是瞬間套用。**最小修法**：`Mathf.MoveTowards`（度／秒），比照 `LocomotionSpeedSmoother`。
+>
+> **F9 MEDIUM** `CombatContextTests.TC6C` **把這個缺陷寫成了正確行為**（斷言 clamp 到 ±maxYaw）
+> ⇒ 修 F1 時**必須一起改測試**，改成「掃過 180° 時每步 `|Δyaw|` 有上界」的連續性斷言。
+>
+> ---
+>
+> ## ③ 架構債（**已知、已記錄、不要當新發現**）
+>
+> **F4 HIGH — enemy facing authority 缺席，導致朝向決策重複**
+> `MotionDriver.ExecuteBaseMovement` 仍有 `if (!hasFacingRequest) Slerp(..., 12f)` 這條
+> 「面向移動方向」的決策，**與 `CharacterFacingSource` 優先序 ③ 是同一個決策**。
+> 玩家端已是死路，**敵人端仍在跑**（`Y Bot` 沒有 `CharacterFacingSource`）。
+> ⇒ 兩套實作、**不同調參**：`12f` 無死區 vs `aimFacingTurnSpeed 8–10` ＋ `aimFacingAngleDeadzone 8°–15°`
+> ⇒ **玩家與敵人依不同且未宣告的規則轉身**，違反 ADR-007 **D3**。
+> **處置**：給敵人 facing source（S3b），或把 fallback 併進 facing source 當最低優先序。
+> ⚠️ **不要直接刪** —— 敵人還靠它。
+>
+> **F6 MEDIUM — Core → 具體 `AimResolver`**
+> `ActionState`／`FullBodyStateMachine`／`CharacterPipelineRunner` 仍持有具體的
+> `Presentation.CameraControl.AimResolver`；`A4 LayerRules` 仍放行整個 `Project.Presentation`。
+> 已記錄於 ADR-007 §7（A4 收緊，原訂 S3）與 `docs/09` §5.2。**S3a 出貨時未做，債又老了一輪。**
+>
+> **其他**：F3（無目標時每幀 OverlapSphere）／F5（`ThirdPersonCamera` 的 `aimOffset`／`aimFieldOfView`
+> 已成為打不到的死設定，但仍顯示你調過的數值）／F7（`AnimationBatchOps` spike 需 keep-or-delete 裁決）
+>
+> ---
+>
+> ## ④ 未裁決方向（⛔ **不得當成既定計畫引用**）
+>
+> | 方向 | 狀態 |
+> |---|---|
+> | **lock-on** | `docs/10` 有規格但未實作。facing 優先序 ② **已留位、無 producer**。⚠️ 若做，才需要處理「相機是否跟著目標」 |
+> | **combat state（戰鬥狀態概念）** | 使用者提過「後面可能加入」。⚠️ **Combat Context ≠ combat state**：前者是「跟誰交戰」，後者是「是否進入戰鬥姿態」。⛔ 不得預設它等於常駐持劍或常駐 8-way |
+> | **施法時融入 8 向** | **這是 8-way 真正的使用場景**（`docs/15` §19：Movement 與 Facing 只在出手期間分離）。但**尚未裁決怎麼切**——短暫進出要不要淡入淡出、切換條件怎麼表達 |
+>
+> 📌 `docs/13` §9.5.4 的「雙 mixer ＋ Run cap」**已降級為假說 H1**，⛔ 不是方案。
+>
+> ---
+>
+> ## ⑤ 後續內容工作 —— **Movement Animset Pro 跳躍**
+>
+> 素材已在專案裡（`docs/13` §2.2），**全部未接、未烘**：
+>
+> | 內容 | 素材 |
+> |---|---|
+> | 跳躍替換為 MAP | `Jump_place_ALL`／`Jump_walk_{ru,lu}_ALL`／`Jump_run_{ru,lu}_ALL` |
+> | **左右腳起跳** | 上列的 `_ru`／`_lu` 後綴＝右腳／左腳起跳 ⇒ **需要腳相**（`FootPhaseCurve`）來選 |
+> | **空中急停** | `JumpIdleLand`／`JumpIdleLandHard`／`JumpIdleLand2Walk` |
+>
+> ⚠️ **烘焙 preset 與 strafe 不同**：跳躍屬 **Jump 家族**（XZ ✅／**Y ❌**／Based Upon **Feet**／Rot ✅），
+> 與 strafe 的「Locomotion-位移」**不一樣**（dev-spec §0.4 表）。⛔ **不要混在同一次選取套 preset。**
+> 📌 ADR-002 已定調跳躍走**物理 launch**（`ApplyJumpLaunch`）＋烘焙採 `AutoApexHeight`；換素材要重新烘。
+> 📌 左右腳起跳需要腳相資料 ⇒ 這是**目前唯一真的需要 `FootPhaseCurve` 的後續工作**。
+>
+> ---
+>
+> ## 🔧 batchmode 能力（本輪打通，後續可直接用）
+>
+> Unity 關閉後，AI 可跑：SOP 套用、批次烘焙、生成 mixer 資產、**EditMode 測試**。
+> 入口在 `Assets/Scripts/Editor/Tools/AnimationBatchOps.cs`。
+> ```
+> "/c/Program Files/Unity/Hub/Editor/6000.5.1f1/Editor/Unity.exe" -batchmode -nographics -quit \
+>   -projectPath "D:/Unity Project/CharacterController" -executeMethod <靜態方法> -logFile <log>
+> ```
+> ⚠️ **Editor 開著會被 project lock 擋下**；⚠️ `Assets/MovementAnimsetPro/` **不在版控內**
+> （`.gitignore:100`）⇒ 匯入設定改壞了 **git 救不回來**，只能重跑 SOP。
+
+> # 🎯 2026-09-07 — 本輪任務定義：**8 向 strafe 資產驗證 ＋ 可丟棄 prototype**
+>
+> **一句話**：把 8 向 strafe 從「原始素材」升級成「locomotion library 成員」，
+> 並用一個**隨時可切回**的 prototype 回答「這組資產能做到什麼」。
+> ⛔ **本輪不做任何 gameplay 政策決策**（速度上限、雙 mixer、外插策略全部等實測）。
+>
+> ## ① 現況（程式已落地，使用者已實跑確認）
+>
+> | 切片 | 內容 | 狀態 |
+> |---|---|---|
+> | ADR-007 **S1** | 移動方向世界座標化；FU-6 結案 | ✅ 已驗 |
+> | ADR-007 **S2** | `ActionReleaseContext`：facing 與 release 讀同一份承諾 | ✅ 程式完成 |
+> | ADR-007 **S3a** | Combat Context ＋ 單一 facing source；右鍵 Aim 退場 | ✅ **使用者確認：靠近敵人自動面向** |
+> | ADR-007 **S3c** | idle 轉身門檻（60°/10°）＋ `HeadLookController` | ✅ 程式完成，待 Play |
+> | **S4a** | `MoveX`／`MoveZ` 參數發布 | ✅ 程式完成（無訂閱者 ⇒ 畫面無變化） |
+> | 方向 dynamics | `directionTurnDegreesPerSecond = 720` | ✅ **使用者確認：敵人不抽搐** |
+>
+> 新不變量：**A28**（procedural 不讀 `transform.forward`）／**A29**（sink 不自解方向）／
+> **A30**（只有玩家 producer 可讀 `CameraTransform`）／**A31**（`RequestFacing` 唯一送出者）
+>
+> ## ② 目前唯一壞掉的東西
+>
+> 🔴 **`Locomotion.asset` 仍是 2D（尚未還原）** ⇒ 1D 三階 mixer 不存在 ⇒
+> 走路是 idle↔run 混合、全速跑步等於快轉、7 支 clip 匯入設定又是錯的 ⇒ **這就是「非常詭異」**。
+>
+> ```
+> git checkout -- "Assets/ScriptableObjects/Animation/Locomotion.asset"
+> ```
+>
+> **這是回到可玩基準的唯一動作**（Git 由使用者執行）。
+>
+> ## ③ 做完本輪之後應該有的體驗
+>
+> **A. 還原 1D 後立刻該有（基準線）**
+> - 走／跑／衝刺三階正常、收步正常（回到 ADR-005 結案時的水準）
+> - 戰鬥中**不按任何鍵**自動面向敵人；A／D 真的往世界左右位移
+> - ⚠️ **但會播前進動畫＝滑步** —— **這是預期的中間狀態**，正是本輪要解的
+> - idle 小幅度只轉頭；敵人移動不抽搐
+>
+> **B. prototype 開著時該有（本輪產出）**
+> - 八個方向各自播對應 clip，**方向不顛倒**（左右不反、45 與 135 不互換）
+> - 步頻一致（離線已證：8 支**全部 24 影格／0.7667 秒**）
+> - 能用實測回答五件事：小輸入時步頻／run 附近自然度／sprint 滑步嚴重度／
+>   各方向速度與姿勢一致性／**單一 ring 是否可接受**
+>
+> **C. 明確不會有（避免期待落差）**
+> - ❌ 持劍、上半身分層（ADR-006 仍 `Proposed`，Trial 名額被 ADR-007 佔用）
+> - ❌ 大角度轉身時腳跟著動（S3d，另需烘 3 支）
+> - ❌ 八方向收步（stop 仍只有前向，見 ④）
+> - ❌ 速度數值重調（`docs/13` §8：等形狀定案再統一調）
+>
+> ## ④ 🆕 本次核對新發現：**收步位移仍沿 `transform.forward`**
+>
+> `LocomotionModel.UpdateMotion` 在收步時走 `ExecuteBakedCurveMovement`，
+> 而該路徑的水平速度是 `transform.forward * worldSpeed`（**ADR-007 D2 明文保留的例外**：
+> 烘焙曲線表達 clip 自身座標系）。
+>
+> **S1 之前**移動方向恆等於朝向 ⇒ 一致；**S1＋戰鬥朝向之後**兩者可以不同 ⇒
+> **面向敵人橫移時放開輸入，收步會朝「面向」而不是「移動方向」位移** ⇒ 看起來像往前一頓。
+>
+> 📌 **這不是回歸，是 S1 揭露的既有假設**（收步素材本來就只有前向：
+> `RunFwdStop_LU/RU`／`WalkFwdStop_LU/RU`，`LocomotionModel` 也只有 walk／run 兩組 variant）。
+> ⇒ **列入 Play 觀察項**，不在本輪修。
+>
+> ## ⑤ 需要先烘焙的資源清單
+>
+> ### 必烘：**7 支**（本輪前置）
+>
+> `RunBwdLoop`／`RunLtLoop`／`RunRtLoop`／`RunStrafeLeft45Loop`／`RunStrafeRight45Loop`／
+> `RunStrafeLeft135Loop`／`RunStrafeRight135Loop`
+>
+> | 項目 | 內容 |
+> |---|---|
+> | **為什麼要烘** | 取 **native speed**（`SpeedCurve` → `GetRepresentativeSpeed()`）——這是回答「八支能否共用同一 ring」的**唯一必要資料** |
+> | **哪些資料用不到** | `RotationCurve`／Jump 家族（`AutoApexHeight` 等）／`TargetLocalDirection`。`FootPhaseCurve` 之後做八方向收步才用得到 |
+> | 🔴 **前置** | **必須先套匯入 SOP**（`docs/13` §9.4 缺陷 A）。dev-spec §0.4 規則 1 明文：套用後**必須重烘焙** ⇒ **先烘再 SOP 等於烘一組即將失效的數字** |
+> | **preset** | **Locomotion-位移**（XZ ❌／Y ✅／Rot ✅／Based Upon 全 Original／Loop ✅） |
+> | **選取方式** | Project 視窗選**那 7 支子 clip**。⛔ **不要選整個 FBX** —— `Throw_*` 七個條目住在同一支 FBX，ADR-004 已結案的東西會被灌壞 |
+> | **烘焙成本** | **一次操作**：烘焙工具已支援批次（「加入 Project 選取的 Clip」→「批次烘焙 7 支」） |
+>
+> ### ⛔ 不要一起烘的
+>
+> | 素材 | 為什麼 |
+> |---|---|
+> | `StrafeRight45Loop`／`StrafeLeft135Loop` | **31 影格**，與那 8 支的 24 影格 cadence **不同** ⇒ 同 ring 會步頻打架。名字很像，**容易誤選** |
+> | `Crouch_Walk*` 8 向 | 本輪不用 |
+> | `TurnLt180`／`TurnRt90_Loop`／`TurnLt90_Loop`（S3d 用） | 🔴 **preset 不同**：轉身屬「**烘焙曲線驅動**」型（XZ ❌／Y ✅／**Rot ❌**，因為要採 yaw），與 strafe 的「Locomotion-位移」（Rot ✅）**相反**。<br>混在同一次選取會**誤套 preset** ⇒ **分兩次進 Editor，不要圖省事** |
+>
+> ### ✅ 已有、不需重烘
+>
+> `Bake_Idle`、`Bake_RunFwdLoop`（`RunFwdLoop` 的匯入設定**已符合 §0.4**，不必重套也不必重烘）
+>
+> ## ⑥ 本輪的執行順序
+>
+> 1. `git checkout` 還原 `Locomotion.asset` ⇒ **先回到可玩基準**
+> 2. 對 7 支子 clip 套 **Locomotion-位移** preset ⇒ `LocomotionMixerWiringTests.L1` 轉綠
+> 3. **批次烘焙**那 7 支
+> 4. 跑 `L2_Report_StrideCalibrationTable` ⇒ 得到 native speed 與速度落差
+> 5. 建 `Locomotion_2D_Prototype.asset`（**新資產**），`PlayerStateMachineConfig` 的 Locomotion 鍵暫時指過去
+> 6. Play 走 `docs/13` §10.4 的六項觀察 ＋ 本檔 ④ 的收步觀察
+> 7. **實測完**才回答 `docs/13` §10.5 的四個問題
+>
+> ⚠️ 第 5 步是**可逆的一個欄位**；⛔ **不要再就地改 `Locomotion.asset`**。
+
+
+> # 🟢 2026-09-07 — S4a（8 向參數）＋ S3c（戰鬥待機只轉頭）程式已落地
+>
+> 規格：`docs/13` §9（8 向）／`docs/15` §18（待機朝向）。**兩者互相獨立、分開驗收。**
+> `dotnet build` Runtime ＋ Tests.EditMode **0 error**；改動 6 個 `.cs`；零資產、零 Git。
+> `RequestFacing` 呼叫者仍**恰好一個**（A31 綠）。
+>
+> ## ✅ 三件場景／資產接線完成（2026-09-07，Codex 操作 Unity Editor）
+>
+> **① 頭部 look-at**：`SampleScene` 的 X Bot Root 已掛 `HeadLookController`，`Head Bone` 已指向
+> X Bot 骨架唯一的 **`mixamorig:Head`**；數值 `Max Yaw 70`／`Max Pitch 25`／`Blend Speed 8`。
+>
+> **② 8 向動畫**：`Locomotion.asset` 已從 `LinearMixerTransition` 換成
+> **`MixerTransition2D`（Cartesian）**；新增 `MoveX.asset`／`MoveZ.asset` 並綁到兩軸。
+> 取樣共 9 點（Idle 中心 ＋ 8 方向），座標依 `docs/13` §9.3；**速度階層未納入 2D**。
+> 📌 資產實況修正：`RunStrafeUpdate.fbx` 實際只有後／左／右／四斜角 **7 支**；
+> `RunFwdLoop` 只存在於 `MovementAnimsetPro.fbx`，因此前進點直接引用後者的 FBX sub-clip。
+> 全部都是 FBX sub-clip 直引，沒有複製 `AnimationClip`。
+>
+> **③ 敵人放慢**：Y Bot 的 `AIMovementSource.desiredSpeedNormalized` 已由 **1 → 0.55**。
+> 原本敵我都吃同一份 bake 速度 5.66 m/s，速度對稱使距離理論上拉不開，才讓 `leaveRadius 9`
+> 幾乎無法達成；這不是 Combat Context 離場規則錯誤。
+>
+> **自動覆核**：序列化值與 9 個取樣點已由 Unity 回讀；編譯 0 error／0 warning；
+> Play Mode 啟動未出現本批次相關錯誤。Console 仍有既有 `WeaponSocket.Rebuild()` 的
+> `InvalidCastException`，堆疊不經本批次，維持獨立缺陷、不夾帶修復。
+>
+> ## ⛔ 還沒做：大角度轉身時「腳跟著動」（turn-in-place ＝ S3d）
+>
+> S3c 只做到「小角度不轉、只轉頭」。**大角度仍是 slerp ⇒ 仍會滑步**，只是次數大幅減少。
+> 不滑步的正解是播原地轉身 clip **且 root 旋轉速率由 Bake 曲線驅動**（與 Roll 同一條路徑）。
+> **前置是資產**：`TurnRt90_Loop`／`TurnLt90_Loop`／`TurnLt180` **都還沒烘**（只有 `Bake_TurnRt180`，引用次數 0）。
+> ⇒ **使用者先用既有 Editor 烘焙工具把那三支烘出來**，S3d 才有東西可接。詳見 `docs/15` §18.4。
+
+> # 🟡 2026-09-06 — **ADR-007（Direction Authority）＝ `Trial`，S1 → S2 實作中**
+>
+> **開場指令**：先讀 **`docs/ADR/007-direction-authority.md`**（決策，🟡 Trial）＋ **`docs/14-direction-authority.md`**（契約面／切片／測試／Codex 邊界）。
+> 這兩份已經把該讀的都摘好了，**不需要**再通讀 `docs/09`／`docs/11`／`docs/13`。
+>
+> ## ✅ 使用者裁決（2026-09-06）
+>
+> | 項目 | 裁決 |
+> |---|---|
+> | **ADR-007** | `Proposed → **Trial**`（佔用 Trial 名額） |
+> | **ADR-006**（上身層） | **維持 `Proposed`**，須等 007 `Accepted` 才能翻 Trial |
+> | 實作順序 | **S1 → S2 連續執行**，中間不插入其他工作包（AoE 落點退化窗口，ADR-007 R3） |
+> | 實作者 | **Codex** |
+>
+> ⚠️ **Trial ＝ 已裁決為實作基線，尚未由 slice 驗證。** 引用時必須註明狀態。
+>
+> ## ✅ S1＋S2 程式已落地（2026-09-06，Codex 實作 ／ 本會話覆核）
+>
+> | | 內容 | 狀態 |
+> |---|---|---|
+> | **S1** | 移動方向改世界座標：投影從 `MotionDriver` 搬到 `PlayerLocomotionPolicy`；`ExecuteBaseMovement` 用 `data.MoveDirection`（**不再用 `transform.forward`**）；`AIMovementSource` 刪掉相機投影與早退 ⇒ **FU-6 結案** | ✅ 程式完成 |
+> | **S2** | 🆕 `ActionReleaseContext`（`readonly struct`）；`IActionLifecycleSink.Release(in ...)`；承諾改由 `ActionState` 在 **`OnEnter` ＋ 每個連段邊界**取得一次，**facing 與 release 讀同一份**；`AimResolver` 的 latch 狀態全刪、只剩無狀態查詢 ＋ 唯一 `RequestFacing` 送出點 | ✅ 程式完成 |
+> | 新不變量 | **A28**（procedural 位移不得讀 `transform.forward`）／**A29**（sink 不得自行解算方向）／**A30**（只有玩家 producer 可引用 `CameraTransform`） | ✅ 已加入 |
+>
+> **覆核結果**：改動範圍＝**19 個 `.cs`**（runtime／editor／測試），**零資產、零 `.meta`、零 Git**。
+> `dotnet build`：`Project.Runtime` **0 error**、`Project.Tests.EditMode` **0 error**。
+> A5 `WriterRules` 零改動（沒有新增黑板欄位）。
+>
+> ⚠️ **`dotnet build` 0 error ≠ 測試通過。** Acceptance A–G **全部尚未打勾**。
+>
+> ## 🔧 2026-09-06 第一輪 Play 回饋已處理
+>
+> **回報：敵人移動會抽搐** ⇒ 這是 **R1 的另一面**（`docs/14` §4 已預先寫好處置條件）。
+> 成因：S1 之前 `速度＝transform.forward` ＋ `Slerp(12·dt)`，**body slerp 實質上是 producer 方向的低通濾波器**；
+> S1 拿掉別名也拿掉了濾波器 ⇒ producer 的方向不連續（Approach↔Hold 差 90°、側移翻向 180°）直接變成位移抖動。
+> **已處置**：方向 dynamics 加回 model（`LocomotionSpeedSmoother` XZ 平面 `MoveTowardsAngle` 限速轉向；
+> 唯一旋鈕 `LocomotionModel.directionTurnDegreesPerSecond` 預設 **720°/s**，嫌遲鈍就往上調）。⛔ 沒有退回讀 `transform.forward`（A28 仍綠）。
+>
+> 📌 **另登記一個獨立缺陷（刻意不同批修）**：`AIMovementSource` 的 `distanceHysteresis 0.15 m`
+> 在 `moveSpeed 5.66 m/s` 下只有 **1.6 帧**就跑完 ⇒ 交戰模式可能每兩帧翻一次。
+> 濾波器只能把它壓成小幅蛇行，**修不掉**。正解是遲滯改成時間／速度感知。詳見 `docs/14` §7-5。
+> ⇒ **先看 720°/s 之後還剩多少抖動再決定要不要動它。**
+>
+> 📌 **開 Unity 前先知道這件事**：`Assets/Scripts/Core/Actions/ActionReleaseContext.cs` 是**新檔**，
+> Unity 首次開啟會 import 並自動生成 `.meta`（AI 不建 `.meta`）。生成的 `.csproj` 也是那時才會納入該檔——
+> 在那之前用 `dotnet build` 會噴 6 個假的 `CS0246`，**那不是程式問題**。
+>
+> 📌 `ThrowProjectileEmitter` 移除了 `[SerializeField] aimResolver` ⇒ prefab 裡會殘留一個孤兒序列化欄位，
+> **Unity 下次存檔自己會丟掉，不用手動清**。
+>
+> ## 這份 ADR 在處理什麼
+>
+> 使用者裁決：**不要**只做 movement/facing 分離，也**不要**只為 A6 補「每段重新 latch」。
+> 盤點後確認 `docs/13` §4.1／§4.2（strafe 不可能）與 §4.3（連段人與火球分家）**是同一個根因**：
+> **移動方向／朝向／瞄準方向三個概念只有兩個載體，因此互相冒充。**
+>
+> 另有一項回溯發現：**`docs/09` §5.2 的 trip-wire ①（Core 讀 AimPoint）已於 2026-09-05 被安靜跨過**
+> ——`ActionState`／`FullBodyStateMachine`／`CharacterPipelineRunner` 都直接持有具體的 `AimResolver`，
+> 而 `LayerRules` 放行整個 `Project.Presentation` 所以機器沒擋。已記入 ADR-007 §1.1-E6 與 `docs/09` §5.2。
+>
+> ## 🔵 2026-09-06 第二輪回饋 ⇒ **需求變更：不要 Aim Mode，右鍵留給 Guard**
+>
+> 使用者實跑確認：**右鍵時始終面朝前方沒問題、敵人不抽搐** ⇒ S1／S2 ＋ R1 處置的物理面成立。
+> 但**操作設計前提改了**：`<Mouse>/rightButton` **保留給 Block／Guard**，
+> **不要任何獨立 Aim Mode**——朝向應由**戰鬥語境**自動取得，玩家只負責移動／攻擊／施法／格擋。
+>
+> ⇒ **診斷與設計提案：`docs/15-combat-context.md`（🔵 提案，待裁決）**。
+> ADR-007 已依 Trial 規則修訂：**D1–D5 一字未改**；改的是 **D3 補充條款**（facing 來源必須是語境、不得是輸入模式）、
+> **Acceptance A 改寫**、**S3 重新定義**為「Combat Context ＋ 單一 facing source」。
+>
+> 🔴 **連帶排程後果**：Acceptance A 原本靠右鍵就能驗，現在**必須等 S3** ⇒ **ADR-007 不可能在 S3 之前 `Accepted`**
+> ⇒ ADR-006（上身層）的 Trial 名額也因此順延。
+>
+> ## ✅ 已裁決（2026-09-06）
+>
+> 1. **採納** `docs/15` 的 no-Aim-button combat-facing 模型與切片 **S3a**
+> 2. **⛔ 不開 ADR-008** —— Combat Context 是 **ADR-007 D3 的實例化**（facing authority 的 target source），
+>    不是另一套架構哲學。判準①的 ownership 寫進 **ADR-007 D3 補充條款**，`docs/15` 自此是 ADR-007 的 Living Spec
+>
+> ⇒ **S3a 契約面在 `docs/15` §13、測試在 §14、實作紀錄與 fold-back 在 §17。**
+>
+> ## ✅ S3a 程式已落地（2026-09-06，Codex ／ 本會話覆核）
+>
+> 新增 4 檔（`CombatContextData`／`PlayerCombatContextSource`／`CharacterFacingSource`／`CombatContextTests`）、
+> 修改 9 檔；`dotnet build` Runtime ＋ Tests.EditMode **0 error**；**零資產、零 Git**。
+> `RequestFacing` 全專案呼叫者**恰好一個**（A31 機器守住 ADR-007 D3）。右鍵 Aim 已完全退場。
+>
+> ### ✅ S3a 場景接線完成（2026-09-06，Codex 操作 Unity Editor）
+>
+> `Assets/Scenes/SampleScene.unity` 的 **X Bot 角色 Root** 已加掛
+> `PlayerCombatContextSource` ＋ `CharacterFacingSource`（X Bot prefab 的 scene instance overrides），並填：
+> `Enter Radius 6`／`Leave Radius 9`（**大於 Enter**）／`Disengage Seconds 5`／
+> `Target Mask = Enemy`（mask **128**，取自 Y Bot `CharacterController` 的 layer）／`Selection Cone Angle 25`。
+> ⛔ **不要**把舊的 `softTargetRadius 1.2` 填進 `Enter Radius`——那是 SphereCast 厚度，語意不同。
+> 敵人側已核對：Y Bot 的 `ActionRequestTarget` **啟用中**，且啟用中的 `CharacterController`
+> 位於 `Enemy` layer、包含在 `Target Mask` 內。場景已儲存；**沒有修改 prefab asset**。
+> （玩家若也要靠「被打」進入戰鬥語境，X Bot 自己也需要 `ActionRequestTarget`。）
+>
+> ### 🟡 Play 時特別看這個（`docs/15` §17.2）
+>
+> 自由移動的轉身現在改吃 `MotionDriver` 的 **`aimFacingAngleDeadzone`（X Bot 現值 8°）＋ `aimFacingTurnSpeed`（10）**，
+> 而不是原本的 12、無死區——因為 facing 收斂成單一 authority 後，移動轉向也走同一條路。
+> **小幅轉向可能不轉或變鈍 ⇒ 把 `aimFacingAngleDeadzone` 往 0–2 調。** 這不是 bug，是收斂的必然後果。
+>
+> 🟡 **S3a 的一個已知取捨（`docs/15` §13.4）**：`ThirdPersonCamera` 目前用 `aimResolver.IsAiming`
+> 切換過肩近景（`aimOffset`／`aimFieldOfView`，`docs/09` §6.2 是你實機調過的參數）。
+> 右鍵退場後相機**沒有合法管道**讀 `InCombat`（它不是 `IPresentationController`、不持有黑板，
+> 而 A4 禁止 Presentation 依賴 `Core.Combat`）⇒ **S3a 先把取景 blend 固定為探索取景**，
+> 「戰鬥取景」登記為獨立議題（§16-1）：那同時是 feel 決策與架構決策，不該夾帶在 S3a 裡偷偷決定。
+>
+> ---
+>
+> ## ⏳ 等使用者做的事
+>
+> **S1＋S2 落地後的 Play 驗收**（`docs/14` §4／§6.3；EditMode／PlayMode 由機器守，不要重測）：
+>
+> 1. **strafe**：按住瞄準 ＋ 按 A ⇒ **朝目標、往世界左方位移**（不再朝目標走過去）
+> 2. **FU-6 肉眼證據**：移動相機時**敵人的移動方向不再改變**
+> 3. **A6**：Fireball 連段中敵人走動 ⇒ 每一段的**身體朝向與火球方向一致**
+> 4. **觀察項（不是通過條件，看一眼回報就好）**：轉彎弧線是否變太直角（R1）／減速滑行不再隨相機彎（R2）／
+>    橫移仍播前進動畫的滑步（**刻意的中間狀態**，由 `docs/13` §7-2 的 2D mixer 解決）
+> 5. **零 GC 複驗**（Development Build ＋ Profiler，`docs/02` §7.4 SOP）——型別 `Vector2 → Vector3` 不該產生配置，但要看過
+>
+> ## 📌 Codex 的三條紅線（已寫進 `docs/14` §8）
+>
+> 1. **S1 與 S2 要連續做**：別名解除後 `GroundEffectSink` 的 `casterRoot.forward` 落點會短暫失準（ADR-007 R3）。
+> 2. **不得新增第二個 `RequestFacing` 送出者**（D3）——撞到就停下來回報。
+> 3. **不得新增黑板欄位**（那是 S3，要先改 ADR-007 §7 的處置欄）；不得碰 `.asset`／`.prefab`／`.meta`／場景／Git。
+>
+> ---
+
+> # ✅ 2026-09-06 — **ADR-005 已結案（`Trial → Accepted`）**
+>
+> 使用者實跑回報：**A 功能上沒問題／B 沒問題／C 沒問題／E 沒問題**。
+> 加上先前成立的 D／F／G ⇒ **A–G 七條全數通過**。
+>
+> **已同步更新的文件**：`docs/ADR/005`（狀態＋§4 打勾＋§5 修訂紀錄兩列）、
+> `docs/11`（檔頭狀態＋**§10.2 ⛔ 名單標示解除**）、`docs/00-map.md`（三處）、`docs/13` §6。
+>
+> ## 🔓 這代表什麼
+>
+> `docs/11` §10.2 的 ⛔ 名單是 **Acceptance G 的觀察期前提**，不是永久禁令——
+> G 要證明「Slow 跨系統傳播時五個下游檔案零修改」，觀察期間當然不能動被觀察的對象。
+> **G 通過 ⇒ 觀察期結束 ⇒ 名單失效。**
+>
+> ⇒ `MotionDriver` 位移路徑／`AnimationFacadeBase` 契約／`LocomotionModel` **全部解鎖**，
+> `docs/13` §7 的四步實作順序可以開工。
+>
+> ⚠️ **解鎖 ≠ 可以隨便改**：這些檔案仍受各自的 ADR 與不變量約束（ADR-003／ADR-001／A4／A20），
+> 動之前照舊走 routing rule 判斷要不要開 ADR。
+>
+> ## 📌 結案時記下的一個表現層問題（**不阻擋結案**）
+>
+> A6（Fireball 連段）功能通過，但**敵人走動時會出現「人朝 A、火球飛 B」**：
+>
+> | 誰 | 何時決定方向 |
+> |---|---|
+> | 身體朝向 | `ActionState.OnEnter` **鎖一次** |
+> | 發射方向 | `ThrowProjectileEmitter.Release()` **每段重算** |
+>
+> **兩邊各自都是對的**——朝向鎖一次是為了「揮擊途中甩相機不要跟著轉」，
+> 發射方向重算是為了「火球要打得中」。**衝突只在連段這種跨越多次 `Release` 的 Action 上浮現。**
+>
+> 🔴 **不要只修連段**（例如「每段重新 latch」）：那只是讓兩個擁有者的時點碰巧一致，
+> 下一個跨 Release 的機制出現時同樣的裂縫會再開一次。
+> 根因與 `docs/13` §4.1／§4.2 是同一類——**朝向／移動方向／瞄準方向三者沒有共同的擁有者**。
+> ⇒ 已登記 **`docs/13` §4.3**，屬結構性決策，依 CLAUDE.md 判準應開 ADR 一併處理。
+>
+> ## ▶️ 下一步（`docs/13` §7 的順序，未開工）
+>
+> 1. **movement／facing 分離** —— `MotionDriver` 在 `hasFacingRequest` 為真時，速度改用 `targetDirection`
+>    而非 `transform.forward`。**不需要任何新動畫**，先讓「面向敵人往左走」在物理上成立
+> 2. **2D locomotion mixer** —— 接上 `MovementAnimsetPro_RunStrafeUpdate` 裡**早就存在但引用次數 0** 的 8 向 strafe
+> 3. **戰鬥狀態 ＋ 上身持劍層**（ADR-006，需先裁決）
+> 4. **C2／C3 轉身**（`Bake_TurnRt180` 等已備）
+>
+> ⚠️ **速度數值等 1、2 做完再統一調**（理由見 `docs/13` §8：現在調等於用速度補償動畫與朝向的缺陷）。
+> 唯一例外是相機——與 locomotion 正交，隨時可調。
+>
+> 🗡️ **獨立於上述順序、隨時可做**：修劍的材質（`docs/13` §1，真因是 `Sword.obj` 的材質重映指向不存在的 GUID）。
+>
+> ---
+>
+> <details>
+> <summary>📋 已完成的驗收清單（2026-09-06，保留供追溯）</summary>
+>
+> ---
+>
+> ## ⓪ 先讀：哪些**已經**被自動化證明，不要重測
+>
+> | 條 | 已被機器守住的部分 | 仍需人工的部分 |
+> |---|---|---|
+> | **A** | **機制**：`T18`（`Assert.AreSame` 同一顆 `ActionState`）／`T19`（per-slot 冷卻不連坐）／`T20`（Action→Action 中斷）／`T21`（舊資產相容）<br>**接線**：`W4`（每個 slot 有 sink）／`W7`（動畫鍵解析得到）／`W9`（身分解析回自己） | **只剩「實際播出來」** |
+> | **B** | **「零 runtime 程式」可由稽核證明**，見 ②。無需 Play | 選配 2 分鐘 live demo |
+> | **C** | `T21` 鎖住舊資產的**解析**路徑；`W7` 鎖住動畫鍵接線 | **播放與位移**（測試碰不到） |
+> | **E** | `A3` 只擋 `System.Linq` 這一類**靜態可見**的配置。§7.1-A3 已明文記載它抓不到裝箱類配置 | **全部**：Development Build ＋ Profiler |
+>
+> ---
+>
+> ## 🔴 排程約束：**A／B／C 與 E 不可能同一場跑完**
+>
+> `docs/02` §7.4.2 第 2 條明文：**量 GC 時不得在 Hierarchy 選取角色**——
+> `CharacterPipelineRunnerEditor` 每幀重繪會配置字串（`ToString("F3")` 等）。
+>
+> 而 A／C 的觀察**恰恰需要**打開那個面板看 `Current State`。
+> 加上 E 依 §7.4.3 必須是 **Development Build ＋ Player 連線**才算「達標」等級。
+>
+> ⇒ **最短是兩場，不是一場**：
+> **第 1 場** Editor Play（A ＋ C ＋ 選配 B），Inspector 全程開著
+> **第 2 場** Development Build（E），不開面板、不選角色
+>
+> 📌 **劍看不見不影響驗收**：A 驗的是「三個 Action 各自觸發」，看動畫本身即可判定。
+> 材質問題（`docs/13` §1）與 ADR-005 無關，**不要為了它卡住驗收**。
+>
+> ---
+>
+> ## ① 第 1 場：Editor Play —— A ＋ C
+>
+> **場景**：`Assets/Scenes/SampleScene.unity`
+> **準備**：Hierarchy 選中 **`X Bot`** → Inspector 找 `Character Pipeline Runner`
+> → 展開「黑板數據流即時監視」。全程看兩個欄位：
+> **`[Current State]`**（粗體大寫）與 **`Intent: Action Slot`**。
+> **錄影**：整場開 OBS，一鏡到底。A 與 C 的證據都在同一支影片裡。
+>
+> ### C —— 既有 locomotion 無回歸（**先做 C**，理由見 §④）
+>
+> | 操作 | 預期 | Fail 的樣子 | Fail 先懷疑 |
+> |---|---|---|---|
+> | 站著不動 3 秒 | `Current State` ＝ **IDLE**，播 Idle 動畫 | 抖動／狀態在 IDLE↔MOVE 之間跳 | `LocomotionModel` 的 B9 平滑門檻 |
+> | WASD 走一圈（含放開） | **MOVE**；放開後有收步動畫（`RunStop_*`／`WalkStop_*`）再回 IDLE | 直接瞬切 IDLE、或滑行 | `LocomotionStopSelector`（C1 既有功能） |
+> | 空格跳，落地 | **JUMP** → 落地回 IDLE／MOVE | 卡在 JUMP、或落地穿地 | `JumpState`／`MotionDriver` 重力 |
+> | 移動中翻滾 | **ROLL**，位移由烘焙曲線驅動 | 原地翻滾（無位移） | `Bake_Stand To Roll` 的 `BakedDuration` |
+> | 各重複 **3 次** | 每次一致 | 只有某幾次壞 | 時序／狀態殘留 |
+>
+> ⚠️ **Throw 不在測試範圍**：`docs/11` §5.1 已把 Slot1 移交給 Melee，
+> `ThrowDefinition` 不再被解析。**C 的原文「Throw 無回歸」應讀作「Throw 已依計畫退場」。**
+>
+> ### A —— 三個 Action 各自獨立觸發
+>
+> | # | 操作 | 預期 | Fail 的樣子 |
+> |---|---|---|---|
+> | A1 | 按 **滑鼠左鍵** | `Current State` → **ACTION**，播揮擊，人向前衝一小段（Bake 位移） | 沒進 ACTION ／ 播了但不位移 |
+> | A2 | 按 **Q** | → ACTION，播左手指向施法，**胸口飛出火球** | 動畫有、火球沒有 |
+> | A3 | 按 **E** | → ACTION，播單手上舉召喚，**身前約 0.4m 地面冒出冰刺** | 冰刺在別處／飄空中 |
+> | A4 | **按 E，立刻按 Q** | **Q 要能出手** —— 這是 per-slot 冷卻獨立的關鍵證據 | Q 被吃掉 ⇒ 冷卻變全域 ⇒ **A 直接 Fail** |
+> | A5 | 連按 E 三次 | 第 2、3 次**沒反應**（Ice 冷卻 1.5 秒） | 連發 ⇒ 冷卻沒生效 |
+> | A6 | 按 Q，動作播到約 1/4 後再按 Q，再一次 | 接第 2 段（右手）→ 第 3 段（雙手），**三段各出一顆火球** | 只有第一顆 ⇒ 連段 Release 被吞 |
+> | A7 | 冰刺打到敵人 | 敵人**明顯變慢**（速度剩 30%） | 沒變慢 |
+> | | 每項重複 **2 次** | | |
+>
+> **A 的判準**：**A1／A2／A3 各自播出不同動畫且各自產生世界效果 ＋ A4 成立**。
+> A6／A7 是加分項（連段與 Slow 屬本 ADR 之後加的功能），**不成立不阻擋 A**，但要記下來。
+>
+> **Fail 時先懷疑哪一層**：
+> - 完全沒進 ACTION ⇒ 輸入層（看 `Intent: Action Slot` 有沒有跳到對應 slot）
+> - 進了 ACTION 但沒動畫 ⇒ `transitionMappings` 的鍵（但 `W7` 已綠，機率低）
+> - 有動畫沒世界效果 ⇒ sink 綁定（但 `W4` 已綠，機率低）
+> - **以上三條測試都綠，所以最可能的失敗點是「資產數值」而不是「接線」**
+>
+> ---
+>
+> ## ② B —— 加下一個 Action ＝ 零 runtime 程式
+>
+> ### 主要證據：**稽核，不需要 Play**
+>
+> `EnemyPunchDefinition`（2026-09-05 加入）是本 ADR 之後新增的第 4 份 Definition，
+> 加入時**只動了三樣**：一份 `.asset`、一列 `transitionMappings`、一列 `actionDefinitions`。
+> `ActionState.cs`／`ActionDefinitionSO.cs`／`StateMachineConfigSO.cs` **當時一行未改**。
+>
+> > ⚠️ **誠實的但書**：同批確實新增了 `AIInputSource.cs`。但那是因為
+> > **敵人原本連輸入來源都沒有**（`inputSourceComponent` 是 0），與「Action 系統需不需要改」正交——
+> > 玩家加第 4 個 Action 不需要它。這一點在裁決時要自己判斷算不算數。
+>
+> ### 選配：2 分鐘 live demo（讓它看得見）
+>
+> 1. 複製 `MeleeSlash1Definition.asset`（Ctrl+D）→ 改名 `Demo_B_Definition`
+> 2. 改它的 `AnimationKey` 為 **`Spell_Fireball_3`**（已在 `transitionMappings` 裡，不必新增映射）
+> 3. `PlayerStateMachineConfig` 的 `actionDefinitions`：把 Melee 那筆**換成**這一筆
+> 4. Play，按滑鼠左鍵 ⇒ **播的是雙手施法動畫**
+> 5. **完全沒有重新編譯，沒有動任何 `.cs`**
+> 6. 驗完把 config 換回來、刪掉 demo 資產
+>
+> ⚠️ **已知邊界（不是 Fail）**：玩家的第 4 個**新 slot** 需要 `ActionSlot` enum 加一員 ＝ 改程式。
+> ADR-005 §3.2 已明文接受這個成本（「比照 `StateType` 先例，且該成本本來就該被看見」）。
+> **B 驗的是「加 Definition」，不是「加 slot」。**
+>
+> ---
+>
+> ## ③ 第 2 場：Development Build —— E（零 GC）
+>
+> **完全照 `docs/02` §7.4 的既有 SOP，不要另創方法。** 摘要：
+>
+> | 步驟 | 內容 |
+> |---|---|
+> | 建置 | `File → Build Settings` ⇒ 勾 **Development Build** ＋ **Autoconnect Profiler** |
+> | 連線 | Profiler 目標選單選 **機器名**（不是 `Play Mode`） |
+> | 看哪裡 | **CPU Usage → 下方切 `Hierarchy` → `GC Alloc` 欄 → `PlayerLoop` 那一列** |
+> | ⛔ 不要看 | CPU 圖表的 `GarbageCollector` 毫秒數（那是回收時間，不是配置量。**0ms 完全可能同時每幀都在配置**） |
+> | 條件 | 穩態**直線走**、不跳／不滾／**不切狀態**、Deep Profile **關**、按 `Clear` |
+> | 判定 | `PlayerLoop` 的 `GC Alloc` 連續數十幀 ＝ **0 B** |
+>
+> ### ⚠️ 這一輪必須額外量的東西（熱路徑有改動）
+>
+> ADR-005 §4-E 原文就標了「熱路徑有改動，**必須複驗**」。本輪之後又多了幾處，
+> **請在穩態之外，額外量這三個情境**：
+>
+> | 情境 | 為什麼要量 |
+> |---|---|
+> | **連續施法 10 秒**（Q／E 交替） | `ActionState.OnTick`／`TryEmitRelease`／連段切段都在熱路徑 |
+> | **敵人在旁邊繞圈 10 秒** | `AIMovementSource` 的 Hold 側移是本輪新增的每幀計算 |
+> | **冰刺爆發 3 次** | `Physics.OverlapSphereNonAlloc` ＋ 探地 `RaycastNonAlloc` 用的是預配置緩衝，**要證明它真的沒配置** |
+>
+> ### 存證（§7.4.3 硬性要求）
+>
+> 截圖存 **`docs/images/profiler/`** 並**進版控**。
+> 截圖必須自證是 Player 而非 Editor —— 把這三處一起框進去：
+> ① 目標選單顯示**機器名** ② Hierarchy **沒有 `EditorLoop`** ③ `Deep Profile` 自動停用。
+>
+> 📌 **既有基準**（§7.4.4，2026-07-26）：穩態 `PlayerLoop` ＝ **0 B**；
+> 狀態切換幀約 **2.6 KB**，已定位為 `Debug.Log` 的 `StackTraceUtility`，**僅存在於 Editor**、Release 由編譯器移除。
+> ⇒ **Development Build 裡不該再看到那 2.6 KB**。若看到了，那是新的回歸。
+>
+> ---
+>
+> ## ④ 最短執行順序
+>
+> ```
+> 第 1 場（Editor Play，Inspector 開著，全程錄影）
+>   1. C —— Idle / Move / Jump / Roll 各 3 次      ← 先做
+>   2. A —— A1→A2→A3→A4→A5→A6→A7 各 2 次
+>   3. B（選配）—— 換 Definition，按左鍵，換回來
+>
+> 第 2 場（Development Build，不開面板、不選角色）
+>   4. E —— 穩態 + 施法 10 秒 + 敵人繞圈 10 秒 + 冰刺 3 次
+> ```
+>
+> **為什麼 C 排在 A 前面**：C 是**基準線**。若 locomotion 本身已經有問題，
+> 之後 A 的每一個異常都會分不清是 Action 造成的還是本來就壞的。
+> **先證明地板是平的，再在上面放東西。**
+>
+> **為什麼 B 排最後且是選配**：它的主要證據是稽核，Play demo 只是讓它看得見；
+> 而且它需要改 config 再改回來，放在最後不會污染 A／C 的環境。
+>
+> ---
+>
+> ## ⑤ 跑完之後
+>
+> 把結果貼回來（影片 ＋ Profiler 截圖 ＋ 哪幾條 Fail），我再：
+> - 依結果更新 ADR-005 §4 的勾與 §5 修訂紀錄
+> - **通過** ⇒ `Trial → Accepted`，`docs/11` §10.2 的 ⛔ 名單自動解除
+>   ⇒ `docs/13` §7 的四步實作順序可以開工
+> - **不通過** ⇒ 依 §4 的「未通過」條款：先修 ADR ／ Living Spec，**不得補 workaround**
+>
+> ⚠️ **本輪我沒有改動 ADR-005 的狀態**，也沒有預先打勾——依使用者指示，跑完再裁決。
+>
+> </details>
+>
+> ---
+>
+> ### 🌀 2026-09-06 — 敵人 Hold battle-circle 側移（程式完成）
+>
+> - `AIMovementSource` 的 Hold 由零意圖改為水平 `toTarget` 的單位切線意圖；Approach／Retreat 原邏輯不變。
+> - 新增 `holdStrafeSpeedNormalized = 0.35` 與 `strafeDirectionFlipInterval = 2.5`；方向符號為 producer
+>   私有跨幀狀態，初始方向與每次間隔含隨機差異，仍只有 `ProduceIntent` 寫 `MovementIntent`。
+> - Hold 基準速度經既有 `ResolveDesiredSpeedNormalized` 路徑套用 Slow；NavMeshAgent 仍只查路徑、不搬 Transform。
+> - `SlowEffectTests` 新增 4 條純函數測試：垂直、反向、水平＋正規化、零向量安全。
+> - `Project.Runtime`／`Project.Tests.EditMode` `dotnet build` 均 0 error。沙箱禁止讀 LocalAppData 的 SDK 探測，
+>   故命令列額外指定已安裝的 Windows SDK path；Runtime 0 warning，EditMode 有 4 個既有 `MSB3277` 參考衝突警告。
+> - 尚需 Unity Play 觀感驗收：側移方向翻轉是否自然，以及 NavMesh 邊界／障礙旁的切線是否需要日後加可行走性修正。
+>   現有 `MotionDriver` 會朝移動方向旋轉，因此本輪是「面朝切線繞行」；持續面向玩家的真 strafe 需要日後獨立
+>   combat-facing seam，不能從 movement producer 越層偷接。
+>
+> ---
+>
+> ### 🎯 2026-09-04（晚）— **下個 session：把 ADR-005 Trial 結掉**（原交辦紀錄）
 >
 > #### ⛳ 開場指令（使用者 2026-09-04 明確裁決，優先於一切預設行為）
 >
-> **直接從下方 ③ 的 Quick／Ice Definition 接線開始。**
+> **直接從下方 ③ 的 Fireball／Ice Definition 接線開始。**
 > ⛔ **不重新規劃**、⛔ **不先整理文件**、⛔ 不重讀 design-doc／dev-spec「熟悉一下」。
 > 本段 ＋ `docs/11` §4 就是全部所需的 context。
 >
@@ -50,7 +1484,7 @@
 >
 > | 條 | 缺什麼 | 需要 |
 > |---|---|---|
-> | **A** 兩份 Definition 獨立觸發 | Quick／Ice 兩份 Definition ＋ sink 接線 | 資產 ＋ Play |
+> | **A** 兩份 Definition 獨立觸發 | Fireball／Ice 兩份 Definition ＋ sink 接線 | 資產 ＋ Play |
 > | **B** 加下一個 Action ＝ 零 runtime 程式 | **真的加第 4 個 Action** 才算數 | 資產 |
 > | **C** 既有無回歸 | Play | ⚠️ 見下方 Throw 註記 |
 > | **D** EditMode 全綠 | 🔄 **勾已撤回**，需對當前測試集重跑（見①） | 跑測試 |
@@ -67,15 +1501,229 @@
 >
 > #### ③ 使用者側接線清單（一次做完）
 >
-> 1. **Quick Spell Definition**：`Slot2`／單一 `Start`／`Bake` 留空／`EmitsRelease` @0.35／**冷卻 1.5**
-> 2. **Ice Spell Definition**：`Slot3`／同上／**冷卻 4**（刻意與 Quick 不同，否則看不出 per-slot 獨立）
-> 3. 兩份都填進 `PlayerStateMachineConfig.actionDefinitions`
->    （現在只有 `MeleeSlash1Definition` 一筆；**Melee 那筆要留著**）
-> 4. **兩個 `ThrowProjectileEmitter` 實例** ＋ 各自的法術 prefab；**Ice 的 prefab 勾 `Applies Slow`**
-> 5. Runner 的 `Action Sink Bindings` 三格填滿：Slot1→`MeleeHitboxSink`／Slot2→Quick emitter／Slot3→Ice emitter
+> 1. ✅ **已建** `FireballDefinition.asset`：`Slot2`／`Spell_Fireball_1`（＋連段 2／3）／`FallbackDuration` 1.2／`EmitsRelease` @0.35／**冷卻 1.5**
+> 2. ✅ **已建** `IceSpellDefinition.asset`：`Slot3`／`Spell_Ice`／`FallbackDuration` 1.366667／同上／**冷卻 4**
+> 3. ✅ **已註冊**進 `PlayerStateMachineConfig.actionDefinitions`（三筆：Melee ＋ Fireball ＋ Ice）
+>    ⚠️ **W4 現在會紅**，直到第 5 項把 Slot2／Slot3 的 sink 綁上——訊息會直接指出缺哪一格。
+>    這是測試在做它該做的事，不是壞掉。
+>    📌 詳細欄位表見 `docs/11` §4「已落地的 Definition 資產」。
+>    🟡 `FallbackDuration` 由 frame 數 ÷ 30 推得，**fps 未經 Editor 確認**；前搖過長／動畫被切就調它。
+> 4. ✅ **已建兩個 `ThrowProjectileEmitter` 實例**：`FireballEmitter`／`IceEmitter`，共用 `ThrowSpawnPoint` 與根上的 `AimResolver`，各自指向對應法術 prefab
+> 5. ✅ Runner 的 `Action Sink Bindings` 已填滿三格：Slot1→`MeleeHitboxSink`／Slot2→Fireball emitter／Slot3→Ice emitter
 >    🔴 該清單同樣是 **all-or-nothing**——非空即完全取代舊的單顆 sink 欄位
-> 6. `AnimancerFacade.transitionMappings` 補兩列法術動畫鍵
+> 6. ✅ `AnimancerFacade.transitionMappings` 已補**四**列法術動畫鍵 → `Spell_Fireball_1/2/3`／`Spell_Ice`
 >    （Melee 的 `Melee_Slash1` 已在第 2476 行，不用再加）
+>    ✅ **四份 `TransitionAsset` 已建**（2026-09-04 使用者改指定素材，全改 `HumanF`）：
+>    `Spell_Fireball_1/2/3.asset`（`Direct1H01_L` → `Direct1H01_R` → `Direct2H01`，連段三段）
+>    ＋ `Spell_Ice.asset`（`Call1H01_L`，單手上舉召喚）。
+>    全部 `animationType: 3`（Humanoid），與現用的 `slash1.fbx` 同類 ⇒ 可重定向到 X Bot。
+>    ⚠️ **四列都要拖**：連段機制已落地（`docs/11` §4.3），`Spell_Fireball_2/3` 現在會被引用。
+>    少拖任何一列 ⇒ 該段 `IsPlaying` 為 false、動畫不播（安靜失敗①）。
+>
+> ### 🔄 2026-09-05 使用者裁決：**Ice 改為地面 AoE，不再是投射物**
+>
+> 理由：「投射物 ＋ Slow 已經驗證過，再做一個飛行冰法只是重複同一條路徑，資訊增量太低。」
+> ⇒ Ice 改用新的 **`GroundEffectSink`**（`docs/11` §4.4），用來證明**同一套 Action 架構可以接不同的 execution shape**。
+>
+> **程式已完成**（`Project.Runtime` ＋ `Project.Tests.EditMode` 皆 `dotnet build` 0 error）：
+> - 新增 `Presentation/Actions/GroundEffectSink.cs`——第三個 `IActionLifecycleSink` 實作
+> - `SlowMovementSpeedMultiplier` 由 `ThrownProjectile` private const 提升到 `TemporaryGameplayEffectState`（出現第二個投遞者）
+> - `SlowEffectTests` +3 條；`ArchitectureRegressionTests.A21` 的 seam 清單補上 `GroundEffectSink.cs`
+> - 🐞 同時修掉 `ThrowProjectileEmitter._releasedThisExecution` 吞掉連段第 2／3 段 Release 的 bug（`docs/11` §4.3）
+>
+> **⚠️ 使用者側待辦（Editor）**：
+> 1. 讓 Unity 產生 `GroundEffectSink.cs.meta`
+> 2. `X Bot` 上把 `IceEmitter` 的 `ThrowProjectileEmitter` 換成 `GroundEffectSink`，
+>    `Effect Prefab` ← `Human_Spell_Ice`，`Aim Resolver` ← 根物件
+> 3. Slot3 的 sink binding 重指到新元件（換元件後引用會變 None）
+> 4. `Projectile_Icebolt.prefab` 本輪不再需要（先留著，別急著刪）
+>
+> ---
+>
+> ### 🥊 2026-09-05 — 敵人攻擊決策（`AIInputSource`）**程式完成，接線未做**
+>
+> **目標**：讓敵人的攻擊正式走 `IInputSource` → `ProcessIntents` → `ActionState`。
+> 使用者明確限定本工作包**不碰** prefab YAML 與 `EnemyStateMachineConfig` migration。
+>
+> **已完成**（`Project.Runtime` ＋ `Project.Tests.EditMode` 皆 `dotnet build` 0 error）：
+> - 新增 `Core/Pipeline/AIInputSource.cs`——射程內產生 `Slot1ButtonDown`，**不含任何冷卻計時器**
+> - 新增 `AIInputSourceTests.cs`（7 條）
+> - `ArchitectureRegressionTests` 新增 **A27**：攻擊 trigger 只能由 `IInputSource` 產生；
+>   `AIMovementSource` 不得出現 `Slot*ButtonDown`；`AIInputSource` 不得出現計時／冷卻符號
+> - 資產 `Enemy_Punch_R.asset` ／ `EnemyPunchDefinition.asset` 已由 Codex 完成並驗收
+>
+> **🔴 已知介面限制（不在本輪處理，但要記住）**：
+> `IInputSource.FetchRawInput(ref InputData)` **拿不到黑板** ⇒ 輸入源無從得知上一次按下有沒有被消化。
+> 因此 `AIInputSource` 目前是 **level-triggered**（射程內每幀為真），語意上等於「一直按著」，
+> 而 `Slot1ButtonDown` 名義上是邊沿訊號。今天安全（`EnemyPunchDefinition` 沒有 `Loop`／`WaitForTrigger`／
+> `ChainSegments`，兩條讀 re-trigger 的路徑都走不到）；**敵人一旦要連段或蓄力就會咬人**。
+> 屆時正解是替 `InputData` 補 `Slot1ButtonHeld`（比照既有 `SprintButtonHeld`／`SprintButtonDown` 並存先例），
+> **不是**在 AI 裡補計時器。`AIInputSourceTests.AttackIntent_IsLevelTriggered_KnownInterfaceLimit` 已釘住。
+>
+> ---
+>
+> ### 📌 已登記、**本輪刻意不做**的兩件事
+>
+> **① ~~`EnemyStateMachineConfig.actionDefinitions` migration~~ ✅ 2026-09-05 已完成**
+> 見下方「Enemy Combat Vertical Slice」。Damage ＋ Punch 同一次搬進 `actionDefinitions`，
+> 死掉的 `paramsMappings` Action 列已移除，並由新的 **W8** 守住。
+>
+> > ---
+>
+> ### ⚔️ 2026-09-05 — **Enemy Combat Vertical Slice**（接線完成，待 Play 驗收）
+>
+> **目標**：敵人從「會移動的假人」變成「接敵 → 站位 → 出拳 → 收招 → 再攻擊 → 被打出反應」。
+>
+> | 改動 | 內容 |
+> |---|---|
+> | `Y Bot.prefab` | 掛上 `AIInputSource`（root，`target` 與 `AIMovementSource` 指向同一個 X Bot Transform、`attackRange` 2）；`inputSourceComponent` 指向它；`transitionMappings` 補 `Enemy_Punch_R` |
+> | `EnemyStateMachineConfig.asset` | 新增 `actionDefinitions`＝**DamageDefinition（Reaction）＋ EnemyPunchDefinition（Slot1）**；移除已失效的 `paramsMappings` State 5 |
+> | `PlayerStateMachineConfig.asset` | 一併移除已失效的 `paramsMappings` State 5（指向早已退場的 `ThrowDefinition`）——見下方 scope 註記 |
+> | `EnemyPunchDefinition.asset` | `EmitsRelease` 1 → **0** |
+> | `AIInputSource.cs.meta` | 手寫（比照本專案 `.cs.meta` 的極簡格式：只有 `fileFormatVersion` ＋ `guid`） |
+>
+> **為什麼 `EmitsRelease` 改 0**：本輪敵人出拳是**純表演**——Y Bot 沒有 Slot1 的 sink，
+> 而玩家身上也還沒有 `ActionRequestTarget`（`X Bot` 的該欄位是 0）⇒ 就算開了 Release 也沒有接收端，
+> 只會讓 **W4** 變紅。敵人打傷玩家屬於「玩家受擊」那條線，不在本 slice。
+>
+> **新增測試**（`PrefabWiringTests`，皆為 generalized invariant、非寫死清單）：
+> - **W7** 已註冊 Action 的 `AnimationKey`（**含 `ChainSegments`**）必須在該角色的 `transitionMappings` 解析得到
+>   ← 抓 `docs/11` §4.1 的安靜失敗①，2026-09-04／09-05 實際踩過兩次
+> - **W8** `actionDefinitions` 非空時，`paramsMappings` 不得再留 Action 綁定（遷移未做完的死接線）
+> - **W9** 跑一次 `Initialize()`，斷言每份 Definition 都能以自己的 `Slot` 解析回自己（身分唯一性）
+>
+> ⚠️ **scope 註記**：W8 上線後照出**玩家 config 也有同一種死接線**（指向已退場的 `ThrowDefinition`）。
+> 使用者本輪只交辦敵人，但留著會讓交付時測試是紅的 ⇒ 一併移除。
+> 它本來就已被 `docs/11` §5.1 記為「不再被解析」，這次只是把資產補齊到與文件一致。
+>
+> **② `ThrowSpawnPoint` 改掛 Spine2 ＋ forward offset**
+> 2026-09-05 已先用「Fireball emitter 的 `spawnPoint` 改指 `mixamorig:Spine2`」達成胸口發射（單一欄位改動）。
+> 若要更乾淨的前方偏移，需把 `ThrowSpawnPoint` 重新掛到 Spine2 底下——
+> **那是 parent／children 的階層變更，一律在 Unity Editor 內處理，不手改 prefab YAML。**
+>
+> ---
+>
+> ### 🩸 2026-09-06 — 受擊手感 ＋ Reaction 同 slot 重入 ＋ AI 決策可視化
+>
+> **① 受擊 4.1 秒 → 1.17 秒（換 clip，不改程式）**
+> `DamageDefinition` 原本指向 `Idle_Hit_Strong_Left`（`BakedDuration` **4.1**，那是重擊踉蹌＋完整恢復），
+> `FallbackDuration: 4.1` 只是照抄它。改用專案**已烘好**的 `Fists_Hit_Right`（1.1667）＋ `Bake_Fists_Hit_Right`。
+> 📌 走的是 CLAUDE.md 動畫升級順序的**第 3 階（換 clip）**，沒有編輯或複製任何 AnimationClip。
+>
+> **② Reaction 同 slot 重入（使用者裁決採方案 b）**
+> `ActionState.CanReenter` 新增 `AllowsSameSlotReentry(slot) => slot == ActionSlot.Reaction`，
+> 並把 `DamageDefinition.Interruptible` 改為 1。
+> 🔴 **普通 Action 的語意一字未改**——`T33`／`T33b` 就是為了守這件事而寫的：
+> 若哪天有人把它放寬成「Interruptible 就好」，測試會紅並說明代價（連段第 2 段會被第 3 段的請求吃掉）。
+> 理由與 §8.3 把 `Reaction` 排除在轉向規則外相同：**受擊不是出手**。
+>
+> **③ AI 決策層可視化**（`OnDrawGizmosSelected`，全段包在 `#if UNITY_EDITOR`）
+> `AIMovementSource`：接戰帶內外圈、Approach/Hold/Retreat 顏色、到目標連線與水平距離。
+> `AIInputSource`：攻擊圈（想出手＝暖色實心／不想＝暗灰）、attack desire、距離。
+> 🎯 **目的是分流除錯**：距離與模式一致但角色仍亂走 ⇒ 問題不在 decision 層。
+> ⚠️ 兩個元件各畫各的、**不互相引用**——`Core/Movement` 頂層的 LayerRule 白名單不含 `Core.Pipeline`。
+>
+> **④ Ice 落點再收斂**：`minCastDistance` 0.8／`maxCastRange` 2／`defaultCastDistance` 1.4。
+> 📌 實際落點幾乎都頂到上限（瞄準射線通常打在遠處地面）⇒ **真正決定距離的是 `maxCastRange`**。
+>
+> ---
+>
+> ### 🤖 2026-09-06（夜）— 自主推進批次（使用者休息中，只回報不詢問）
+>
+> | # | 內容 | 風險 |
+> |---|---|---|
+> | 1 | **冷卻變異** `ActionDefinitionSO.CooldownVariance`；`EnemyPunchDefinition` 填 1.2 ⇒ 攻擊間隔 2–3.2 秒 | 低（新欄位預設 0 ＝ 舊行為） |
+> | 2 | **W10**：`attackRange` 必須落在接戰帶 `[min, max]` 內 | 低（純測試） |
+> | 3 | **鎖敵可視化**：`AimResolver` 畫瞄準線、soft-target 錐在該距離的實際半徑、已鎖定的出手朝向 | 低（Editor-only） |
+> | 4 | **武器掛載** `Presentation/Equipment/WeaponSocket.cs` ＋ X Bot 掛上 `Sword.obj` | 中（動到兩個 prefab） |
+>
+> **① 為什麼冷卻變異放在資產而不是 AI**
+> 業界通則是「近戰敵人平均 2–3 秒出手一次」，固定間隔會像節拍器。但 `AIInputSource` 明確不准自建計時節流
+> （能不能出手的唯一回答者是 `ActionState`，ADR-004 D2）。做成 authored 欄位後，節奏變成**可調資料**——
+> 玩家技能填 0 拿到可預測節奏、敵人填 > 0 拿到活的節奏，**兩者共用同一段程式**。
+> 只加不減：實際冷卻永遠 ≥ authored `Cooldown`（`T34`／`T34b`／`T34c` 守）。
+>
+> **④ 🎉 專案裡本來就有一把完整的劍**
+> `Assets/EEJANAI_Team/FreeSwordAnimations/Models/SwordSample/Sword.obj` ＋ PBR 貼圖 ＋ 材質。
+> 先前回報「專案沒有武器模型」是**錯的**——我用 `find -iname "*sword*"` 搭配 fbx/obj 過濾時被 `-o` 的優先序坑了。
+>
+> **為什麼是執行期掛載而不是把劍拖進 prefab 階層**：
+> 拖進階層 ⇒ 每個角色各自複製一份武器子樹，換武器要逐一改；
+> 執行期掛載 ⇒ 武器是**一個資產引用**，換武器＝換一個欄位。
+> 也順帶避開「改 prefab 父子結構」這個最高風險的 YAML 編輯類別。
+>
+> ⚠️ **Y Bot 的 prefab 只有 2 個 GameObject**（骨架來自模型實例）⇒ prefab 階段沒有手骨 Transform 可拖。
+> 因此 `WeaponSocket` 支援**骨骼名稱查找**（`mixamorig:RightHand`），兩個角色共用同一套接線。
+> 找不到骨骼時退回角色原點——**很醜但看得見**，比靜默消失便宜太多（`WeaponSocketTests` 守）。
+>
+> 📌 **Y Bot 的 `weaponPrefab` 刻意留空**：敵人打的是 `Fists_Punch_R`（空手拳），給它劍會與動作矛盾。
+> 元件先掛著，等敵人有持劍動畫再填。
+>
+> **⚠️ 待 Play 調整**：劍的 `localPosition`／`localEulerAngles` 目前全 0，八成不對。
+> 進 Play 後選中生成出來的劍、把對的數值抄回 prefab 即可；也可以在 Inspector 右鍵
+> `Rebuild Attachment` 即時重掛，不必重進 Play。
+>
+> ### 🧱 2026-09-06（夜）— 兩個想做的功能撞到同一堵牆：**ADR-005 沒結案**
+>
+> 使用者列的「施法＋移動」與「大幅度轉身」，調查後**都不能現在做**，而且是同一個原因。
+>
+> | 功能 | 需要動 | 為什麼卡住 |
+> |---|---|---|
+> | **施法＋移動**（上半身層） | `AnimationFacadeBase` 契約 | 在 `docs/11` §10.2 的 ⛔ 名單上 |
+> | **大幅度轉身**（C2／C3） | `LocomotionModel`／`LocomotionStopSelector` | 同上，且是 Acceptance **G** 的零修改名單 |
+>
+> 那份 ⛔ 名單是 ADR-005 Acceptance **G**（「Slow 跨系統傳播，五個下游檔案零修改」）的**前提**。
+> 現在動它們，G 的證據鏈就斷了；而且之後 Play 出問題時將無法分辨是哪一邊造成的。
+> 加上 ADR-004 §0 的「同一時間只允許一個 Trial」——**先關掉 ADR-005，這兩件事才排得進來。**
+>
+> **🎯 所以最高優先的其實是：把 ADR-005 的 A／B／C／E 驗完。** 四條都需要 Play ／ Profiler，只有使用者做得到。
+>
+> #### 📦 轉身：**設計與資產都已就緒，只差開工許可**
+>
+> - `Bake_TurnRt180`（`RotationFinishedTime` 1.5333）與 `Bake_RunFwdTurn180_R_LU`（0.7667）**已烘好**
+> - 但兩者**目前被任何東西引用 0 次**——烘完就擱著
+> - `docs/07` §852 已寫明：Turn／Pivot 走**同一條 Request→Selection→Motion 鏈**，
+>   且「`p ≠ 1` 的 yaw 正確性已由本規格的多載預先解決」
+> - ⇒ 不是設計缺口、不是素材缺口，**純粹是排序問題**
+>
+> #### 📄 新增 `docs/ADR/006-upper-body-layer.md`（🔵 **Proposed，待裁決**）
+>
+> 主張 Animancer 分層 ＋ AvatarMask，兩條決策草案：
+> **D1 分層是 Facade 的職責，State 不得認識層**（否則 Presentation 的分層策略倒灌進 FSM）；
+> **D2 層與遮罩是 authored data**（加一個分層動作＝加一列映射，零程式——與 ADR-005 同一條紀律）。
+>
+> 順帶記錄一個**已存在的死欄位**：`PlayerRuntimeData.UpperBodyWeight` 有寫入者（`LocomotionModel` 每幀寫）
+> 但**全專案只有 Editor 除錯面板讀它**。ADR-006 的 Acceptance **C** 要求它「要嘛被消費、要嘛刪除」。
+>
+> #### ✅ prefab 完整性稽核（這一輪手改了不少 YAML）
+>
+> `X Bot` ／ `Y Bot` 皆通過：
+> 每個 `- component: {fileID}` 都有對應的 `--- !u!114 &fileID` 區塊；
+> 每個 `m_GameObject: {fileID}` 都指向存在的 GameObject。無懸空引用。
+>
+> ### 📋 已登記的優先級（2026-09-06 使用者裁決）
+>
+> | 順位 | 項目 | 理由 |
+> |---|---|---|
+> | **先** | **Input buffer（預輸入緩存）** | 直接改善操作容錯與連段手感；`ChainInputOpenNormalized` 只解了「太早按」的一半，「硬直中按」仍然丟失 |
+> | **後** | **方向性受擊**（依命中角度選受擊動畫） | ⚠️ 需要先決定 **context → AnimationKey** 的架構形狀：目前一個 slot ＝ 一份 Definition、一個 Phase ＝ 一個 `AnimationKey`，依角度選要嘛在 Definition 內放多個候選、要嘛換別的形狀。**這是真正的架構岔路，不先談形狀不動手。** 四份 clip（`Fists_Hit_Left/Right`、`Idle_Hit_Strong_Left/Right`）已在專案內 |
+>
+> 參考來源：2026-09-06 使用者提供的第三方戰鬥系統影片（UE demo）。該影片同時展示了
+> **攻擊令牌／站位槽的 gizmo 可視化**——與本輪 ③ 的動機一致，也再次支持
+> 「Combat Director 等多隻敵人實際壞掉後再開 ADR」的既有判斷。
+>
+> ✅ **2026-09-05 磁碟接線完成**：`X Bot.prefab` 現為 3 顆發射器／3 筆 sink binding／17 筆 transition mapping；
+> 新增內部 fileID 無重複，prefab 引用與欄位值已做靜態核對。solution 編譯完成（只有既存的 Animancer
+> NUnit target-framework warning，無 error）。Unity Editor 當時已開啟，故 Test Runner／Play 驗收仍在現有 Editor 內集中執行。
+>
+> 🔧 **2026-09-05 實機回報後修正**：兩顆 emitter 的 `projectilePrefab` 欄位型別是 `ThrownProjectile`，
+> 初次接線誤指到 prefab 根 `GameObject` 的 fileID，Unity 因型別不符將它視為未綁定。已改指向兩顆 prefab 內的
+> `ThrownProjectile` component fileID（`2915347899319234830`）；GUID、其餘欄位與所有其他接線不變。
+>
+> 7. ✅ **連段已實作**（2026-09-04）：`ActionDefinitionSO` 加 `ChainSegments` ＋ `ChainInputOpenNormalized`；
+>    `ActionState` 加排隊式切段。`Project.Runtime` 與 `Project.Tests.EditMode` 皆 `dotnet build` **0 error**。
+>    新增 EditMode **T26–T29**（尚未在 Test Runner 實跑——見①）。
+>    🔴 唯一改動的既有語意：`_releaseEmittedThisExecution` 改為切段時重置（每段各發一次 Release）。
 >
 > 📌 **法術素材**：`Kevin Iglesias/.../MagicAttacks/{Call,Directional,Omnidirectional}`，
 > 每組都有 `Load`／`Cast`／合一三個檔。**用合一檔**——`docs/11` §4 已裁決不做 Load/Cast 分段

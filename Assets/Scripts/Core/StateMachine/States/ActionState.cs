@@ -35,6 +35,18 @@ namespace Project.Core.StateMachine
         /// </summary>
         internal static readonly int SlotCount = ComputeSlotCount();
 
+        private const float DirectionSqrEpsilon = 0.000001f;
+
+        /// <summary>
+        /// <see cref="ActionTargetingPolicy.CameraConeSoftTarget"/> 的角錐半角（度）。
+        ///
+        /// ⛔ **刻意是一顆全專案常數，不是 per-Action 旋鈕**（`docs/11` §8.3 明文禁止）——
+        /// 「吸不吸敵」是 Definition 的選擇，「吸多寬」不是；後者一旦下放，
+        /// 每把武器的吸敵範圍就會各自漂移，玩家再也無法用一句話描述規則。
+        /// 30° ＝ 敵人大致在畫面中央三分之一時才修正；要調就調這一個數字。
+        /// </summary>
+        private const float SoftTargetConeHalfAngleDegrees = 30f;
+
         private static int ComputeSlotCount()
         {
             var values = (ActionSlot[])System.Enum.GetValues(typeof(ActionSlot));
@@ -67,13 +79,45 @@ namespace Project.Core.StateMachine
         private string _currentAnimationKey;
         private bool _releaseEmittedThisExecution;
 
+        // 🆕 連段（docs/11 §4.3）。第 1 段 ＝ Phases 的 Start，因此 _chainIndex 也是
+        // 「已經播完幾個 ChainSegments」的計數；0 表示還在第 1 段。
+        // ⚠️ 連段期間 _phase 一直維持 Start——連段是「同一個 Start 換素材重播」，不是新 phase。
+        //    這讓 CanTransitionAway／CancelMoveIntentThreshold／Loop 的既有語意一字不必改。
+        private int _chainIndex;
+        private bool _chainQueued;
+
+        // 🆕（ADR-007 D4／D5）每個段落邊界取得一次的方向承諾。
+        // ActionState 是承諾與 release 時點的共同擁有者；facing 與世界效果只讀這一份快照。
+        private ActionReleaseContext _releaseContext;
+
+        // Action-time soft auto-target 的無狀態查詢／facing 轉送 seam。
+        // ⚠️ 可以是 null——敵人身上沒有相機式 aim source，
+        //    承諾因此安靜退化為 HasAim=false，lifecycle 仍照常完成。
+        private readonly IAimSource _aimSource;
+
         public ActionState(
             ActionRequestTarget externalRequestTarget = null,
-            IActionLifecycleSink[] lifecycleSinks = null)
+            IActionLifecycleSink[] lifecycleSinks = null,
+            IAimSource aimSource = null)
         {
             _externalRequestTarget = externalRequestTarget;
             _lifecycleSinks = lifecycleSinks ?? Array.Empty<IActionLifecycleSink>();
+            _aimSource = aimSource;
         }
+
+        /// <summary>
+        /// 「這個 **slot** 會不會取得方向承諾」——**slot 層級的全域閘門**（`docs/11` §8.3）。
+        ///
+        /// ⚠️ 這裡回答的是**會不會取得**，不是**朝哪取得**。後者自 2026-09-08 起由
+        /// <see cref="ActionTargetingPolicy"/> 這個 authored 欄位回答（該裁決同時修訂了 ADR-007 D3，見其 §11）。
+        /// 兩者刻意分開：**「受擊不轉向」是 slot 的性質，不該讓每份 Definition 各自宣告一次**——
+        /// 那才會回到「一致性交給填表的人」的老問題。
+        ///
+        /// <see cref="ActionSlot.Reaction"/> 例外：受擊不是出手，被打的人不該自己轉去面對攻擊者。
+        /// （此例外**優先於** policy：Reaction 的 Definition 就算標了 soft-target 也不取得承諾。）
+        /// </summary>
+        internal static bool ShouldFaceTargetOnEnter(ActionSlot slot)
+            => slot != ActionSlot.None && slot != ActionSlot.Reaction;
 
         public override StateType Type => StateType.Action;
         public override string AnimationKey => _currentAnimationKey;
@@ -104,6 +148,8 @@ namespace Project.Core.StateMachine
         public override void OnEnter(PlayerRuntimeData data)
         {
             _releaseEmittedThisExecution = false;
+            _chainIndex = 0;
+            _chainQueued = false;
 
             if (!TryResolveRequest(data, out ActionSlot slot, out ActionDefinitionSO definition))
             {
@@ -114,6 +160,10 @@ namespace Project.Core.StateMachine
 
             _activeSlot = slot;
             _definition = definition;
+
+            // 第 1 段邊界取得一次承諾；Reaction 是受擊而非出手，明確不取得。
+            CaptureReleaseContext(data);
+
             ActiveLifecycleSink()?.Begin();
             if (!EnterPhase(ActionPhase.Start)) ActiveLifecycleSink()?.Cleanup();
         }
@@ -127,7 +177,13 @@ namespace Project.Core.StateMachine
             switch (_phase)
             {
                 case ActionPhase.Start:
-                    if (_phaseElapsed >= CurrentDuration()) EnterAfterStart();
+                    TryQueueChainAdvance(data);
+                    if (_phaseElapsed >= CurrentDuration())
+                    {
+                        // 排到了就換下一段繼續，沒排到才走原本的收尾路徑。
+                        if (_chainQueued && TryAdvanceChain(data)) break;
+                        EnterAfterStart();
+                    }
                     break;
 
                 case ActionPhase.Loop:
@@ -174,8 +230,35 @@ namespace Project.Core.StateMachine
             if (_phase == ActionPhase.None) return false;
             if (!_currentEntry.Interruptible) return false;
             if (!TryResolveRequest(data, out ActionSlot slot, out _)) return false;
-            return slot != _activeSlot;
+            if (slot != _activeSlot) return true;
+
+            return AllowsSameSlotReentry(slot);
         }
+
+        /// <summary>
+        /// 🆕（2026-09-06 使用者裁決）**同 slot 重入的唯一例外：`Reaction`。**
+        ///
+        /// <para><b>Problem</b></para>
+        /// 硬直期間再被打一次，畫面上什麼都不會發生——`CanReenter` 要求「身分不同」，
+        /// 而 Reaction 被 Reaction 打斷是同一個身分。
+        ///
+        /// <para><b>為什麼 Reaction 該是例外</b></para>
+        /// 一般 Action 的「同身分不得重入」是在防**自己打斷自己**：連段第 2 段會被第 3 段的請求吃掉、
+        /// 蓄力會被自己的再按打斷。那條限制對出手是對的。
+        /// 但**受擊不是出手**——「再被打一次就該再踉蹌一次」正是硬直的定義，
+        /// 它沒有「被自己打斷」的問題，因為觸發者本來就是別人。
+        /// 📌 這與 `docs/11` §8.3 把 `Reaction` 排除在轉向規則外是**同一個判斷**：
+        /// Reaction 套用的是受擊語意，不是出手語意。
+        ///
+        /// <para><b>Trade-off</b></para>
+        /// 代價是多一條 slot 特例。替代方案「`Interruptible` 為真就允許任何同 slot 重入」更通用，
+        /// 但會讓法術連段被自己的後續按鍵吃掉——**放寬的範圍遠大於要解決的問題**，因此不採用。
+        ///
+        /// <para><b>Impact</b></para>
+        /// 普通 Action 的語意**一字未改**（`T20`／`T33` 守）。仍然需要 `Interruptible`：
+        /// 「無敵的重擊倒地不該被輕拳打斷」依然由資產決定。
+        /// </summary>
+        internal static bool AllowsSameSlotReentry(ActionSlot slot) => slot == ActionSlot.Reaction;
 
         public override void OnUpdateMotion(
             MotionDriver motionDriver,
@@ -265,6 +348,56 @@ namespace Project.Core.StateMachine
             return _externalRequestTarget != null && _externalRequestTarget.PendingSlot == _activeSlot;
         }
 
+        /// <summary>
+        /// 連段的「偵測連按」。**只排隊、不立刻切段**——切段固定發生在當前段播完，
+        /// 否則第 2 段會從第 1 段的中途插進來，動作看起來像被吃掉。
+        ///
+        /// ⚠️ 不需要防「進場那一幀的按鍵被誤判成連按」：`IntentData` 的 trigger 旗標是
+        /// 「當幀生、當幀死」（`PlayerRuntimeData.ResetTransientState`，管線順序 7），
+        /// 而 FSM 是先 `OnTick` 才 `OnEnter`（`FullBodyStateMachine.Tick`）——
+        /// 新進入的 state 第一次 `OnTick` 已經是下一幀，那時進場的按壓早就被清掉了。
+        /// 因此這裡讀到的必然是**新的一次按壓**。
+        /// </summary>
+        private void TryQueueChainAdvance(PlayerRuntimeData data)
+        {
+            if (_chainQueued) return;
+            if (_chainIndex >= ChainSegmentCount()) return;   // 已在最後一段，沒有下一段可接
+
+            float duration = CurrentDuration();
+            float open = Mathf.Clamp01(_definition.ChainInputOpenNormalized);
+            if (duration > 0f && _phaseElapsed < duration * open) return;
+
+            if (IsRetriggeredThisFrame(data)) _chainQueued = true;
+        }
+
+        /// <summary>
+        /// 換到下一段。`_phase` 仍是 <see cref="ActionPhase.Start"/>——見欄位區的說明。
+        ///
+        /// ⚠️ **`_releaseEmittedThisExecution` 在此重置**：這是連段唯一動到的既有語意。
+        /// 原本它是「整次執行只發一次 Release」（Throw 只丟一顆），連段則要**每段各發一次**
+        /// （每段各出一顆投射物）。單段的 Action 走不到這裡，行為不變。
+        /// </summary>
+        private bool TryAdvanceChain(PlayerRuntimeData data)
+        {
+            if (_chainIndex >= ChainSegmentCount()) return false;
+
+            _currentEntry = _definition.ChainSegments[_chainIndex];
+            _chainIndex++;
+            _chainQueued = false;
+            _phaseElapsed = 0f;
+            _currentAnimationKey = _currentEntry.AnimationKey;
+            _releaseEmittedThisExecution = false;
+            CaptureReleaseContext(data);
+            TryEmitRelease();
+            return true;
+        }
+
+        private int ChainSegmentCount()
+        {
+            ActionPhaseEntry[] segments = _definition != null ? _definition.ChainSegments : null;
+            return segments != null ? segments.Length : 0;
+        }
+
         private void EnterAfterStart()
         {
             if (EnterPhase(ActionPhase.Loop)) return;
@@ -293,6 +426,103 @@ namespace Project.Core.StateMachine
             return true;
         }
 
+        /// <summary>在當前段落邊界取得一次方向承諾；後續相機／目標變化不再改寫本段快照。</summary>
+        private void CaptureReleaseContext(PlayerRuntimeData data)
+        {
+            _releaseContext = default;
+            if (!ShouldFaceTargetOnEnter(_activeSlot)) return;
+
+            // Definition 缺席時採預設 policy，與「忘了填」得到同一個結果——
+            // 可預測性不依賴資產是否完整。
+            ActionTargetingPolicy policy = _definition != null
+                ? _definition.Targeting
+                : ActionTargetingPolicy.CameraForward;
+            if (policy == ActionTargetingPolicy.SelfCentered) return;
+
+            // S3a 的玩家 Root 保留 IAimSource 注入鏈；現行實作同時提供「鏡頭方向」與角色世界位置。
+            // 敵人版 combat producer／facing source 屬 S3b，尚不在本切片建立第二套 origin seam。
+            // ⚠️ 可以是 null（敵人）⇒ 承諾安靜退化為 HasAim=false，lifecycle 仍照常完成。
+            if (_aimSource == null) return;
+            if (!_aimSource.TryGetAimPoint(out Vector3 aimPoint)) return;
+
+            Vector3 origin = _aimSource.CommitmentOrigin;
+
+            // 🔄 2026-09-08：吸敵**不再是預設**。只有顯性標記 CameraConeSoftTarget 的 Definition
+            //    才會被 combat target 改寫方向，且必須通過角錐檢查（docs/11 §8.3）。
+            if (policy == ActionTargetingPolicy.CameraConeSoftTarget &&
+                TrySoftTarget(
+                    data != null ? data.CombatContext : default,
+                    origin,
+                    aimPoint,
+                    out Vector3 softTargetPoint))
+            {
+                aimPoint = softTargetPoint;
+            }
+
+            _releaseContext = new ActionReleaseContext(aimPoint, aimPoint - origin);
+        }
+
+        /// <summary>
+        /// 唯讀暴露目前段落承諾的水平投影。唯一 facing source 會在順序 4.6 主動 pull。
+        /// </summary>
+        internal bool TryGetFacingCommitment(out Vector3 worldDirection)
+        {
+            worldDirection = default;
+            if (_phase == ActionPhase.None || !_releaseContext.HasAim) return false;
+
+            worldDirection = _releaseContext.Direction;
+            worldDirection.y = 0f;
+            if (worldDirection.sqrMagnitude <= DirectionSqrEpsilon)
+            {
+                worldDirection = default;
+                return false;
+            }
+
+            worldDirection.Normalize();
+            return true;
+        }
+
+        /// <summary>
+        /// <see cref="ActionTargetingPolicy.CameraConeSoftTarget"/> 的修正判定：**只有**當 combat target
+        /// 落在瞄準方向前方的角錐內才改用它，否則維持 camera forward。
+        ///
+        /// 🔄 取代 2026-09-08 之前的 `TrySelectAimPoint`（那版無條件讓 combat target 壓過 aim point，
+        /// 等於所有 Action 都是 soft-target ⇒ 與 `docs/11` §8.3 的裁決相反）。
+        ///
+        /// **為什麼是水平角錐**：承諾同時餵給 facing（水平投影）與世界效果（3D）。垂直方向由相機俯仰
+        /// 主導、與「敵人在不在我正前方」無關，把它算進角錐只會讓低頭時吸不到人。
+        ///
+        /// **為什麼不另外查一次相機錐**：`docs/10` §3-D3 禁止新建 targeting service／目標列表。
+        /// combat context producer 已經是目標的唯一供應商，這裡只對它的結果加一道方向閘門。
+        /// </summary>
+        internal static bool TrySoftTarget(
+            CombatContextData combatContext,
+            Vector3 origin,
+            Vector3 aimPoint,
+            out Vector3 targetPoint)
+        {
+            targetPoint = default;
+            if (!combatContext.HasTarget) return false;
+
+            Vector3 aimDirection = aimPoint - origin;
+            Vector3 targetDirection = combatContext.TargetPosition - origin;
+            aimDirection.y = 0f;
+            targetDirection.y = 0f;
+            if (aimDirection.sqrMagnitude <= DirectionSqrEpsilon ||
+                targetDirection.sqrMagnitude <= DirectionSqrEpsilon)
+            {
+                return false;
+            }
+
+            if (Vector3.Angle(aimDirection, targetDirection) > SoftTargetConeHalfAngleDegrees)
+            {
+                return false;
+            }
+
+            targetPoint = combatContext.TargetPosition;
+            return true;
+        }
+
         private void TryEmitRelease()
         {
             if (_releaseEmittedThisExecution || !_currentEntry.EmitsRelease) return;
@@ -301,7 +531,7 @@ namespace Project.Core.StateMachine
             if (_phaseElapsed < CurrentDuration() * normalizedTime) return;
 
             _releaseEmittedThisExecution = true;
-            ActiveLifecycleSink()?.Release();
+            ActiveLifecycleSink()?.Release(in _releaseContext);
         }
 
         private float CurrentDuration()
@@ -360,7 +590,30 @@ namespace Project.Core.StateMachine
         private void CommitCooldown()
         {
             if (_definition == null || _activeSlot == ActionSlot.None) return;
-            _cooldownEndTime[(int)_activeSlot] = Time.time + Mathf.Max(0f, _definition.Cooldown);
+
+            _cooldownEndTime[(int)_activeSlot] = ComputeCooldownEndTime(
+                Time.time, _definition.Cooldown, _definition.CooldownVariance, UnityEngine.Random.value);
+        }
+
+        /// <summary>
+        /// 🆕（2026-09-06）**冷卻的隨機加量**。近戰敵人 AI 的業界通則是「攻擊間隔平均 2–3 秒」——
+        /// 固定間隔會讓敵人讀起來像節拍器，玩家一旦數出拍子，戰鬥就沒有壓力了。
+        ///
+        /// ⚖️ **為什麼放在資產而不是 AI**：`AIInputSource` 明確不准自建計時節流
+        /// （能不能出手的唯一回答者是 `ActionState`，ADR-004 D2）。把變異做成 authored 欄位，
+        /// 節奏就變成**可調的資料**而不是 AI 的隱藏狀態——玩家技能填 0 拿到可預測的節奏，
+        /// 敵人填 &gt; 0 拿到活的節奏，**兩者共用同一段程式**。
+        ///
+        /// ⚠️ 只加不減：實際冷卻永遠 ≥ authored `Cooldown`。
+        /// 純函數版本讓隨機來源可注入，測試因此是確定性的。
+        /// </summary>
+        internal static float ComputeCooldownEndTime(
+            float currentTime, float cooldown, float variance, float random01)
+        {
+            float baseCooldown = Mathf.Max(0f, cooldown);
+            float extra = Mathf.Max(0f, variance) * Mathf.Clamp01(random01);
+
+            return currentTime + baseCooldown + extra;
         }
 
         /// <summary>
@@ -374,6 +627,9 @@ namespace Project.Core.StateMachine
             _phaseElapsed = 0f;
             _currentAnimationKey = null;
             _releaseEmittedThisExecution = false;
+            _chainIndex = 0;
+            _chainQueued = false;
+            _releaseContext = default;
             _activeSlot = ActionSlot.None;
             _definition = null;
         }

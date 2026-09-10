@@ -16,12 +16,14 @@ MonoBehaviour:
   Phases:
   - Phase: 1
     AnimationKey: Melee_Slash1
-    Bake: {fileID: 0}
+    Bake: {fileID: 11400000, guid: 08090e49c447f0443a5f9e4556ced180, type: 2}
     FallbackDuration: 0.6
     Interruptible: 0
     WaitForTrigger: 0
     EmitsRelease: 1
     ReleaseNormalizedTime: 0.4
+  ChainSegments: []
+  ChainInputOpenNormalized: 0.25
   Cooldown: 0.5
   RequiresGrounded: 1
   CancelMoveIntentThreshold: 0.1

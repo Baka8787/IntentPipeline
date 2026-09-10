@@ -20,6 +20,16 @@ namespace Project.Core.Effects
     /// </summary>
     public sealed class TemporaryGameplayEffectState : MonoBehaviour
     {
+        /// <summary>
+        /// Slow 的倍率＝「速度剩原本的 30%」（`docs/11` §7.4，使用者裁決，實作不得自行更動）。
+        ///
+        /// 🆕 **2026-09-05 由 `ThrownProjectile` 的 private const 提升到這裡**：Ice 改走地面 AoE 之後
+        /// 出現第二個投遞者（`GroundEffectSink`），同一個「不得更動」的數字散在兩個檔案就是它開始漂移的方式。
+        /// ⚖️ 這是**共用常數，不是 framework** ——沒有新增型別、介面或擴充點，
+        /// 也沒有違反「第二個使用者出現前不建 abstraction」（第二個使用者就是它出現的原因）。
+        /// </summary>
+        public const float SlowMovementSpeedMultiplier = 0.3f;
+
         private Effect _tag;
         private float _movementSpeedMultiplier = 1f;
         private float _expiresAt;
