@@ -22,8 +22,8 @@ namespace Project.Core.Movement
     /// 兩者皆由呼叫端逐幀傳入；跨幀狀態只有值型別 dynamics
     /// <c>_smoother</c>／<c>_stop</c>（ADR-003 §9-L5 snapshot-able 前提）。
     ///
-    /// **黑板 Movement Output 的語意**（2026-07-25 裁決）：<c>MoveSpeed</c>／<c>MoveDirection</c>／
-    /// <c>UpperBodyWeight</c> 自本輪起**不再是 Runner 維護的 locomotion state**，而是
+    /// **黑板 Movement Output 的語意**（2026-07-25 裁決）：<c>MoveSpeed</c>／<c>MoveDirection</c>
+    /// 自本輪起**不再是 Runner 維護的 locomotion state**，而是
     /// **當下 active Movement Model 發布的 Movement Output**——消費端（MotionDriver、Jump 空中控制、
     /// Editor 監視器）讀到的是「模型算出來的運動」，寫入者唯一且為本檔。
     /// D4 的最終形態（欄位完全內化、不經黑板）目標不變，但需連動 MotionDriver API 與 Jump 空中控制，
@@ -50,6 +50,10 @@ namespace Project.Core.Movement
         [SerializeField] private float moveSpeedDecelTime = 0.18f;
         [Tooltip("世界 XZ 移動方向的最大轉向角速度（度／秒）。720 表示 90° 轉向至少跨 0.125 秒。")]
         [SerializeField, Min(0f)] private float directionTurnDegreesPerSecond = 720f;
+
+        [Header("Combat Directional Locomotion (Optional)")]
+        [Tooltip("只給需要 combat directional locomotion 的 actor。未指派時維持既有 1D／速度行為。")]
+        [SerializeField] private CombatDirectionalSpeedProfileSO combatDirectionalSpeedProfile;
 
         [Header("Forward Stop (C1 / C1.1)")]
         [Tooltip("Walk loop Bake Data：只用 authored FootPhaseCurve 配合 Locomotion 主導子動作時間選 LU/RU；不是 tier 表。")]
@@ -91,7 +95,10 @@ namespace Project.Core.Movement
             // 才能在同一幀承諾 LU／RU。若等到順序 6，順序 5 已開始 cross-fade 到 Jump，來源可能消失。
             CaptureLocomotionTime(animationFacade);
 
-            float desiredSpeed = Mathf.Clamp01(data.MovementIntent.DesiredSpeedNormalized);
+            MovementIntentData movementIntent = data.MovementIntent;
+            ApplyCombatDirectionalSpeedLimit(data, ref movementIntent);
+
+            float desiredSpeed = Mathf.Clamp01(movementIntent.DesiredSpeedNormalized);
             bool isIntending = desiredSpeed >= LocomotionSpeedSmoother.Epsilon;
 
             // Stop 的「入場強度」是放開發生前一刻的實際速度，不是放開後已被 SmoothDamp
@@ -122,7 +129,7 @@ namespace Project.Core.Movement
             if (!_stop.IsPending)
             {
                 _smoother.Tick(
-                    in data.MovementIntent,
+                    in movementIntent,
                     moveSpeedAccelTime,
                     moveSpeedDecelTime,
                     directionTurnDegreesPerSecond,
@@ -131,8 +138,6 @@ namespace Project.Core.Movement
 
             data.MoveSpeed = _smoother.Speed;
             data.MoveDirection = _smoother.Direction;
-            data.UpperBodyWeight = _smoother.Speed > LocomotionSpeedSmoother.Epsilon ? 0.5f : 0.0f;
-
             // 🆕（ADR-003 D4）**model 自驅動畫參數**：由 Locomotion Transition 資產內的 ParameterName
             // 自行訂閱；MoveSpeed 保留給現行 1D Mixer，MoveX／MoveZ 供後續 2D Mixer 使用。
             // 本層不認識任何 Mixer（tier 門檻是資料，住在 Locomotion.asset）。
@@ -149,6 +154,23 @@ namespace Project.Core.Movement
             }
 
             _wasIntending = isIntending;
+        }
+
+        private void ApplyCombatDirectionalSpeedLimit(
+            PlayerRuntimeData data, ref MovementIntentData movementIntent)
+        {
+            if (combatDirectionalSpeedProfile == null || !data.CombatContext.InCombat ||
+                movementIntent.DesiredDirection.sqrMagnitude <=
+                LocomotionSpeedSmoother.Epsilon * LocomotionSpeedSmoother.Epsilon)
+            {
+                return;
+            }
+
+            Vector3 local = Quaternion.Inverse(transform.rotation) * movementIntent.DesiredDirection;
+            float directionalLimit = combatDirectionalSpeedProfile.ResolveNormalizedSpeed(
+                new Vector2(local.x, local.z));
+            movementIntent.DesiredSpeedNormalized = Mathf.Min(
+                movementIntent.DesiredSpeedNormalized, directionalLimit);
         }
 
         /// <summary>

@@ -7,7 +7,7 @@
 | 判準 | CLAUDE.md ADR 判準 **①**（黑板 schema ／ ownership 變更）＋ **③**（核心驅動介面語意變更：`IMovementIntentSource` 的方向語意、`IActionLifecycleSink.Release` 契約）＋ **④**（推翻既有不變量：`docs/09` §4-D3 的「⛔ 不得為此新增黑板欄位」與「⛔ 不得長成 facing system」） |
 | Supersede | 無。**延續** ADR-003（D1／D2／D4 的 intent 契約）與 ADR-004 D2（release 時點單一權威）、ADR-005 D1（Action identity）。⚠️ 但**修訂** `docs/09` §4-D3(c) 的兩條紅線與 `docs/10` §4.2 的 trip-wire 處置——見 §7 |
 | 關聯文件 | **`docs/14-direction-authority.md`（Living Spec：契約面、切片、測試、開放項全在該檔）**、`docs/13-combat-locomotion.md` §4（診斷）、`docs/09-camera-aim.md` §4-D3／§5.2、`docs/10-lock-on.md` §4.3／§8、`docs/11-multi-action.md` §8.3 |
-| 前置事實 | ADR-005 已於 2026-09-06 `Accepted`，`docs/11` §10.2 的 ⛔ 名單解除 ⇒ `MotionDriver` 位移路徑可動。**ADR-004 §0「同一時間只允許一個 Trial」仍生效**：本 ADR 與 ADR-006（Proposed）之中只能有一個先翻 Trial，建議順序見 §9.4 |
+| 前置事實 | ADR-005 已於 2026-09-06 `Accepted`。2026-09-11 使用者明確批准 ADR-006 與本 ADR 在「施法 8-way＋soft target」combined vertical slice 暫時同為 Trial；這是一次性互動驗證，**不放寬** ADR-004 的一般治理規則。 |
 
 > **本 ADR 刻意寫短，比照 ADR-005 的檢討。** 只凍結五條「改錯會造成架構污染」的決策；
 > 候選比較的細節、欄位形狀、切片順序、測試清單一律下放 `docs/14`，且**允許在 Trial 期間被程式推翻**。
@@ -200,7 +200,7 @@ lock-on、AI、玩家輸入、aim **都是那個 authority 的來源，不是第
 | **ADR-003** D1／D2／D4 | `MovementIntentData.DesiredDirection` 的**座標系語意**由「相機空間 2D 輸入」改為「世界方向」。契約本身（model-agnostic 的方向＋強度）**不變**，改的是它一直沒被寫明的參考框 | **不 Supersede，屬細化**。ADR-003 §9-L2 與 FU-6 早已把它登記為開放點；世界方向比相機空間**更** model-agnostic |
 | **ADR-004 D2** | release 時點的單一權威**延伸**到 release 方向 | 延續，不推翻 |
 | **ADR-005 D1** | 不受影響。承諾**不是**第二把 identity 鍵 | 無 |
-| **ADR-006**（Proposed） | 無直接衝突，但 Trial 名額互斥（ADR-004 §0） | §9.4 建議 007 先行 |
+| **ADR-006**（Trial） | 無 ownership 衝突；本 combined slice 驗證 Layer 0 locomotion＋Layer 1 spell 與方向承諾能否共同成立 | 2026-09-11 一次性 Trial 例外，見 §9.4 |
 | **`docs/09` §4-D3(c) 紅線「⛔ 不得為此新增黑板欄位」** | 🔴 **本 ADR 保留推翻它的權利**（僅限 facing／aim 承諾，且僅在 S3 第二個 facing 來源落地時）。該紅線成立的前提是「送出者與消費者全在 Presentation」——E6 已證明前提不再成立 | S3 落地時同步改寫 `docs/09` §4-D3 並在此註記；**S1／S2 不動黑板 schema** |
 | **`docs/09` §4-D3(c) 紅線「⛔ 不得長成 facing system」** | 🟡 **語意收窄**：仍禁止「散落的多送出者＋優先級表」，但**允許**單一 facing authority 內部有明確優先序（D3） | 於 `docs/14` §3 明文，並更新 `docs/09` 註記 |
 | **`docs/09` §5.2 trip-wire ①②** | ✅ **確認已被跨過**（E6）。本 ADR 即是它要求的處置 | `docs/09` §5.2 已加註「已觸發 → ADR-007」 |
@@ -216,18 +216,52 @@ lock-on、AI、玩家輸入、aim **都是那個 authority 的來源，不是第
 
 ## 8. Acceptance Criteria（`Trial → Accepted`）
 
-- [ ] **A. strafe 物理成立**（🔄 **2026-09-06 改寫**，原文把驗收綁在即將退場的 aim-hold 上）：
-  角色處於 **Combat Context 且有 combat target** 時——**不按任何鍵**——Facing ＝ target、`MovementDirection` ＝ 玩家輸入的世界方向，**A／D 橫移、S 後退**成立；
-  不在 Combat Context ／ 無 target 時回到 free locomotion（facing 跟隨移動方向，⛔ 不得永久 TPS strafe）。
-  ⚠️ **本條因此必須等 S3 落地才能以最終語意驗收 ⇒ 本 ADR 不可能在 S3 之前翻 `Accepted`**（`docs/15` §8.1）。
+> 📌 **2026-09-12 fold-back**：`docs/17` §7-F4 曾記「§8 的七條驗收**一條都沒打勾**」。
+> 本輪核對後，**A1／B 有 Play 證據（在 `WORKLOG.md`，未回填）、C／D 可由程式與測試直接證明**——
+> 下方已把這四條登記進來。**Status 不變（🟡 Trial）**：A2／E／G 仍未驗，F 只驗了 EditMode。
+> ⛔ 依使用者指示與 CLAUDE.md，**證據不足不得自行升 Accepted**。
+
+- **A. strafe 物理成立**（🔄 **2026-09-10 拆為 A1／A2**，見 §11。原 A 把「Combat Context ⇒ 玩家持續 target-facing」
+  寫進了驗收，而**那個前提已於 2026-09-10 被使用者否決**——玩家不以 combat context 切換朝向）：
+
+  - [x] **A1（玩家）**：committed action 取得 facing authority 期間，Facing ＝ action 承諾方向、
+    `MovementDirection` ＝ 玩家輸入的世界方向，**兩者分離成立**；
+    **action 結束當幀** facing 立即回到跟隨 `MovementDirection`，⛔ 不得殘留 strafe 姿態或延遲回正。
+    ⚠️ **玩家正常 locomotion 維持 1D**；⛔ **不得**以 Combat Context 作為玩家切換朝向或 8-way 的條件。
+    📌 本條**不依賴** 8-way 動畫，也**不依賴** ADR-006 上下半身分層——驗的是 facing／movement 的
+    **分離與復原**，不是表現層。⇒ **在 A2 之前即可獨立驗收。**
+  - [ ] **A2（敵人）**：進入 combat 且有 target 後，敵人**持續**面向 target（側移／後退／繞行／出手皆然）；
+    **脫離 combat 後**回到 facing 跟隨 `MovementDirection`，⛔ 不得永久 TPS strafe。
+    ⚠️ 「脫離 combat」必須**真的可達成**——語境進出是黏性 enter／leave 半徑，
+    ⛔ 不得只由「target 欄位非 null」決定（否則本條永遠驗不過）。切片與門檻見 `docs/19` §3.1。
+
   📌 **過渡觀察（2026-09-06，使用者實跑）**：以舊治具（按住右鍵）驗到「右鍵時始終面朝前方沒問題」，
   **位移／朝向分離的物理面已成立**；缺的只是「朝向來源不靠按鍵」。<br>~~facing 被鎖住時（按住瞄準／後續 lock-on）按左，角色**朝目標、往世界左方位移**，不再朝目標走過去~~
-- [ ] **B. A6 消失**：Fireball 連段期間敵人走動，**每一段的身體朝向與火球方向一致**（允許段與段之間變向，不允許同段內分家）
-- [ ] **C. FU-6 結案**：`AIMovementSource` 不再引用 `CameraTransform`；**移動相機不改變敵人的移動方向**（Play 直接可驗）
-- [ ] **D. sink 零方向解算**：`ThrowProjectileEmitter` 不再持有 `AimResolver`；`GroundEffectSink` 不再以 `root.forward` 決定落點（由 A29 機器守）
+  ✅ **A1 證據**（`WORKLOG.md` 2026-09-11 combined slice，使用者實跑）：「無目標、前方、側方、背後、雙目標與
+  段內 target 消失情境皆符合 snapshot 規則」「Action 結束 overlay 歸零」；facing 與 movement 分離在 Layer 0
+  持續 8-way 期間成立。⚠️ 手感（瞄準修正量）仍待驗，但**本條驗的是分離與復原，不是手感**。
+- [x] **B. A6 消失**：Fireball 連段期間敵人走動，**每一段的身體朝向與火球方向一致**（允許段與段之間變向，不允許同段內分家）
+  ✅ **證據**：`PlayerCombatContextSource` 每個 Action／連段段落**只取一次** soft candidate，
+  「facing 與 projectile release 共用同一 commitment」（`WORKLOG.md`）⇒ 同段內結構上不可能分家；
+  Play 已涵蓋雙目標與段內 target 消失。
+- [x] **C. FU-6 結案**：`AIMovementSource` 不再引用 `CameraTransform`；**移動相機不改變敵人的移動方向**（Play 直接可驗）
+  ✅ **證據（程式，2026-09-12 核對）**：`Core/Movement/AIMovementSource.cs` 對 `CameraTransform`／`camera` 的
+  引用數為 **0**；並由 **A30**（`A30_OnlyPlayerMovementProducer_MayReferenceCameraTransform`）機器守。
+- [x] **D. sink 零方向解算**：`ThrowProjectileEmitter` 不再持有 `AimResolver`；`GroundEffectSink` 不再以 `root.forward` 決定落點（由 A29 機器守）
+  ✅ **證據（程式，2026-09-12 核對）**：`ThrowProjectileEmitter` 對 `AimResolver` 的引用數為 **0**；
+  `GroundEffectSink` 的 `casterRoot.forward` 只剩 `HasAim == false` 的 fallback 分支（註解已說明），
+  由 **A29**（`A29_ActionLifecycleSinks_DoNotResolveDirectionAuthority`）機器守。
 - [ ] **E. 既有零回歸**：Idle／Move（含收步）／Jump（含空中控制）／Roll（含烘焙位移與旋轉）行為不變；動畫參數不晚一幀
+  ❌ **未驗**：無任何 Play 紀錄涵蓋 Roll 烘焙位移與 Jump 空中控制的回歸確認。
 - [ ] **F. EditMode ＋ PlayMode 全綠**，含新增的 A28／A29／A30
+  🟡 **部分**：EditMode **330 passed／0 failed／1 skipped**（`WORKLOG.md`），A28–A32 均存在於
+  `ArchitectureRegressionTests`。**PlayMode 結果未記錄** ⇒ 本條未完成。
 - [ ] **G. 零 GC**：方向載體改型別後穩態仍 `0 B/frame`（`docs/02` §7.4 SOP）
+  ❌ **未驗**：無量測紀錄。
+
+**⇒ 2026-09-12 狀態結論：A1・B・C・D 通過（4），A2・E・G 未驗、F 部分 ⇒ 維持 🟡 Trial。**
+剩餘工作是 **Play（A2 敵人脫離 combat／E 回歸）＋ PlayMode 跑一次 ＋ Profiler 一次**，**不是程式**。
+⚠️ 這同時是 `docs/18` §6-C **X-3** 的解除條件——見該節 2026-09-12 的狀態欄。
 
 **未通過** ⇒ 先修本 ADR ／ `docs/14` → 再驗證，**不得補 workaround**。
 **Revert 成本：低—中**。S1 是語意置換（投影搬家，非新增機制）；S2 是介面加法。
@@ -267,10 +301,10 @@ S3 ＝ **Combat Context（gameplay 語境 ＋ 黏性目標）＋ 單一 facing s
 
 ### 9.4 Trial 名額
 
-✅ **2026-09-06 使用者裁決：本 ADR 佔用 Trial 名額，ADR-006（上身層）維持 `Proposed`。**
-理由同 `docs/13` §7 的順序（movement/facing → 2D mixer → 上身層）：上身層若先做，
-會與「橫移方向錯誤」兩組症狀混在一起難以歸因。
-⇒ **ADR-006 在本 ADR `Accepted` 之前不得翻 Trial**（ADR-004 §0）。
+2026-09-06 原裁決由本 ADR 單獨佔用 Trial 名額。2026-09-11 使用者針對
+**Animation Layering × Direction Authority combined vertical slice** 明確批准一次性例外：ADR-006 與本 ADR
+可暫時同為 Trial，以驗證施法期間 committed facing、MoveX／MoveZ FullRing 與 upper-body overlay 的交互作用。
+此例外不適用其他 ADR，也不把「可並行多個 Trial」變成一般規則。
 
 ---
 
@@ -300,3 +334,5 @@ S3 ＝ **Combat Context（gameplay 語境 ＋ 黏性目標）＋ 單一 facing s
 | 2026-09-08 | **F6 落地：Core 不再持有具體 `AimResolver`。** 新增 `Project.Core.Actions.IAimSource`（`CommitmentOrigin` ＋ `TryGetAimPoint`），`AimResolver` 實作之；`ActionState`／`FullBodyStateMachine`／`CharacterPipelineRunner` 三處改依賴介面。**同時收緊 §7 所列的 A4**：`Core/StateMachine` 白名單由整個 `Project.Presentation` 前綴改為 `Project.Presentation.Motion` ＋ `Project.Presentation.Animation`。<br>📌 **與 §7 的偏差（明示）**：§7 建議「型別白名單」，實作採**命名空間**層級——達成同一目的（把 `CameraControl` 擋在外面）、沿用既有比對機制、零新機器。**Trial 不凍結，故此偏差合法**，記於此處而非另開 ADR | E6 的根因是「規則的**意圖**只放行兩個 seam，但前綴比對放行了整個 `Project.Presentation.*`」⇒ 修的是那個縫隙本身。⚠️ `IAimSource.CommitmentOrigin` **忠實承接**「`AimResolver` 與角色 Root 同物件」的既有耦合，**不宣稱**瞄準來源理應知道角色位置——拆分屬另一個切片 |
 | 2026-09-08 | **Action Targeting Policy 程式落地**（`ActionDefinitionSO.Targeting` ＋ `ActionState.TrySoftTarget` 角錐閘門，取代無條件優先取 combat target 的 `TrySelectAimPoint`）。**D1–D5 一字未動**；D5「同一份承諾」的性質不受影響——改的只是**承諾怎麼取得**，不是取得幾次。實作期開放問題（相機錐 vs 黏性目標）已答，記於 `docs/11` §8.3 | 上一列只是裁決，程式一行未動 ⇒ 磁碟上「所有 Action 都等同 soft-target」與裁決相反。⚠️ **`dotnet build` 0 error 不等於測試通過**；EditMode 實跑仍在使用者側 |
 | 2026-09-06 | **S1＋S2 程式落地（code-first，Trial 期允許）**。**D1–D5 五條決策一字未動、未被推翻**。實作推翻的是 `docs/14` 的兩處**寫法**（`LocomotionModel` 無需修改；AoE 是「`AimPoint` 定方向、`castDistance` 定距離」而非「落點＝`AimPoint`」），已 fold back 進 `docs/14` §2.1／§2.2——**兩者都屬本 ADR 明文不凍結的範圍** | Trial 的存在目的就是讓實作有機會推翻規格。⚠️ **Acceptance A–G 全部尚未打勾**：EditMode／PlayMode 實跑與 Play 驗收在使用者側，`dotnet build` 0 error **不等於**測試通過 |
+| 2026-09-10 | **持續 target-facing 的適用範圍收斂為「敵人」（使用者裁決）**，並據此把 **Acceptance A 拆成 A1（玩家）／A2（敵人）**。<br>⚠️ **與 2026-09-08 那一列的關係（重要，不要誤讀為互相推翻）**：09-08 記的是「**Combat Context 不再驅動持續朝向**」，當時的語境是**玩家體驗**；本列把該裁決**明確限定在玩家**，並確認**敵人相反**——敵人在 combat 且有 target 時**持續** target-facing，因為那是敵人**既有** Hold／strafe 行為本來就需要的 facing policy。<br>**D1–D5 五條決策一字未動**；D3 的補充條款（facing 來源必須是語境、單一 producer、⛔ 禁止自建第二份 isInCombat／target）**全部原樣適用**，敵人 producer 正是它明文允許的「每角色唯一 active 的 combat context producer」。<br>連帶：8-way 的定位仍是 09-08 那句「**MovementDirection 與 FacingDirection 分離時**的 locomotion 表示法」——**未改**；改的只是**誰會長時間處於分離狀態**。1D／2D 由 **locomotion presentation mode ／ actor policy** 決定，⛔ **不得**依 separation angle 做 runtime 切換（不連續選擇餵給連續量）。切片規格：`docs/19-enemy-combat-facing-slice.md` | 玩家 8-way 的真正前置是「施法期間下半身仍播 locomotion」＝ ADR-006 上下半身分層，而 ADR-006 仍是 `Proposed`（Trial 名額被本 ADR 佔用）⇒ 玩家那半邊**現在做不動**；敵人那半邊**不需要分層**（純 Layer 0 locomotion），且今天就已經是可見缺陷（繞圈時側身／背對玩家）。⇒ 先做做得動、且修的是既有缺陷的那半邊 |
+| 2026-09-11 | **combined Trial 例外＋soft-target commitment 落地**：使用者批准 ADR-006 與本 ADR 暫時同為 Trial。`PlayerCombatContextSource` 在同一 producer 內額外發布無記憶的 soft-target candidate（12m／水平半角 25°；角度優先、距離次要），`ActionState` 只在每個 Action／連段段落邊界消費一次。段內不重選；facing 與 projectile release 共用同一份 commitment；target 中途失效仍保留該段承諾。**D1–D5 未改** | 這不是 hard lock-on，也不是第二個 target authority；它只是既有 D5 commitment 的選擇輸入。與 ADR-006 的 Layer 0 Walk／Run 8-way＋Layer 1 spell 一起接受 Play 驗證 |

@@ -14,49 +14,79 @@ namespace Project.Core.Pipeline
     /// 而下一幀開頭 `InputData inputData = default` 會把整份輸入歸零重取
     /// ⇒ 那個旗標**永遠不會被任何人讀到**。這不是風格偏好，是時序事實。
     ///
-    /// ⛔ **本元件不持有任何冷卻計時器**（使用者 2026-09-05 明確要求）。
+    /// 本元件只持有「多久重新送一次請求」的 producer cadence；它不是攻擊冷卻。
     /// 「這一拳現在能不能出」的唯一回答者仍是 `ActionState`（ADR-004 D2）——
     /// 它握有 per-slot 冷卻、`RequiresGrounded`、以及 Action lifecycle。
     /// AI 只負責回答「我想不想打」，不負責回答「我可不可以打」。
     ///
-    /// ⚠️ **已知的介面限制，見 <see cref="FetchRawInput"/> 的說明**。
     /// </summary>
     public sealed class AIInputSource : MonoBehaviour, IInputSource
     {
+        private const float MinimumRetryInterval = 0.01f;
+
         [Tooltip("攻擊對象。留空 ⇒ 永不出手（不是錯誤，未接線的敵人應該安靜）。")]
         [SerializeField] private Transform target;
 
         [Tooltip("進入這個水平距離內就想出手。\n" +
-                 "預設 2 對齊 AIMovementSource 的 maximumEngagementDistance——" +
-                 "兩者不一致會產生「站在帶內卻打不到」或「邊退邊揮空」的怪異行為。")]
+                 "⚠️ 契約（W10 守）：必須**等於** AIMovementSource 的 maximumEngagementDistance。\n" +
+                 "太大 ⇒ 還在 Approach 就揮拳（邊滑步邊出拳）；\n" +
+                 "太小 ⇒ 兩者之間出現一段「站得住但打不到」的死區，敵人會在那裡繞圈永不出手。\n" +
+                 "要改就兩個一起改，並以 MeleeHitbox 的實際觸及範圍為準。")]
         [SerializeField, Min(0f)] private float attackRange = 2f;
 
+        [Tooltip("仍在攻擊距離內時，隔多久重新嘗試送一次 Slot1 request。\n" +
+                 "這只是 producer 的 request cadence，不是 attack cooldown；" +
+                 "真正能否執行仍由 ActionState 的 Cooldown、CooldownVariance、著地條件與 lifecycle 決定。")]
+        [SerializeField, Min(MinimumRetryInterval)] private float attackRequestRetryInterval = 0.5f;
+
+        private bool _wasWithinAttackRange;
+        private float _nextAttackRequestTime;
+
         /// <summary>
-        /// 只回答「攻擊鍵現在有沒有被按著」。**不碰移動輸入**——敵人的移動意圖由
+        /// 把持續的 attack desire 轉成單幀 request pulse。**不碰移動輸入**——敵人的移動意圖由
         /// `AIMovementSource` 在順序 2.5 直接寫 `MovementIntent`，兩者職責不重疊。
         /// （`inputData` 由 Runner 每幀 `default` 初始化，因此這裡不必歸零其餘欄位。）
         ///
-        /// 🔴 **已知限制：這是 level-triggered，不是 edge-triggered。**
-        /// 只要目標在射程內，本方法**每一幀**都會回報 `Slot1ButtonDown = true`——
-        /// 語意上等於「AI 一直按著攻擊鍵」，而真實裝置的 `WasPressedThisFrame` 不可能連續兩幀為真。
-        ///
-        /// **為什麼還是這樣做**：`IInputSource.FetchRawInput(ref InputData)` **拿不到黑板**，
-        /// 因此輸入源無從得知「上一次按下有沒有被消化」「冷卻好了沒」。
-        /// 要產生正確節奏的單幀脈衝，只剩兩條路——AI 自己計時（使用者已否決），
-        /// 或回讀狀態機（違反依賴方向）。⇒ 在現有介面下，level-triggered 是唯一誠實的表達。
-        ///
-        /// **今天為什麼安全**：`EnemyPunchDefinition` 沒有 `Loop`（`WaitForTrigger` 用不到）
-        /// 也沒有 `ChainSegments`（連段推進用不到），`ActionState` 裡兩條會讀 re-trigger 的路徑都走不到，
-        /// 節流完全由 `Cooldown` 負責。
-        ///
-        /// **哪一天會咬人**：敵人的 Definition 一旦加上 `Loop`＋`WaitForTrigger` 或 `ChainSegments`，
-        /// 持續為真的旗標會讓它**每一段都立刻自動推進**。屆時正解是替 `InputData` 補一組
-        /// `Slot1ButtonHeld`（比照既有的 `SprintButtonHeld` ／ `SprintButtonDown` 並存先例），
-        /// **不是**在本元件補計時器。`AIInputSourceTests` 已把這條語意釘住。
+        /// 第一次進入射程立即送一次；持續留在射程內時，每隔 request retry interval 再送一次。
+        /// 中間幀必為 false，讓 external request 有機會進入既有仲裁。離開射程會重新武裝，
+        /// 下次進入可立即再送。此處不讀黑板、FSM 或 ActionState，也不知道上次請求是否成功。
         /// </summary>
         public void FetchRawInput(ref InputData data)
         {
-            data.Slot1ButtonDown = WantsToAttack();
+            FetchRawInput(ref data, Time.time);
+        }
+
+        private void FetchRawInput(ref InputData data, float currentTime)
+        {
+            bool wantsToAttack = WantsToAttack();
+            if (!wantsToAttack)
+            {
+                RearmAttackRequest();
+                data.Slot1ButtonDown = false;
+                return;
+            }
+
+            if (!_wasWithinAttackRange || currentTime >= _nextAttackRequestTime)
+            {
+                _wasWithinAttackRange = true;
+                _nextAttackRequestTime = currentTime
+                    + Mathf.Max(MinimumRetryInterval, attackRequestRetryInterval);
+                data.Slot1ButtonDown = true;
+                return;
+            }
+
+            data.Slot1ButtonDown = false;
+        }
+
+        private void OnDisable()
+        {
+            RearmAttackRequest();
+        }
+
+        private void RearmAttackRequest()
+        {
+            _wasWithinAttackRange = false;
+            _nextAttackRequestTime = 0f;
         }
 
         /// <summary>目前是否想出手。<c>internal</c> 供 EditMode 驗證，production 只經 <see cref="FetchRawInput"/>。</summary>
@@ -81,10 +111,18 @@ namespace Project.Core.Pipeline
         }
 
         /// <summary>測試用的顯式接線；production 走 Inspector 指派。</summary>
-        internal void ConfigureForTests(Transform attackTarget, float range)
+        internal void ConfigureForTests(Transform attackTarget, float range, float retryInterval = 0.5f)
         {
             target = attackTarget;
             attackRange = range;
+            attackRequestRetryInterval = retryInterval;
+            RearmAttackRequest();
+        }
+
+        /// <summary>測試以顯式時間驗證 cadence，production 仍使用 Unity 的 scaled game time。</summary>
+        internal void FetchRawInputAtTimeForTests(ref InputData data, float currentTime)
+        {
+            FetchRawInput(ref data, currentTime);
         }
 
 #if UNITY_EDITOR

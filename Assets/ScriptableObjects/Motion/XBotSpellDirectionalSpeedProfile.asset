@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c855ac3d49d343345a21ef3c7f9b531d, type: 3}
+  m_Name: XBotSpellDirectionalSpeedProfile
+  m_EditorClassIdentifier: Project.Runtime::Project.Core.Movement.CombatDirectionalSpeedProfileSO
+  maximumSpeedSource: {fileID: 11400000, guid: 672fae5c3d8711247a958cefd2234e25, type: 2}
+  forward: {fileID: 11400000, guid: 7c253da4ed9248b4fa1485ea300fb6ef, type: 2}
+  backward: {fileID: 11400000, guid: da2d6434b92ef964480640761c3d6c75, type: 2}
+  left: {fileID: 11400000, guid: 503a2e4d31f964943a5e5bd4ed2ed890, type: 2}
+  right: {fileID: 11400000, guid: 39e4306babeeda446b6fa7de8f02a157, type: 2}
+  forwardLeft: {fileID: 11400000, guid: 4157580bde9959f4e981dcec65e3f7b2, type: 2}
+  forwardRight: {fileID: 11400000, guid: 9d9d592a368ccea409a2f21e19aa6136, type: 2}
+  backwardLeft: {fileID: 11400000, guid: 26f702f24c71a684f9a929dff2828cd2, type: 2}
+  backwardRight: {fileID: 11400000, guid: 622f448e8efbe2c42af3b5a66bee4d76, type: 2}
+  maxPlaybackStretch: 1.35

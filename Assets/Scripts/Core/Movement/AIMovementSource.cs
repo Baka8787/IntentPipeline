@@ -16,26 +16,58 @@ namespace Project.Core.Movement
         {
             Hold,
             Approach,
-            Retreat
+            Strafe,
+            Retreat,
+
+            /// <summary>
+            /// 🆕（2026-09-15）**離開 NavMesh 後的自救**。
+            ///
+            /// <para><b>為什麼需要一個獨立模式</b></para>
+            /// 舊版離網時直接 <c>Hold; return;</c>，而全 repo **沒有任何一行**會把 agent 放回可導航區
+            /// （<c>isOnNavMesh</c> 全專案只有這個檔案讀）⇒ <c>Hold</c> 是一個**沒有出口的終態**，
+            /// 敵人永久靜止（2026-09-15 錄影：連續 11 秒零位移，期間玩家跑遠也不追）。
+            ///
+            /// 這個模式**刻意不推進 <see cref="ResolveEngagementMovement"/> 的遲滯狀態機**——
+            /// 維持原註解的意圖（離網期間的距離變化不得污染遲滯記憶），
+            /// 只回答一個問題：**往哪走才回得去。**
+            /// </summary>
+            Recover
         }
 
         [SerializeField] private Transform target;
         [SerializeField, Range(0f, 1f)] private float desiredSpeedNormalized = 1f;
+
+        [Header("Combat Engagement")]
+        [SerializeField, Min(0f)] private float aggroEnterRadius = 8f;
+        [SerializeField, Min(0f)] private float aggroLeaveRadius = 12f;
 
         [Header("Melee Engagement Distance")]
         [SerializeField, Min(0f)] private float minimumEngagementDistance = 1.25f;
         [SerializeField, Min(0f)] private float maximumEngagementDistance = 2f;
         [SerializeField, Min(0f)] private float distanceHysteresis = 0.15f;
 
-        [Header("Hold Strafe")]
+        [Header("Strafe")]
         [SerializeField, Range(0f, 1f)] private float holdStrafeSpeedNormalized = 0.35f;
         [SerializeField, Min(0f)] private float strafeDirectionFlipInterval = 2.5f;
+
+        // 🆕（2026-09-15）側移的**可走性前視距離**。側移方向是純幾何切線，本身不認識環境；
+        // 沒有這一步，敵人會把自己側移進牆縫／走出 NavMesh，然後永久卡死。
+        // 取值取「一步的量級」即可——太短擋不住，太長會讓敵人在合法的窄通道裡過度保守。
+        [SerializeField, Min(0.01f)] private float strafeWalkableProbeDistance = 0.6f;
+
+        [Header("Off-NavMesh Recovery")]
+        // 從目前位置往外找最近可導航點的取樣半徑。只在**已經離網**時才會用到，不在熱路徑上。
+        [SerializeField, Min(0.01f)] private float offMeshRecoverSampleRadius = 3f;
+        [SerializeField, Range(0f, 1f)] private float recoverSpeedNormalized = 0.5f;
 
         private NavMeshAgent _agent;
         private TemporaryGameplayEffectState _effectState;
         private EngagementMovement _engagementMovement;
         private int _strafeDirectionSign = 1;
         private float _nextStrafeDirectionFlipTime;
+
+        // 純診斷用：兩側都不可走而停步。**不參與任何決策**（gizmo 只讀不寫，A2 守）。
+        private bool _strafeBlocked;
 
         private void Awake()
         {
@@ -66,30 +98,140 @@ namespace Project.Core.Movement
             if (data == null) return;
 
             data.MovementIntent = default;
-            if (_agent == null || !_agent.isOnNavMesh || target == null)
+
+            // 🆕（2026-09-15）**屍體不產生移動意圖。**
+            // `DeathState` 是吸收態、確實不會走路，所以這條在今天看不出差別——但決策層繼續
+            // 每帧解出 Approach／Strafe／NavMesh 查詢是**沒有讀者的計算**，而且會讓 gizmo 報告
+            // 一個屍體「正在側移」。與 `CharacterFacingSource` 的 `DeathSuppressed`
+            // （2026-09-14）同一個模式：**死亡由各自的消費者明確收手**，不靠下游剛好擋住。
+            if (data.Survivability.IsDead)
+            {
+                _engagementMovement = EngagementMovement.Hold;
+                _strafeBlocked = false;
+                return;
+            }
+
+            if (target == null)
+            {
+                data.CombatContext = default;
+                _engagementMovement = EngagementMovement.Hold;
+                return;
+            }
+
+            Vector3 targetPosition = target.position;
+            Vector3 toTarget = targetPosition - transform.position;
+            toTarget.y = 0f;
+            float distance = Mathf.Sqrt(toTarget.sqrMagnitude);
+
+            // ── 層 1：接戰語境（**與 NavMesh 無關**）────────────────────────────────
+            // CombatContext 回答的是「還在不在跟這個目標交戰」——那是**目標關係**的性質，
+            // 不是導航的性質。agent 掉出 NavMesh 不代表敵人脫離戰鬥，所以這一層必須在
+            // NavMesh 守衛**之前**結算。
+            // 敵人的移動與戰鬥語境共用同一個 target 真相；另建 context source 只會複製
+            // target reference ⇒ 目標會出現第二份真相（ADR-007 D3 補充條款明文禁止
+            // 「任何其他系統自建 isInCombat 旗標或第二份 target 清單」）。
+            // 這裡整體覆寫 value struct，不讓下游回頭讀 Transform。
+            bool inCombat = ResolveCombatEngagement(
+                data.CombatContext.InCombat,
+                distance,
+                aggroEnterRadius,
+                aggroLeaveRadius);
+            data.CombatContext = new CombatContextData
+            {
+                InCombat = inCombat,
+                HasTarget = inCombat,
+                TargetPosition = inCombat ? targetPosition : Vector3.zero,
+            };
+
+            // 尚未進入交戰語境時必須是 Idle。early-return 是權威邊界：不能讓距離帶
+            // 繼續把未交戰的敵人解析成 Approach／Strafe／Retreat。
+            if (!inCombat)
             {
                 _engagementMovement = EngagementMovement.Hold;
                 return;
             }
 
-            // Agent 只維護 path query 的內部位置；角色 Transform 只會被 MotionDriver 搬動。
-            _agent.nextPosition = transform.position;
-            _agent.SetDestination(target.position);
+            // ── 層 2：**可導航前提下**的移動模式 ────────────────────────────────────
+            // Approach／Retreat 回答的是「要怎麼走過去」；沒有可用路徑時那個決定沒有意義。
+            // ⛔ 離網期間**不得**讓遲滯狀態機繼續推進——否則回到 NavMesh 的那一幀會拿到一個
+            //    沒有任何一幀真正推導過的模式（遲滯記憶被離網期間的距離變化污染）。
+            //
+            // 🆕 2026-09-15：**但也不得就此停住。** 舊版在這裡 `Hold; return;`，
+            //    而沒有任何系統會把離網的 agent 放回去 ⇒ 敵人永久靜止。
+            //    改為進入 <see cref="EngagementMovement.Recover"/>：遲滯狀態機依舊凍結，
+            //    但輸出一個「走回可導航區」的意圖，讓 MotionDriver 自己走回去。
+            // ⛔ 刻意**不用** `NavMeshAgent.Warp()`——它會直接設 `transform.position`，
+            //    違反本專案「位移由 MotionDriver 獨佔」的不變量。自救也必須走同一條輸出。
+            if (_agent == null || !_agent.isOnNavMesh)
+            {
+                _engagementMovement = EngagementMovement.Recover;
+                _strafeBlocked = false;
 
-            Vector3 toTarget = target.position - transform.position;
-            toTarget.y = 0f;
+                bool hasSample = NavMesh.SamplePosition(
+                    transform.position, out NavMeshHit sample, offMeshRecoverSampleRadius, NavMesh.AllAreas);
+
+                if (!TryResolveRecoveryDirection(
+                        transform.position,
+                        hasSample,
+                        hasSample ? sample.position : Vector3.zero,
+                        toTarget,
+                        out Vector3 recoveryDirection))
+                {
+                    return;
+                }
+
+                data.MovementIntent.DesiredDirection = recoveryDirection;
+                data.MovementIntent.DesiredSpeedNormalized =
+                    ResolveDesiredSpeedNormalized(recoverSpeedNormalized, Time.time);
+                return;
+            }
+
             _engagementMovement = ResolveEngagementMovement(
                 _engagementMovement,
-                Mathf.Sqrt(toTarget.sqrMagnitude),
+                distance,
                 minimumEngagementDistance,
                 maximumEngagementDistance,
                 distanceHysteresis);
 
+            // Agent 只維護 path query 的內部位置；角色 Transform 只會被 MotionDriver 搬動。
+            _agent.nextPosition = transform.position;
+            _agent.SetDestination(targetPosition);
+
+            // 只有側移分支會把它設為 true；其餘模式必須清掉，否則 gizmo 會留著上一次的「被擋」狀態。
+            _strafeBlocked = false;
+
             Vector3 worldDirection;
-            if (_engagementMovement == EngagementMovement.Hold)
+            if (_engagementMovement == EngagementMovement.Strafe)
             {
                 UpdateStrafeDirection(Time.time);
-                worldDirection = ResolveHoldStrafeDirection(toTarget, _strafeDirectionSign);
+
+                // 🆕（2026-09-15）**側移必須先問環境。**
+                // 切線方向是純幾何的（toTarget 繞 Y 轉 90°），本身完全不認識牆、窄縫或 NavMesh 邊界。
+                // 而側移是**穩態**模式（交戰帶 [min, max] 很窄，打鬥期間幾乎全程待在裡面），
+                // Approach 只是過渡 ⇒ 舊版等於「唯一諮詢 NavMesh 的是過渡模式，穩態模式不看環境」。
+                // 打得夠久就必然把自己側移出網 ⇒ 見 EngagementMovement.Recover 的說明。
+                int preferredSign = _strafeDirectionSign;
+                bool preferredWalkable = IsStrafeStepWalkable(toTarget, preferredSign);
+                bool oppositeWalkable = !preferredWalkable && IsStrafeStepWalkable(toTarget, -preferredSign);
+
+                _strafeBlocked = !preferredWalkable && !oppositeWalkable;
+
+                if (!TryResolveStrafeDirection(
+                        toTarget, preferredSign, preferredWalkable, oppositeWalkable,
+                        out worldDirection, out int resolvedSign))
+                {
+                    // 兩側都走不了：站定，**但不改 `_engagementMovement`**。
+                    // 下一幀 ResolveEngagementMovement 仍會從同一個距離推導出 Strafe 並重試，
+                    // 玩家一動或牆一讓開就自然恢復 ⇒ 這是暫時停步，不是終態。
+                    return;
+                }
+
+                if (resolvedSign != preferredSign)
+                {
+                    // 撞牆換邊也要重置計時，否則剛翻完就被 flip interval 立刻翻回被擋的那側。
+                    _strafeDirectionSign = resolvedSign;
+                    ScheduleNextStrafeDirectionFlip(Time.time);
+                }
             }
             else if (_engagementMovement == EngagementMovement.Retreat)
             {
@@ -98,15 +240,26 @@ namespace Project.Core.Movement
                 // 作為局部脫離方向，不能讓 NavMeshAgent 自己搬 Transform 來規避這個情況。
                 worldDirection = -toTarget;
             }
+            else if (_engagementMovement == EngagementMovement.Approach)
+            {
+                // `pathPending` 是**短暫**的（路徑非同步計算，通常 1～2 帧）⇒ 等它算完是對的，停一兩帧看不出來。
+                // 🆕 2026-09-15：`!hasPath`／`PathInvalid` 則**可能持續存在**（目標不可達、
+                //    目標站在 NavMesh 之外、中途被 obstacle 切斷）。舊版對這兩者也一律空手 return，
+                //    形狀與離網守衛完全相同——**沒有 fallback 的 early-return ＝ 靜止的敵人**。
+                //    改為退化成「直接朝目標壓過去」：位移仍由 MotionDriver 結算，撞到牆會自然貼牆滑行。
+                // ⚠️ Trade-off：目標真的不可達時，敵人會變成「持續推牆」而不是「站著不動」。
+                //    兩者都不理想，但推牆是**可見的嘗試**，站著不動看起來就是壞掉——
+                //    而且推牆會讓 FSM／動畫維持在移動語境，不會留下假的 Idle。
+                if (_agent.pathPending) return;
+
+                worldDirection = !_agent.hasPath || _agent.pathStatus == NavMeshPathStatus.PathInvalid
+                    ? toTarget
+                    : _agent.steeringTarget - transform.position;
+            }
             else
             {
-                if (_agent.pathPending || !_agent.hasPath ||
-                    _agent.pathStatus == NavMeshPathStatus.PathInvalid)
-                {
-                    return;
-                }
-
-                worldDirection = _agent.steeringTarget - transform.position;
+                // Hold 是真正的零移動 fallback，不再同時暗指「側移」。
+                return;
             }
 
             worldDirection.y = 0f;
@@ -114,9 +267,32 @@ namespace Project.Core.Movement
             worldDirection.Normalize();
 
             data.MovementIntent.DesiredDirection = worldDirection;
-            data.MovementIntent.DesiredSpeedNormalized = _engagementMovement == EngagementMovement.Hold
+            data.MovementIntent.DesiredSpeedNormalized = _engagementMovement == EngagementMovement.Strafe
                 ? ResolveDesiredSpeedNormalized(holdStrafeSpeedNormalized, Time.time)
                 : ResolveDesiredSpeedNormalized(Time.time);
+        }
+
+        /// <summary>
+        /// （純函數）接戰**語境**的黏性進出判定。沿用 <c>PlayerCombatContextSource</c> 的
+        /// enter／leave 半徑形狀：**尚未進場時用 enter、已進場時用較大的 leave**，
+        /// 讓目標在邊界附近來回時不會逐幀翻轉 facing 來源。
+        ///
+        /// enter／leave 使用獨立的 aggro 半徑，與近戰帶的
+        /// <c>minimumEngagementDistance</c>／<c>maximumEngagementDistance</c> 分離。
+        /// 退化輸入以 enter 為下限夾住 leave，避免兩個門檻反向。
+        ///
+        /// ⚠️ 與 <see cref="ResolveEngagementMovement"/> 的分工：本函數只回答「還在不在交戰」，
+        /// 不回答「要怎麼移動」。後者需要可用路徑，前者不需要。
+        /// </summary>
+        internal static bool ResolveCombatEngagement(
+            bool wasInCombat,
+            float distance,
+            float enterRadius,
+            float leaveRadius)
+        {
+            float effectiveEnterRadius = Mathf.Max(0f, enterRadius);
+            float effectiveLeaveRadius = Mathf.Max(leaveRadius, effectiveEnterRadius);
+            return distance <= (wasInCombat ? effectiveLeaveRadius : effectiveEnterRadius);
         }
 
         /// <summary>
@@ -141,14 +317,14 @@ namespace Project.Core.Movement
 
             if (distance < minimum) return EngagementMovement.Retreat;
             if (distance > maximum) return EngagementMovement.Approach;
-            return EngagementMovement.Hold;
+            return EngagementMovement.Strafe;
         }
 
         /// <summary>
         /// 把目標方向水平化後繞 Y 軸旋轉 90 度；正負號只選順／逆時針，不改變單位長度。
         /// 退化的水平向量沒有可靠切線，直接回傳零向量，避免正規化產生 NaN。
         /// </summary>
-        internal static Vector3 ResolveHoldStrafeDirection(Vector3 toTarget, int directionSign)
+        internal static Vector3 ResolveStrafeDirection(Vector3 toTarget, int directionSign)
         {
             float horizontalSqrMagnitude = toTarget.x * toTarget.x + toTarget.z * toTarget.z;
             if (horizontalSqrMagnitude <= 0.0001f) return Vector3.zero;
@@ -159,6 +335,87 @@ namespace Project.Core.Movement
                 toTarget.z * signedInverseMagnitude,
                 0f,
                 -toTarget.x * signedInverseMagnitude);
+        }
+
+        /// <summary>
+        /// 🆕（2026-09-15，純函數）**在已知兩側可走性的前提下**選出側移方向。
+        ///
+        /// 把「要不要換邊」與「怎麼問 NavMesh」拆開的理由很實際：NavMesh 查詢在 EditMode 不存在，
+        /// 呼叫端負責問、本函數負責決定 ⇒ **決策邏輯可以在沒有 NavMesh 的情況下完整測試**，
+        /// 與本檔既有的 <see cref="ResolveEngagementMovement"/>／<see cref="ResolveStrafeDirection"/>
+        /// 同一個模式（純靜態、無副作用、不碰 Unity 場景）。
+        /// </summary>
+        /// <returns>兩側皆不可走時回 false，呼叫端應停步且**不要**改變交戰模式。</returns>
+        internal static bool TryResolveStrafeDirection(
+            Vector3 toTarget,
+            int preferredSign,
+            bool preferredWalkable,
+            bool oppositeWalkable,
+            out Vector3 direction,
+            out int resolvedSign)
+        {
+            resolvedSign = preferredSign;
+            direction = Vector3.zero;
+
+            if (preferredWalkable)
+            {
+                direction = ResolveStrafeDirection(toTarget, preferredSign);
+            }
+            else if (oppositeWalkable)
+            {
+                resolvedSign = -preferredSign;
+                direction = ResolveStrafeDirection(toTarget, resolvedSign);
+            }
+            else
+            {
+                return false;
+            }
+
+            // 退化的水平向量（角色與目標重疊）沒有可靠切線——ResolveStrafeDirection 已回零向量，
+            // 這裡把它轉成明確的「解不出方向」，避免呼叫端正規化零向量。
+            return direction.sqrMagnitude > 0.0001f;
+        }
+
+        /// <summary>
+        /// 🆕（2026-09-15，純函數）離網自救的方向決策。
+        ///
+        /// 優先走向最近的可導航取樣點；取樣失敗（離得太遠、周圍真的沒有 NavMesh）時，
+        /// **最後手段是朝目標**——目標是玩家，依定義站在可走的地方，朝它走至少方向是對的。
+        /// ⛔ 不回退成「不動」：那正是這次要修掉的終態。
+        /// </summary>
+        internal static bool TryResolveRecoveryDirection(
+            Vector3 selfPosition,
+            bool hasNavMeshSample,
+            Vector3 sampledPosition,
+            Vector3 toTarget,
+            out Vector3 direction)
+        {
+            if (hasNavMeshSample)
+            {
+                direction = sampledPosition - selfPosition;
+                direction.y = 0f;
+                if (direction.sqrMagnitude > 0.0001f) return true;
+            }
+
+            direction = toTarget;
+            direction.y = 0f;
+            return direction.sqrMagnitude > 0.0001f;
+        }
+
+        /// <summary>
+        /// 側移一步之後**還在不在可導航區**。
+        ///
+        /// 用 <see cref="NavMesh.Raycast"/> 而不是 <see cref="NavMesh.SamplePosition"/>：
+        /// 前者回答的正是「從 A 直線走到 B 會不會穿出 NavMesh 邊界」，零配置，而且是這裡真正的問題；
+        /// 後者只回答「B 附近有沒有 NavMesh」，跨過一道牆縫的另一側也會通過。
+        /// </summary>
+        private bool IsStrafeStepWalkable(Vector3 toTarget, int directionSign)
+        {
+            Vector3 step = ResolveStrafeDirection(toTarget, directionSign);
+            if (step.sqrMagnitude <= 0.0001f) return false;
+
+            Vector3 destination = transform.position + step * strafeWalkableProbeDistance;
+            return !NavMesh.Raycast(transform.position, destination, out _, NavMesh.AllAreas);
         }
 
         private void UpdateStrafeDirection(float currentTime)
@@ -194,7 +451,7 @@ namespace Project.Core.Movement
         {
             Vector3 origin = transform.position;
 
-            // 內圈：比它更近就該後退。外圈：比它更遠就該接近。兩圈之間＝Hold。
+            // 內圈：比它更近就該後退。外圈：比它更遠就該接近。兩圈之間＝Strafe。
             UnityEditor.Handles.color = new Color(1f, 0.4f, 0.3f, 0.9f);
             UnityEditor.Handles.DrawWireDisc(origin, Vector3.up, Mathf.Max(0f, minimumEngagementDistance));
             UnityEditor.Handles.color = new Color(0.35f, 0.8f, 1f, 0.9f);
@@ -215,15 +472,15 @@ namespace Project.Core.Movement
 
             UnityEditor.Handles.color = EngagementGizmoColor(_engagementMovement);
             UnityEditor.Handles.DrawLine(origin, origin + toTarget);
-            if (_engagementMovement == EngagementMovement.Hold)
+            if (_engagementMovement == EngagementMovement.Strafe)
             {
-                Vector3 strafeDirection = ResolveHoldStrafeDirection(toTarget, _strafeDirectionSign);
+                Vector3 strafeDirection = ResolveStrafeDirection(toTarget, _strafeDirectionSign);
                 UnityEditor.Handles.DrawLine(origin, origin + strafeDirection * 1.5f);
             }
             UnityEditor.Handles.Label(labelAnchor,
-                $"AI move: {_engagementMovement}\n" +
+                $"AI move: {_engagementMovement}{(_strafeBlocked ? "  ⚠ 兩側皆不可走 ⇒ 停步" : string.Empty)}\n" +
                 $"distance {distance:0.00}  band [{minimumEngagementDistance:0.00}, {maximumEngagementDistance:0.00}]\n" +
-                $"strafe {(_strafeDirectionSign > 0 ? "CW" : "CCW")}");
+                $"strafe {(_strafeDirectionSign > 0 ? "CW" : "CCW")}  onNavMesh {(_agent != null && _agent.isOnNavMesh ? "yes" : "NO")}");
         }
 
         private static Color EngagementGizmoColor(EngagementMovement movement)
@@ -232,7 +489,9 @@ namespace Project.Core.Movement
             {
                 case EngagementMovement.Approach: return new Color(1f, 0.85f, 0.2f); // 黃＝往前
                 case EngagementMovement.Retreat: return new Color(1f, 0.4f, 0.3f);   // 紅＝後退
-                default: return new Color(0.4f, 1f, 0.5f);                            // 綠＝側移
+                case EngagementMovement.Strafe: return new Color(0.4f, 1f, 0.5f);   // 綠＝側移
+                case EngagementMovement.Recover: return new Color(1f, 0.2f, 0.9f);  // 洋紅＝離網自救（看到它就是出過網）
+                default: return new Color(0.55f, 0.55f, 0.6f);                       // 灰＝Hold
             }
         }
 #endif

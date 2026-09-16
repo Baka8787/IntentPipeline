@@ -1,6 +1,9 @@
 using System.Collections.Generic;
 using Animancer;
 using NUnit.Framework;
+using Project.Core.Facing;
+using Project.Core.Movement;
+using Project.Presentation.Animation;
 using Project.Presentation.Motion;
 using UnityEditor;
 using UnityEngine;
@@ -13,16 +16,24 @@ namespace Project.Tests.EditMode
     /// 本檔只透過 <see cref="AssetDatabase"/>、<see cref="AssetImporter"/> 與 Animancer 公開 API 讀取；
     /// 不呼叫任何會修改或儲存 `.asset`／`.meta` 的 API。
     ///
-    /// ⚠️ **只斷言「形狀無關」的東西**（L-1＝dev-spec §0.4 匯入設定的共同欄位）。
-    /// 取樣點座標、`_Speeds`、環半徑、單環或多環——全部**只進報表不進斷言**，
-    /// 因為那些形狀尚未由 prototype ＋ Play 定案（`docs/13` §10，使用者裁決 2026-09-07）。
+    /// L-1／L-2 仍只斷言「形狀無關」的東西；L-3 是刻意收窄到敵人選定的 FullRing，
+    /// 只守 `docs/19` 已裁決的參數與完整取樣，不把 2D 形狀反推成玩家的全域政策。
     /// </summary>
     public class LocomotionMixerWiringTests
     {
         private const string AnimationAssetFolder = "Assets/ScriptableObjects/Animation";
         private const string LocomotionAssetPath = "Assets/ScriptableObjects/Animation/Locomotion.asset";
+        private const string EnemyFullRingAssetPath =
+            "Assets/ScriptableObjects/Animation/Locomotion_2D_Proto_FullRing.asset";
+        private const string EnemyCardinalAssetPath =
+            "Assets/ScriptableObjects/Animation/Locomotion_2D_YBotCombat_Cardinal.asset";
+        private const string EnemySpeedProfilePath =
+            "Assets/ScriptableObjects/Motion/YBotCombatDirectionalSpeedProfile.asset";
+        private const string MoveXAssetPath = "Assets/ScriptableObjects/Animation/MoveX.asset";
+        private const string MoveZAssetPath = "Assets/ScriptableObjects/Animation/MoveZ.asset";
         private const string MotionBakeSearchRoot = "Assets/ScriptableObjects/Motion";
         private const string PlayerPrefabPath = "Assets/Prefabs/X Bot.prefab";
+        private const string EnemyPrefabPath = "Assets/Prefabs/Y Bot.prefab";
 
         /// <summary>
         /// ⚠️ **刻意不記錄「這是不是 Idle」，也不假設 mixer 是 1D 還是 2D。**
@@ -190,14 +201,219 @@ namespace Project.Tests.EditMode
         }
 
         // =====================================================================
-        // 🗑️ L-3（原「非 Idle 的 _Speeds 不可全為 1」）**已移除**
+        // 🗑️ 舊 L-3（「非 Idle 的 _Speeds 不可全為 1」）**維持移除**
         //
         // 它假設「全 1 ＝ 校準遺失」，但那不成立：若取樣點半徑正好落在該 clip 的天生速度環上，
         // **1 才是正確值**（見 L-2 報表的建議 B）。把一個可能正確的狀態斷言成錯誤，
         // 只會逼出「為了讓測試變綠而亂填數字」——那比沒有測試更糟。
         //
-        // 真正該驗的是「動起來對不對」，那需要 Play；EditMode 能誠實守住的只有 L-1 的匯入設定。
+        // 該速度／腳滑問題仍只能 Play 判斷；下方新 L-3 只守已裁決的參數與取樣完整性。
         // =====================================================================
+
+        // =====================================================================
+        // L-3／L-4 — Enemy 2D 前置與玩家零回歸（唯讀）
+        //
+        // FullRing 的 actor-specific 選擇已由 docs/19 D2／D3 裁決；這裡只驗「資產能吃到
+        // runtime 已發布的 MoveX／MoveZ，且九個 child 沒有缺口」。不寫 transition，
+        // 也不替 Y Bot 做尚待人工完成的 prefab 接線。
+        // =====================================================================
+
+        [Test]
+        public void L3_EnemyFullRing_UsesMoveParametersAndCompleteEightWaySamples()
+        {
+            var asset = AssetDatabase.LoadAssetAtPath<TransitionAsset>(EnemyFullRingAssetPath);
+            Assert.IsNotNull(asset, $"找不到敵人 2D locomotion 資產：{EnemyFullRingAssetPath}");
+            Assert.IsTrue(asset.HasTransition, $"{EnemyFullRingAssetPath} 沒有 transition");
+
+            var mixer = asset.Transition as MixerTransition2D;
+            Assert.IsNotNull(mixer, $"{EnemyFullRingAssetPath} 必須是 MixerTransition2D");
+
+            var moveX = AssetDatabase.LoadAssetAtPath<StringAsset>(MoveXAssetPath);
+            var moveZ = AssetDatabase.LoadAssetAtPath<StringAsset>(MoveZAssetPath);
+            Assert.IsNotNull(moveX, $"找不到 MoveX 參數資產：{MoveXAssetPath}");
+            Assert.IsNotNull(moveZ, $"找不到 MoveZ 參數資產：{MoveZAssetPath}");
+
+            var serializedAsset = new SerializedObject(asset);
+            SerializedProperty transition = serializedAsset.FindProperty("_Transition");
+            Assert.IsNotNull(transition, "FullRing 缺少 _Transition managed reference");
+
+            SerializedProperty parameterNameX = transition.FindPropertyRelative("_ParameterNameX");
+            SerializedProperty parameterNameY = transition.FindPropertyRelative("_ParameterNameY");
+            Assert.IsNotNull(parameterNameX, "FullRing 缺少 _ParameterNameX 序列化欄位");
+            Assert.IsNotNull(parameterNameY, "FullRing 缺少 _ParameterNameY 序列化欄位");
+            Assert.AreSame(moveX, parameterNameX.objectReferenceValue,
+                "FullRing 的 _ParameterNameX 必須引用 MoveX.asset，不能另建同名字串或參數資產");
+            Assert.AreSame(moveZ, parameterNameY.objectReferenceValue,
+                "FullRing 的 _ParameterNameY 必須引用 MoveZ.asset，不能另建同名字串或參數資產");
+
+            Vector2[] thresholds = mixer.Thresholds;
+            Vector2[] expectedThresholds =
+            {
+                Vector2.zero,
+                Vector2.up,
+                Vector2.down,
+                Vector2.left,
+                Vector2.right,
+                new Vector2(-0.7071f, 0.7071f),
+                new Vector2(0.7071f, 0.7071f),
+                new Vector2(-0.7071f, -0.7071f),
+                new Vector2(0.7071f, -0.7071f)
+            };
+
+            Assert.IsNotNull(thresholds, "FullRing 的 _Thresholds 不得為 null");
+            Assert.AreEqual(expectedThresholds.Length, thresholds.Length,
+                "FullRing 必須恰好包含中心 idle ＋ 8 個方向");
+            for (int expectedIndex = 0; expectedIndex < expectedThresholds.Length; expectedIndex++)
+            {
+                bool found = false;
+                for (int actualIndex = 0; actualIndex < thresholds.Length; actualIndex++)
+                {
+                    if ((thresholds[actualIndex] - expectedThresholds[expectedIndex]).sqrMagnitude <= 0.000001f)
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+
+                Assert.IsTrue(found,
+                    $"FullRing 缺少 threshold {expectedThresholds[expectedIndex]}；" +
+                    "方向集合必須是中心 idle ＋ cardinal／diagonal 八向");
+            }
+
+            Object[] animations = mixer.Animations;
+            Assert.IsNotNull(animations, "FullRing 的 _Animations 不得為 null");
+            Assert.AreEqual(expectedThresholds.Length, animations.Length,
+                "FullRing 的 animation 數量必須與中心 idle ＋八向 threshold 一一對齊");
+            for (int i = 0; i < animations.Length; i++)
+                Assert.IsNotNull(animations[i], $"FullRing._Animations[{i}] 不得有空 reference");
+        }
+
+        [Test]
+        public void L4_PlayerPrefab_DisablesPersistentCombatFacing()
+        {
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PlayerPrefabPath);
+            Assert.IsNotNull(prefab, $"找不到玩家 prefab：{PlayerPrefabPath}");
+
+            var facingSource = prefab.GetComponent<CharacterFacingSource>();
+            Assert.IsNotNull(facingSource, "X Bot Root 必須有 CharacterFacingSource（W11）");
+
+            var serializedSource = new SerializedObject(facingSource);
+            SerializedProperty policy = serializedSource.FindProperty("usePersistentCombatFacing");
+            Assert.IsNotNull(policy, "CharacterFacingSource 缺少 usePersistentCombatFacing 序列化政策");
+            Assert.IsFalse(policy.boolValue,
+                "X Bot 必須維持 usePersistentCombatFacing = false，玩家原有 1D／facing 路徑不得改變");
+
+        }
+
+        [Test]
+        public void L5_YBotCombatCardinalMixer_UsesBakeDerivedCardinalSamplesAtNativePlaybackSpeed()
+        {
+            var asset = AssetDatabase.LoadAssetAtPath<TransitionAsset>(EnemyCardinalAssetPath);
+            Assert.IsNotNull(asset, $"找不到 Y Bot combat directional mixer：{EnemyCardinalAssetPath}");
+            Assert.IsTrue(asset.HasTransition, $"{EnemyCardinalAssetPath} 沒有 transition");
+
+            var mixer = asset.Transition as MixerTransition2D;
+            Assert.IsNotNull(mixer, "Y Bot combat locomotion 必須使用 MixerTransition2D");
+            Assert.AreSame(AssetDatabase.LoadAssetAtPath<StringAsset>(MoveXAssetPath), mixer.ParameterNameX);
+            Assert.AreSame(AssetDatabase.LoadAssetAtPath<StringAsset>(MoveZAssetPath), mixer.ParameterNameY);
+
+            Object[] animations = mixer.Animations;
+            Vector2[] thresholds = mixer.Thresholds;
+            float[] speeds = mixer.Speeds;
+            Assert.AreEqual(5, animations.Length, "minimum set 必須恰好是 Idle + Forward/Backward/Left/Right");
+            Assert.AreEqual(5, thresholds.Length);
+            Assert.IsTrue(speeds.Length == 0 || speeds.Length == animations.Length,
+                "Animancer 可用空 _Speeds 表示所有 child 都採預設 1×；非空時則必須與 animations 對齊");
+
+            string[] expectedNames = { "Idle", "WalkFwdLoop", "WalkBwdLoop", "StrafeLeftLoop", "StrafeRightLoop" };
+            for (int i = 0; i < expectedNames.Length; i++)
+            {
+                Assert.IsInstanceOf<AnimationClip>(animations[i], $"child {i} 必須直接引用 FBX sub-clip");
+                Assert.AreEqual(expectedNames[i], animations[i].name);
+                float playbackSpeed = speeds.Length == 0 ? 1f : speeds[i];
+                Assert.AreEqual(1f, playbackSpeed, 0.000001f,
+                    $"{expectedNames[i]} 必須維持 native playback speed，不得人工補倍率");
+            }
+
+            MotionBakeData maximum = LoadBake("Bake_SprintFwdLoop");
+            float maximumSpeed = maximum.GetRepresentativeSpeed();
+            AssertThreshold(thresholds[0], Vector2.zero, "Idle");
+            AssertThreshold(thresholds[1], Vector2.up * BakeRatio("Bake_WalkFwdLoop", maximumSpeed), "Forward");
+            AssertThreshold(thresholds[2], Vector2.down * BakeRatio("Bake_WalkBwdLoop", maximumSpeed), "Backward");
+            AssertThreshold(thresholds[3], Vector2.left * BakeRatio("Bake_StrafeLeftLoop", maximumSpeed), "Left");
+            AssertThreshold(thresholds[4], Vector2.right * BakeRatio("Bake_StrafeRightLoop", maximumSpeed), "Right");
+        }
+
+        [Test]
+        public void L6_BothActorsUseBakeDerivedDirectionalSpeedProfiles()
+        {
+            var enemyTransition = AssetDatabase.LoadAssetAtPath<TransitionAsset>(EnemyCardinalAssetPath);
+            var playerTransition = AssetDatabase.LoadAssetAtPath<TransitionAsset>(LocomotionAssetPath);
+            var profile = AssetDatabase.LoadAssetAtPath<CombatDirectionalSpeedProfileSO>(EnemySpeedProfilePath);
+            Assert.IsNotNull(enemyTransition);
+            Assert.IsNotNull(playerTransition);
+            Assert.IsNotNull(profile);
+            Assert.IsInstanceOf<MixerTransition2D>(enemyTransition.Transition);
+            Assert.IsInstanceOf<LinearMixerTransition>(playerTransition.Transition,
+                "Player / X Bot 的 Locomotion.asset 必須維持原有 1D mixer");
+
+            GameObject enemy = AssetDatabase.LoadAssetAtPath<GameObject>(EnemyPrefabPath);
+            GameObject player = AssetDatabase.LoadAssetAtPath<GameObject>(PlayerPrefabPath);
+            Assert.IsNotNull(enemy);
+            Assert.IsNotNull(player);
+
+            Assert.AreSame(enemyTransition, FindTransition(enemy, "Move"),
+                "Y Bot 的 Move mapping 必須指向 combat cardinal 2D mixer");
+            Assert.AreSame(playerTransition, FindTransition(player, "Move"),
+                "X Bot 的 Move mapping 必須繼續指向原有 1D Locomotion.asset");
+
+            LocomotionModel enemyModel = enemy.GetComponent<LocomotionModel>();
+            LocomotionModel playerModel = player.GetComponent<LocomotionModel>();
+            Assert.IsNotNull(enemyModel);
+            Assert.IsNotNull(playerModel);
+            Assert.AreSame(profile,
+                new SerializedObject(enemyModel).FindProperty("combatDirectionalSpeedProfile").objectReferenceValue,
+                "Y Bot 必須以 actor-scoped profile 將 bake speed 同時回饋實際位移");
+            // 🔄 **2026-09-15 invariant change（使用者明確裁決，`docs/11` §12）。**
+            // 舊 baseline 在此斷言 `IsNull`——「combat directional speed policy 是 Y Bot 專屬」。
+            // 該契約已正式廢除：X Bot 的 spell 8-way mixer 同樣需要「方向速度由 bake 決定」，
+            // 否則側移／後退只能靠 2.1× playback 追上 gait 速度，腳頻明顯過快。
+            // ⇒ 現在**兩隻角色都走 actor-scoped profile**，差別只在各自引用哪一批 bake。
+            var playerProfile = new SerializedObject(playerModel)
+                .FindProperty("combatDirectionalSpeedProfile").objectReferenceValue
+                as CombatDirectionalSpeedProfileSO;
+            Assert.IsNotNull(playerProfile,
+                "X Bot 必須啟用 combat directional speed policy——沒有它，spell mixer 的 "
+                + "bake-derived threshold 會被 gait 需求超出，變成夾持混合＋滑步");
+            Assert.AreNotSame(profile, playerProfile,
+                "profile 是 actor-scoped：兩隻角色的網格與素材不同，不得共用同一份");
+
+            var playerProfileSo = new SerializedObject(playerProfile);
+            Assert.Greater(playerProfileSo.FindProperty("maxPlaybackStretch").floatValue, 1f,
+                "X Bot 的 profile 必須設定播放預算；1 代表完全不拉伸，那不是本次裁決的內容");
+            foreach (string diagonal in new[]
+                     { "forwardLeft", "forwardRight", "backwardLeft", "backwardRight" })
+            {
+                Assert.IsNotNull(playerProfileSo.FindProperty(diagonal).objectReferenceValue,
+                    $"X Bot 的 mixer 有真正的斜向 clip ⇒ profile 的 {diagonal} 必須指派，"
+                    + "否則會退回 cardinal L1 模型並嚴重低估斜向速度（滑步）");
+            }
+
+            var profileSo = new SerializedObject(profile);
+            MotionBakeData profileMaximum =
+                profileSo.FindProperty("maximumSpeedSource").objectReferenceValue as MotionBakeData;
+            MotionDriver enemyDriver = enemy.GetComponentInChildren<MotionDriver>(true);
+            Assert.IsNotNull(enemyDriver);
+            MotionBakeData driverMaximum = new SerializedObject(enemyDriver)
+                .FindProperty("moveSpeedSource").objectReferenceValue as MotionBakeData;
+            Assert.AreSame(driverMaximum, profileMaximum,
+                "profile 分母與 MotionDriver 必須引用同一份 bake asset，不能形成第二速度權威");
+
+            AssertProfileBake(profileSo, "forward", "Bake_WalkFwdLoop");
+            AssertProfileBake(profileSo, "backward", "Bake_WalkBwdLoop");
+            AssertProfileBake(profileSo, "left", "Bake_StrafeLeftLoop");
+            AssertProfileBake(profileSo, "right", "Bake_StrafeRightLoop");
+        }
 
         // =====================================================================
         // 唯讀探索 helpers
@@ -390,6 +606,49 @@ namespace Project.Tests.EditMode
             }
 
             return result;
+        }
+
+        private static TransitionAssetBase FindTransition(GameObject prefab, string stateKey)
+        {
+            var facade = prefab.GetComponent<AnimancerFacade>();
+            Assert.IsNotNull(facade, $"{prefab.name} Root 缺少 AnimancerFacade");
+            SerializedProperty mappings = new SerializedObject(facade).FindProperty("transitionMappings");
+            Assert.IsNotNull(mappings);
+
+            for (int i = 0; i < mappings.arraySize; i++)
+            {
+                SerializedProperty entry = mappings.GetArrayElementAtIndex(i);
+                if (entry.FindPropertyRelative("StateKey").stringValue != stateKey) continue;
+                return entry.FindPropertyRelative("Transition").objectReferenceValue as TransitionAssetBase;
+            }
+
+            Assert.Fail($"{prefab.name} 找不到 transition mapping '{stateKey}'");
+            return null;
+        }
+
+        private static MotionBakeData LoadBake(string assetName)
+        {
+            string path = $"{MotionBakeSearchRoot}/{assetName}.asset";
+            MotionBakeData bake = AssetDatabase.LoadAssetAtPath<MotionBakeData>(path);
+            Assert.IsNotNull(bake, $"找不到 MotionBakeData：{path}");
+            Assert.Greater(bake.GetRepresentativeSpeed(), 0f, $"{path} 沒有有效代表速度");
+            return bake;
+        }
+
+        private static float BakeRatio(string assetName, float maximumSpeed)
+            => LoadBake(assetName).GetRepresentativeSpeed() / maximumSpeed;
+
+        private static void AssertThreshold(Vector2 actual, Vector2 expected, string direction)
+        {
+            Assert.That((actual - expected).sqrMagnitude, Is.LessThanOrEqualTo(0.00000001f),
+                $"{direction} threshold 必須直接由該方向 bake speed / maximum bake speed 推導");
+        }
+
+        private static void AssertProfileBake(SerializedObject profile, string field, string expectedAssetName)
+        {
+            var actual = profile.FindProperty(field).objectReferenceValue as MotionBakeData;
+            Assert.AreSame(LoadBake(expectedAssetName), actual,
+                $"profile.{field} 必須直接引用 {expectedAssetName}，不可手抄速度");
         }
     }
 }

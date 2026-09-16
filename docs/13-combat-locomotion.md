@@ -1,6 +1,6 @@
 # 13 — 戰鬥移動診斷（Combat Locomotion）
 
-> **狀態**：🔍 **診斷 ／ 規劃，未實作**（2026-09-06）
+> **狀態**：🟡 **Y Bot cardinal minimum set 已實作，待 Play 驗證**（2026-09-11）；較早的完整 8-way 內容保留為診斷歷程。
 > 本檔不是規格，是一次**依磁碟核對**的現況盤點，用來回答「面向敵人橫移」到底缺什麼。
 > 📌 結論先講：**動畫資產幾乎全部已經在專案裡，缺的是資料形狀與一條架構 seam。**
 
@@ -703,3 +703,27 @@ Kubold 這組素材**本來就把「人往側面與後面移動比較慢」編�
 ⇒ **`LocomotionMixerWiringTests.L-1` 因此比原本設想的更重要**：
 它是專案裡**唯一**能發現「匯入設定被改壞或從未套用」的機制——git 在這裡幫不上忙。
 📌 這也正是 dev-spec §4 藍圖中 **Source Discovery ／ Validation** 兩個階段存在的理由。
+
+---
+
+## 11. Y Bot combat directional minimum set（2026-09-11 已實作）
+
+本輪不採完整 8-way。Y Bot 的 actor-specific `Move` mapping 改接 Cartesian 2D mixer，只有：
+
+| sample | FBX sub-clip | AutoAverageSpeed | normalized threshold |
+|---|---|---:|---:|
+| Forward | `WalkFwdLoop` | 1.6443043 | `(0, +0.2626101)` |
+| Backward | `WalkBwdLoop` | 1.6443497 | `(0, -0.2626174)` |
+| Left | `StrafeLeftLoop` | 1.6443504 | `(-0.2626175, 0)` |
+| Right | `StrafeRightLoop` | 1.6443514 | `(+0.2626176, 0)` |
+
+另含中心 `Idle`。所有 child `_Speeds = 1`；沒有 diagonal、Run、Crouch。斜向輸入由相鄰 cardinal
+samples blend，不為湊方向使用不合適的 clip。
+
+速度資料流為：方向 `MotionBakeData` → `YBotCombatDirectionalSpeedProfile` → `LocomotionModel` 的 combat-only
+normalized cap → 既有 `MoveSpeed` → `MotionDriver`。profile 的分母與 Y Bot `MotionDriver.moveSpeedSource`
+同指 `Bake_SprintFwdLoop`，不是另一份手填速度。X Bot profile 為 null，仍走 1D `Locomotion.asset`。
+
+四支 chosen walk clips 的 bake speed 實際上幾乎相同，因此這一版**不會憑空製造** strafe／retreat 比
+forward 慢的差異。這是素材量測結果，不以人工 multiplier 掩蓋；Play 後若仍要求方向速度差，需另裁決
+是否換用不同 native-speed 素材，而不是建立第二速度權威。

@@ -13,14 +13,15 @@ MonoBehaviour:
   m_Name: EnemyPunchDefinition
   m_EditorClassIdentifier: Project.Runtime::Project.Core.StateMachine.Actions.ActionDefinitionSO
   Slot: 1
+  Targeting: 0
   Phases:
   - Phase: 1
     AnimationKey: Enemy_Punch_R
-    Bake: {fileID: 0}
+    Bake: {fileID: 11400000, guid: bb9fe3dfde77b0645a757ac2e9a72817, type: 2}
     FallbackDuration: 0.8
-    Interruptible: 0
+    Interruptible: 1
     WaitForTrigger: 0
-    EmitsRelease: 0
+    EmitsRelease: 1
     ReleaseNormalizedTime: 0.4
   ChainSegments: []
   ChainInputOpenNormalized: 0.25

@@ -26,14 +26,14 @@ namespace Project.Tests.EditMode
         }
 
         [Test]
-        public void InRange_ProducesSlot1AttackIntent()
+        public void FirstFrameInRange_ProducesOneSlot1Request()
         {
             AIInputSource source = CreateSource(targetPosition: new Vector3(0f, 0f, 1.5f), range: 2f);
 
             InputData data = default;
-            source.FetchRawInput(ref data);
+            source.FetchRawInputAtTimeForTests(ref data, 10f);
 
-            Assert.IsTrue(data.Slot1ButtonDown, "目標在射程內就該想出手");
+            Assert.IsTrue(data.Slot1ButtonDown, "第一次符合持續條件時應立即送一次 request pulse");
         }
 
         [Test]
@@ -42,7 +42,7 @@ namespace Project.Tests.EditMode
             AIInputSource source = CreateSource(targetPosition: new Vector3(0f, 0f, 5f), range: 2f);
 
             InputData data = default;
-            source.FetchRawInput(ref data);
+            source.FetchRawInputAtTimeForTests(ref data, 10f);
 
             Assert.IsFalse(data.Slot1ButtonDown, "射程外不得出手");
         }
@@ -56,7 +56,7 @@ namespace Project.Tests.EditMode
             AIInputSource source = gameObject.AddComponent<AIInputSource>();
 
             InputData data = default;
-            source.FetchRawInput(ref data);
+            source.FetchRawInputAtTimeForTests(ref data, 10f);
 
             Assert.IsFalse(data.Slot1ButtonDown);
         }
@@ -94,7 +94,7 @@ namespace Project.Tests.EditMode
             AIInputSource source = CreateSource(targetPosition: new Vector3(0f, 0f, 1f), range: 2f);
 
             InputData data = default;
-            source.FetchRawInput(ref data);
+            source.FetchRawInputAtTimeForTests(ref data, 10f);
 
             Assert.IsTrue(data.Slot1ButtonDown);
             Assert.IsFalse(data.Slot2ButtonDown);
@@ -105,35 +105,90 @@ namespace Project.Tests.EditMode
         }
 
         /// <summary>
-        /// 🔴 **這條是刻意把「已知限制」釘住，不是在慶祝它。**
-        ///
-        /// `Slot1ButtonDown` 名義上是邊沿訊號（`WasPressedThisFrame` 不可能連續兩幀為真），
-        /// 但 `AIInputSource` 目前是 **level-triggered**：只要在射程內就每幀為真。
-        ///
-        /// **原因是介面限制**：`IInputSource.FetchRawInput(ref InputData)` 拿不到黑板，
-        /// 輸入源無從得知上一次按下有沒有被消化 ⇒ 想產生正確節奏的單幀脈衝，只剩
-        /// 「AI 自己計時」（使用者已否決，那會讓能不能出手有第二個回答者）
-        /// 或「回讀狀態機」（違反依賴方向）兩條路。
-        ///
-        /// **今天安全**：`EnemyPunchDefinition` 沒有 `Loop`／`WaitForTrigger`／`ChainSegments`，
-        /// `ActionState` 兩條會讀 re-trigger 的路徑都走不到，節流全由 `Cooldown` 負責。
-        ///
-        /// **這條測試存在的意義**：哪天有人把它改成單幀脈衝，這裡會紅——
-        /// 那時請先確認節奏來源是什麼，**不要在 AI 裡補計時器**。正解是替 `InputData`
-        /// 補一組 `Slot1ButtonHeld`（比照既有的 `SprintButtonHeld` ／ `SprintButtonDown` 並存先例）。
+        /// 持續 desire 不得重新退化成 level-trigger；同一個 retry window 內只有第一幀是 pulse。
         /// </summary>
         [Test]
-        public void AttackIntent_IsLevelTriggered_KnownInterfaceLimit()
+        public void StayingInRange_DoesNotProduceSlot1EveryFrame()
         {
             AIInputSource source = CreateSource(targetPosition: new Vector3(0f, 0f, 1f), range: 2f);
 
-            for (int frame = 0; frame < 3; frame++)
-            {
-                InputData data = default;
-                source.FetchRawInput(ref data);
-                Assert.IsTrue(data.Slot1ButtonDown,
-                    $"第 {frame + 1} 幀：目前語意是「一直按著」，節流交給 ActionState 的 Cooldown");
-            }
+            InputData firstFrame = default;
+            source.FetchRawInputAtTimeForTests(ref firstFrame, 10f);
+            InputData secondFrame = default;
+            source.FetchRawInputAtTimeForTests(ref secondFrame, 10.016f);
+            InputData thirdFrame = default;
+            source.FetchRawInputAtTimeForTests(ref thirdFrame, 10.032f);
+
+            Assert.IsTrue(firstFrame.Slot1ButtonDown);
+            Assert.IsFalse(secondFrame.Slot1ButtonDown);
+            Assert.IsFalse(thirdFrame.Slot1ButtonDown);
+            Assert.IsTrue(source.WantsToAttack(),
+                "request pulse 已落下不代表 attack desire 消失；WantsToAttack 必須維持持續條件");
+        }
+
+        [Test]
+        public void RetryIntervalNotReached_ProducesNoSecondRequest()
+        {
+            AIInputSource source = CreateSource(targetPosition: new Vector3(0f, 0f, 1f), range: 2f);
+
+            InputData first = default;
+            source.FetchRawInputAtTimeForTests(ref first, 5f);
+            InputData beforeRetry = default;
+            source.FetchRawInputAtTimeForTests(ref beforeRetry, 5.499f);
+
+            Assert.IsTrue(first.Slot1ButtonDown);
+            Assert.IsFalse(beforeRetry.Slot1ButtonDown);
+        }
+
+        [Test]
+        public void RetryIntervalReached_ProducesAnotherSingleFrameRequest()
+        {
+            AIInputSource source = CreateSource(targetPosition: new Vector3(0f, 0f, 1f), range: 2f);
+
+            InputData first = default;
+            source.FetchRawInputAtTimeForTests(ref first, 5f);
+            InputData retry = default;
+            source.FetchRawInputAtTimeForTests(ref retry, 5.5f);
+            InputData followingFrame = default;
+            source.FetchRawInputAtTimeForTests(ref followingFrame, 5.516f);
+
+            Assert.IsTrue(retry.Slot1ButtonDown);
+            Assert.IsFalse(followingFrame.Slot1ButtonDown,
+                "retry 本身仍只能是一幀 pulse，下一幀必須回 false");
+        }
+
+        [Test]
+        public void LeavingAttackRange_StopsRequests()
+        {
+            AIInputSource source = CreateSource(
+                targetPosition: new Vector3(0f, 0f, 1f), range: 2f, out Transform targetTransform);
+
+            InputData first = default;
+            source.FetchRawInputAtTimeForTests(ref first, 5f);
+            targetTransform.position = new Vector3(0f, 0f, 5f);
+            InputData outsideAfterRetryWouldHaveElapsed = default;
+            source.FetchRawInputAtTimeForTests(ref outsideAfterRetryWouldHaveElapsed, 6f);
+
+            Assert.IsFalse(outsideAfterRetryWouldHaveElapsed.Slot1ButtonDown);
+        }
+
+        [Test]
+        public void ReenteringAttackRange_RearmsImmediateRequest()
+        {
+            AIInputSource source = CreateSource(
+                targetPosition: new Vector3(0f, 0f, 1f), range: 2f, out Transform targetTransform);
+
+            InputData first = default;
+            source.FetchRawInputAtTimeForTests(ref first, 5f);
+            targetTransform.position = new Vector3(0f, 0f, 5f);
+            InputData outside = default;
+            source.FetchRawInputAtTimeForTests(ref outside, 5.1f);
+            targetTransform.position = new Vector3(0f, 0f, 1f);
+            InputData reentered = default;
+            source.FetchRawInputAtTimeForTests(ref reentered, 5.2f);
+
+            Assert.IsTrue(reentered.Slot1ButtonDown,
+                "離開射程應重新武裝；再次進入不必等待舊 retry interval");
         }
 
         /// <summary>
@@ -152,12 +207,18 @@ namespace Project.Tests.EditMode
 
         private AIInputSource CreateSource(Vector3 targetPosition, float range)
         {
+            return CreateSource(targetPosition, range, out _);
+        }
+
+        private AIInputSource CreateSource(Vector3 targetPosition, float range, out Transform targetTransform)
+        {
             var gameObject = new GameObject("AIInputSource-Test");
             _created.Add(gameObject);
 
             var targetObject = new GameObject("AIInputSource-Target");
             _created.Add(targetObject);
             targetObject.transform.position = targetPosition;
+            targetTransform = targetObject.transform;
 
             AIInputSource source = gameObject.AddComponent<AIInputSource>();
             source.ConfigureForTests(targetObject.transform, range);

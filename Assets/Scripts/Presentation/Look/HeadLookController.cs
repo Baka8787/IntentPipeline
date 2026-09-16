@@ -44,7 +44,13 @@ namespace Project.Presentation.Look
             float targetPitch = 0f;
             float effectiveMaxYaw = Mathf.Abs(maxYaw) +
                                     (_hasActiveLook ? Mathf.Max(0f, releaseYawHysteresis) : 0f);
+            // 🆕（2026-09-15）**死亡抑制。** 與 `CharacterFacingSource` 的 `DeathSuppressed`
+            // （2026-09-14，使用者 Play 回報）完全同一個理由：`CombatContext` 回答的是
+            // 「還在不在跟這個目標交戰」，**它不回答「我還活著嗎」**——屍體的 InCombat 仍為 true
+            // ⇒ 不擋的話，倒地的角色會繼續用頭追著玩家轉。
+            // 依本專案既有做法，死亡由**每個消費者各自明確收手**，不靠上游剛好幫忙清掉。
             bool hasTarget = data != null &&
+                             !data.Survivability.IsDead &&
                              data.CombatContext.InCombat &&
                              data.CombatContext.HasTarget &&
                              TryComputeLookAngles(

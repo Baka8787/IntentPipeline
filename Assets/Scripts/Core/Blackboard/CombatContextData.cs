@@ -11,5 +11,10 @@ namespace Project.Core.Blackboard
         public bool InCombat;
         public bool HasTarget;
         public Vector3 TargetPosition;
+
+        // 同一個 combat context producer 每幀無記憶地產生；不是第二個 target authority，
+        // 只是 Action 在 commitment boundary 可採用的 soft-target 候選快照。
+        public bool HasSoftTarget;
+        public Vector3 SoftTargetPosition;
     }
 }
