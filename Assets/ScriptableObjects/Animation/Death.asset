@@ -10,7 +10,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: c5a8877f26e7a6a43aaf06fade1a064a, type: 3}
-  m_Name: Damage
+  m_Name: Death
   m_EditorClassIdentifier: Kybernetik.Animancer::Animancer.TransitionAsset
   _Transition:
     rid: 6230867920669900881
@@ -20,11 +20,11 @@ MonoBehaviour:
     - rid: 6230867920669900881
       type: {class: ClipTransition, ns: Animancer, asm: Kybernetik.Animancer}
       data:
-        _FadeDuration: 0.1
+        _FadeDuration: 0.2
         _Speed: 1
         _Events:
           _NormalizedTimes: []
           _Callbacks: []
           _Names: []
-        _Clip: {fileID: 7400026, guid: 0cf6cd90fa783f74d9a28a42e2071737, type: 3}
+        _Clip: {fileID: 7400038, guid: 0cf6cd90fa783f74d9a28a42e2071737, type: 3}
         _NormalizedStartTime: NaN
