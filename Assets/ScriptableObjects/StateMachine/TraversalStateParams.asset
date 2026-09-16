@@ -1,0 +1,155 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 64683206ef79c0f4187fbfb48cee0633, type: 3}
+  m_Name: TraversalStateParams
+  m_EditorClassIdentifier: Project.Runtime::Project.Core.StateMachine.TraversalStateParamsSO
+  vault1m:
+    animationKey: Vault1m
+    bake: {fileID: 11400000, guid: e581d50a78877da4d862e52c09ccad71, type: 2}
+    warpStartNormalizedTime: 0
+    overrideWarpWindowEnd: 0
+    warpEndNormalizedTime: 0.8
+    recoverNormalizedTime: 0.85
+    maxHorizontalCorrection: 1.5
+    maxVerticalCorrection: 0.75
+    collisionProfile:
+      enableCenterShift: 0
+      centerX:
+        serializedVersion: 2
+        m_Curve: []
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      centerY:
+        serializedVersion: 2
+        m_Curve: []
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      centerZ:
+        serializedVersion: 2
+        m_Curve: []
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      enableHeightAdjustment: 0
+      heightScale:
+        serializedVersion: 2
+        m_Curve: []
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      enableRadiusAdjustment: 0
+      radiusScale:
+        serializedVersion: 2
+        m_Curve: []
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+  climb1m:
+    animationKey: Climb1m
+    bake: {fileID: 11400000, guid: 66bc1e5b0a8244a4ab75b263f128c5c7, type: 2}
+    warpStartNormalizedTime: 0
+    overrideWarpWindowEnd: 0
+    warpEndNormalizedTime: 0.8
+    recoverNormalizedTime: 0.85
+    maxHorizontalCorrection: 1.5
+    maxVerticalCorrection: 0.75
+    collisionProfile:
+      enableCenterShift: 0
+      centerX:
+        serializedVersion: 2
+        m_Curve: []
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      centerY:
+        serializedVersion: 2
+        m_Curve: []
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      centerZ:
+        serializedVersion: 2
+        m_Curve: []
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      enableHeightAdjustment: 0
+      heightScale:
+        serializedVersion: 2
+        m_Curve: []
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      enableRadiusAdjustment: 0
+      radiusScale:
+        serializedVersion: 2
+        m_Curve: []
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+  climb2m:
+    animationKey: Climb2m
+    bake: {fileID: 11400000, guid: b5363b77d07e1ba42a4b0bdf28851722, type: 2}
+    warpStartNormalizedTime: 0
+    overrideWarpWindowEnd: 0
+    warpEndNormalizedTime: 0.8
+    recoverNormalizedTime: 0.85
+    maxHorizontalCorrection: 1.5
+    maxVerticalCorrection: 0.75
+    collisionProfile:
+      enableCenterShift: 0
+      centerX:
+        serializedVersion: 2
+        m_Curve: []
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      centerY:
+        serializedVersion: 2
+        m_Curve: []
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      centerZ:
+        serializedVersion: 2
+        m_Curve: []
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      enableHeightAdjustment: 0
+      heightScale:
+        serializedVersion: 2
+        m_Curve: []
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      enableRadiusAdjustment: 0
+      radiusScale:
+        serializedVersion: 2
+        m_Curve: []
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+  normalJumpReachSafetyMargin: 0.15
+  entryPolicy:
+    desiredWallDistance: 0.45
+    maximumFarError: 0.35
+    maximumCloseError: 0.4
+    unsafeCapsulePenetrationTolerance: 0.01
+    maximumLateralError: 0.2
+    maximumFacingAngle: 35
+    ledgeEndMargin: 0.08
+  vault1mEnabled: 1
+  climb1mEnabled: 0
+  climb2mEnabled: 1
