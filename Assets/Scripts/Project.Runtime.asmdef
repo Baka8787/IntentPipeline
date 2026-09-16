@@ -3,7 +3,8 @@
     "rootNamespace": "Project",
     "references": [
         "Kybernetik.Animancer",
-        "Unity.InputSystem"
+        "Unity.InputSystem",
+        "UnityEngine.UI"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

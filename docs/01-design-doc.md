@@ -1,7 +1,7 @@
 # IntentPipeline 架構設計文件
 
-> 狀態：草稿 v0.22
-> 最後更新：2026-07-25
+> 狀態：草稿 v0.38.1
+> 最後更新：2026-09-13
 > 作者：Baka8787
 
 ---
@@ -128,8 +128,8 @@ StateRule（純拓撲，維持精簡）
 StateParamsSO（新增，狀態專屬參數，一狀態一資產，可為 None）
 ├── abstract class StateParamsSO : ScriptableObject   ← 只是個標記基底，不放共用欄位
 ├── JumpStateParams : StateParamsSO { Stages(List<JumpStage>), HeightMultiplier, GravityMultiplier, LaunchVelocityMultiplier }   ← 內容經 ADR-002 重新定義，見 §2.8
+├── TraversalStateParamsSO : StateParamsSO { Vault1m, Climb1m, Climb2m }   ← 每格為 animation key + MotionBakeData；ADR-008
 ├── SlideStateParams : StateParamsSO { SlideDistance, FrictionCurve }   ← 未來
-├── ClimbStateParams : StateParamsSO { ClimbSpeed, StaminaCostPerSecond }   ← 未來
 └── ...每個需要調參的狀態各自一個子類別，互不干擾
 ```
 
@@ -170,6 +170,76 @@ public TParams GetStateParams<TParams>(StateType state) where TParams : StatePar
 
 ---
 
+### 2.9 運動授權的三種狀態：Continuous／Committed／Suspended（🆕 2026-09-10 新增）
+
+> 🟨 **這一節是「分析模型／共同語言」，不是契約。**
+> **它只命名 repo 裡已經存在的東西**，不引入任何新機制。
+> ⛔ **不得**據此更動 `IMovementModel`、state contract、黑板 schema，
+> ⛔ **不進** `docs/02-dev-spec.md` §1／§2／§3.1（那些是契約），也**沒有** ADR。
+> **它目前不是正式的 architecture taxonomy。** 若未來這套分類真的導致 contract／ownership／execution model 改變，**再走 ADR**。
+> 出處與完整證據：`docs/18-benchmark-convergence.md` §3。
+
+#### 為什麼要有這組詞
+
+不是因為它「聽起來合理」，而是因為**它讓一個原本問不出口的問題變得可問**：
+
+> 「收步（Stop）的承諾式運動被實作成 `LocomotionModel` **內部的一個 struct**，
+> 而 Roll 的承諾式運動被實作成一個 **FSM state**——**這兩個該不該一致？**」
+
+在有這組詞之前，這句話講不出來，因為兩者看起來是不同的功能（一個是「收步」、一個是「翻滾」）。
+命名之後才看得出它們是**同一個概念的兩種承載**——也就是 `docs/03` §6.4 的 **G1 承載問題**。
+
+#### 三個定義
+
+| 詞 | 定義 | 判準（一句話） |
+|---|---|---|
+| **Continuous** | 每幀無條件由**當幀意圖**重新解算運動，永遠可被新意圖覆寫 | 「這一幀的輸入**現在**就會改變運動」 |
+| **Committed** | 在起點**一次 latch** 好軌跡／時長，執行期**不讀當幀意圖**，有明確的開始／執行／完成／交還 | 「已經答應要做完的事，中途改變主意也不算數」 |
+| **Suspended** | 授權被**暫時收回**：既不吃輸入，也沒有自己的軌跡或目標 | 「這個軸這段時間**不歸任何人管**」 |
+
+⚠️ **這三者描述的是「一個運動通道」的狀態，不是「一個角色」的狀態**——
+同一幀裡，垂直軸與水平軸可以分屬不同類別（見下表 `JumpState`）。
+
+#### 現有 repo 案例對照
+
+| 案例 | 類別 | 磁碟證據 |
+|---|---|---|
+| **Locomotion**（Walk／Run／Idle） | **Continuous** | `LocomotionModel.Tick` 每幀由 `MovementIntent` 重解 `MoveSpeed`／`MoveDirection`；`IMovementModel` 註解明寫「每幀無條件推進」 |
+| **RollState** | **Committed** | `_rollTimer` 於 `OnEnter` 由 `BakedDuration` 一次 latch；`CanTransitionAway => IsRollFinished`；位移＝`ExecuteBakedCurveMovement`。⭐ **執行期完全不讀 `MovementIntent`** |
+| **ActionState** | **Committed × 2 通道** | 位移：per-phase `Bake` ＋ `ExecuteBakedCurveMovement`；`CanTransitionAway => _phase == None`。⭐ **方向也是 committed**：`_releaseContext` 在段落邊界一次 `CaptureReleaseContext`，facing 與世界效果**讀同一份**（ADR-007 D5） |
+| **TraversalState** | **Committed、contact-targeted 3D** | Probe 可在 grounded stationary 時用 committed facing 維護 candidate；`CanEnter` 先以 asymmetric pure EntryPolicy 分離幾何存在與當下可執行，safe `AlreadyClose` 可接受，再套 Jump-vs-Climb policy 並 commit。三種 kind 共用一個 state。PlanBuilder 只在 commit 依 ledge interval＋baked hand/root markers 解 Entry／Contact／Transfer／Exit 六 knot；paired Contact correction 受 standing capsule support plane 軟限制，Y correction 在 Contact／Transfer／Exit 分段吸收並於 Exit→Recovery hold destination。`MotionDriver` 以 current-minus-previous warped delta 執行並唯一寫 controller collision profile；Hand IK 只在 Presentation seam 修小幅 committed residual。Recovery 前先 restore，執行期不回讀 Probe |
+| **JumpState** | ⭐ **跨兩類，逐軸不同** | 垂直：`ApplyJumpLaunch` 注入一次後由 `MotionDriver` 積分 ⇒ **committed**<br>水平：`ExecuteBaseMovement(data)` 讀當幀 Movement Output ⇒ **continuous** |
+| `JumpState.LandingPhase.HardRecovery` | **Suspended（水平軸）** | `ExecuteVerticalOnlyMovement(data)`：保留 facing／重力／grounded／collision，但**不施加** Movement Output 的水平速度。⚠️ 註解明寫「**不得藉由清空 `MoveDirection` 破壞黑板單一寫入者**」——這正是「扣掉一個軸」的正確做法 |
+| ⭐ **`LocomotionStopRuntime`** | **Committed，但住在 model 裡** | `Begin`／`BeginPending`／`StartPlaying`／`Advance`／`TryRequestCompletion`／`Invalidate`／`HasTimedOut` ＋ `Generation` 世代號 ＋ `TargetNormalizedTime`——**一套完整的承諾式生命週期**，被實作成 `LocomotionModel` 內的一個 struct |
+
+> ⭐ **最重要的是最後兩列的並置**：**Roll ＝ 一個 FSM state；Stop ＝ 一個 model 內部的 struct。**
+> 同一個概念、兩個不同的層。**這不是誰對誰錯**，這就是 `docs/03` §6.4 **G1** 要回答的問題。
+
+#### ⚠️ Committed 與 Targeted 是**兩個獨立的軸**
+
+最容易犯的錯是把「承諾」和「有世界目標」混為一談。用 repo 證據拆開：
+
+| | **有 world target** | **無 world target** |
+|---|---|---|
+| **Committed** | ⭐ **Traversal V3 Motion Map**：candidate／EntryEvaluation／ledge hand targets／corridor／collision profile 在 entry commit；Entry／paired Contact／Transfer／Exit 分段映射到 world constraints，contact root 受 capsule support plane 軟限制，Exit→Recovery hold destination；Hand IK 只修 committed contact residual。MatchTarget／combat snap／interaction alignment 尚未實作 | ⭐ **RollState**、`ActionState` 的位移段 |
+| **Continuous** | （罕見：持續追蹤的 homing 移動） | Walk／Run／Strafe／Falling／**Jump 的水平軸** |
+
+**⇒ `RollState` 證明了「承諾」與「目標」可以分開**：它已經有開始／執行／結束／不可中斷窗／交還全套，卻**沒有任何 world target**。
+
+📌 **落地結論**：**Motion Warping 就是「把 untargeted committed motion 變成 targeted」的機制**——
+它不是新的能力層級。Traversal V3 以局部、固定六 knot 的 `TraversalWarpPlan` 證明此形狀：保留 baked trajectory，
+在 Entry／左右手 Contact／Transfer／Exit／Recovery 之間吸收 committed root constraints；沒有建立通用 graph framework。
+
+#### 這組詞**不**主張的事
+
+- ⛔ **不主張** `IMovementModel` 該長出生命週期。該介面確實表達不出 committed motion（無 start／completion／target／不可中斷窗），
+  **所以 Roll／Action 走 `BaseState.OnUpdateMotion` override、Stop 走 model 內私有 struct**——
+  **這不是繞過契約，是契約沒有這個概念。** 但「命名一個概念」不等於「該去改核心驅動介面」（那是 ADR 判準 ③）。
+- ⛔ **不主張**現有兩種承載（state vs model-internal struct）哪一個是對的。那是 G1 的題目，**本節只負責讓它可以被問**。
+- ⛔ **不主張**任何實作順序或 roadmap 變更。
+
+---
+
 ## 3. 系統架構圖
 
 > 用 Mermaid 畫，GitHub 上可直接渲染
@@ -203,6 +273,7 @@ flowchart LR
 - 該做：採樣輸入裝置、做輸入緩衝/一致性處理、寫入意圖到黑板
 - 不該做：不該知道狀態機目前在哪個狀態、不該直接觸發動畫
 - **中性紀律（🆕 ADR-003）**：`InputData` 只承載**中性 action 訊號**（`JumpButtonDown`、`SprintButtonHeld`…），只回答「這顆 action 有沒有被按／按住」，**不回答它代表什麼**。不得引入 `MovementModifier` 這類**領域分類**欄位——那會把 gameplay 語意烤進 raw input 層，並讓 AI／replay／netcode 得先「假裝有按鍵」才能產生意圖（ADR-003 §6.3 明確否決）。「同一顆鍵在不同情境代表不同意義」的路由屬 Input 層更上游（action map 切換／Input Router），不屬下游 producer
+- **AI attack edge semantic（2026-09-11）**：`AIInputSource.WantsToAttack` 是持續條件，但輸出的 `Slot1ButtonDown` 必須是單幀 request pulse。首次進入射程立即送出；留在射程內每 0.5 秒重新嘗試一次；離開後重新武裝。這個間隔只控制 producer 多久重送 request，**不是攻擊 cooldown**，也不回答請求是否可執行；`Cooldown`／variance／grounded／lifecycle 仍只由 `ActionState` 裁決。AI 不得為此回讀 FSM 或 ActionState。
 
 ### 4.2 RuntimeData（黑板）
 - 該做：承載當帧意圖、參數快取、裝備/瞄準引用、仲裁旗標
@@ -215,6 +286,7 @@ flowchart LR
 ### 4.3 狀態機（State Machine）
 - 該做：依黑板資料決定要不要切換狀態、管理進入/退出條件、將目前狀態資訊提供給 ArbiterPipeline
 - 不該做：不該直接操作動畫播放細節（要透過 Facade）、不該直接去開關各個 Controller
+- **Traversal 的窄 seam（ADR-008）**：`TraversalState.CanEnter` 可唯讀 `TraversalProbe.Candidate`，先產生 pure `EntryEvaluation` 再立即複製為 state-owned commitment；只有 Probe 可查 Physics／建立 corridor evidence。Jump 不認識 Environment，candidate／evaluation／plan 都不進黑板，執行期不重新分類。這是 topology integration 的明文例外，不是允許其他 state 任意查環境元件。
 
 ### 4.4 AnimationFacade
 - 該做：統一動畫播放介面，隔離底層動畫系統差異
@@ -253,9 +325,11 @@ flowchart LR
 - 該做：`IMovementIntentSource` 的 active 實作（Stage 1＝`PlayerLocomotionPolicy`，掛 Root）讀**中性輸入＋`GaitProfileSO`**，每帧產出**模型無關**的 `MovementIntent{DesiredSpeedNormalized[0-1], DesiredDirection}` 寫入黑板；「預設 Run／Shift=Sprint／Ctrl=Walk」這類 per-game 控制方案全部住在這裡（換方案＝換資產，換驅動來源＝換掛元件，Runner 零改）
 - 不該做：不該回讀 gameplay state 或當前 model（**context-free**，否則 producer → state 同帧回圈重現）；不該判斷「這顆 Shift 現在是不是給移動用的」（那是 Input 層 action map 的職責）；不該把 gait／速度換算寫進意圖（Walk/Run/Sprint 是 **Locomotion model** 對 [0-1] 的命名門檻，不屬契約）
 - 🆕 **控制方案的可配置面在資產，不在 policy 程式碼**（2026-07-25）：連「Walk 是按住生效還是按一下切換型態」都是 per-game 差異，因此做成 `GaitProfileSO.walkIsToggle` 而非寫死在 producer——否則「換玩法＝換一顆資產」只對數值成立、對操作語意不成立。對應地，**toggle 的持久型態存黑板**（`MovementIntent.WalkModeActive`）而非 producer 私有欄位：ADR-003 D5 明文「mode/toggle state 進黑板」，§9-L5 的 snapshot-able 前提也要求無隱藏態。這條由測試守——同一顆 producer 換一塊新黑板，型態必須從乾淨狀態開始
+- 🆕 **Facing 來源同樣遵守 actor policy 在 prefab、不在 policy 程式碼的紀律**（2026-09-10）：`CharacterFacingSource.usePersistentCombatFacing` 是 per-character 的序列化配置面；預設 `false` 讓玩家維持既有 Action commitment → `MoveDirection` 路徑，敵人由 prefab 顯式啟用 combat target 第二順位。⛔ 不以 runtime 角度門檻切換 locomotion presentation mode，也不為單一使用者提前建立 facing policy 介面。
 - **為什麼需要這一層**：「input＋modifier → 想要多快」是一條 **per-game 的規則**，塞進 State 會把控制方案焊進 FSM 拓撲（破壞多玩法目標）、塞進 Input 會洩漏 gameplay 語意、塞進通用 Runner 會讓它認識 locomotion 概念（Swim 只有 StrokeRate、Vehicle 只有 RPM，一進場即露餡）。三處都撞牆 → 這條規則需要自己的家
-- **單一真相紀律**：`MovementIntent` 是唯一真相；黑板 Movement Output（`MoveSpeed`／`MoveDirection`／`UpperBodyWeight`）是它經 model dynamics 導出的**衍生值**，禁止任何路徑繞過 intent 直寫。此紀律專為避免重演「兩個真相來源」病（＝ ADR-002 為 jump 物理奮戰的同型問題）而設，並由 EditMode 測試守（`docs/02-dev-spec.md` §7-A5／A7）
+- **單一真相紀律**：`MovementIntent` 是唯一真相；黑板 Movement Output（`MoveSpeed`／`MoveDirection`）是它經 model dynamics 導出的**衍生值**，禁止任何路徑繞過 intent 直寫。此紀律專為避免重演「兩個真相來源」病（＝ ADR-002 為 jump 物理奮戰的同型問題）而設，並由 EditMode 測試守（`docs/02-dev-spec.md` §7-A5／A7）。舊 `UpperBodyWeight` 沒有消費者且語意不適合 spell layer，已於 ADR-006 Trial 移除
 - 🆕 **Movement Model（Stage 2 落地）**：`IMovementModel` 封裝「此刻怎麼動」的全部 dynamics（B9 平滑、運動輸出、**自驅自己的動畫參數**）。ambient 狀態（Idle／Move）的 `OnUpdateMotion` delegate 給它、`CanEnter` 問它 `IsProducingMotion`；intrinsic-motion 狀態（Jump／Roll）維持自帶位移。**model 的唯一持有點是狀態機**（Runner 解析 → 注入 → 發給所有 state），因為跨帧平滑狀態必須全域唯一——多份平滑＝Idle↔Move 切換時收步被重置
+- 🆕 **Actor-scoped directional calibration（2026-09-11）**：需要 combat directional locomotion 的 actor 可在 `LocomotionModel` 指派 `CombatDirectionalSpeedProfileSO`；profile 不保存手填速度，只引用各方向 `MotionBakeData` 與 MotionDriver 使用的同一份 maximum-speed bake。Model 只在 `InCombat` 時依 committed facing local direction 套用方向性上限，動畫 2D thresholds 與實際位移因此同源。未指派者（X Bot）完全沿用原本 1D／速度路徑；⛔ 不用 camera 或 runtime angle threshold 切換 1D／2D。
 - ✅ **殘餘耦合已收尾（2026-07-25）**：B9 平滑＋`MoveSpeed` 導出＋動畫參數驅動已整組遷入 `LocomotionModel`，通用 Runner 不再認識任何 locomotion 概念（ADR-003 §9-L1 消解，由 dev-spec §7-A9／A10 自動守住不回流）。**唯一刻意保留的中間態**：Movement Output 仍走黑板欄位（消費端含 `MotionDriver` 與 Jump 空中控制），D4 的「完全內化」待第二個 model 進場時一併處理（dev-spec §7.3）
 - **Stage 2 學到的時序課**：「把 dynamics 併進 `OnUpdateMotion`、讓 model 只有一個進入點」看起來更乾淨，實測會壞兩件事——Jump／Roll 期間平滑凍結（空中控制吃的正是這組輸出，落地滑步），以及 `SetFloat` 落到 LateUpdate 後動畫參數比位移晚一帧（Animator 評估卡在 Update 與 LateUpdate 之間）。**「乾淨的形狀」必須先通過時序驗證**，這條寫進 dev-spec §2.1 脆弱點警告第 6 條
 
@@ -273,6 +347,14 @@ flowchart LR
 - **這一層的兩個方向，都對**：游標是「**高層擁有、低層回報意圖**」（App 讀角色元件的 `IsUiModeActive`）；而若未來暫停要封鎖角色輸入，則是「**低層擁有、高層提供來源**」（角色的 `ArbiterPipeline` 收一顆 App 給的 `IArbiterSource`）。看起來相反，判準其實同一個：**那個狀態的 scope 屬於誰，就由誰擁有**
 - **與角色層的溝通方式（尚未需要，先記下界線）**：若未來暫停真的必須讓角色 `BlockInput`，正解**不是**讓角色去查詢全域，而是讓暫停器實作 `IArbiterSource`、由角色以 Inspector 引用（DIP，同 `IMovementIntentSource` 的注入形態）。在真的需要之前不預先接線
 - 🆕 **第二隻角色的首次實證（2026-08-29 P1，待 Play 驗收）**：敵人擁有自己的 `PlayerRuntimeData`、Runner、FSM 與角色內元件；它不複製也不宣稱擁有 `Time.timeScale`／`Cursor`。程式組裝因此符合本節的 scope 判準；最終證據待 Unity 中同場跑玩家＋敵人確認。
+
+### 4.10 Enemy Decision v1（FSM-lite ＋ IntentPipeline）
+
+- **Awareness／engagement**：`AIMovementSource` 以獨立的 aggro enter／leave 半徑發布 `CombatContext`；target 已知不等於已交戰。
+- **Tactical movement**：同一 producer 只輸出 `Approach`／`Strafe`／`Retreat` 或零移動 `Hold` 的世界方向 intent；不執行位移、不碰 Action 或動畫。
+- **Action decision**：`AIInputSource` 把持續 `WantsToAttack` 轉成有 retry cadence 的單幀 request；`ActionState` 保持唯一執行權威。
+- **Facing**：敵人用既有 `CharacterFacingSource` Priority 2 持續 target-facing；玩家 actor policy 維持關閉。
+- 這是單敵人 baseline，不建立通用 AI framework。候選行為增加並開始互相評分時才升級 Utility Selector；升級條件與不可越過的執行邊界見 `docs/21-enemy-ai-baseline.md`。
 
 ---
 
@@ -397,3 +479,7 @@ flowchart LR
 | 2026-07-25 | v0.21 | **ADR-003 Migration Stage 2（locomotion dynamics 歸位，對應 dev-spec v0.21／changelog v0.21）**：①§4.8 更名為「Movement 意圖層 ＋ Movement Model」，新增 Movement Model 職責段（`IMovementModel` 封裝平滑／運動輸出／自驅動畫參數；ambient delegate、intrinsic 自帶位移；**唯一持有點是狀態機**，因跨帧平滑必須全域唯一）；②「已知殘餘耦合」條**結案**（§9-L1 消解，改由 dev-spec §7-A9／A10 自動守），僅保留「Movement Output 仍走黑板欄位」的刻意中間態；③新增「Stage 2 學到的時序課」——把 dynamics 併進 `OnUpdateMotion` 會壞 Jump 空中控制與動畫參數時序，**乾淨的形狀必須先通過時序驗證**；④Trade-off 表補一列（locomotion dynamics 該住哪：三個替代方案與各自的失敗機制）。**架構分層數不變**，改變的是既有分層的職責歸屬；FSM 拓撲／MotionDriver／物件階層皆零改動 |
 | 2026-07-25 | v0.22 | **Walk 型態 hold／toggle（對應 dev-spec v0.22／changelog v0.22）**：§4.8 補一條「控制方案的可配置面在資產、不在 policy 程式碼」——連操作語意（按住 vs 切換）都做成 `GaitProfileSO` 欄位，並把 toggle 的持久型態放黑板（`WalkModeActive`）而非 producer 私有欄位，理由是 ADR-003 D5 與 §9-L5 的 snapshot 前提。**無架構變更**，屬既有分層內的職責填實 |
 | 2026-07-27 | v0.25 | **輪 4 ArbiterPipeline 落地（對應 dev-spec v0.25／changelog v0.25）**：①**§2.5 修正一個原始假設**——原資料流把狀態機畫成仲裁的唯一上游，第一個真實需求（Alt ＝ UI 模式）證明**封鎖不必然來自狀態**，上游一般化為 `IArbiterSource` 集合，狀態機降為眾多可能來源之一；「把能不能收斂成單一決策點」的核心精神不變，變的只是決策**輸入**可以來自哪裡；②§4.5 由規劃轉為落地並補完整職責邊界：seam 形態（第三次沿用「介面集合＋管線只認介面」pattern）、**兩個被否決的替代方案**（`BaseState.BlocksInput` virtual／`StateMachineConfigSO` per-state 旗標，皆蓋不住非狀態來源且方向相反）、**來源介面回傳值而非 `ref`** 的理由（用型別讓錯誤寫不出來，優於用測試守紀律）、`BlockInput` 的語意結案、以及明列的不預造項。**屬既有架構骨架的兌現**（§2.5 早已規劃仲裁層），非新架構——依 CLAUDE.md 路由規則寫入 Living Doc，**不另開 ADR** |
+| 2026-09-10 | —<br>（**詞彙補充，非版本變更**） | **新增 §2.9「運動授權的三種狀態：Continuous／Committed／Suspended」**——為 repo 裡**已經存在**的東西命名，不引入任何新機制：①三個詞的定義與判準；②現有案例對照（Locomotion＝continuous／Roll＋Action＝committed／`JumpState` 逐軸混合／`HardRecovery` 的 `ExecuteVerticalOnlyMovement`＝水平 suspended／`LocomotionStopRuntime`＝住在 model 裡的 committed 生命週期）；③**committed 與 targeted 是兩個獨立的軸**（Roll ＝ committed 但 untargeted ⇒ Motion Warping 即「把 untargeted 變 targeted」的機制）。<br>⚠️ **明確不主張**：不改 `IMovementModel`／state contract／黑板 schema，不進 dev-spec §1／§2／§3.1，**不開 ADR**，**目前不是正式 taxonomy**。價值僅在於讓 `docs/03` §6.4 的 **G1 承載問題**（Roll ＝ FSM state vs Stop ＝ model 內 struct，該不該一致）**第一次講得出口**。<br>證據出處：`docs/18-benchmark-convergence.md` §3。依 CLAUDE.md ADR 判準逐條檢查為 **0/4**，走 Living Docs routing rule |
+| 2026-09-12 | —<br>（ADR-008 Trial） | **Traversal V1 Integration**：新增單一 `TraversalState` 與三格 `TraversalStateParamsSO`；candidate 在 `CanEnter` commitment boundary 從 `TraversalProbe` 複製，Jump fallback 與完成後 ambient／fall handoff 留給既有 FSM arbitration。§2.9 補 Traversal 的 committed 3D 案例，並釐清「有 world-derived candidate」不等於「位移已 targeted」；V1 尚未做 target correction／Motion Warping。§4.3 記錄 StateMachine→Environment 的窄 seam 與 query ownership。 |
+| 2026-09-13 | v0.38<br>（ADR-008 Trial） | **Traversal V3 quality chain**：grounded stationary sensing 改用 committed facing；pure EntryPolicy 分離 Candidate 與 Executable；ledge interval＋baked hand/root markers 在 commit 形成固定六 knot contact-aware Motion Map；Probe 擁有 fixed-capsule corridor evidence，MotionDriver 維持 movement／controller shape 單一權威並承載 C1 center profile 的 restore。三種 kind、FSM topology 與黑板 schema 不變；C2／C3／IK 均保留為 evidence-gated seam。 |
+| 2026-09-13 | v0.38.1<br>（ADR-008 Trial） | **Traversal Correctness／Debug Pass**：Playtest 證實 production Bake 尚未 author V3 block，因此原先仍走 endpoint fallback；本輪把 safe wall-close Entry、paired Contact root constraint＋capsule support soft clamp、Contact／Transfer／Exit piecewise vertical correction、Exit hold、contact／vertical measurements 與 minimal Hand IK presentation seam 補齊。IK 不發 query、不修 root，只消化 committed residual；debug 可回答 Entry reject、animated hand→target error、original/warped Y 與 IK status/weight/target/residual。CollisionProfile 擴充與新玩法未進 scope；待 Editor marker／binding／Play 完成 Trial 驗收。 |

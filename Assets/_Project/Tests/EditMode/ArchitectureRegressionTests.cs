@@ -4,6 +4,7 @@ using System.IO;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEditor;                 // A37／A38：讀**出貨資產**，防「測試綠但出貨資料走不到」
 using Project.Core.StateMachine;   // A23：直接構造四個 ambient／intrinsic state 檢查 AnimationKey 的識別性
 
 namespace Project.Tests.EditMode
@@ -279,13 +280,27 @@ namespace Project.Tests.EditMode
             new LayerRule
             {
                 Folder = "Presentation",
-                Forbidden = new[] { "Project.Core.StateMachine", "StateType", "Project.Core.Pipeline", "IInputSource", "InputData" },
+                // 🆕（2026-09-15，HUD）`UnityEngine.UI` 一併列入禁令。
+                // `Project.Runtime.asmdef` 為了 `App/PlayerHud` 新增了 UnityEngine.UI 參考，
+                // 那條參考是**組件層級**的 ⇒ 整個 Runtime 組件從此都「編得過」uGUI。
+                // ⛔ HUD 是 App 層的東西；讓表現層（甚至 Core）開始碰 Image／Canvas，
+                //    等於把畫面佈局的責任滲進角色表現與 gameplay。加參考的同一刻就把門關上。
+                Forbidden = new[]
+                {
+                    "Project.Core.StateMachine", "StateType", "Project.Core.Pipeline",
+                    "IInputSource", "InputData", "UnityEngine.UI",
+                },
                 AllowedNamespaces = new[]
                 {
                     "Project.Presentation",       // 自己
                     "Project.Core.Blackboard",    // 只讀黑板——表現層的唯一合法輸入
                     "Project.Core.Actions",       // ActionSlot／IActionLifecycleSink：Action seam 的身分與回呼
                     "Project.Core.Effects",       // ThrownProjectile 施加 Slow（docs/11 §7.5，刻意的設計）
+                    // 🆕（ADR-009 D2）三個命中 sink 改為只送傷害：`CharacterHealth.ApplyDamage`。
+                    //    與上一列 Core.Effects 同形狀——sink 是 gameplay event 的**投遞端**，
+                    //    它必須認得收件者。⚠️ 允許的是「送傷害」，**不是**讓表現層讀血量做決定：
+                    //    「未致死播受擊／致死進 Death」全部在 CharacterHealth 這一側（ADR-009 D2）。
+                    "Project.Core.Survivability",
                 },
                 Reason = "表現層不得反向依賴狀態機或輸入層（禁止 Animation→StateMachine、Motion→Input）；表現層只讀黑板"
             },
@@ -298,6 +313,7 @@ namespace Project.Tests.EditMode
                     "Project.Core.StateMachine",  // 自己（含 .States／.Actions）
                     "Project.Core.Blackboard",
                     "Project.Core.Actions",       // ActionSlot：Action 身分的單一來源（ADR-005 D1）
+                    "Project.Core.Environment",   // TraversalProbe/Candidate：TraversalState 的唯讀准入 seam（ADR-008）
                     "Project.Core.Movement",      // IMovementModel：BaseState.Initialize 的 ambient delegate（ADR-003 D3）
                     // 🔒 ADR-007 §7-E6 的實證：原本放行整個 Project.Presentation 前綴，讓
                     //    CameraControl.AimResolver 的具體依賴靜默通過。只保留 State 真正需要的兩類 seam。
@@ -309,8 +325,11 @@ namespace Project.Tests.EditMode
             new LayerRule
             {
                 Folder = "Core",
-                Forbidden = new[] { "Animancer", "Animator" },
-                Reason = "Core 不得直接碰 Animation API，一律經 AnimationFacadeBase 抽象（禁止 Controller→Animation API）"
+                // 🆕（2026-09-15）`UnityEngine.UI` 同理——見 Presentation 那一條的說明。
+                // gameplay 層碰 UI 是「把顯示需求倒灌進規則」的第一步，而 `docs/17` §3.3
+                // 紅線 2 正是在防這件事（禁止為了顯示而汙染 gameplay 的資料與依賴）。
+                Forbidden = new[] { "Animancer", "Animator", "UnityEngine.UI" },
+                Reason = "Core 不得直接碰 Animation API，一律經 AnimationFacadeBase 抽象（禁止 Controller→Animation API）；也不得碰 UI"
             },
             // ⚠️ 本層刻意**不遞迴**：`Core/Movement` 根目錄放的是 intent producer（context-free、
             //    連 Presentation 都不得認識）；`Core/Movement/Models` 放的是 Movement Model
@@ -400,6 +419,11 @@ namespace Project.Tests.EditMode
                     // 📌 S3b 落地時應改為介面並回頭把這兩列收斂（docs/15 §13.1）。
                     "Project.Core.Combat",
                     "Project.Core.Facing",
+                    "Project.Core.Environment", // TraversalProbe：順序 2.7 的可選具體 producer（docs/22 §9.2 W8）
+                    // 🆕（ADR-009 D1）順序 0.5 的 CharacterHealth.PublishTo。同 Probe：Runner 只負責**排程**，
+                    //    不認識傷害、受擊或死亡動畫。與上方刻意不列 Core.Effects 的理由不衝突——
+                    //    那條擋的是「Runner 開始做 gameplay 決策」，這裡 Runner 只呼叫一個發布方法。
+                    "Project.Core.Survivability",
                 },
                 Reason = "組裝根只認識介面與既有層；新增的依賴必須明確登記，不得靜默長出來"
             },
@@ -480,17 +504,15 @@ namespace Project.Tests.EditMode
         {
             new WriterRule { Member = "MovementIntent", AllowedFiles = new[] { "PlayerLocomotionPolicy.cs", "AIMovementSource.cs" },
                              Owner = "每隻角色當下唯一 active 的 IMovementIntentSource（ADR-003 D2 single-writer）" },
-            new WriterRule { Member = "CombatContext", AllowedFiles = new[] { "PlayerCombatContextSource.cs" },
+            new WriterRule { Member = "CombatContext", AllowedFiles = new[] { "PlayerCombatContextSource.cs", "AIMovementSource.cs" },
                              Owner = "每隻角色當下唯一 active 的 combat context producer（ADR-007 D3）" },
             new WriterRule { Member = "Intent", AllowedFiles = new[] { "CharacterPipelineRunner.cs" },
                              Owner = "Intent Processor（管線順序 2）" },
-            // 🆕（ADR-003 Stage 2）以下三欄自此為「active Movement Model 發布的 **Movement Output**」，
+            // 🆕（ADR-003 Stage 2）以下兩欄自此為「active Movement Model 發布的 **Movement Output**」，
             //    不再是 Runner 維護的 locomotion state。換 model ＝ 換這裡的檔名（唯一寫入者恆為一個 model）。
             new WriterRule { Member = "MoveSpeed", AllowedFiles = new[] { "LocomotionModel.cs" },
                              Owner = "active IMovementModel（順序 3 Tick；ADR-003 D4）" },
             new WriterRule { Member = "MoveDirection", AllowedFiles = new[] { "LocomotionModel.cs" },
-                             Owner = "active IMovementModel（順序 3 Tick；同上）" },
-            new WriterRule { Member = "UpperBodyWeight", AllowedFiles = new[] { "LocomotionModel.cs" },
                              Owner = "active IMovementModel（順序 3 Tick；同上）" },
             new WriterRule { Member = "IsGrounded", AllowedFiles = new[] { "MotionDriver.cs" },
                              Owner = "MotionDriver.GetGravityThisFrame" },
@@ -513,6 +535,12 @@ namespace Project.Tests.EditMode
             //    任何 Controller 想寫這一區都會在此變紅，契約不需要靠人記得。
             new WriterRule { Member = "PresentationEvents", AllowedFiles = new[] { "PresentationPipeline.cs" },
                              Owner = "PresentationPipeline（順序 6.5 末尾；OR 合併所有 IPresentationEventSource 後整體覆寫）" },
+            // 🆕（ADR-009 D1）生存區。⚠️ 唯一寫入者是持有生命值的**元件本身**，不是管線——
+            //    與 Arbitration／PresentationEvents 相反：那兩區是「多來源合併」所以由管線獨佔寫入，
+            //    這一區只有一個真相持有者，沒有東西要合併。Runner 只在順序 0.5 呼叫 PublishTo。
+            //    ⛔ 攻擊方 sink 不得寫這一區——它們只送傷害（D2 的決策擁有權）。
+            new WriterRule { Member = "Survivability", AllowedFiles = new[] { "CharacterHealth.cs" },
+                             Owner = "CharacterHealth（順序 0.5 PublishTo；ADR-009 D1 single-writer）" },
         };
 
         [Test]
@@ -566,7 +594,7 @@ namespace Project.Tests.EditMode
         {
             string[] forbidden =
             {
-                "MoveSpeed", "MoveDirection", "UpperBodyWeight",   // model 的運動輸出
+                "MoveSpeed", "MoveDirection",                       // model 的運動輸出
                 "LocomotionSpeedSmoother", "SmoothDamp",           // model 的內部 dynamics
                 "GaitProfile", "LocomotionModel",                  // 具體 policy／具體 model（DIP：只准依賴介面）
             };
@@ -673,10 +701,13 @@ namespace Project.Tests.EditMode
         }
 
         [Test]
-        public void A13Prime_ActionIsTheOnlyNewGameplayState()
+        public void A13Prime_StateTopologyMatchesAcceptedAndTrialADRs()
         {
+            // 🆕（ADR-009 D3 Trial）Death、🆕（docs/26 Model B）Hurt 都加在**最後**：
+            //    enum 的 int 值是 config 資產的序列化身分，插在中間會讓既有的
+            //    CanBeInterruptedBy／ValidTransitions 默默指向別的狀態。
             CollectionAssert.AreEqual(
-                new[] { "None", "Idle", "Move", "Jump", "Roll", "Action" },
+                new[] { "None", "Idle", "Move", "Jump", "Roll", "Action", "Traversal", "Death", "Hurt" },
                 Enum.GetNames(typeof(Project.Core.StateMachine.StateType)));
         }
 
@@ -816,7 +847,7 @@ namespace Project.Tests.EditMode
         {
             var states = new List<BaseState>
             {
-                new IdleState(), new MoveState(), new JumpState(), new RollState()
+                new IdleState(), new MoveState(), new JumpState(), new RollState(), new TraversalState()
             };
 
             var violations = new List<string>();
@@ -929,8 +960,14 @@ namespace Project.Tests.EditMode
             string code = StripComments(File.ReadAllText(path));
             StringAssert.Contains("IActionLifecycleSink", code,
                 "近戰命中窗必須由 ActionState 的 lifecycle seam 驅動");
-            StringAssert.Contains("RequestAction(ActionSlot.Reaction)", code,
-                "近戰命中必須沿用 projectile 的 Reaction request 處置");
+            // 🔄（ADR-009 D2）原本釘的是 `RequestAction(ActionSlot.Reaction)`。
+            //    受擊鏈路沒有消失，只是**投遞端換了**：sink 只送傷害，
+            //    「未致死播受擊／致死進 Death」由 CharacterHealth 決定。
+            //    這一條的用意不變：近戰不得自己發明命中處置，必須沿用與 projectile 相同的那一條。
+            StringAssert.Contains("ApplyDamage", code,
+                "近戰命中必須沿用 projectile／地面 AoE 的同一條傷害 seam（CharacterHealth.ApplyDamage）");
+            StringAssert.DoesNotContain("RequestAction(ActionSlot.Reaction)", code,
+                "攻擊方不得自己決定要播受擊——它不知道這一下會不會致死（ADR-009 D2）");
             StringAssert.DoesNotContain("ParticleSystem", code,
                 "VFX／particle collision 不得成為命中來源或決定命中時機");
             StringAssert.DoesNotContain("OnParticleCollision", code,
@@ -973,12 +1010,29 @@ namespace Project.Tests.EditMode
             StringAssert.DoesNotContain("IMovementIntentSource", inputCode,
                 "攻擊來源不得同時扮演 movement producer——兩者刻意分屬不同管線階段");
 
-            // AI 不得自行節流：能不能出手的唯一回答者是 ActionState（ADR-004 D2）。
-            foreach (string forbidden in new[] { "Time.time", "Time.deltaTime", "Cooldown", "cooldown" })
+            // AI 可持有 request retry cadence，但不得回讀 FSM／ActionState 或複製真正的執行資格。
+            foreach (string forbidden in new[]
+                     {
+                         "using Project.Core.StateMachine", "Project.Core.StateMachine.",
+                         "GetComponent<ActionState>", "TryGetComponent<ActionState>",
+                         "GetComponent<FullBodyStateMachine>", "TryGetComponent<FullBodyStateMachine>",
+                         "PlayerRuntimeData", "StateType"
+                     })
             {
                 StringAssert.DoesNotContain(forbidden, inputCode,
-                    $"AIInputSource 出現 {forbidden}：AI 不得自建冷卻／計時節流，" +
-                    "那會讓「這一拳能不能出」有第二個回答者（ActionState 已持有 per-slot 冷卻）。");
+                    $"AIInputSource 出現 {forbidden}：producer 只能決定何時重送 request，" +
+                    "不得知道或複製 ActionState 的執行資格。");
+            }
+
+            string playerInputSourcePath = FindSingleScript("PlayerInputSource.cs");
+            string playerInputCode = StripComments(File.ReadAllText(playerInputSourcePath));
+            foreach (string slot in new[] { "Slot1", "Slot2", "Slot3" })
+            {
+                StringAssert.Contains(
+                    $"data.{slot}ButtonDown = {slot}Action != null && {slot}Action.WasPressedThisFrame();",
+                    playerInputCode,
+                    $"PlayerInputSource 的 {slot} 必須維持 WasPressedThisFrame edge semantic；" +
+                    "AI request cadence 不得改變玩家輸入行為。");
             }
         }
 
@@ -1080,6 +1134,673 @@ namespace Project.Tests.EditMode
                     $"ExecuteBaseMovement 出現 '{token}'：ADR-007 D2／D3 規定 MotionDriver 是 rotation 執行者，" +
                     "不是『往哪面向／本幀該不該轉』的決策者；請把 facing 政策收斂回 CharacterFacingSource。");
             }
+        }
+
+        // =====================================================================
+        // A33 — Direction Authority 快照不得成為第二套決策系統
+        //       （🆕 2026-09-10，Observability 範圍收斂後保留的被動診斷）
+        //
+        // ⭐ 這條守的不是風格，是**信任鏈**：
+        //    一個會自己重算 facing 優先序的 gizmo ＝ 第二套 facing 決策實作。
+        //    兩邊算得不一樣時，它會讓你相信錯的那一邊——**那比沒有 debug 更糟**。
+        //    docs/16-review-protocol.md 已把「下游重新推導已 commit 的狀態」列為本專案加重審查項；
+        //    本測試是那條紀律在 observability 上的機器化切片，讓「debug 只記錄不重算」不再只是一句承諾。
+        // =====================================================================
+
+        [Test]
+        public void A33_FacingDebugSnapshot_RemainsPassiveWithoutPresentation()
+        {
+            string source = File.ReadAllText(FindSingleScript("CharacterFacingSource.cs"));
+
+            // ① 快照只能記錄決策當下的既有回傳值，不得重跑優先序或死區判定。
+            string recorderBody = ExtractMethodBody(source, "RecordFacingDebug");
+            string[] decisionApis =
+            {
+                "TryResolveFacing", "ShouldRequestFacing", "IsWithinFacingDeadzone",
+                "TryGetActiveFacingCommitment", "RequestFacing",
+            };
+
+            foreach (string api in decisionApis)
+            {
+                StringAssert.DoesNotContain(api, recorderBody,
+                    $"RecordFacingDebug 出現 '{api}'：Direction Authority 快照只能記錄" +
+                    "Tick 當下已算完的值，不得成為第二套 facing 決策。");
+            }
+
+            // ② 本輪明確收回 Direction Authority 的 world-space presentation。
+            StringAssert.DoesNotContain("OnDrawGizmos", source,
+                "Direction Authority 目前只保留快照，不再畫四箭頭／deadzone／label。");
+            StringAssert.DoesNotContain("UnityEditor.Handles", source,
+                "Direction Authority 目前不應有 world-space presentation。");
+
+            // ③ 單向紀律：擁有者寫，任何其他 runtime 路徑不得讀取 facing 快照欄位。
+            string[] facingDebugFields =
+            {
+                "_debugDesiredDirection", "_debugMoveDirection", "_debugForwardAtDecision",
+                "_debugResolvedDirection", "_debugFromActionCommitment", "_debugOutcome",
+            };
+            var leaks = new List<string>();
+            foreach (string path in RuntimeScriptPaths())
+            {
+                if (string.Equals(Path.GetFileName(path), "CharacterFacingSource.cs", StringComparison.Ordinal)) continue;
+
+                string code = StripStringLiterals(StripComments(File.ReadAllText(path)));
+                foreach (string field in facingDebugFields)
+                {
+                    if (!code.Contains(field)) continue;
+                    leaks.Add($"{RelativePath(path)}: {field}");
+                }
+            }
+
+            CollectionAssert.IsEmpty(leaks,
+                "debug 快照欄位是單向的（擁有者寫、Editor 診斷保留），⛔ 不得被任何 runtime 路徑讀取——\n" +
+                "一旦有 gameplay 讀它，debug 顯示就從『觀察』變成『輸入』，" +
+                "而它的更新時機（順序 4.6 之後、可能過期一幀）從來沒有被設計成契約：\n" +
+                string.Join("\n", leaks));
+        }
+
+        [Test]
+        public void A34_FootIKDebug_UsesRuntimeRenderingWithoutRepeatingPhysicsQueries()
+        {
+            string source = File.ReadAllText(FindSingleScript("FootIKController.cs"));
+            string[] presentationMethods =
+            {
+                "UpdateRuntimeDebugLines", "AppendFootRuntimeLines", "AppendRuntimeProbe",
+                "AppendRuntimeVector", "AppendRuntimeArrow", "AppendRuntimeLine", "GetOrCreateRuntimeLine",
+                "OnDrawGizmos", "DrawFootGizmos", "DrawHeelToeOriginsGizmo",
+                "DrawProbeGizmo", "DrawVectorGizmo", "DrawArrowGizmo",
+            };
+            string[] forbidden = { "Physics.", "RaycastGround", "SampleGround", "SampleSingleGround" };
+
+            foreach (string method in presentationMethods)
+            {
+                string body = ExtractMethodBody(source, method);
+                foreach (string token in forbidden)
+                {
+                    StringAssert.DoesNotContain(token, body,
+                        $"{method} 出現 '{token}'：Foot IK presentation 只能畫 Tick 當下記錄的快照，" +
+                        "不得重發 physics query，否則顯示值可能與實際 IK 決策不同。");
+                }
+            }
+
+            string tickBody = ExtractMethodBody(source, "Tick");
+            StringAssert.Contains("UpdateRuntimeDebugLines", tickBody,
+                "Game View 主通道必須由 production Tick 已記錄的快照更新，而不是依賴 Gizmos callback。");
+            StringAssert.Contains("LineRenderer", source,
+                "Foot IK Game View debug 必須使用真正的 runtime renderer，正常 Play 不得依賴 Gizmos 開關。");
+            StringAssert.Contains("#if UNITY_EDITOR || DEVELOPMENT_BUILD", source,
+                "runtime debug renderer 只允許存在於 Editor／Development debug build。");
+            StringAssert.DoesNotContain("Debug.DrawLine", source,
+                "Debug.DrawLine 在 Game View 仍受 Gizmos 開關控制，不能充當正常 Play 的主通道。");
+
+            StringAssert.Contains("private void OnDrawGizmos()", source,
+                "Scene View 詳查通道可以保留非 selected-only Gizmos。");
+            StringAssert.DoesNotContain("OnDrawGizmosSelected", source,
+                "Scene View 詳查也不能依賴選取角色。");
+
+            StringAssert.Contains(
+                "sample.DebugFootForward = sample.TargetRotation * Vector3.forward", source,
+                "heel/toe forward debug 必須記錄 production offset 實際使用的 corrected foot basis，" +
+                "不得在 presentation 改用 character root 或 world axis。");
+            StringAssert.Contains(
+                "AppendRuntimeLine(sample.DebugHeelOrigin, sample.DebugToeOrigin", source,
+                "Game View 必須直接連接實際 heel/toe sample origins，才能檢查腳掌長軸。");
+            StringAssert.Contains("sample.DebugTwoPointBase = sample.TargetPosition", source,
+                "BASE 標記必須快取 Heel/Toe offset 真正展開的 corrected ankle target，" +
+                "不得誤標成 Animator goal 或 bone Transform。");
+            StringAssert.Contains("\"L BASE\", \"L HEEL\", \"L TOE\"", source,
+                "Scene View 必須明確標示左腳 BASE／HEEL／TOE。");
+            StringAssert.Contains("\"R BASE\", \"R HEEL\", \"R TOE\"", source,
+                "Scene View 必須明確標示右腳 BASE／HEEL／TOE。");
+        }
+
+        [Test]
+        public void A39_TraversalProbe_IsEnvironmentLayersOnlyPhysicsQueryOwner()
+        {
+            string environmentRoot = Path.Combine(ScriptsRoot, "Core", "Environment");
+            string[] paths = Directory.GetFiles(environmentRoot, "*.cs", SearchOption.AllDirectories);
+            var violations = new List<string>();
+
+            foreach (string path in paths)
+            {
+                string code = StripStringLiterals(StripComments(File.ReadAllText(path)));
+                if (!code.Contains("Physics.")) continue;
+                if (!string.Equals(Path.GetFileName(path), "TraversalProbe.cs", StringComparison.Ordinal))
+                    violations.Add(RelativePath(path));
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "Core/Environment 只有 TraversalProbe.cs 可以發 physics query：\n" +
+                string.Join("\n", violations));
+
+            string classifier = StripStringLiterals(StripComments(
+                File.ReadAllText(FindSingleScript("TraversalClassifier.cs"))));
+            StringAssert.DoesNotContain("Time.", classifier,
+                "TraversalClassifier 必須是與 frame clock 無關的純函式");
+            StringAssert.DoesNotContain("PlayerRuntimeData", classifier,
+                "TraversalClassifier 不得讀黑板；輸入只能是 measurement/settings/previousKind");
+        }
+
+        [Test]
+        public void A40_TraversalDebug_UsesSnapshotWithoutRepeatingPhysicsQueries()
+        {
+            string source = File.ReadAllText(FindSingleScript("TraversalProbe.cs"));
+            string[] presentationMethods =
+            {
+                "UpdateTraversalRuntimeDebugLines", "AppendTraversalRuntimeProbe",
+                "AppendTraversalRuntimeVector", "AppendTraversalRuntimeCapsule",
+                "AppendTraversalRuntimeLine", "GetOrCreateTraversalRuntimeLine",
+                "EnsureTraversalRuntimeDebugRoot", "UpdateTraversalRuntimeLabel",
+                "GetTraversalDebugLabel", "OnDrawGizmos", "DrawTraversalProbeGizmo",
+                "DrawTraversalVectorGizmo", "DrawTraversalCapsuleGizmo",
+            };
+            string[] forbidden = { "Physics.", "Raycast", "CheckCapsule" };
+
+            foreach (string method in presentationMethods)
+            {
+                string body = ExtractMethodBody(source, method);
+                foreach (string token in forbidden)
+                {
+                    StringAssert.DoesNotContain(token, body,
+                        $"{method} 出現 '{token}'：Traversal debug 只能畫 Tick 已記錄的 snapshot");
+                }
+            }
+
+            string completeTickBody = ExtractMethodBody(source, "CompleteTick");
+            StringAssert.Contains("UpdateTraversalRuntimeDebugLines", completeTickBody,
+                "Game View 主通道必須在 production Tick 完成快照後更新");
+            StringAssert.Contains("LineRenderer", source,
+                "Traversal Game View debug 必須使用真正的 runtime renderer");
+            StringAssert.Contains("#if UNITY_EDITOR || DEVELOPMENT_BUILD", source);
+            StringAssert.Contains("private void OnDrawGizmos()", source);
+            StringAssert.DoesNotContain("OnDrawGizmosSelected", source);
+        }
+
+        [Test]
+        public void A41_TraversalCandidate_RemainsOutsidePlayerRuntimeData()
+        {
+            string source = StripStringLiterals(StripComments(
+                File.ReadAllText(FindSingleScript("PlayerRuntimeData.cs"))));
+            StringAssert.DoesNotContain("TraversalCandidate", source);
+            StringAssert.DoesNotContain("TraversalKind", source);
+        }
+
+        [Test]
+        public void A42_JumpState_HasNoTraversalEnvironmentDependency()
+        {
+            string source = StripStringLiterals(StripComments(
+                File.ReadAllText(FindSingleScript("JumpState.cs"))));
+            StringAssert.DoesNotContain("Project.Core.Environment", source);
+            StringAssert.DoesNotContain("TraversalCandidate", source);
+            StringAssert.DoesNotContain("TraversalKind", source);
+        }
+
+        [Test]
+        public void A43_TraversalExecution_UsesCommittedMotionWithoutQueriesOrGravityFallback()
+        {
+            string traversal = StripStringLiterals(StripComments(
+                File.ReadAllText(FindSingleScript("TraversalState.cs"))));
+
+            string[] queryTokens = { "Physics.", "Raycast", "CheckCapsule", "TraversalClassifier" };
+            foreach (string token in queryTokens)
+                StringAssert.DoesNotContain(token, traversal,
+                    $"TraversalState 出現 '{token}'：執行期只能消費 CanEnter 已提交的 Probe candidate");
+
+            StringAssert.Contains("ExecuteCommittedCurveMovement", traversal,
+                "TraversalState 的三種 kind 必須共用 MotionDriver committed 3D motion 路徑");
+            StringAssert.DoesNotContain("ExecuteBaseMovement", traversal,
+                "Traversal committed 期間不得退回普通 gravity 路徑");
+            StringAssert.DoesNotContain("ExecuteVerticalOnlyMovement", traversal,
+                "Traversal committed 期間不得改走普通 gravity 路徑");
+
+            string[] blackboardAssignments =
+            {
+                ".IsGrounded =", ".VerticalVelocity =", ".JustLanded =", ".JustLeftGround ="
+            };
+            foreach (string assignment in blackboardAssignments)
+                StringAssert.DoesNotContain(assignment, traversal,
+                    "TraversalState 不得成為第二個 grounded／vertical writer；唯一寫入者仍是 MotionDriver");
+
+            string facade = StripStringLiterals(StripComments(
+                File.ReadAllText(FindSingleScript("AnimancerFacade.cs"))));
+            string[] facadeForbidden =
+            {
+                "TraversalProbe", "TraversalCandidate", "TraversalClassifier", "Physics."
+            };
+            foreach (string token in facadeForbidden)
+                StringAssert.DoesNotContain(token, facade,
+                    $"AnimancerFacade 出現 '{token}'：Presentation 不得 query 或重新分類 traversal");
+        }
+
+        [Test]
+        public void A44_StateMachineEnvironmentDependency_UsesOnlyTraversalIntegrationSeam()
+        {
+            string stateMachineRoot = Path.Combine(ScriptsRoot, "Core", "StateMachine");
+            string[] paths = Directory.GetFiles(stateMachineRoot, "*.cs", SearchOption.AllDirectories);
+            var violations = new List<string>();
+
+            foreach (string path in paths)
+            {
+                string source = StripStringLiterals(StripComments(File.ReadAllText(path)));
+                bool usesEnvironment = source.Contains("Project.Core.Environment") ||
+                                       source.Contains("TraversalCandidate") ||
+                                       source.Contains("TraversalKind") ||
+                                       source.Contains("TraversalProbe");
+                if (!usesEnvironment) continue;
+
+                string fileName = Path.GetFileName(path);
+                if (fileName != "TraversalState.cs" &&
+                    fileName != "TraversalStateParamsSO.cs" &&
+                    fileName != "TraversalSelectionPolicy.cs" &&
+                    // 🆕（docs/24 §8）Animation Fitting 是 traversal seam 的一層，與 selection policy 同級：
+                    //    純函式、只讀 candidate／entry／bake，不查 Physics、不寫黑板、不決定狀態轉移。
+                    //    它必須認得 TraversalCandidate（現場尺寸）才能回答「動畫要怎麼播才合身」。
+                    fileName != "TraversalAnimationFit.cs" &&
+                    fileName != "FullBodyStateMachine.cs")
+                {
+                    violations.Add(RelativePath(path));
+                }
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "Core/StateMachine → Core/Environment 只允許 TraversalState、其 selection policy、" +
+                "Animation Fitting、三格 authored params，" +
+                "以及 FullBodyStateMachine 的組裝注入 seam：\n" + string.Join("\n", violations));
+        }
+
+        /// <summary>
+        /// 🆕（docs/24 §8）**Animation Fitting 必須是純函式層。**
+        ///
+        /// 它坐在 `Selection` 與 `TraversalPlan` 之間，回答「這支動畫要怎麼播才貼近現場尺寸」。
+        /// 一旦它開始自己查 Physics 或讀 Transform，就變成第二個環境查詢擁有者——
+        /// 那正是 ADR-008 把所有 query 收斂到 Probe 想避免的事。
+        /// 播放速率的**套用**屬於 TraversalState（經 Facade），不屬於這一層。
+        /// </summary>
+        [Test]
+        public void A50_TraversalAnimationFitting_IsPureAndOwnsNoQueries()
+        {
+            string source = StripStringLiterals(StripComments(
+                File.ReadAllText(FindSingleScript("TraversalAnimationFit.cs"))));
+            string[] forbidden =
+            {
+                "Physics.", "Time.", "transform.", "PlayerRuntimeData",
+                "TraversalProbe", "AnimationFacadeBase", "MonoBehaviour",
+            };
+            foreach (string token in forbidden)
+                StringAssert.DoesNotContain(token, source,
+                    $"TraversalAnimationFit 出現 '{token}'：Fitting 必須是可測的純函式，" +
+                    "不得自己查環境、不得驅動表現層");
+        }
+
+        [Test]
+        public void A45_TraversalSelectionPolicy_IsPureAndDoesNotMoveOwnership()
+        {
+            string policy = StripStringLiterals(StripComments(
+                File.ReadAllText(FindSingleScript("TraversalSelectionPolicy.cs"))));
+            string[] forbidden =
+            {
+                "Physics.", "Time.", "PlayerRuntimeData", "TraversalProbe", "transform."
+            };
+            foreach (string token in forbidden)
+                StringAssert.DoesNotContain(token, policy,
+                    $"TraversalSelectionPolicy 出現 '{token}'：Jump-vs-Climb 必須是 deterministic 純 gameplay policy");
+
+            string jump = StripStringLiterals(StripComments(
+                File.ReadAllText(FindSingleScript("JumpState.cs"))));
+            StringAssert.DoesNotContain("TraversalSelectionPolicy", jump,
+                "JumpState 不得反向認識 traversal selection；policy 只在 Traversal 准入側消費 Jump authority");
+        }
+
+        [Test]
+        public void A46_TraversalWarp_HasNoQueriesOrDirectPositionWriter()
+        {
+            string plan = StripStringLiterals(StripComments(
+                File.ReadAllText(FindSingleScript("TraversalWarpPlan.cs"))));
+            string traversal = StripStringLiterals(StripComments(
+                File.ReadAllText(FindSingleScript("TraversalState.cs"))));
+            string motion = File.ReadAllText(FindSingleScript("MotionDriver.cs"));
+            string capture = ExtractMethodBody(motion, "TryCreateTraversalWarpPlan");
+            string execute = ExtractMethodBody(motion, "ExecuteTraversalWarpedMovement");
+            string move = ExtractMethodBody(motion, "MoveTraversalAndRecord");
+            string combined = plan + "\n" + traversal + "\n" + capture + "\n" + execute + "\n" + move;
+
+            StringAssert.DoesNotContain("Physics.", combined,
+                "Warp plan／State／Motion execution 不得重發 traversal physics query");
+            StringAssert.DoesNotContain("transform.position =", combined,
+                "Traversal warp 不得直接 teleport Transform position");
+            StringAssert.Contains("MoveTraversalAndRecord", execute,
+                "warped execution 必須委派給 MotionDriver 的 traversal movement evidence seam");
+            StringAssert.Contains("characterController.Move", move,
+                "warped delta 必須仍由 MotionDriver 的 CharacterController.Move 權威執行");
+            StringAssert.Contains("currentPosition - previousPosition", execute,
+                "warp execution 必須輸出 warped current - warped previous displacement delta");
+
+            string runtimeData = StripStringLiterals(StripComments(
+                File.ReadAllText(FindSingleScript("PlayerRuntimeData.cs"))));
+            StringAssert.DoesNotContain("Warp", runtimeData,
+                "Traversal warp plan 是 state-private committed data，不得新增黑板欄位");
+        }
+
+        [Test]
+        public void A47_TraversalV3PoliciesAndSolvers_ArePureCommittedDataBuilders()
+        {
+            string entryAndSelection = StripStringLiterals(StripComments(
+                File.ReadAllText(FindSingleScript("TraversalSelectionPolicy.cs"))));
+            string planBuilder = StripStringLiterals(StripComments(
+                File.ReadAllText(FindSingleScript("TraversalStateParamsSO.cs"))));
+            string warpPlan = StripStringLiterals(StripComments(
+                File.ReadAllText(FindSingleScript("TraversalWarpPlan.cs"))));
+            string combined = entryAndSelection + "\n" + planBuilder + "\n" + warpPlan;
+
+            string[] forbidden =
+            {
+                "Physics.", "Time.", "PlayerRuntimeData", "TraversalProbe", "transform."
+            };
+            foreach (string token in forbidden)
+                StringAssert.DoesNotContain(token, combined,
+                    $"Traversal V3 entry／plan／constraint solve 出現 '{token}'：commit builders 必須是 pure data transform");
+
+            StringAssert.DoesNotContain("SolveDual", planBuilder,
+                "Traversal root constraint 只能由單一 primary contact 決定；不得恢復雙手硬約束／平均 API");
+        }
+
+        [Test]
+        public void A48_MotionDriver_IsOnlyRuntimeCharacterControllerShapeWriter()
+        {
+            string scriptsRoot = Path.Combine(ScriptsRoot);
+            string[] paths = Directory.GetFiles(scriptsRoot, "*.cs", SearchOption.AllDirectories);
+            var violations = new List<string>();
+            string[] shapeAssignments =
+            {
+                "characterController.center =", "characterController.height =", "characterController.radius =",
+                "_characterController.center =", "_characterController.height =", "_characterController.radius ="
+            };
+
+            foreach (string path in paths)
+            {
+                if (string.Equals(Path.GetFileName(path), "MotionDriver.cs", StringComparison.Ordinal)) continue;
+                string source = StripStringLiterals(StripComments(File.ReadAllText(path)));
+                foreach (string assignment in shapeAssignments)
+                {
+                    if (!source.Contains(assignment)) continue;
+                    violations.Add(RelativePath(path) + " -> " + assignment);
+                }
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "CharacterController runtime shape property writer 只能是 MotionDriver：\n" +
+                string.Join("\n", violations));
+
+            string motion = StripStringLiterals(StripComments(
+                File.ReadAllText(FindSingleScript("MotionDriver.cs"))));
+            StringAssert.Contains("RestoreTraversalCollisionProfile", motion);
+            StringAssert.Contains("characterController.center = _traversalOriginalCenter", motion);
+            StringAssert.Contains("characterController.height = _traversalOriginalHeight", motion);
+            StringAssert.Contains("characterController.radius = _traversalOriginalRadius", motion);
+        }
+
+        [Test]
+        public void A49_TraversalHandIK_ConsumesCommittedPresentationDataOnly()
+        {
+            // 🔄 2026-09-13：兩個類別原本是 `FootIKController.cs`／`FootIKRig.cs` 裡的**次要類別**，
+            //    Unity 因此**完全無法把它們掛到 GameObject 上**（MonoBehaviour 的類名必須等於檔名），
+            //    整個 Hand IK 是死路徑。已各自拆成同名檔案；本測試改讀新檔，
+            //    順便把「必須存在於自己的檔案」這件事一起守住——掛不上去的元件等於不存在。
+            string controllerFile = StripStringLiterals(StripComments(
+                File.ReadAllText(FindSingleScript("TraversalHandIKController.cs"))));
+            int handControllerStart = controllerFile.IndexOf(
+                "public sealed class TraversalHandIKController", StringComparison.Ordinal);
+            Assert.GreaterOrEqual(handControllerStart, 0,
+                "TraversalHandIKController 必須是 TraversalHandIKController.cs 的主類別，" +
+                "否則 Unity 掛不上去（次要 MonoBehaviour 類別無法 AddComponent）");
+            string handController = controllerFile.Substring(handControllerStart);
+            string rigFile = StripStringLiterals(StripComments(
+                File.ReadAllText(FindSingleScript("TraversalHandIKRig.cs"))));
+            int handRigStart = rigFile.IndexOf(
+                "public sealed class TraversalHandIKRig", StringComparison.Ordinal);
+            Assert.GreaterOrEqual(handRigStart, 0,
+                "TraversalHandIKRig 必須是 TraversalHandIKRig.cs 的主類別");
+            string handRig = rigFile.Substring(handRigStart);
+            string combined = handController + "\n" + handRig;
+
+            string[] forbidden =
+            {
+                "TraversalProbe", "Physics.", "Raycast", "CheckCapsule",
+                "\n            transform.position ="
+            };
+            foreach (string token in forbidden)
+                StringAssert.DoesNotContain(token, combined,
+                    $"Traversal Hand IK 出現 '{token}'：IK 只能消費 committed target，不能修 root 或重查環境");
+
+            StringAssert.Contains("HasActiveTraversalPlan", handController);
+            StringAssert.Contains("SetIKPositionWeight", handRig);
+            StringAssert.Contains("AvatarIKGoal.LeftHand", handRig);
+            StringAssert.Contains("AvatarIKGoal.RightHand", handRig);
+
+            string runtimeData = StripStringLiterals(StripComments(
+                File.ReadAllText(FindSingleScript("PlayerRuntimeData.cs"))));
+            StringAssert.DoesNotContain("TraversalHand", runtimeData,
+                "Traversal Hand IK presentation data 不得進 PlayerRuntimeData");
+        }
+
+        [Test]
+        public void A35_CombatDirectionalLocomotion_DoesNotUseCameraOrRuntimeMixerSwitching()
+        {
+            string model = StripStringLiterals(StripComments(File.ReadAllText(FindSingleScript("LocomotionModel.cs"))));
+            string profile = StripStringLiterals(StripComments(
+                File.ReadAllText(FindSingleScript("CombatDirectionalSpeedProfileSO.cs"))));
+            string combined = model + "\n" + profile;
+
+            string[] forbidden =
+            {
+                "CameraTransform", "Camera.main", "Vector3.Angle", "Vector3.SignedAngle",
+                "MixerTransition2D", "Locomotion_2D"
+            };
+            foreach (string token in forbidden)
+            {
+                StringAssert.DoesNotContain(token, combined,
+                    $"combat directional locomotion runtime 出現 '{token}'：方向解算只能用 committed actor facing，" +
+                    "1D／2D 選擇必須是 actor asset policy，不得用 camera 或角度門檻逐幀切換。");
+            }
+        }
+
+        [Test]
+        public void A36_ActionState_DoesNotOwnAnimationLayering()
+        {
+            string source = StripStringLiterals(StripComments(
+                File.ReadAllText(FindSingleScript("ActionState.cs"))));
+            string[] forbidden =
+            {
+                "AnimancerLayer", "AvatarMask", "BaseLayerTransition", "LayerIndex"
+            };
+
+            foreach (string token in forbidden)
+            {
+                StringAssert.DoesNotContain(token, source,
+                    $"ActionState 出現 '{token}'：ADR-006 規定 State 只送 animation key；" +
+                    "layer、mask 與 Layer 0 companion 必須留在 authored TransitionMapping／Facade。");
+            }
+        }
+
+        // =====================================================================
+        // A37 / A38 — Model B migration（docs/26）：受擊不再是 Action
+        // =====================================================================
+
+        /// <summary>
+        /// **A37 — `ActionSlot.Reaction` 已退役，runtime 與正式資產都不得再使用它。**
+        ///
+        /// <para>這條守的是一個容易靜默復活的東西。</para>
+        /// enum 成員與數值 100 **刻意保留**（ADR-005：「要淘汰某一格請留著它的數值」——
+        /// 移除或回收會讓殘存的舊資產默默指向別的 slot，而不是變成無效值）。
+        /// 正因為它還在，任何人都可以「順手」再用它一次，而且編譯得過。
+        /// ⇒ 用測試把「保留身分」與「不得使用」分開釘住。
+        ///
+        /// 資產面同樣要守：一份 `Slot: 100` 的 `ActionDefinitionSO` 會讓受擊同時
+        /// 走 Action 與 Hurt 兩條路，而畫面上只看得出「有時候怪怪的」。
+        /// </summary>
+        [Test]
+        public void A37_RetiredReactionSlot_HasNoRuntimeCallerOrAsset()
+        {
+            var violations = new List<string>();
+
+            foreach (string path in RuntimeScriptPaths())
+            {
+                // 註解與字串裡提到它是**允許的**（退役說明、遷移紀錄都需要指名它）。
+                string code = StripStringLiterals(StripComments(File.ReadAllText(path)));
+                if (code.Contains("ActionSlot.Reaction"))
+                    violations.Add($"{RelativePath(path)} 仍引用 ActionSlot.Reaction");
+            }
+
+            // ── 資產面 ────────────────────────────────────────────────────────
+            // 🔒 **2026-09-14 遷移完成**：`DamageDefinition.asset`（最後一份 Slot-100 資產）已刪除，
+            //    內容全數遷移（bake → bakeMappings、動畫鍵 → prefab mapping、時長 → bake.Duration）。
+            //    本條因此從「只允許一個已知孤兒」收緊為**零容忍**。
+            //    ⚠️ enum 成員與數值 100 **仍然保留**（ADR-005：淘汰某一格要留著它的數值，
+            //       否則殘存資產會默默指向別的 slot）——保留身分、禁止使用，是兩件事。
+            foreach (string guid in AssetDatabase.FindAssets("t:ActionDefinitionSO"))
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                var definition = AssetDatabase.LoadAssetAtPath<
+                    Project.Core.StateMachine.Actions.ActionDefinitionSO>(path);
+                if (definition == null) continue;
+#pragma warning disable CS0618 // 本測試的職責就是偵測退役成員，必須指名它
+                if (definition.Slot == Project.Core.Actions.ActionSlot.Reaction)
+#pragma warning restore CS0618
+                    violations.Add($"{path} 的 Slot 是已退役的 Reaction(100)");
+            }
+
+            // ⭐ 第二道：就算有人建了一份 Slot-100 資產，真正讓 Action 路徑復活的是**把它接進 config**。
+            foreach (string guid in AssetDatabase.FindAssets("t:StateMachineConfigSO"))
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                var config = AssetDatabase.LoadAssetAtPath<
+                    Project.Core.StateMachine.StateMachineConfigSO>(path);
+                if (config == null) continue;
+                config.Initialize();
+#pragma warning disable CS0618
+                if (config.GetActionDefinition(Project.Core.Actions.ActionSlot.Reaction) != null)
+#pragma warning restore CS0618
+                    violations.Add($"{path} 仍把一份 Slot-100 Definition 接在 actionDefinitions 上");
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "ActionSlot.Reaction 已於 docs/26（Model B）退役——受擊改為 StateType.Hurt，" +
+                "由 SurvivabilityData.JustTookDamage 驅動。\n" +
+                "成員與數值 100 僅為 serialization 相容而保留（ADR-005：淘汰某一格要留著它的數值，" +
+                "否則殘存資產會默默指向別的 slot）。\n" +
+                string.Join("\n", violations));
+        }
+
+        /// <summary>
+        /// **A38 — 出貨 config 的 transition permission 必須與已裁決的政策一致。**
+        ///
+        /// <para><b>⭐ 為什麼這條非要讀正式資產不可</b></para>
+        /// 使用者 2026-09-14 明確要求：**「Roll／Traversal 阻擋 Hurt 應由 config 明確表示，
+        /// 不要依靠 `Hurt priority &lt; Roll priority` 來代替」**——
+        /// permission（`CanBeInterruptedBy`）與 candidate priority 是兩個概念，
+        /// 後者只在**多個合法 transition 並存時**決定誰贏。
+        ///
+        /// 若只用程式測試建一份 config 來驗，驗到的是測試自己編的資料；
+        /// 真正決定遊戲行為的是這兩份 `.asset`。這與 `TraversalBakedAssetTests` 的 B 系列同一種理由：
+        /// **防「測試綠但出貨資料完全走不到」**。
+        /// </summary>
+        [Test]
+        public void A38_ShippingStateConfigs_MatchDecidedInterruptionPolicy()
+        {
+            const string PlayerConfigPath =
+                "Assets/ScriptableObjects/StateMachine/PlayerStateMachineConfig.asset";
+            const string EnemyConfigPath =
+                "Assets/ScriptableObjects/StateMachine/EnemyStateMachineConfig.asset";
+
+            AssertConfigPolicy(PlayerConfigPath, hasTraversal: true);
+            AssertConfigPolicy(EnemyConfigPath, hasTraversal: false);
+        }
+
+        private static void AssertConfigPolicy(string path, bool hasTraversal)
+        {
+            var config = AssetDatabase.LoadAssetAtPath<
+                Project.Core.StateMachine.StateMachineConfigSO>(path);
+            Assert.IsNotNull(config, $"找不到 {path}");
+            config.Initialize();
+
+            var T = typeof(Project.Core.StateMachine.StateType);
+            var Idle = Project.Core.StateMachine.StateType.Idle;
+            var Move = Project.Core.StateMachine.StateType.Move;
+            var Jump = Project.Core.StateMachine.StateType.Jump;
+            var Roll = Project.Core.StateMachine.StateType.Roll;
+            var Action = Project.Core.StateMachine.StateType.Action;
+            var Traversal = Project.Core.StateMachine.StateType.Traversal;
+            var Hurt = Project.Core.StateMachine.StateType.Hurt;
+            var Death = Project.Core.StateMachine.StateType.Death;
+            _ = T;
+
+            var violations = new List<string>();
+
+            void Require(Project.Core.StateMachine.StateType from,
+                         Project.Core.StateMachine.StateType to, bool expected, string why)
+            {
+                bool actual = config.CheckCanInterrupt(from, to);
+                if (actual != expected)
+                {
+                    violations.Add(
+                        $"{from} 可否被 {to} 打斷：預期 {expected}，實際 {actual} —— {why}");
+                }
+            }
+
+            // ── Hurt 的 transition permission（使用者 2026-09-14 裁決）──────────────
+            Require(Idle, Hurt, true, "Locomotion → Hurt：允許");
+            Require(Move, Hurt, true, "Locomotion → Hurt：允許");
+            Require(Jump, Hurt, true, "Jump → Hurt：允許（⚠️ 舊資產的 Jump 清單是空的）");
+            Require(Action, Hurt, true, "Action → Hurt：允許（是否真的進去仍受 phase 的 Interruptible 夾制）");
+            Require(Hurt, Hurt, true, "Hurt → Hurt：允許（硬直中再次受擊要再踉蹌一次）");
+            Require(Roll, Hurt, false,
+                "Roll → Hurt：**不允許**。⛔ 這一條必須由 config 明確表示，" +
+                "不得用 Hurt priority < Roll priority 代替——permission 與 priority 是兩個概念。");
+            if (hasTraversal)
+            {
+                Require(Traversal, Hurt, false,
+                    "Traversal → Hurt：**不允許**。同上，必須由 config 明確表示。");
+            }
+
+            // ── Death 對所有 living state 都必須可達 ────────────────────────────────
+            foreach (var living in new[] { Idle, Move, Jump, Roll, Action, Hurt })
+                Require(living, Death, true, $"{living} → Death：所有 living state 都必須可死");
+            if (hasTraversal) Require(Traversal, Death, true, "Traversal → Death：lethal 必須能進");
+
+            // ── Death 是吸收態：沒有任何狀態「打斷」得了它 ─────────────────────────
+            // 🔄 2026-09-14（respawn，ADR-009 D3 修訂）：這一整段**一字未改**。
+            //    重生不是「被打斷」——是死亡這個前提本身消失了，所以走的是自然過渡。
+            //    ⇒ 三層鎖裡的這一層仍然完全封死。
+            foreach (var any in new[] { Idle, Move, Jump, Roll, Action, Traversal, Hurt, Death })
+                Require(Death, any, false, "Death → 任何狀態：不得被任何狀態中斷");
+
+            // 🔄 2026-09-14（respawn）：由「必須留空」改為「必須恰好是 Idle／Move」。
+            //    出口存在，但**最小**：⛔ 不得出現 Action／Jump／Roll／Traversal。
+            //    直接開那些邊會讓「重生瞬間就能出手」變成沒人設計過的能力，而且它看起來像 bug
+            //    ——按著攻擊鍵等重生，角色一活過來就揮一拳。
+            //    真正把角色救出來的權威仍然只有 `CharacterHealth.Revive()`：
+            //    `DeathState.CanTransitionAway => !IsDead`，這裡的清單只決定「出去之後落在哪」。
+            var deathTransitions = new List<Project.Core.StateMachine.StateType>(
+                config.GetValidTransitions(Death));
+            CollectionAssert.AreEquivalent(
+                new[] { Idle, Move }, deathTransitions,
+                $"{path}：Death 的 ValidTransitions 必須恰好是 Idle／Move——" +
+                "吸收態的鎖有三層（Priority／CanTransitionAway／CanBeInterruptedBy／ValidTransitions），" +
+                "其中一半住在資產裡，所以要用測試而不是紀律守住。");
+
+            // ── priority：只在多個 transition 都合法時才決定誰贏 ──────────────────
+            int hurtPriority = config.GetPriority(Hurt);
+            int actionPriority = config.GetPriority(Action);
+            int deathPriority = config.GetPriority(Death);
+            Assert.Greater(hurtPriority, actionPriority,
+                $"{path}：Hurt priority 必須 > Action —— EvaluateInterrupts 用 strict '>' 比較，" +
+                "同分時由 Dictionary 註冊順序決定勝負（Action 先註冊），受擊會被靜默吃掉。");
+            Assert.Greater(deathPriority, hurtPriority,
+                $"{path}：Death priority 必須高於 Hurt。");
+
+            CollectionAssert.IsEmpty(violations,
+                $"{path} 的 transition permission 與已裁決政策不符（docs/26 §I.6）：\n" +
+                string.Join("\n", violations));
         }
     }
 }

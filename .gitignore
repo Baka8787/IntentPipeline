@@ -112,3 +112,11 @@ crashlytics-build.properties
 # =========================================================================
 /[Aa]ssets/_[Rr]ecovery/
 /[Aa]ssets/_[Rr]ecovery.meta
+
+# =========================================================================
+# Claude Code 的本機工作區（decided 2026-09-16）
+#   `.claude/worktrees/` 內是**整個 repo 的完整複本**（git worktree，實測 143 MB）。
+#   它是 session-local 的暫時檢出，進版控會造成巢狀 repo ＋ 體積爆炸。
+#   ⚠️ `.claude/skills/` 與 `.agents/skills/` **要**進版控——那是專案的工具資產。
+# =========================================================================
+/.claude/worktrees/

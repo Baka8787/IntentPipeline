@@ -15,30 +15,39 @@ MonoBehaviour:
   rules:
   - State: 1
     Priority: 0
-    CanBeInterruptedBy: 040000000300000005000000
+    CanBeInterruptedBy: 0400000003000000050000000800000007000000
     ValidTransitions: 02000000
   - State: 2
     Priority: 0
-    CanBeInterruptedBy: 030000000400000005000000
+    CanBeInterruptedBy: 0300000004000000050000000800000007000000
     ValidTransitions: 01000000
   - State: 3
     Priority: 10
-    CanBeInterruptedBy: 
+    CanBeInterruptedBy: 0800000007000000
     ValidTransitions: 0200000001000000
   - State: 4
     Priority: 20
-    CanBeInterruptedBy: 
+    CanBeInterruptedBy: 07000000
     ValidTransitions: 0200000001000000
   - State: 5
     Priority: 10
-    CanBeInterruptedBy: 
+    CanBeInterruptedBy: 0800000007000000
     ValidTransitions: 0200000001000000
+  - State: 8
+    Priority: 15
+    CanBeInterruptedBy: 0800000007000000
+    ValidTransitions: 0200000001000000
+  - State: 7
+    Priority: 100
+    CanBeInterruptedBy: 
+    ValidTransitions: 0100000002000000
   bakeMappings:
   - State: 4
     BakeData: {fileID: 11400000, guid: a489df0f65c4c32438f39e9fa9cce8bf, type: 2}
+  - State: 8
+    BakeData: {fileID: 11400000, guid: e3abff74e2c7d844696bd597ef5e2f2c, type: 2}
   paramsMappings:
   - State: 3
     Params: {fileID: 11400000, guid: 0e316e3590a04d4293fa99296d833932, type: 2}
   actionDefinitions:
-  - {fileID: 11400000, guid: f662023934bbb5e4d887242d6df1b9e9, type: 2}
   - {fileID: 11400000, guid: 1cd5af82f24742658161ce9dd0a4cdf1, type: 2}

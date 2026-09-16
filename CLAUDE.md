@@ -159,7 +159,7 @@ Whenever architecture changes, update:
 | **3. Artifact 只是發布版** | Claude Artifact 僅作為方便閱讀／分享的副本，**不是**原始檔 |
 | **4. 更新必須雙向同步** | 更新 Artifact 時**同步更新 `docs/` 內的原始檔**；反之亦然。以同一個檔案路徑重新發布可保留原 URL |
 | **5. ⛔ 禁止只留在 session 目錄** | **不得**把需要長期保留的文件只留在 `%TEMP%`／scratchpad／worktree 等 session-specific 位置。scratchpad 只放用完即丟的中間產物 |
-| **6. 本類寫入已獲授權** | 使用者**已明確批准**為此類文件寫入 `docs/`，不需要每次再問。（仍不得碰 `.asset`／`.prefab`／`.meta`／場景，Git 仍全由使用者執行） |
+| **6. 本類寫入已獲授權** | 使用者**已明確批准**為此類文件寫入 `docs/`，不需要每次再問。（Git 仍全由使用者執行。資產改動見上方「Unity Asset Authoring」——2026-09-13 起可改，但只能走 Unity Editor API） |
 
 > **為什麼**：session scratchpad 會隨會話消失，Artifact 連結在 repo 之外——兩者都不是可以被 `git log` 追溯、可以被下一個會話讀到的地方。文件的價值來自「未來的人找得到它」，而不是「現在看得到它」。
 > **落地**：新增的文件要在 `docs/00-map.md` 留一行指標，否則等同不存在。
@@ -295,24 +295,99 @@ gameplay readability、control feel，以及**確實需要 Player build ＋ Prof
 
 ---
 
+# Unity Asset Authoring（decided 2026-09-13，使用者明確裁決 —— 取代舊的「AI 不碰資產」鐵律）
+
+**Claude 現在可以修改 Unity 資產**（`.asset`／`.prefab`／`.unity`／`.meta`／匯入設定／烘焙輸出）。
+舊的全面禁令解除。**但只能走 Unity 自己的 API，不得手改檔案文字。**
+
+## ✅ 唯一合法途徑：透過 Unity Editor
+
+一律使用 **`unity:unity-cli` skill** 描述的入口，對**執行中的 Editor**下命令：
+
+```bash
+unity status                 # 確認 Editor 連著（沒連上就不要動資產）
+unity list                   # 可用命令
+unity cmd <command> ...       # create_asset / set_component_properties / attach_script /
+                              # apply_prefab_overrides / create_prefab / open_scene / save_scene …
+unity cmd eval_file --file X  # 需要 SerializedObject／AssetDatabase 的複雜改動
+```
+
+需要重複執行的烘焙／接線，寫成 `Assets/Scripts/Editor/` 的 Editor 腳本再由上述入口呼叫。
+
+## ⛔ 仍然禁止
+
+| 禁止 | 為什麼 |
+|---|---|
+| **手改 `.asset`／`.prefab`／`.unity`／`.meta` 的 YAML 文字** | 這才是舊禁令真正在防的東西。GUID／fileID／serialization 的破壞在 diff 上看不出來，Unity 下次匯入才炸，而且會連帶壞掉引用它的所有東西。`unity:unity-cli` skill 的原話就是「in a live Editor **instead of hand-editing scene or asset files**」 |
+| **在 Editor 沒連上時改資產** | 沒有 Unity 幫你維護引用完整性，等同手改 |
+| **改第三方／美術原始資產**（`.fbx`／Animancer 套件內容） | 升級會衝突；且 CLAUDE.md 的 Animation Assets 鐵律未放寬——FBX 子 clip 仍是唯一真相，不得複製 clip |
+| **Git 操作** | 🔄 2026-09-16 起本機 `add`／`commit` 解禁；`push`／`branch`／`rebase`／`stash` 仍禁止，見下方 Git Policy |
+
+## 紀律
+
+- **改之前先說要改什麼、改哪個檔**；改完回報實際改了哪些資產。
+- **破壞性或大範圍的資產改動**（刪資產、改場景結構、批次改 prefab）**仍需先問**。
+  小範圍、可逆、屬於當前工作包的（例如 author 一個 bake 欄位、勾一個 toggle）直接做。
+- 改完要能說出**怎麼還原**。
+- ⚠️ 資產改動**不會**被 `dotnet build` 驗到，也不一定被測試涵蓋——
+  要明確講「這項只有 Unity 匯入成功，沒有測試保護」。
+
+---
+
 # Git Policy & Permissions (Solo Developer Mode)
 
-Claude is NOT allowed to execute any Git mutation commands. The human developer owns 100% of the Git lifecycle.
+> 🔄 **2026-09-16 修訂（使用者明確裁決）：`git add` ／ `git commit` 解禁。**
+> 理由：舊禁令要求每一批改動都由使用者手動 commit，實務上只是把機械工作推回人身上，**沒有換到保護**——
+> 本機 commit 完全可逆（`git reset` ／ `git reflog`），出錯成本遠低於它造成的摩擦。
+> ⛔ **真正有保護價值的那幾條保持不變**（見下方分界說明）。
 
-## Strictly Forbidden Commands:
-- `git checkout` / `git switch`
-- `git branch`
-- `git commit`
-- `git merge` / `git rebase`
+Claude 可以建立**本機 commit**；但**歷史的形狀與遠端**仍然 100% 由使用者擁有。
+
+## ✅ 允許
+- `git add` ／ `git commit`（**僅本機**）
+- 所有唯讀查詢：`git status` ／ `git log` ／ `git diff` ／ `git show` …
+
+## ⛔ Strictly Forbidden Commands
 - `git push` / `git pull`
+- `git checkout` / `git switch` / `git branch`
+- `git merge` / `git rebase`
 - `git stash`
+- `git reset --hard` ／ `git commit --amend` ／任何 force 操作
+
+### 這條分界線是怎麼畫的
+**可逆且只存在於本機 ⇒ 允許；會改變歷史形狀、會被別人看到、或可能弄丟未儲存的工作 ⇒ 禁止。**
+- `commit` 只是往前加一顆，隨時 `reset` 得回來 ⇒ 允許
+- `push` 讓別人看得到、`rebase` ／ `amend` 改寫既有歷史、`stash` ／ `reset --hard` 可能吃掉工作 ⇒ 禁止
+- `checkout` ／ `branch` 決定的是「工作在哪條線上」——那是專案管理決定，不是 Claude 的
+
+### commit 紀律
+- **一個 commit ＝ 一件事。** 工作樹若累積了跨會話的雜項，**先問使用者要怎麼切**，不得一次全 add。
+- commit 前**必須**跑 `git status --porcelain` 並把要納入的檔案**逐條報給使用者**。⛔ 不得用 `git add -A` 憑印象打包。
+- ⚠️ **commit 不等於驗證通過。** 測試綠燈與 Play 驗收仍照 `docs/12-workflow.md` 的既有規則。
+
+### 🔔 每完成一個段落就 commit（decided 2026-09-16，使用者明確裁決）
+
+**到達 Integration Gate、或一個 Feature Slice 的程式／資產／測試／文件都收齊時，主動建立 commit，不要等使用者開口。**
+
+| | |
+|---|---|
+| **時機** | Slice 收尾、Integration Gate、或任何「這批東西已經是一個完整的事」的時刻 |
+| **動作** | 先 `git status --porcelain` → 把納入清單逐條報出 → commit → 回報 commit 訊息 |
+| **粒度** | 一個 commit ＝ 一件事。同一輪若做了兩件不相干的事，切成兩顆 |
+
+**為什麼**：未 commit 的工作只存在於工作樹——`git log` 追不到、下一個會話讀不到、
+也無法回溯「這個決定當時改了什麼」。這與「Documents Live in the Repo, Not in a Session」是同一條原則。
+⚠️ 2026-09-16 的實例：工作樹一次累積了 **244 個檔、橫跨 5 個主題**，
+逐檔歷史已不存在 ⇒ 事後怎麼切都切不出可 bisect 的歷史。**那個成本是不 commit 累積出來的。**
+
+⛔ 仍然不得 `push`——**commit 是本機紀錄，要不要推給世界看仍是使用者的決定。**
 
 ## Working Rules:
 - **Local Only**: Assume the current checked-out branch is correct and the local working tree is the only target.
-- **File Changes Only**: Only edit, create, or delete physical files using file-system tools (e.g., `write_file`, `edit_file_multi`).
+- **File Changes Only**: 程式與文件用檔案工具直接改。**Unity 資產一律走 Editor API**（見「Unity Asset Authoring」），不得以檔案工具手改其 YAML。
 - **No PRs**: Never attempt to interact with the GitHub API to create Pull Requests or remote branches.
-- **Stop After Edit → Verification Ownership**（語意收斂 2026-09-04）: Claude 不執行 Git，
-  也不擁有**最終**的編譯／Play 驗證——那些留給使用者在 Unity Editor／Terminal 完成。
+- **Stop After Edit → Verification Ownership**（語意收斂 2026-09-04，2026-09-16 修訂）: Claude 可建立本機 commit，
+  但不擁有**最終**的編譯／Play 驗證——那些留給使用者在 Unity Editor／Terminal 完成。
   ⚠️ **這條管的是「Git 與最終驗證的擁有權」，不是「每改一個檔案就停下來」。**
   在同一個 Feature Slice 內，應繼續完成所有不需要使用者打開 Editor 的工作
   （見 `docs/12-workflow.md` §1.1／§3），到 **Integration Gate** 才停，並一次交出整份 checklist。
@@ -320,7 +395,11 @@ Claude is NOT allowed to execute any Git mutation commands. The human developer 
 ## ⚠️ Remote Container Exception（decided 2026-09-02，使用者明確裁決）
 
 > **本節只適用於「工作樹不是使用者本機」的遠端 session**（Claude Code on the web ／ 容器化 session）。
-> **在使用者本機執行時，上方禁令一字不變、完全適用。**
+> **在使用者本機執行時，以上方的允許／禁止清單為準。**
+>
+> 🔄 **2026-09-16 附註**：本機 `commit` 解禁後，本節對**本機** session 已無額外意義
+> （本節的「純文件才可 commit」比本機規則更嚴）。它仍然有效的是**遠端容器的 `push` 授權**——
+> 那是 `push` 禁令唯一的例外，且僅限純文件變更集。
 
 **為什麼需要例外**：上方 Solo Developer Mode 的前提是「本機工作樹持久存在，使用者稍後會在 Terminal 接手」。
 遠端容器**沒有這個前提**——容器回收後未 commit 的檔案直接消失，`git log` 追不到、下一個會話讀不到。

@@ -39,6 +39,19 @@ namespace Project.Core.Blackboard
         // 註：同 Intent，維持公開欄位而非 Property，避免 struct 值複製導致無法直接修改內部旗標。
         public PresentationEventData PresentationEvents;
 
+        // === 生存區（🆕 ADR-009 D1）===
+        // 持續型角色真相：每幀由 CharacterHealth 於順序 0.5 整體發布，**不**參與
+        // ResetTransientState()（它不是 trigger 邊沿事件）。
+        // 寫入者（唯一）：CharacterHealth.cs。
+        // 讀取者：DeathState.CanEnter／HurtState.CanEnter／PlayerCombatContextSource（受擊即進戰鬥）／
+        //         DeathArbiterSource（死後 BlockInput ⇒ 停止產生 intent）／
+        //         CharacterFacingSource（死後不送 facing request——屍體不該繼續轉向攻擊者）。
+        // ⚠️ 輸入層**不**讀本區（A27）：「死後停止產生 intent」是經由仲裁層的 BlockInput 達成的，
+        //    不是讓 PlayerInputSource／AIInputSource 自己回讀 gameplay state。
+        // ⚠️ 缺少 CharacterHealth 的角色（例如純場景物件）此欄位恆為 default ⇒ IsDead false、
+        //    MaxHealth 0 ⇒ 行為與導入本欄位之前完全相同。
+        public SurvivabilityData Survivability;
+
         // === 仲裁區 ===
         // 每幀由仲裁管線統一覆寫，表現層下游只讀不寫
         // 註：同 Intent，維持公開欄位而非 Property，避免 struct 值複製導致無法直接修改內部旗標
@@ -62,16 +75,12 @@ namespace Project.Core.Blackboard
         /// </summary>
         public Vector3 MoveDirection { get; set; }
 
-        /// <summary>上半身動畫混合權重。同上，由 active model 於順序 3 一併發布。</summary>
-        public float UpperBodyWeight { get; set; }
         public Transform CameraTransform { get; set; }
 
         /// <summary>
         /// 角色是否觸地。依專案規範採用公開欄位（field，非 property）。
-        /// 寫入者：MotionDriver。收斂進 GetGravityThisFrame() 內部統一寫入——
-        ///         只要本影格 OnUpdateMotion 呼叫過任一個移動方法（ExecuteBaseMovement /
-        ///         ExecuteBakedCurveMovement / ApplyBakedCompensation），IsGrounded 就會被更新，
-        ///         不需要再額外呼叫一次獨立的同步方法。
+        /// 寫入者：MotionDriver。由 SyncGroundedState() 統一寫入；重力與 committed 垂直曲線
+        ///         兩條位移路徑共用同一個發布點。
         /// 讀取者：狀態機（JumpState / RollState 的起跳資格閘門與 JumpState 的真實落地判定），
         ///         取代先前用固定計時器模擬落地的做法，並杜絕無限空中跳。
         /// ⚠️ 時序注意：Unity 的 CharacterController.isGrounded 只在呼叫過 Move() 之後才會更新，
@@ -83,7 +92,7 @@ namespace Project.Core.Blackboard
 
         /// <summary>
         /// 角色在上一次 <c>CharacterController.Move()</c> 結算後的實際垂直速度。
-        /// 寫入者：MotionDriver（於 <c>GetGravityThisFrame</c> 內、貼地夾持之前）——唯一寫入者。
+        /// 寫入者：MotionDriver（於 <c>SyncGroundedState</c> 內）——唯一寫入者。
         /// 與同一段程式寫入的 <see cref="IsGrounded"/>／<see cref="JustLanded"/>／
         /// <see cref="JustLeftGround"/> 是同一瞬間的一致快照；因此 <see cref="IsGrounded"/>
         /// 由 false 轉 true 的那一幀，本值就是撞地當下的 impact velocity，尚未被
@@ -99,7 +108,7 @@ namespace Project.Core.Blackboard
         // === 單幀事件區（🆕 M2：當幀生、當幀死，由順序 7 統一復位）===
         /// <summary>
         /// 單幀事件：本影格剛落地（上一影格空中 → 本影格觸地）。
-        /// 寫入者（唯一觸發源）：MotionDriver.GetGravityThisFrame()——前後幀觸地狀態的邊沿偵測。
+        /// 寫入者（唯一觸發源）：MotionDriver.SyncGroundedState()——前後幀觸地狀態的邊沿偵測。
         /// 讀取者：PresentationPipeline 的各 Controller（M2 首個消費者：AudioController 落地音）。
         /// 生命週期：順序 6（MotionDriver 生）→ 6.5（Presentation 消費）→ 7（ResetTransientState 死）。
         /// 統一復位屬生命週期管理，不視為第二寫入者。

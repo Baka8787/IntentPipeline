@@ -6,6 +6,63 @@
 
 ---
 
+## [v0.38.1] - Traversal V3 Correctness／Debug Pass（2026-09-13，待 marker／IK binding Play）
+
+實際 repo 盤點確認：三支 production traversal Bake 尚未有 serialized Traversal block，因此 Play 一直走 V2 endpoint fallback；
+既有 hand target 只在測試建立的 V3 plan 參與 root，正式 execution 沒吃；Hand IK 尚未存在；貼牆則被對稱式 `TooClose` 拒絕。
+本輪把 Entry 改成 asymmetric far/close tolerance 與 `AlreadyClose／TooCloseUnsafe`，並由 Probe snapshot 提供 standing capsule-to-wall
+clearance。Contact 使用 paired shared correction 寫入 committed knots，並由 Probe snapshot 還原 capsule support distance，
+避免 hand solve 把 root 拉進 wall；Vertical 在 Entry→Contact→Transfer→Exit 分段吸收，
+Exit→Recovery 抵消 animation tail root motion並鎖定 destination。
+
+新增最小 traversal Hand IK presentation pipe，使用 committed targets 與 authored start/full/release window；它不查 Probe/Physics、
+不改 root/capsule，invalid/residual-too-large 時安全 weight=0。Entry/Contact/Vertical/IK 的 Game TextMesh 與 Scene Gizmo 現在直接顯示
+reason、animated/target/error vector/distance、original/warped/platform Y、IK status/enabled/weight/target/solved residual。
+Unity compile 0 errors；focused EditMode 80/80、Traversal PlayMode 31/31；完整 EditMode 407 total／406 passed／
+0 failed／1 existing skipped，完整 PlayMode 41/41。人工 marker/binding Play 留在 Integration Gate。
+
+## [v0.38] - Traversal V3：Entry legality、Contact Motion Map 與 Collision Mapping（2026-09-13，待 marker／Play quality）
+
+V3 修正五個已由 Play 確認的問題，而不是擴張 traversal 種類：grounded sensing 不再被 speed gate 關閉，零輸入改用
+committed facing；Candidate 與當下 executable 由 pure EntryPolicy 分離，超距、太近、側偏、朝向超界都 Reject；
+Probe 量出 ledge frame／interval 與 Entry→Clearance→Transfer→Exit fixed-capsule corridor evidence，仍是唯一 Physics owner。
+
+動畫資料採 authored marker＋bake sampling：MotionBakeData optional traversal block author hand role／bone 與 contact、transfer、
+exit、recovery time，Editor 自動採樣 root pose 與 hand-in-root。PlanBuilder 在 commit 依 ledge interval／baked hand separation
+選 target，支援單手與窄 ledge shrink，解單／雙手 root constraints，固定產出六 knot piecewise correction；transfer 先抬到
+clearance 且不提早跨 wall plane。每幀仍只算 warped current-minus-previous，MotionDriver／CharacterController.Move 保持唯一權威。
+
+Collision Mapping 正式落地為每格 `TraversalCollisionProfile`：C0 fixed capsule baseline，C1 centerOffset 已可執行／debug；
+MotionDriver 保存與冪等恢復原 center／height／radius，early recovery 必須先 restore。C2 height、C3 radius 是明確但 disabled
+的 evidence-gated seam，沒有在缺乏 Play 證據時先開；IK 同樣保留為 root／collision 正確後的小幅 residual quality pass。
+Unity 6000.5.1f1 compile 0 errors；focused EditMode 92／92、PlayMode 35／35；完整 EditMode 394 total／393 passed／
+0 failed／1 existing skipped，完整 PlayMode 41／41 passed。未修改 FBX、場景、prefab、meta、inputactions 或既有資產值，未執行 Git。
+
+## [v0.37] - Traversal V1 → V2：committed target warp 與 early recovery（2026-09-12，待 tuning／Play quality）
+
+新增且只新增一個 `StateType.Traversal` 與 `TraversalState`；Vault1m／Climb1m／Climb2m 是三格資料 binding，
+不是三個 FSM state。`CanEnter` 在 Jump intent＋grounded＋valid candidate 邊界鎖存 Probe snapshot，執行期不回讀、
+不重新 query／classify。Traversal 以 authored priority 先於 Jump；None 自然 fallback 原 Jump，`JumpState` 不認識
+Environment。三種動作共用既有 `ExecuteCommittedCurveMovement`，期間不注入普通 gravity，接觸與垂直速度仍只由
+MotionDriver 發布；完成後交回 `Jump → Move → Idle` transitions，故支援 grounded ambient 與 airborne fall-entry。
+
+治理採最小 ADR-008 Trial：只凍結 integration topology／ownership，不重寫已完成的 Probe 決策，也不把仍待 Play 的
+ADR-006／007 虛構成 Accepted。新增 T1–T9、playback-start guard 與 A43／A44；隔離副本 Runtime／Editor compile
+0 errors。使用者後續明確授權 production wiring：三個 TransitionAsset 直接引用 FBX sub-clip，既有 bake pipeline 產出
+三份 30 FPS 水平／垂直 MotionBakeData，`TraversalStateParams`、Player Config 與 X Bot Animancer mapping 已完成；新增
+3 條 production wiring 守衛。最終 EditMode 363 total／362 passed／0 failed／1 existing ignored，PlayMode 26／26 passed。
+alignment quality 仍明確留到人工 Play Gate，證據回來後才決定 correction 或 warping。
+
+V1 後續人類 Play 已證明三項問題：fixed baked trajectory 造成起點／終點／接觸點 alignment error；Climb1m
+會搶走 Normal Jump 已可自然解決的低平台；主要位移完成後仍等待 animation 100% 造成 recovery latency。
+V2 不重設 Probe／Classifier：新增純 `TraversalSelectionPolicy`，以既有 Jump launch／gravity authority 推導 apex，
+只過濾可跳達的 Climb，Vault 不受影響；`TraversalState.OnEnter` 由 committed candidate／entry pose／bake 建立一次
+`TraversalWarpPlan`，水平／垂直／yaw 在 authored window 映射到 world target，執行期不回讀 Probe。每幀位移仍以
+current-minus-previous delta 交給 `MotionDriver`／`CharacterController.Move`，沒有直接 transform teleport。
+三格 binding 各自 author recovery time；warp 完成後可提早交還 Move／Idle，visual tail 由既有 blend 淡出。
+退化 plan 回退 V1 motion 且不 early recover。Unity compile 0 errors；完整 EditMode 379 total／378 passed／0 failed／
+1 existing ignored，PlayMode 36／36 passed。下一閘門只剩三格 timing/tolerance tuning 與人類 Play quality 記錄。
+
 ## [v0.36] - Walk-off Falling：`VerticalVelocity` 兌現 ADR-002 §6-1 的延後承諾（2026-09-10，已驗收）
 
 實測缺陷：角色不按 Jump 直接走出高台，物理正常下墜、FSM 卻留在 Move／Idle，動畫像在空中走路，落地也不經過 `JumpState` 的分類。根因不在重力（`MotionDriver` 每幀無條件加重力，與 state 無關），而在**沒有非主動失地的入口**——`JumpState.CanEnter` 只認 `JumpRequested && IsGrounded`。

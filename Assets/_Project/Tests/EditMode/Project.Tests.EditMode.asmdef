@@ -6,7 +6,8 @@
         "UnityEditor.TestRunner",
         "Project.Runtime",
         "Project.Editor",
-        "Kybernetik.Animancer"
+        "Kybernetik.Animancer",
+        "UnityEngine.UI"
     ],
     "includePlatforms": [
         "Editor"

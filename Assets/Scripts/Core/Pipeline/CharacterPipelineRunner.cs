@@ -5,9 +5,11 @@ using Project.Core.Actions;
 using Project.Core.Arbitration;
 using Project.Core.Blackboard;
 using Project.Core.Combat;
+using Project.Core.Environment;
 using Project.Core.Facing;
 using Project.Core.Movement;
 using Project.Core.StateMachine;
+using Project.Core.Survivability;
 using Project.Presentation;
 using Project.Presentation.Animation;
 using Project.Presentation.Motion;
@@ -60,10 +62,32 @@ namespace Project.Core.Pipeline
         private IMovementIntentSource _movementIntentSource;
         private IMovementModel _movementModel;
         private PlayerCombatContextSource _combatContextSource;
+        private TraversalProbe _traversalProbe;
+
+        // 🆕（ADR-009 D1）可選的生存能力。缺席時 Survivability 恆為 default ⇒ 行為與導入前完全相同。
+        private CharacterHealth _characterHealth;
         private CharacterFacingSource _facingSource;
         private PlayerRuntimeData _runtimeData;
 
         public PlayerRuntimeData RuntimeData => _runtimeData;
+
+        /// <summary>
+        /// 🆕（2026-09-15，HUD）指定 slot 的冷卻進度：**1 ＝ 剛進冷卻、0 ＝ 可用**。
+        ///
+        /// <para><b>⭐ 為什麼冷卻走這條唯讀查詢，而不是加一個黑板欄位</b></para>
+        /// `docs/17` §3.3 **紅線 2 明文禁止「為了顯示而新增黑板欄位」**，而同一節也點名
+        /// 既有的 <c>public InputDebugSnapshot InputDebug</c> **就是正確的 pattern**：
+        /// 需要被觀測的東西以**唯讀屬性／查詢**曝露，不要擠進跨系統的黑板。
+        /// 本方法是那個 pattern 的第二個使用者。
+        ///
+        /// <para><b>只讀不寫，也不是新權威</b></para>
+        /// 「能不能出手」的唯一回答者仍是 `ActionState`（ADR-004 D2）；這裡只是把問題轉送過去。
+        /// ⛔ 呼叫端**不得**用它來決定要不要出手——那會讓 gate 有第二個回答者。它只回答「畫多滿」。
+        ///
+        /// 尚未 `Awake`／沒有狀態機時安靜回 0，HUD 不必自己判 null。
+        /// </summary>
+        public float GetActionCooldownNormalized(ActionSlot slot)
+            => _stateMachine != null ? _stateMachine.GetActionCooldownNormalized(slot) : 0f;
 
         [Header("StateMachine Setup")]
         [SerializeField] private StateMachineConfigSO stateMachineConfig;
@@ -79,7 +103,9 @@ namespace Project.Core.Pipeline
         [SerializeField] private MonoBehaviour actionReleaseSinkComponent;
 
         private FullBodyStateMachine _stateMachine;
-        private IActionLifecycleSink[] _actionLifecycleSinks;
+
+        // 🆕 2026-09-14：jagged，外層索引＝slot、內層＝該 slot 的 sink 清單（binding 順序）。
+        private IActionLifecycleSink[][] _actionLifecycleSinks;
 
         // 🆕（M2）表現層驅動骨架：Start 一次性收集，LateUpdate 順序 6.5 集中 Tick。
         private PresentationPipeline _presentationPipeline;
@@ -124,6 +150,8 @@ namespace Project.Core.Pipeline
 
             if (actionRequestTarget == null) actionRequestTarget = GetComponent<ActionRequestTarget>();
             _combatContextSource = GetComponent<PlayerCombatContextSource>();
+            _traversalProbe = GetComponent<TraversalProbe>();
+            _characterHealth = GetComponent<CharacterHealth>();
             _facingSource = GetComponent<CharacterFacingSource>();
             ResolveActionLifecycleSinks();
 
@@ -228,50 +256,42 @@ namespace Project.Core.Pipeline
             // facing request 已收斂到順序 4.6 的 CharacterFacingSource。
             _stateMachine.Initialize(
                 stateMachineConfig, _runtimeData, _movementModel, actionRequestTarget, _actionLifecycleSinks,
-                GetComponent<IAimSource>());
+                GetComponent<IAimSource>(), _traversalProbe, motionDriver);
             _facingSource?.Initialize(motionDriver, _stateMachine);
         }
 
         /// <summary>
-        /// 組裝期把 Inspector 清單轉成與 Definition／冷卻同形的稀疏 slot 陣列；執行期只做 O(1) 索引。
-        /// 清單採 all-or-nothing，避免同一 slot 同時受新舊兩個接線來源影響。
+        /// 組裝期把 Inspector 清單轉成 **per-slot 的 sink 陣列**（jagged，外層索引＝slot）；
+        /// 執行期只做 O(1) 索引 ＋ 一次短迴圈。清單採 all-or-nothing，
+        /// 避免同一 slot 同時受新舊兩個接線來源影響。
+        ///
+        /// <para><b>🆕 2026-09-14（使用者裁決）：一個 slot 可以有多顆 sink</b></para>
+        /// 舊版把「同 slot 綁兩顆」當成錯誤。那條限制不是設計，只是還沒遇到第二個使用者——
+        /// 一個 Action 本來就可能同時有命中判定、武器顯隱、刀光、VFX、音效等**彼此獨立**的副作用，
+        /// 它們共用同一組 `Begin` → `Release` → `Cleanup` 時點，卻沒有理由互相認識。
+        ///
+        /// <list type="bullet">
+        /// <item><b>順序穩定</b>：通知順序 ＝ Inspector 上的 binding 順序。
+        /// sink 之間**不應該**互相依賴順序，但順序必須可預期，否則除錯時無從對照。</item>
+        /// <item><b>仍然禁止的是「同一顆 sink 在同一個 slot 註冊兩次」</b>——那必定是接線手滑，
+        /// 且症狀是「命中判定跑兩次／傷害變兩倍」這種很難聯想到接線的東西。</item>
+        /// <item><b>同一顆 sink 綁到不同 slot 是合法的</b>（例如共用的音效 sink）。</item>
+        /// <item><b>既有單顆 binding 完全相容</b>：一個 slot 一列，結果就是長度 1 的陣列。</item>
+        /// </list>
+        ///
+        /// ⚠️ 零 GC：全部配置發生在此（組裝期）。執行期不配置、不搜尋元件。
+        /// 空 slot 填 <see cref="Array.Empty{T}"/> 而非 null，讓派送端不必判 null。
         /// </summary>
         private void ResolveActionLifecycleSinks()
         {
-            _actionLifecycleSinks = new IActionLifecycleSink[ActionState.SlotCount];
+            int slotCount = ActionState.SlotCount;
+            _actionLifecycleSinks = new IActionLifecycleSink[slotCount][];
+            for (int i = 0; i < slotCount; i++)
+                _actionLifecycleSinks[i] = Array.Empty<IActionLifecycleSink>();
 
             if (actionSinkBindings != null && actionSinkBindings.Count > 0)
             {
-                for (int i = 0; i < actionSinkBindings.Count; i++)
-                {
-                    ActionSinkBinding binding = actionSinkBindings[i];
-                    int index = (int)binding.Slot;
-                    if (binding.Slot == ActionSlot.None || index < 0 || index >= _actionLifecycleSinks.Length)
-                    {
-                        Debug.LogError($"[{gameObject.name}] Action Sink Binding #{i} 的 Slot 無效。", this);
-                        continue;
-                    }
-
-                    IActionLifecycleSink sink = binding.Sink as IActionLifecycleSink;
-                    if (sink == null)
-                    {
-                        Debug.LogError(
-                            $"[{gameObject.name}] ActionSlot.{binding.Slot} 的 Sink 沒有實作 IActionLifecycleSink。",
-                            this);
-                        continue;
-                    }
-
-                    if (_actionLifecycleSinks[index] != null)
-                    {
-                        Debug.LogError(
-                            $"[{gameObject.name}] ActionSlot.{binding.Slot} 被重複綁定 sink；後者已忽略。",
-                            this);
-                        continue;
-                    }
-
-                    _actionLifecycleSinks[index] = sink;
-                }
-
+                ResolveFromBindings(slotCount);
                 return;
             }
 
@@ -287,9 +307,85 @@ namespace Project.Core.Pipeline
             }
 
             // 舊版只有一顆 sink，語意就是所有 Action 共用。填入新清單後才改採逐 slot 路由。
+            // 每個 slot 各自持有長度 1 的陣列——**刻意不共用同一個陣列實例**，
+            // 讓「slot 的 sink 清單」在除錯時永遠是可獨立檢視的東西。
             if (legacySink == null) return;
-            for (int i = 1; i < _actionLifecycleSinks.Length; i++)
-                _actionLifecycleSinks[i] = legacySink;
+            for (int i = 1; i < slotCount; i++)
+                _actionLifecycleSinks[i] = new[] { legacySink };
+        }
+
+        /// <summary>
+        /// 兩趟掃描：先驗證並計數，再配置剛好大小的陣列並依 binding 順序填入。
+        /// 分兩趟是為了避免中途成長陣列；binding 數量是個位數，O(n²) 的重複檢查完全不是問題。
+        /// </summary>
+        private void ResolveFromBindings(int slotCount)
+        {
+            int bindingCount = actionSinkBindings.Count;
+            var accepted = new bool[bindingCount];
+            var countPerSlot = new int[slotCount];
+
+            for (int i = 0; i < bindingCount; i++)
+            {
+                ActionSinkBinding binding = actionSinkBindings[i];
+                int index = (int)binding.Slot;
+                if (binding.Slot == ActionSlot.None || index < 0 || index >= slotCount)
+                {
+                    Debug.LogError($"[{gameObject.name}] Action Sink Binding #{i} 的 Slot 無效。", this);
+                    continue;
+                }
+
+                IActionLifecycleSink sink = binding.Sink as IActionLifecycleSink;
+                if (sink == null)
+                {
+                    Debug.LogError(
+                        $"[{gameObject.name}] ActionSlot.{binding.Slot} 的 Sink 沒有實作 IActionLifecycleSink。",
+                        this);
+                    continue;
+                }
+
+                if (IsAlreadyAcceptedForSlot(accepted, i, binding.Slot, binding.Sink))
+                {
+                    Debug.LogError(
+                        $"[{gameObject.name}] ActionSlot.{binding.Slot} 重複註冊了同一顆 sink " +
+                        $"（{binding.Sink.GetType().Name}）；第 {i} 列已忽略。" +
+                        "同一個 slot 可以有多顆**不同的** sink，但同一顆不得註冊兩次——" +
+                        "那會讓該 sink 的效果（命中判定、傷害、特效）在一次 Action 裡發生兩遍。",
+                        this);
+                    continue;
+                }
+
+                accepted[i] = true;
+                countPerSlot[index]++;
+            }
+
+            for (int slot = 1; slot < slotCount; slot++)
+            {
+                if (countPerSlot[slot] > 0)
+                    _actionLifecycleSinks[slot] = new IActionLifecycleSink[countPerSlot[slot]];
+            }
+
+            var writeCursor = new int[slotCount];
+            for (int i = 0; i < bindingCount; i++)
+            {
+                if (!accepted[i]) continue;
+                ActionSinkBinding binding = actionSinkBindings[i];
+                int index = (int)binding.Slot;
+                _actionLifecycleSinks[index][writeCursor[index]++] = (IActionLifecycleSink)binding.Sink;
+            }
+        }
+
+        /// <summary>同一個 slot 是否已經接受過**這一顆**元件實例。以實例比較，不是型別比較。</summary>
+        private bool IsAlreadyAcceptedForSlot(
+            bool[] accepted, int upToExclusive, ActionSlot slot, MonoBehaviour sinkComponent)
+        {
+            for (int j = 0; j < upToExclusive; j++)
+            {
+                if (!accepted[j]) continue;
+                ActionSinkBinding earlier = actionSinkBindings[j];
+                if (earlier.Slot == slot && ReferenceEquals(earlier.Sink, sinkComponent)) return true;
+            }
+
+            return false;
         }
 
         private void Update()
@@ -297,6 +393,14 @@ namespace Project.Core.Pipeline
             // IInputSource 是可選的：AI／Replay 等非玩家角色可以直接由順序 2.5 producer
             // 產生 domain intent。唯一會讓整條角色管線停下的是狀態機尚未完成組裝。
             if (_stateMachine == null) return;
+
+            // 【順序 0.5】🆕（ADR-009 D1）Survivability 發布 —— Survivability 區的唯一寫入者。
+            // ⚠️ 必須在順序 1（輸入）與順序 4（狀態機）**之前**：傷害是在 Physics 階段
+            //    （OnTriggerEnter，早於 Update）結算的，因此本幀發布的就是最新真相
+            //    ⇒ 死亡能在**同一幀**同時封鎖輸入並讓 DeathState 接管，不會出現
+            //    「死了還走一幀」或「死後又出手一次」。
+            // Runner 只負責排程；它不知道傷害、受擊或死亡動畫是什麼（比照順序 2.7 的 Probe）。
+            _characterHealth?.PublishTo(_runtimeData);
 
             // 【順序 1】InputPipeline - 在 Stack 上配置預設結構體體
             // 透過 ref 傳遞，讓輸入源直接改寫此 stack 變數，達成真正零 GC Alloc
@@ -343,6 +447,10 @@ namespace Project.Core.Pipeline
             // 【順序 2.6】Combat Context Producer —— 順序 2 已寫好 Action intent，
             // external ActionRequestTarget 也尚未在順序 4 評估後清除。Runner 只負責排程具體 S3a producer。
             _combatContextSource?.Tick(_runtimeData, Time.time);
+
+            // 【順序 2.7】Traversal Environment Probe —— 可選角色能力，只快取本元件的 Candidate。
+            // 不寫黑板、不觸發狀態；缺席時整段跳過，敵人與既有角色的執行路徑維持不變。
+            _traversalProbe?.Tick(_runtimeData);
 
             // 【順序 3】🆕（ADR-003 D3／D4 Stage 2）Movement Model Tick —— 推進 active model 的 dynamics。
             // Runner 只呼介面方法：**不知道**平滑、MoveSpeed、gait 是什麼（原 DeriveMovementParameters 已整段遷出）。
@@ -399,10 +507,8 @@ namespace Project.Core.Pipeline
             {
                 _stateMachine.CurrentState.OnUpdateMotion(motionDriver, animationFacade, _runtimeData);
 
-                // 🆕（v0.8）IsGrounded 的黑板同步已收斂進 MotionDriver.GetGravityThisFrame，
-                // 只要上面這行 OnUpdateMotion 實際呼叫了任一個移動方法（ExecuteBaseMovement /
-                // ExecuteVerticalOnlyMovement / ExecuteBakedCurveMovement / ApplyBakedCompensation）就會自動更新，
-                // 不再需要像 v0.7 那樣額外呼叫一次 SyncGroundedState。
+                // 🆕（Traversal V1）接觸快照由 MotionDriver.SyncGroundedState 統一發布；
+                // 重力路徑與 committed 垂直曲線路徑共用，Runner 不另行同步。
             }
 
             // =================================================================

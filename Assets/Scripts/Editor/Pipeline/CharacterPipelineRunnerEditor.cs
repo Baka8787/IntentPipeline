@@ -93,7 +93,6 @@ namespace Project.Core.Pipeline
             EditorGUILayout.LabelField("<b>=== 2. Movement Output（active model 發布）===</b>", GUILayout.ExpandWidth(true));
             EditorGUILayout.Vector3Field("Move Direction（derived）", data.MoveDirection);
             EditorGUILayout.FloatField("Move Speed Magnitude（derived）", data.MoveSpeed);
-            EditorGUILayout.Slider("Upper Body Weight", data.UpperBodyWeight, 0f, 1f);
             EditorGUILayout.ObjectField("Camera Transform", data.CameraTransform, typeof(Transform), true);
             // 🆕（v0.7）顯示新增的 IsGrounded 黑板欄位，方便對照 JumpState 的落地判定
             EditorGUILayout.Toggle("Is Grounded", data.IsGrounded);

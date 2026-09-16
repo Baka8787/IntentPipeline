@@ -60,9 +60,33 @@ namespace Project.Core.Actions
         // ───────── 保留段（100 起）：非輸入驅動，語意命名 ─────────
 
         /// <summary>
-        /// 被動反應（受擊）。**沒有輸入來源**——只由 <c>ActionRequestTarget</c> 這條
-        /// external seam 提交（FU-3：讓「我被打到」與「我要出手」在 mailbox 上可區分）。
+        /// ⚰️ **RETIRED（2026-09-14，`docs/26` Model B）——不要使用。**
+        ///
+        /// <para><b>它曾經是什麼</b></para>
+        /// 受擊反應的 Action 身分：`DamageDefinition.asset` → <c>ActionState</c> 播 "Damage"。
+        ///
+        /// <para><b>為什麼退役</b></para>
+        /// **受擊不是出手。** <c>ActionState</c> 曾為它留兩處語意反轉
+        /// （`ShouldFaceTargetOnEnter` 排除它、`AllowsSameSlotReentry` 只允許它），
+        /// 兩處的註解都寫著「受擊不是出手」——程式自己說了兩次它不屬於這裡。
+        /// 受擊已改為獨立的 <c>StateType.Hurt</c>，由 <c>SurvivabilityData.JustTookDamage</c> 驅動。
+        /// 完整論證見 `docs/26-fsm-interruption-review.md`。
+        ///
+        /// <para><b>⚠️ 為什麼成員與數值仍然保留</b></para>
+        /// ADR-005：「**數值一旦被資產引用就不得再動；要淘汰某一格請留著它的數值、另加新的，不要遞補**」。
+        /// Unity 以 **int** 序列化 enum ⇒ 移除成員或回收 100 這個數值，
+        /// 會讓任何殘存的舊資產**默默指向別的 slot**，而不是變成無效值。
+        /// 留著它，殘存引用就仍然顯示為 `Reaction`，**可辨識、可清理**。
+        ///
+        /// <para><b>不變量</b></para>
+        /// `A5x_RetiredReactionSlot_HasNoRuntimeCaller` 守住「runtime 程式不得再引用它」；
+        /// `A5x` 的資產面斷言守住「沒有任何 `ActionDefinitionSO` 使用它」。
+        /// ⛔ 新的非輸入驅動身分請往下接 `101`，**不要**重用 100。
         /// </summary>
+        [System.Obsolete(
+            "ActionSlot.Reaction 已退役（docs/26 Model B）：受擊改為 StateType.Hurt，" +
+            "由 SurvivabilityData.JustTookDamage 驅動。成員與數值 100 僅為 serialization 相容而保留，" +
+            "用於辨識與清理舊資產；⛔ 不得在新程式或新資產中使用。")]
         Reaction = 100
     }
 }

@@ -2,7 +2,9 @@ using System.Collections.Generic;
 using UnityEngine;
 using Project.Core.Actions;
 using Project.Core.Blackboard;
+using Project.Core.Environment;
 using Project.Core.Movement;
+using Project.Presentation.Motion;
 
 namespace Project.Core.StateMachine
 {
@@ -18,6 +20,26 @@ namespace Project.Core.StateMachine
         private ActionRequestTarget _actionRequestTarget;
 
         public BaseState CurrentState => _currentState;
+
+        /// <summary>
+        /// 🆕（2026-09-15，HUD）唯讀轉送指定 slot 的冷卻進度（1 ＝ 剛進冷卻、0 ＝ 可用）。
+        ///
+        /// <para><b>⚠️ 為什麼 HUD 不能自己拿 <c>CurrentState</c> 去問</b></para>
+        /// 冷卻要在**不是** Action 的時候也讀得到（站著看技能好了沒），而 `CurrentState`
+        /// 那時候是 Idle。⇒ 必須從 registry 取 `ActionState`，而 registry 是私有的。
+        ///
+        /// <para><b>這是轉送，不是新權威</b></para>
+        /// 「能不能出手」的唯一回答者仍是 `ActionState`（ADR-004 D2）。本方法不快取、不判斷、
+        /// 不記錄，純粹把問題送過去——與 <see cref="TryGetActiveFacingCommitment"/> 同一形狀。
+        /// 沒有註冊 `ActionState`（例如純測試 config）時安靜回 0。
+        /// </summary>
+        public float GetActionCooldownNormalized(ActionSlot slot)
+        {
+            return _stateRegistry.TryGetValue(StateType.Action, out BaseState state)
+                   && state is ActionState actionState
+                ? actionState.GetCooldownNormalized(slot)
+                : 0f;
+        }
 
         /// <summary>
         /// 唯讀轉送目前 Action 段落已鎖定的方向承諾。FSM 不決定方向，也不送出 facing request。
@@ -42,9 +64,12 @@ namespace Project.Core.StateMachine
             PlayerRuntimeData data,
             IMovementModel movementModel,
             ActionRequestTarget actionRequestTarget = null,
-            IActionLifecycleSink[] actionLifecycleSinks = null,
+            // 🆕 2026-09-14：jagged，外層索引＝slot ⇒ 一個 slot 可以有多顆 sink。
+            IActionLifecycleSink[][] actionLifecycleSinks = null,
             // 🆕（docs/11 §8.3）Action-time facing 的方向 seam。可為 null（敵人沒有相機式瞄準）。
-            IAimSource aimSource = null)
+            IAimSource aimSource = null,
+            TraversalProbe traversalProbe = null,
+            MotionDriver motionDriver = null)
         {
             _config = config;
             _movementModel = movementModel;
@@ -56,6 +81,13 @@ namespace Project.Core.StateMachine
             RegisterState(new JumpState());
             RegisterState(new RollState());
             RegisterState(new ActionState(actionRequestTarget, actionLifecycleSinks, aimSource));
+            RegisterState(new TraversalState(traversalProbe, motionDriver));
+            // 🆕（ADR-009 D3）Death 無建構參數：它的唯一准入來源是黑板已 commit 的 IsDead，
+            // 不注入 CharacterHealth——那會讓 state 取得第二個真相來源（比照 ADR-004 D2 的單一 gate 原則）。
+            // 🆕（docs/26 Model B）Hurt 與 Death 都無建構參數：它們的唯一准入來源是
+            // CharacterHealth 已 commit 到黑板的 Survivability，不注入元件引用（ADR-009 D3）。
+            RegisterState(new HurtState());
+            RegisterState(new DeathState());
 
             _currentState = _stateRegistry[StateType.Idle];
             _currentState.OnEnter(data); // 💡 傳入實體數據

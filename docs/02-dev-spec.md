@@ -1,7 +1,7 @@
 # IntentPipeline 開發規格文件（API / 資料結構）
 
-> **狀態**：草稿 v0.23
-> **最後更新**：2026-07-25
+> **狀態**：草稿 v0.38.1
+> **最後更新**：2026-09-13
 > **用途**：實作時的對照表，採「介面先行，實作隨後」原則。
 > **架構不變量**：見 §7 架構回歸檢核清單（A1~A10 由 EditMode 測試自動守，M1~M6 為人工項）。
 
@@ -35,8 +35,8 @@ Assets/
                          # ⚠️ 與上層紀律不同：Models 允許依賴 Presentation（自驅 Facade），
                          #    producer 則連 Presentation 都不得認識（見 §7 A4）
       StateMachine/      # BaseState, FullBodyStateMachine, StateMachineConfigSO,
-                         # StateRule, StateType, StateParamsSO, JumpStateParams
-        States/          # IdleState, MoveState, JumpState, RollState
+                         # StateRule, StateType, StateParamsSO, JumpStateParams, TraversalStateParamsSO
+        States/          # IdleState, MoveState, JumpState, RollState, ActionState, TraversalState
       Arbitration/       # 🆕（輪 4）仲裁層：ArbiterData, IArbiterSource,
                          # ArbiterPipeline（順序 4.5，Arbitration 區的唯一寫入者）
         Sources/         # 🆕 IArbiterSource 實作：UiModeArbiterSource
@@ -123,6 +123,17 @@ CharacterRoot                          <- 邏輯/物理權威層，外部一律�
 | **Locomotion-位移**（v0.16.1 新增） | procedural（MotionDriver）；烘焙採**速度真相** | **❌**（執行期抽出丟棄＝天然原地化） | ✅ | Original | ✅ | ✅ | Walking、Fast Run |
 | **Jump 家族** | 物理 launch（ADR-002）；烘焙採 Y 特徵 | ✅ | ❌ | **Feet** | ✅ | ❌ | Jump |
 | **烘焙曲線驅動** | SpeedCurve＋RotationCurve | ❌（採速度） | ✅ | Original | ❌（採 yaw） | ❌ | Stand To Roll |
+| **原地反應**（🆕 2026-09-14，`docs/26` §J） | **只取 bake 的 `Duration`**；位移走 `ExecuteVerticalOnlyMovement` | ✅ | ✅ | Original | ✅ | ❌ | Fists_Hit_Right（Hurt）、Death_1（Death） |
+
+> **🆕「原地反應」這一列為什麼要單獨存在**（2026-09-14 實測後新增）
+> 受擊與死亡**看起來**像「烘焙曲線驅動」（離散、有時長、有 root motion），但它們**不消費 bake 的位移**：
+> * `Fists_Hit_Right` 原生帶 **0.84 m 後退**，`Bake_Fists_Hit_Right` 也忠實烘了進去（峰值 2.27 m/s）；
+> * 但烘焙器用 `Vector3.Distance` 取速度 ⇒ **無號**，而 `ExecuteBakedCurveMovement` 沿 `transform.forward` 積分
+>   ⇒ 一支「往後踉蹌」的 clip 會把角色**往前推**。方向與量級都不適用。
+> ⇒ 這一類 clip 的 XZ／Rot 在執行期**用不到**，依本節首句原則一律 **Bake Into Pose**（視覺保留、膠囊不動）；
+> gameplay 位移改由 `MotionDriver.ExecuteVerticalOnlyMovement` 表達「只有重力，沒有水平速度」。
+> ⚠️ **`lockRootPositionXZ` 不影響 `AnimationClip.SampleAnimation` 讀到的 root 曲線**——
+> 烘焙器仍會量到原始位移，所以「Bake Into Pose」修的是**視覺**，不是 bake 內容。兩者要分開講。
 
 （XZ／Rotation 的 Based Upon 一律 **Original**——所有 clip 共用 armature 原點參考系，杜絕切換瞬間的水平跳移。）
 （**Locomotion-位移的 XZ ❌ 機制**：clip 保留真實 root motion，執行期 `applyRootMotion=false` 將其抽出後丟棄＝視覺原地播放；烘焙器（採樣時開 root motion）仍量得到天生步速，作為 `MotionDriver.moveSpeed` 校準與 Mixer 門檻換算的資料來源。若誤套全 Bake，位移被烤進姿勢：原地播放時角色在動畫內前衝、循環點瞬移回彈。⚠️ 原地型全 Bake 與位移型 Rot ✅ 屬文件目標值，v0.16.1 遷移後首次實測依「先驗證再定調」原則做最終確認。）
@@ -151,6 +162,13 @@ public class PlayerRuntimeData
     // domain-partitioned intents 的第一個 region（未來 CombatIntent／InteractionIntent 為兄弟 region）。
     public MovementIntentData MovementIntent;
 
+    // === Combat Context 區（🆕 ADR-007 S3a，2026-09-10 fold back）===
+    // 連續型 mode state：每幀由 active combat context producer（玩家順序 2.6、敵人順序 2.5）
+    // 整體覆寫，**不**參與 ResetTransientState() 的單幀事件復位（同 MovementIntent 的理由）。
+    // ⭐ 本欄位的 TargetPosition 是黑板裡**既有的 world-derived 資料先例**——
+    //    判準是「被 producer 收斂成單點、單一消費者鏈」，不是「資料來自世界就要開 ADR」。
+    public CombatContextData CombatContext;
+
     // === 仲裁區（由 ArbiterPipeline 每帧寫入，各表現層 Controller 唯讀）===
     // 註：同 Intent，維持公開欄位
     public ArbiterData Arbitration;
@@ -160,11 +178,13 @@ public class PlayerRuntimeData
     // ⚠️（ADR-003 §13.4）非獨立真相：恆可由 MovementIntent ＋ 該 model 的 dynamics 重新導出，
     //    禁止任何路徑繞過 MovementIntent 直寫。B9 平滑與 0.1 ambient 門檻皆為 model 私有。
     public float MoveSpeed { get; set; }
-    public Vector2 MoveDirection { get; set; }
-    public float UpperBodyWeight { get; set; }
+    // ⚠️（ADR-007 S1，2026-09-08 落地 → 2026-09-10 fold back）型別為 **Vector3 不是 Vector2**：
+    // 語意＝「有效移動方向（**世界座標** XZ 平面，y 恆為 0）」。S1「移動方向世界化」之後，
+    // MotionDriver.ExecuteBaseMovement 讀的是本欄位，**不再是 transform.forward**。
+    public Vector3 MoveDirection { get; set; }
     public Transform CameraTransform { get; set; }
 
-    // ✅（v0.7 規劃、v0.8 實作完成，v0.11 定調公開欄位）由 MotionDriver.GetGravityThisFrame(data)
+    // ✅（v0.7 規劃、v0.8 實作完成，v0.11 定調公開欄位）由 MotionDriver.SyncGroundedState(data)
     // 每帧統一寫入，供狀態邏輯讀取地面接觸狀態，取代 JumpState 內部原本固定計時器模擬落地判定的做法
     public bool IsGrounded;
 
@@ -173,14 +193,14 @@ public class PlayerRuntimeData
     // 實際落地的是「發布值、不外放寫入權」：未來的擊退／彈跳台／翻越仍必須經注入型 API（如
     // ApplyJumpLaunch）改速度，不得直寫本欄位。
     // YAGNI 閘門如何達成：walk-off falling 的落地分類就是 ADR-002 等的「第二個消費者」。
-    // 語意：上一次 Move() 結算後的實際垂直速度。寫入者**唯一**：MotionDriver.GetGravityThisFrame，
+    // 語意：上一次 Move() 結算後的實際垂直速度。寫入者**唯一**：MotionDriver.SyncGroundedState，
     // 且必須在 reboundForce 貼地夾持**之前**發布——否則落地幀的 impact velocity 會被貼地力銷毀，
     // 所有落地都會被誤分為 Normal。與同一段程式寫入的 IsGrounded／JustLanded／JustLeftGround
     // 是同一瞬間的一致快照，因此 IsGrounded 由 false 轉 true 的那一幀，本值即 impact velocity。
     // ⚠️ 寫入者比 v0.10 草案**收緊**：狀態類別不得直寫，仍只經 ApplyJumpLaunch 注入。
     public float VerticalVelocity { get; internal set; }
 
-    // ✅（v0.10 定案 → 2026-07-14 定調延後 → M2 落地）單幀邊沿旗標，由 MotionDriver.GetGravityThisFrame(data)
+    // ✅（v0.10 定案 → 2026-07-14 定調延後 → M2 落地）單幀邊沿旗標，由 MotionDriver.SyncGroundedState(data)
     // 比較本幀與上一幀 IsGrounded 的差異計算得出，僅在觸發那一幀為 true。
     // 供音效／鏡頭震動／落地特效等表現層 Controller 直接訂閱，不必自己追蹤上一幀的 IsGrounded。
     // 延後紀律兌現：第一個下游消費者（M2 AudioController 落地音）出現，欄位隨之落地（YAGNI 閘門通過）。
@@ -206,13 +226,15 @@ public class PlayerRuntimeData
 | --- | --- | --- | --- | --- |
 | **Intent** | `IntentData` (struct) | InputPipeline | 狀態機 | 每帧結尾由 `ResetTransientState()` 統一復位（順序 7，🆕 M2 起與邊沿旗標一致生命週期） |
 | **MovementIntent** | `MovementIntentData` (struct) | 🆕 該 domain 當下**唯一 active** 的 `IMovementIntentSource`（＝`PlayerLocomotionPolicy`，順序 2.5） | 當下 active 的 `IMovementModel`（順序 3，Stage 2 起＝`LocomotionModel`）；未來亦供 FSM 轉換判斷 | **模型無關契約**（`DesiredSpeedNormalized[0-1]` ＋ `DesiredDirection`）。連續型意圖：每帧整體覆寫、**不**參與順序 7 復位。換 AI／Replay／Network 驅動＝換掛另一個 `IMovementIntentSource` 元件，Runner 零改（ADR-003 D1／D2） |
-| **MoveSpeed**／**MoveDirection**／**UpperBodyWeight**（＝**Movement Output**） | `float`／`Vector2`／`float` | 🆕（Stage 2）當下 active 的 `IMovementModel`（順序 3 `Tick`；Locomotion 時＝`LocomotionModel`） | `MotionDriver.ExecuteBaseMovement`（位移結算，含 `JumpState` 空中控制）；Editor 監視器 | 🆕 **語意（2026-07-25 裁決）**：這三欄不再是 Runner 維護的 locomotion state，而是**當下 active Movement Model 發布的 Movement Output**——換 model 就換這組值的產生者，欄位形狀不變。B9 平滑（`SmoothDamp`，加/減速不同時間常數＋減速保留方向）與 0.1 ambient 門檻皆已內化為 model 私有。⚠️ **ADR-003 §13.4**：輸出恆可由 `MovementIntent` ＋ model dynamics 重新導出，禁止繞過 intent 直寫。⚠️ 動畫參數已**不再**由此欄位經 Runner 轉送——model 於順序 3 自行 `SetFloat`（D4）。D4 的最終形態（欄位完全內化、不經黑板）目標不變，見 §7.3 |
+| **MoveSpeed**／**MoveDirection**（＝**Movement Output**） | `float`／**`Vector3`** | 🆕（Stage 2）當下 active 的 `IMovementModel`（順序 3 `Tick`；Locomotion 時＝`LocomotionModel`） | `MotionDriver.ExecuteBaseMovement`（位移結算，含 `JumpState` 空中控制）；Editor 監視器 | ⚠️ **`MoveDirection` 型別為 `Vector3`（2026-09-10 fold back）**：語意＝世界座標 XZ 平面方向（y 恆為 0），`MotionDriver.ExecuteBaseMovement` 讀本欄位而非 `transform.forward`。兩欄是 active Movement Model 發布的衍生輸出；動畫參數由 model 自行 `SetFloat`。舊 `UpperBodyWeight` 無消費者且不能表達 Spell layer lifecycle，已於 ADR-006 Trial 移除 |
+| **CombatContext** 🆕 | `CombatContextData` (struct) | 🆕（ADR-007 S3a）每隻角色當下**唯一 active** 的 combat context producer（玩家＝`PlayerCombatContextSource`，順序 **2.6**；敵人＝`AIMovementSource`，順序 **2.5**）——由 `§7-A5` WriterRules 守住 per-character single-writer | `CharacterFacingSource`／`ActionState`／HeadLook presentation | **連續型整體快照**：黏性 `InCombat／HasTarget／TargetPosition` 加上玩家 producer 的無記憶 `HasSoftTarget／SoftTargetPosition`。soft candidate 只供下一個 Action commitment boundary 消費；12m／水平半角 25°，alignment 優先、distance 次要。段內不重選。純值型別，不放 `Transform`；細節見 `docs/15` §4.4 |
+| **Survivability** 🆕 | `SurvivabilityData` (struct) | 🆕（**ADR-009 D1** Trial）`CharacterHealth`（掛角色 Root，順序 **0.5** `PublishTo`）——**per-character 唯一寫入者**，由 `§7-A5` WriterRules 守住 | `HurtState.CanEnter`／`CanReenter`（`JustTookDamage`）／`DeathState.CanEnter`（`IsDead`）／`DeathArbiterSource`（順序 4.5 轉成 `BlockInput`）／`PlayerCombatContextSource`（順序 2.6，交戰互動刷新）／🆕 `CharacterFacingSource`（順序 4.6，`IsDead` ⇒ 不送 facing request，屍體不再轉向攻擊者） | **角色真相**：`CurrentHealth`／`MaxHealth`／`IsDead`（持續型）＋ 🆕 `JustTookDamage`（**單幀事件**，`docs/26` §I）。每帧整體發布，**不**參與順序 7 復位。<br>⭐ `JustTookDamage` 由 `CharacterHealth` 內部 pending flag 於 `PublishTo` 寫出後**立即清除**；整區每幀覆寫即是它的復位機制（理由與 `PresentationEventData` 一字相同）。**不排隊、不補播**——被 Roll／Traversal 擋掉的那次受擊反應就是要被丟棄（傷害與扣血照常成立，丟掉的只有表現）。<br>⭐ 致死時**只抬 `IsDead`、不抬 `JustTookDamage`**，否則 Hurt 與 Death 會同幀爭同一顆 FSM。⚠️ **`IsDead` 是已 commit 的決定，不是讓讀者算 `CurrentHealth <= 0`**（`docs/16` 點名的加重缺陷：下游重新推導已 commit 的狀態）。⛔ 攻擊方 sink **不得**寫本區——它們只呼叫 `ApplyDamage`，「未致死播受擊／致死進 Death」由 `CharacterHealth` 獨佔決定（ADR-009 D2）。⚠️ 第一版欄位就是全部：hit direction／damage source／invulnerability 皆**未裁決**，不得先塞進來。缺 `CharacterHealth` 的角色本區恆為 `default` ⇒ 行為與導入前完全相同 |
 | **CurrentWeapon** | `ItemInstance` | EquipmentDriver | 多處 | 唯讀引用，禁止外部修改內容 |
 | **Arbitration** | `ArbiterData` (struct) | 🆕（輪 4）`ArbiterPipeline`（順序 4.5）——**全專案唯一執行期寫入者** | 順序 2 的輸入閘門（`BlockInput`）／各表現層 Controller（`BlockIK`／`BlockAudio`） | 每帧**從 `default` 重算後整體覆寫**（不以現值為起點，否則旗標只會愈疊愈多、永遠關不掉）。⚠️ 唯一寫入者是**管線**而非任何 `IArbiterSource`：來源只回傳自己的請求（值複製），合併與寫黑板由管線獨佔——**多來源進場時 §7-A5 白名單不會跟著變長**。合併政策目前為**純 OR**（見 §1.4） |
 | **PresentationEvents** 🆕 | `PresentationEventData` (struct) | 🆕（M3.x-B）`PresentationPipeline`（順序 6.5 的**末尾**）——**全專案唯一執行期寫入者** | 各表現層 Controller（首個消費者＝`AudioController` 的腳步音；未來 VFX／鏡頭震動同窗口讀） | **廣播快照**：每帧從 `default` 重算後整體覆寫；**consumer 只讀不清除**，彼此不會吃掉事件。⚠️ 唯一寫入者是**管線**而非任何 `IPresentationEventSource`：來源只回傳自己的 value struct（回傳值設計讓「Controller 對黑板只讀不寫」的契約**一個字都不用改**）。⚠️ **刻意不參與順序 7 復位**——整體覆寫即是它的復位機制，且它必須活過順序 7 才能在**下一帧** 6.5 被消費（見 §2.1 順序 6.5） |
-| **IsGrounded** | `bool` | MotionDriver（於 `GetGravityThisFrame(data)` 內部統一寫入，所有移動路徑最終都會呼叫此方法，來源 `CharacterController.isGrounded`） | 狀態機（如 `JumpState.IsLanded`） | ✅ v0.7 規劃、v0.8 實作完成；已取代 `JumpState` 內部原本的固定計時器落地判定 |
-| **VerticalVelocity** | `float`（`internal set`） | **MotionDriver 唯一**（`GetGravityThisFrame(data)` 內、**reboundForce 貼地夾持之前**發布） | `JumpState`（落地 Normal／Hard 分類）；各表現層 Controller（唯讀） | ✅ v0.10 定案 → **ADR-002 §6-1 延後** → **2026-09-10 落地**（walk-off falling 的落地分類＝第二個消費者，YAGNI 閘門達成）。語意＝「上一次 `Move()` 結算後的實際垂直速度」，與 `IsGrounded`／`JustLanded` 是同一瞬間的一致快照。⚠️ 寫入者比 v0.10 草案（曾允許「`Project.Core` 內的狀態類別」）**收緊為 MotionDriver 唯一**：狀態仍只經 `ApplyJumpLaunch` 注入，不得直寫（§7-A5 守） |
-| **JustLanded / JustLeftGround** | `bool` | MotionDriver（於 `GetGravityThisFrame(data)` 內比較前後兩幀 `IsGrounded`，**唯一觸發源**；順序 7 `ResetTransientState()` 的統一復位屬生命週期管理，不視為第二寫入者） | PresentationPipeline 驅動的表現層 Controller（✅ M2 首個消費者：`AudioController` 落地音；未來鏡頭震動／特效同窗口讀取） | ✅ v0.10 定案 → 2026-07-14 定調延後 → **M2 落地**（第一個下游消費者出現，YAGNI 閘門通過）；單幀生命週期：順序 6 生 → 6.5 消費 → 7 死 |
+| **IsGrounded** | `bool` | MotionDriver（於 `SyncGroundedState(data)` 統一寫入；重力與 committed 垂直曲線路徑共用，來源 `CharacterController.isGrounded`） | 狀態機（如 `JumpState.IsLanded`） | ✅ v0.7 規劃、v0.8 實作完成；已取代 `JumpState` 內部原本的固定計時器落地判定 |
+| **VerticalVelocity** | `float`（`internal set`） | **MotionDriver 唯一**（`SyncGroundedState(data)` 發布當前權威值；重力路徑呼叫點仍在 **reboundForce 貼地夾持之前**） | `JumpState`（落地 Normal／Hard 分類）；各表現層 Controller（唯讀） | ✅ v0.10 定案 → **ADR-002 §6-1 延後** → **2026-09-10 落地**（walk-off falling 的落地分類＝第二個消費者，YAGNI 閘門達成）。語意＝「上一次 `Move()` 結算後的實際垂直速度」，與 `IsGrounded`／`JustLanded` 是同一瞬間的一致快照。⚠️ 寫入者比 v0.10 草案（曾允許「`Project.Core` 內的狀態類別」）**收緊為 MotionDriver 唯一**：狀態仍只經 `ApplyJumpLaunch` 注入，不得直寫（§7-A5 守） |
+| **JustLanded / JustLeftGround** | `bool` | MotionDriver（於 `SyncGroundedState(data)` 比較前後兩幀 `IsGrounded`，**唯一觸發源**；順序 7 `ResetTransientState()` 的統一復位屬生命週期管理，不視為第二寫入者） | PresentationPipeline 驅動的表現層 Controller（✅ M2 首個消費者：`AudioController` 落地音；未來鏡頭震動／特效同窗口讀取） | ✅ v0.10 定案 → 2026-07-14 定調延後 → **M2 落地**（第一個下游消費者出現，YAGNI 閘門通過）；單幀生命週期：順序 6 生 → 6.5 消費 → 7 死 |
 
 > ⚠️ **`ref struct` 相容性警語**：`InputData` 已升版為 `ref struct`（見 1.3 節），**絕對不能**成為 `PlayerRuntimeData` 的欄位。黑板只能持有處理後轉換的 `IntentData` 或一般參數。違反此邊界將導致編譯直接失敗。
 
@@ -373,16 +395,20 @@ public struct MovementIntentData
 
 | 順序 | 處理器 | 輸入 | 輸出 | 執行時機與關鍵備註 |
 | --- | --- | --- | --- | --- |
+| **0.5** 🆕 | **Survivability 發布**（可選 `CharacterHealth`） | 元件私有的生命值（由 Physics 階段的 `ApplyDamage` 更新） | `RuntimeData.Survivability` | 🆕（**ADR-009 D1** Trial）**唯一**寫入生存區的環節。⚠️ **時序理由**：傷害在 `OnTriggerEnter`（Physics，早於 Update）結算 ⇒ 本步發布的就是最新真相；且必須在順序 1／4 **之前**，死亡才能在**同一幀**同時封鎖輸入並讓 `DeathState` 接管，不會出現「死了還走一幀」或「死後又出手一次」。Runner 只呼叫 `_characterHealth?.PublishTo(...)`，**不認識**傷害、受擊或死亡動畫（比照順序 2.7 的 Probe）。缺席時整段跳過。 |
 | **1** | InputPipeline | 裝置原始輸入（可缺席） | `InputData` | `ref struct` 採樣，隨後即銷毀。🆕（2026-08-29 P1）`IInputSource` 是可選角色能力：缺席時以 `default InputData` 繼續跑完整管線，供 AI 等非玩家 producer 直接在順序 2.5 產生 domain intent。只有 FSM 未完成組裝才阻止管線。 |
 | **2 閘門** 🆕 | BlockInput Gate | `RuntimeData.Arbitration` | 本帧 `InputData`（可能被歸零） | **輪 4 落地（§7-M5 結案）**：`BlockInput == true` 時 **`inputData = default`**——`BlockInput` 的語意定為「**本帧管線看不到任何輸入**」，順序 2 與 2.5 由此自動同時失效，不需要兩套規則。⚠️ Editor 除錯快照刻意取在閘門**之前**（永遠是原始輸入，封鎖期間仍看得到「按著 W 但被擋下」）。 |
 | **2** | Intent Processor | `InputData` | `RuntimeData.Intent` | 每帧無條件執行（封鎖時輸入全 false ⇒ 不寫入任何意圖，與舊版「跳過」逐位元等價）。（trigger 邊沿：Jump／Roll／Fire） |
-| **2.5** | 🆕 Movement Intent Producer | `InputData` ＋ `GaitProfileSO` | `RuntimeData.MovementIntent` | **ADR-003 D2**：Runner 只依賴 `IMovementIntentSource` 介面、不認識任何移動策略（Shift=Sprint 這類規則全在 policy＋profile 資產）。**唯一**寫入 `MovementIntent` 的環節。🆕 **輪 4 裁決（§7-M5 結案）**：本步**仍每帧無條件執行**，封鎖時吃到的是**被歸零的輸入** ⇒ `DesiredSpeedNormalized` 歸零 ⇒ B9 減速收步。⚠️ **不可**改為「跳過本步」——`MovementIntent` 是連續型意圖、不參與順序 7 復位，跳過 ≠ 歸零而是**凍結在最後一帧**（封鎖瞬間若正全速跑，角色會以全速無限前進且放不下來）。 |
-| **3** | 🆕 **Movement Model Tick**（active `IMovementModel`） | `RuntimeData.MovementIntent` | `RuntimeData` 的 Movement Output（`MoveSpeed`／`MoveDirection`／`UpperBodyWeight`）＋**該 model 自己的動畫參數** | **ADR-003 D3／D4（Stage 2）**：Runner 只呼 `_movementModel?.Tick(...)`，**不認識** 平滑／MoveSpeed／gait（原 `DeriveMovementParameters` 已整段遷入 `LocomotionModel`）。⚠️ **每幀無條件執行、不看當前狀態**（理由見下方脆弱點 6）。model 在此自驅 `SetFloat(MoveSpeed)`（不再由順序 5 轉送）。 |
-| **4** | 狀態機 Tick | `RuntimeData` | 狀態切換與邏輯驅動 | 讀取 Intent。讀完當幀即視為消耗完畢。 |
+| **2.5** | 🆕 Movement Intent Producer | `InputData` ＋ `GaitProfileSO` | `RuntimeData.MovementIntent`；敵人 producer 另發布 `RuntimeData.CombatContext` | **ADR-003 D2**：Runner 只依賴 `IMovementIntentSource` 介面、不認識任何移動策略（Shift=Sprint 這類規則全在 policy＋profile 資產）。**唯一**寫入 `MovementIntent` 的環節。🆕 **輪 4 裁決（§7-M5 結案）**：本步**仍每帧無條件執行**，封鎖時吃到的是**被歸零的輸入** ⇒ `DesiredSpeedNormalized` 歸零 ⇒ B9 減速收步。⚠️ **不可**改為「跳過本步」——`MovementIntent` 是連續型意圖、不參與順序 7 復位，跳過 ≠ 歸零而是**凍結在最後一帧**（封鎖瞬間若正全速跑，角色會以全速無限前進且放不下來）。🆕（Enemy Combat Facing，2026-09-10）`AIMovementSource` 在同一個 2.5 環節一併整體發布 `CombatContext`：敵人 producer 不讀順序 2 的 Action intent，也不依賴順序 4 前的 external target，因此沒有玩家 producer 必須落在 2.6 的兩個時序約束。<br>⚠️ **本步內部有兩個層次，不得混為一談**（2026-09-10 使用者裁決）：**①`CombatContext`＝接戰語境真相**，由目標關係（黏性 enter／leave 半徑）決定，**與 NavMesh 可用性無關**；這組進出門檻使用獨立的 `aggroEnterRadius`／`aggroLeaveRadius`，與 `EngagementMovement` 的近戰帶門檻分離；`!InCombat` 時本步不產生 `MovementIntent`。**②`EngagementMovement`（Approach／Retreat／Hold）＝可導航前提下的移動模式**，agent 無效或不在 NavMesh 上時**必須回到並保持 `Hold`、不得讓遲滯狀態機繼續推進**（否則回到 NavMesh 的那一幀會拿到沒有任何一幀推導過的模式）。⛔ **「NavMesh 無效」不等於「沒有 target／脫離戰鬥」**——語境真相要保留。門檻與判定細節見 `docs/19` §3.1。 |
+| **2.6** 🆕 | **Player Combat Context Producer**（`PlayerCombatContextSource`） | `RuntimeData.Intent`（順序 2 剛寫好的 Action intent）＋ external `ActionRequestTarget` ＋ `Time.time` | `RuntimeData.CombatContext` | 🆕（**ADR-007 S3a**，2026-09-10 fold back）玩家角色**唯一**寫入 `CombatContext` 的環節。⚠️ **時序理由**：必須在順序 2 **之後**（Action intent 已寫好）且在順序 4 **之前**（external `ActionRequestTarget` 尚未被順序 4 評估後清除）——這個夾縫是它只能在 2.6 的原因。Runner 只負責**排程具體 producer**（`_combatContextSource?.Tick(...)`），不認識戰鬥語境的判定規則。子系統細節見 `docs/15-combat-context.md`。 |
+| **2.7** 🆕 | **Traversal Environment Probe**（可選 `TraversalProbe`） | `RuntimeData.IsGrounded`／MoveDirection 或 committed facing ＋ `CharacterController` 膠囊與 slopeLimit ＋ world geometry | 元件私有 `TraversalCandidate` snapshot（含 ledge frame／interval、current capsule-to-wall clearance、fixed-capsule corridor evidence、direction source） | 🆕（Traversal V3）grounded 即可持續 sense，速度為 0 不再拒絕；有 MoveDirection 用 Move，否則用 facing。只有 probe 可發 physics query；`TraversalClassifier`／`TraversalEntryPolicy` 是不讀 Physics／Time／黑板的 pure transform。Entry distance 採 asymmetric far/close tolerance；safe `AlreadyClose` 可執行，penetrating 才 `TooCloseUnsafe`。Jump intent 當下只消費 snapshot，不重查。Candidate／EntryEvaluation 不進黑板；執行期不回讀。debug 只讀 snapshot，不重發 query。完整契約見 `docs/22-traversal-v1.md` §12 與 ADR-008。 |
+| **3** | 🆕 **Movement Model Tick**（active `IMovementModel`） | `RuntimeData.MovementIntent` | `RuntimeData` 的 Movement Output（`MoveSpeed`／`MoveDirection`）＋**該 model 自己的動畫參數** | **ADR-003 D3／D4（Stage 2）**：Runner 只呼 `_movementModel?.Tick(...)`，**不認識** 平滑／MoveSpeed／gait（原 `DeriveMovementParameters` 已整段遷入 `LocomotionModel`）。⚠️ **每幀無條件執行、不看當前狀態**（理由見下方脆弱點 6）。model 在此自驅 `SetFloat(MoveSpeed)`（不再由順序 5 轉送）。 |
+| **4** | 狀態機 Tick | `RuntimeData` | 狀態切換與邏輯驅動 | 讀取 Intent。Traversal 與 Jump 共用 Jump intent：Traversal priority 必須較高；candidate 無效時其 gate 回 false，原 Jump 照常成立。讀完當幀即視為消耗完畢。 |
 | **4.5** | ArbiterPipeline Tick | `RuntimeData`（含新狀態） | `RuntimeData.Arbitration` | ✅ **輪 4 落地**。緊跟狀態機之後評估最新旗標：詢問所有 `IArbiterSource` → OR 合併 → 整體覆寫仲裁區（**唯一寫入者**）。Runner 只呼叫管線、**不認識任何具體封鎖語意**（UI 模式／死亡／過場都是 source 的事），比照順序 6.5 的 `PresentationPipeline`。⚠️ 本步在順序 2 閘門**之後**，故 `BlockInput` 有**一帧延遲**——刻意的取捨，見下方脆弱點警告第 7 條。 |
-| **5** | AnimationFacade 同步 | 當前狀態的 `AnimationKey` | 動畫播放指令 | 🟡（ADR-004 Trial）**動畫鍵變更**時提交播放請求（`Play(AnimationKey)`），使同一 Action state 可切換多 phase，且播放 authority 仍只有本步。Idle／Move／Jump／Roll 的鍵為常數，行為不變。參數同步仍由各 model 於順序 3 負責。 |
-| **6a** | MotionDriver 基礎運動 | `RuntimeData`（Movement Output）＋單幀快取重力積分 | `CharacterController.Move` | **必須在 LateUpdate**，由當前狀態的 `OnUpdateMotion` 選擇移動路徑。🆕（Stage 2，D3）**ambient 狀態**（Idle／Move）在此 **delegate 給 active model** 的 `UpdateMotion`；**intrinsic-motion 狀態**（Jump／Roll）維持既有 override 自帶位移。v0.9 起全程式碼驅動，**不再讀取 `OnAnimatorMove` 根運動增量**（見 §3.2 風險註記）。<br>🆕（v0.27）**`Time.deltaTime <= 0` 時整段跳過**（`MotionDriver.IsTimeFrozen`）：不呼叫 `Move`、不重算 `IsGrounded` 與單幀邊沿旗標。理由是 `Move(Vector3.zero)` 會讓 Unity 的 `isGrounded` 回報 false（它由「上一次 Move 有沒有向下撞到東西」決定），連鎖出假的 `JustLeftGround`／`JustLanded`。⚠️ 守衛刻意表述為「**沒有時間流逝**」而非「暫停」——MotionDriver 不認識暫停，只知道沒有時間就沒有東西要積分。 |
-| **6b** | MotionDriver 烘焙曲線/補償 | `MotionBakeData`（＋補償目標點） | `CharacterController.Move` | **與 6a 同幀 LateUpdate 執行**。現行 Roll 走 `ExecuteBakedCurveMovement`（純曲線）；`ApplyBakedCompensation`（動態吸附）屬 Warping 階段，尚無呼叫端。 |
+| **4.6** 🆕 | **CharacterFacingSource**（每個角色唯一的 facing request 送出者） | `RuntimeData.CombatContext` ＋ `RuntimeData.MoveDirection` ＋ FSM 的 `TryGetActiveFacingCommitment`（Action 承諾） | **facing request → `MotionDriver`**（⚠️ **不寫黑板、不寫 `transform`**） | 🆕（**ADR-007 D3**，2026-09-10 fold back）**單一 facing authority**：優先序為 Action commitment → actor policy 啟用的 combat target → `MoveDirection`，並在此把「本幀是否需要轉」**一次解完**。`facingAngleDeadzone` 只套用 Action commitment；持續 combat facing 與 movement 都不吃死區，`MotionDriver` 只消費方向、並維持 **`transform.rotation` 單一寫入者**。⚠️ **時序理由**：必須在順序 4 **之後**（FSM 已確定本幀 Action 承諾）且在 LateUpdate **之前**（request 尚未被消費）。Observability 目前只保留被動 snapshot／A33，不做方向箭頭、HUD 或 history（`docs/18` §1.1）。 |
+| **5** | AnimationFacade 同步 | 當前狀態的 `AnimationKey` | 動畫播放指令 | **動畫鍵變更**時提交播放請求（`Play(AnimationKey)`），使同一 Action state 可切換 phase、同一 Traversal state 可依 committed kind 選三種 key，且播放 authority 仍只有本步。參數同步仍由各 model 於順序 3 負責。 |
+| **6a** | MotionDriver 基礎運動 | `RuntimeData`（Movement Output）＋單幀快取重力積分 | `CharacterController.Move` | **必須在 LateUpdate**，由當前狀態的 `OnUpdateMotion` 選擇移動路徑。🆕（Stage 2，D3）**ambient 狀態**（Idle／Move）在此 **delegate 給 active model** 的 `UpdateMotion`；**intrinsic-motion 狀態**（Jump／Roll／Traversal）維持 override 自帶位移。v0.9 起全程式碼驅動，**不再讀取 `OnAnimatorMove` 根運動增量**（見 §3.2 風險註記）。<br>🆕（v0.27）**`Time.deltaTime <= 0` 時整段跳過**（`MotionDriver.IsTimeFrozen`）：不呼叫 `Move`、不重算 `IsGrounded` 與單幀邊沿旗標。理由是 `Move(Vector3.zero)` 會讓 Unity 的 `isGrounded` 回報 false（它由「上一次 Move 有沒有向下撞到東西」決定），連鎖出假的 `JustLeftGround`／`JustLanded`。⚠️ 守衛刻意表述為「**沒有時間流逝**」而非「暫停」——MotionDriver 不認識暫停，只知道沒有時間就沒有東西要積分。 |
+| **6b** | MotionDriver 烘焙曲線／Traversal Motion Map | `MotionBakeData`＋committed `TraversalWarpPlan`／`TraversalCollisionProfile` | `CharacterController.Move`＋controller shape properties＋read-only committed presentation snapshot | **與 6a 同幀 LateUpdate 執行**。Roll 走 `ExecuteBakedCurveMovement`。Traversal V3 優先走固定 Entry／L Contact／R Contact／Transfer／Exit／Recovery knots 的 `ExecuteTraversalWarpedMovement`，Contact root constraint 直接進 knot，雙手使用 shared correction；vertical 在 Contact→Transfer→Exit 分段吸收，Exit→Recovery 鎖定 destination。位移一律是 warped current-minus-previous delta。MotionDriver 另發布 plan/time 值型快照給順序 6.5 Hand IK 讀取；它不是第二 movement writer。退化 plan 明確標為 endpoint fallback。兩路皆不積分普通 gravity，grounded／vertical 仍透過 `SyncGroundedState` 單一發布。 |
 | **6.5** | PresentationPipeline Tick | `RuntimeData`（含單幀事件 `JustLanded` 等） | 各表現層 Controller 的表現輸出（M2：落地音；未來 IK／特效） | 🆕（M2）**LateUpdate，MotionDriver 之後**——單幀事件由順序 6 觸發、順序 7 復位，此處是唯一保證可讀到的時間窗。Runner 只呼叫 `PresentationPipeline.Tick`，不認識具體 Controller（見 §3.4）。<br>🆕（M3.x-B）**本階段拆成兩個子步驟，順序不可調換**：**①依序驅動所有 `IPresentationController`**（它們讀到的是**上一帧**發布的事件快照）→ **②詢問所有 `IPresentationEventSource` → OR 合併 → 整體覆寫 `PresentationEvents`**。⚠️ **發布必須在①全部跑完之後**——這是「事件正確性與 Hierarchy 順序無關」的**唯一依據**：若在迭代中途發布，同窗口的 consumer 讀不讀得到就取決於 `GetComponentsInChildren` 的回傳順序（＝階層裡誰在上面），拖動物件會變成正確性條件。代價是固定一帧延遲（約 16ms）。 |
 | **7** | ResetTransientState() | — | `RuntimeData.Intent` ＋ `JustLanded`／`JustLeftGround` 清空 | **LateUpdate 末尾**執行，確保所有讀取方已消耗。🆕（M2）由 `IntentData.Reset()` 擴充為統一復位所有單幀瞬態。 |
 
@@ -441,6 +467,12 @@ public interface IInputSource
 }
 
 ```
+
+`Slot*ButtonDown` 一律是**單幀 edge semantic**。`PlayerInputSource` 直接採樣 `WasPressedThisFrame()`；
+`AIInputSource` 則把持續的 `WantsToAttack` 條件轉成 request pulse：首次進入 attack range 立即送一次，
+持續留在範圍內以預設 0.5 秒的 retry interval 重送，離開範圍即重新武裝。retry interval 是 producer tuning，
+不是 Action cooldown；輸入源不得讀 FSM／`ActionState`，真正的 cooldown、variance、grounded 與 lifecycle 資格
+仍由 `ActionState` 唯一裁決。
 
 #### IMovementIntentSource（Movement 意圖 producer，🆕 ADR-003 D2）
 
@@ -552,7 +584,7 @@ public abstract class BaseState
 
     // 【管線順序 6】由當前狀態決定本影格 LateUpdate 的物理位移結算路徑。三種歸屬（D3）：
     //   ambient（Idle／Move）    → override 成 delegate 給 MovementModel.UpdateMotion
-    //   intrinsic-motion（Jump／Roll）→ override 成自帶位移（烘焙曲線／衝量注入）
+    //   intrinsic-motion（Jump／Roll／Traversal）→ override 成自帶位移（烘焙曲線／衝量注入）
     //   下方預設實作            → 兩者皆非時的保底，也是 model 未注入時的降級路徑
     public virtual void OnUpdateMotion(MotionDriver motionDriver, AnimationFacadeBase animationFacade, PlayerRuntimeData data)
     {
@@ -587,9 +619,11 @@ public class FullBodyStateMachine
         PlayerRuntimeData data,
         IMovementModel movementModel,
         ActionRequestTarget actionRequestTarget = null,
-        IActionLifecycleSink[] actionLifecycleSinks = null) { ... }
+        IActionLifecycleSink[][] actionLifecycleSinks = null,   // 🆕 jagged：外層＝slot，內層＝該 slot 的 sink 清單
+        IAimSource aimSource = null,
+        TraversalProbe traversalProbe = null) { ... }
 
-    // ActionState 依自己已解析的 ActionSlot 索引 sink；路由只選 side-effect 接收者，
+    // ActionState 依自己已解析的 ActionSlot 索引 sink **清單**；路由只選 side-effect 接收者，
     // 不改變 CanEnter／phase／release timing authority。
 
     public void Tick(PlayerRuntimeData data, float deltaTime)
@@ -774,7 +808,9 @@ public readonly struct JumpLaunchData
 }
 ```
 
-**MotionDriver 注入／執行 API**：`ApplyJumpImpulse(float)` 已由 `public void ApplyJumpLaunch(in JumpLaunchData launch)` 取代。`MotionDriver` 新增 `_activeGravity`：注入時覆寫為該段重力、落地（`IsGrounded`）時於 `GetGravityThisFrame` 內部回復預設；`_verticalVelocity` / `_activeGravity` 的唯一寫入者仍為 `MotionDriver`。`ExecuteVerticalOnlyMovement(data)` 是 HardRecovery 的窄用途執行出口：仍消費當幀 facing request、執行重力、grounded 同步與 `CharacterController.Move` collision，但不讀取／施加 Movement Output 的水平速度。它不認識 Jump 語意，Transform writer 仍只有 `MotionDriver`。
+**MotionDriver 注入／執行 API**：`ApplyJumpImpulse(float)` 已由 `public void ApplyJumpLaunch(in JumpLaunchData launch)` 取代。`MotionDriver` 新增 `_activeGravity`：注入時覆寫為該段重力、落地（`IsGrounded`）時於 `GetGravityThisFrame` 內部回復預設；`_verticalVelocity` / `_activeGravity` 的唯一寫入者仍為 `MotionDriver`。`ExecuteVerticalOnlyMovement(data)` 是 HardRecovery 的窄用途執行出口：仍消費當幀 facing request、執行重力、grounded 同步與 `CharacterController.Move` collision，但不讀取／施加 Movement Output 的水平速度。它不認識 Jump 語意，Transform writer 仍只有 `MotionDriver`。Traversal V3 由 `TraversalState` 在 commitment boundary 以 pure `TraversalPlanBuilder` 建立固定六 knot plan；`ExecuteTraversalWarpedMovement(...)` 每幀評估 warped absolute pose，再把 current-minus-previous displacement 交給 `CharacterController.Move`，yaw 亦由 MotionDriver 執行。`Begin／Apply／RestoreTraversalCollisionProfile` 讓 MotionDriver 成為 center／height／radius 唯一 runtime writer；本版只啟用 center channel。`LastTraversalExecutionResult` 保存 requested／actual／blocked delta、CollisionFlags 與實際 capsule，供 debug／驗證只讀。執行期不回讀 Probe、不注入普通 gravity，接觸與垂直速度仍經 `SyncGroundedState` 發布。Plan 退化時回退 V1 的 `ExecuteCommittedCurveMovement(...)`，禁止 early recovery；舊路徑行為不變。
+
+**Traversal V3 binding／entry／bake／Hand IK**：`TraversalMotionBinding` 保留 V2 欄位與 committed collision profile。`TraversalStateParamsSO` author `TraversalEntryPolicySettings`：desired distance、`maximumFarError／maximumCloseError`、unsafe penetration tolerance、max lateral/facing 與 ledge margin；safe `AlreadyClose` 可接受，不做 auto-navigation。`MotionBakeData.Traversal` 是 optional block：Editor author hand mode/bones、contact/transfer/exit/recovery times，以及 optional left/right IK start/full/release 與 rotation weight；Editor 自動 sampling root pose/yaw 與 selected hand-in-root，不手填 hand position、不修改 FBX/Event。PlanBuilder 依 interval/separation 選 target，以 paired shared correction 建 Contact knots，並保存 animated hand/target/error measurement。順序 6.5 的 `TraversalHandIKController` 只讀 MotionDriver committed snapshot，寫 presentation-local target pipe；`TraversalHandIKRig` 在 `OnAnimatorIK` 套用。舊資產無 block 時安全回退 V2 endpoint plan且 debug 顯示 `RootMappingUnavailable`，不得把 target gizmo 誤稱為 IK。
 
 **逆推時機**：`JumpState.Initialize()` 逐段以 `v = √(2gh)`（g = `AutoCalculatedGravity` × `GravityMultiplier`、h = `AutoApexHeight` × `HeightMultiplier`，再乘 `LaunchVelocityMultiplier`）預算並快取 `JumpLaunchData`；`OnUpdateMotion` 於當前段 `AutoTakeoffDelay` 過後點火注入。查無 `Stages` 或該段無可信烘焙資料時安全退化為程式碼內建預設值。
 
@@ -809,7 +845,7 @@ public readonly struct JumpLaunchData
 >
 > 中期正評估改為完全不依賴執行期 `OnAnimatorMove`、統一以「輸入速度 + 烘焙曲線速度」驅動的替代架構，降低上述耦合，尚未定案，見 `docs/01-design-doc.md` §5 Trade-off 表。
 >
-> ⚠️ **文件落後於實作提醒（v0.9 複查）**：下方 code block 是本節最初的規劃版偽代碼，實際上專案已經在 v0.5～v0.8 期間走完「完全不依賴 `OnAnimatorMove`」這條路線，目前 `MotionDriver.cs` 是純程式碼驅動（`ExecuteBaseMovement` / `ExecuteBakedCurveMovement` / `ApplyBakedCompensation` 都改吃 `PlayerRuntimeData data` 參數、`IsGrounded` 也統一在 `GetGravityThisFrame(data)` 內寫回黑板）。下方 code block 僅供理解「最初評估過的替代方案長相」，**不代表目前實作**，避免直接照抄。
+> ⚠️ **文件落後於實作提醒（v0.9 複查；Traversal V1 更新）**：下方 code block 是本節最初的規劃版偽代碼，實際上專案已經在 v0.5～v0.8 期間走完「完全不依賴 `OnAnimatorMove`」這條路線，目前 `MotionDriver.cs` 是純程式碼驅動（`ExecuteBaseMovement` / `ExecuteBakedCurveMovement` / `ExecuteCommittedCurveMovement` / `ApplyBakedCompensation` 都改吃 `PlayerRuntimeData data` 參數、接觸快照也統一由 `SyncGroundedState(data)` 寫回黑板）。下方 code block 僅供理解「最初評估過的替代方案長相」，**不代表目前實作**，避免直接照抄。
 
 ```csharp
 public class MotionDriver : MonoBehaviour
@@ -875,6 +911,32 @@ public class MotionDriver : MonoBehaviour
 
 ```
 
+##### 🆕 Dynamic Capsule Offset（`CapsuleOffsetSettings`／`CapsuleOffsetSolver`，**預設停用**）
+
+`CharacterController.center` 現在有**兩個**執行期寫入者，且兩者**不得同時作用**：
+
+| 寫入者 | 何時 | guard |
+| --- | --- | --- |
+| Traversal collision profile（`ApplyTraversalCollisionProfile`） | traversal committed 期間 | `_traversalCollisionProfileActive` |
+| **Dynamic capsule offset**（`UpdateCapsuleOffset`） | 一般 locomotion | 上述旗標為 true 時直接 return；`BeginTraversalCollisionProfile` 會先 `ResetCapsuleOffsetImmediate()` 才擷取基準 |
+
+> ⚠️ **那個 reset 不是保險，是必要條件**：`_traversalOriginalCenter` 若把當下的 locomotion 偏移一起吃進去，
+> 整段 traversal 會建立在偏掉的基準上，而 `RestoreTraversalCollisionProfile` 之後會把那個偏移「還原」成永久值。
+
+**語意（使用者裁決 2026-09-14）**：collider 跟隨**當下真正具有位移 authority 的 motion source**。
+v1 唯一實作的 source 是 locomotion（`MoveDirection` 世界 → Root local → 依 local X/Z 偏移）。
+⛔ **不用 `transform.forward`**（strafe／後退時 facing ≠ 移動側）；
+⛔ **不用上一幀實際位移當第一優先**（撞牆時它趨近 0，會在最需要覆蓋移動側時失去方向）。
+
+**v1 明確不支援**：`Roll`／`Action`／`Traversal` 等 committed motion——它們的位移真相是 baked curve，
+這些路徑一律 `locomotionHasAuthority: false`，偏移收回 0。要讓它們也有正確碰撞體是 per-animation
+bake 曲線（`docs/25` Stage D），**不是把 `MoveDirection` 硬套上去**。
+
+**`center.y` 永不改變**：動到膠囊底面＝動到接地判定，而 `FootIKController` 的閘門是二值無淡入
+（`IsGrounded && !BlockIK`），一次誤判就是可見的腳部彈跳。
+
+完整設定、六條副作用與對策、七項 Play 驗收情境：**`docs/25-survivability-and-dynamic-collider.md`**。
+
 ---
 
 ### 3.3 狀態邏輯規則表（State Matrix）
@@ -885,6 +947,9 @@ public class MotionDriver : MonoBehaviour
 | **Move** | FullBody | 永遠 `true` | Jump, Roll | Idle | MoveSpeed < 0.1f 時自動自然過渡回 Idle。 |
 | **Jump** | FullBody | 已落地，且 landing phase duration 結束；`NormalStop` 收到落地後的新 Move Intent 可提前解除 | 空中與 `HardRecovery` 不可被意圖打斷；NormalStop 走自然過渡，不開全域 interrupt | Idle, Move | 私有 phase＝NormalStop／NormalContinue／HardRecovery；Hard 期間只結算垂直 motion，結束時依 movement model 當前狀態選 Move／Idle。🆕 **本狀態承載「所有滯空」，含非跳躍的 walk-off falling**（2026-09-10）——刻意**不**新增 `Falling`／`Airborne` StateType（A13' 守），名稱與承載範圍的落差是命名問題不是結構問題，亦刻意不改名。 |
 | **Roll** | FullBody | `IsRollFinished == true` | 翻滾中強制不可打斷 | Idle, Move | 動畫全程享有不可打斷的「無敵幀」語意。 |
+| **Traversal** 🟡 Trial | FullBody | 有效 plan 到 Recovery knot／binding recovery 即可；restore collision profile 後才允許 transition。animation finished 仍是 fallback，無效 plan 不 early recover | committed window 內不可被意圖打斷（`CanBeInterruptedBy` 留空） | **Jump**, Move, Idle | `CanEnter` 在 Jump intent＋grounded＋valid candidate 後先跑 pure EntryPolicy，再跑 Jump-vs-Climb policy並 commit；三 kind 共用本 state。超距／太近／側偏／朝向／corridor blocked 都不執行。`OnEnter` 以 ledge/contact bake 建一次六 knot plan，執行期不回讀 Probe；MotionDriver 執行 delta 與 collision profile。完整契約見 ADR-008／docs/22 §12。 |
+| **Hurt** 🟡 Trial 🆕 | FullBody | 硬直計時結束（`_isFinished`） | **Locomotion／Jump／Action／Hurt 自己**——由 config 的 `CanBeInterruptedBy` **明確表示**；⛔ **Roll 與 Traversal 刻意不列**（使用者 2026-09-14 裁決） | Move, Idle | 🆕（**`docs/26` Model B**）**被動反應，不是主動行動。**<br>`CanEnter`／`CanReenter` 的唯一來源是 `Survivability.JustTookDamage`（與 `DeathState ← IsDead` 完全對稱）。⛔ 不認識 `ActionRequestTarget`／`ActionSlot`／傷害數值／攻擊者。<br>動畫鍵＝`BaseState.AnimationKey` 預設（`"Hurt"`）；**時長**取 `Config.GetBakeData(Hurt)` 的 `Duration`（`Bake_Fists_Hit_Right` ＝ **0.700 s**，trim 後重烘；查無資料才退化為 0.4 s 常數）；**位移**＝`ExecuteVerticalOnlyMovement`（只有重力與接地，**沒有水平速度**）。<br>🔴 **刻意不消費 bake 的位移**：該 bake 帶 0.84 m／峰值 2.27 m/s 的**無號**速度，沿 `transform.forward` 積分會把受擊者往前推進攻擊者（見 §0.4「原地反應」列）。受擊第一版是**原地硬直**，knockback 不在範圍內。<br>⚠️ **permission ≠ priority**：「Roll／Traversal 擋 Hurt」必須由 `CanBeInterruptedBy` 表示，**不得**靠 `Hurt priority(15) < Roll priority(20)` 代替。`HurtAndDeathStateTests.HD8` 把 Hurt priority 拉到 999 來證明擋住它的是 permission。<br>⚠️ priority 仍必須 **> Action(10)**：`EvaluateInterrupts` 用 strict `>`，同分時**先註冊的贏**（Action 先註冊）⇒ 同分會讓受擊被靜默吃掉。 |
+| **Death** 🟡 Trial | FullBody | **`!IsDead`**（🔄 D3-R1：死著的時候才是吸收態） | **沒有人**（config 的 `CanBeInterruptedBy` 留空） | **Idle, Move**（🔄 D3-R1，原為留空） | 🆕（**ADR-009 D3**）`CanEnter` 只讀黑板已 commit 的 `Survivability.IsDead`，**不重新推導** `CurrentHealth <= 0`。config 給它最高 `Priority`（100）⇒ `EvaluateInterrupts` 必定選中。<br>⚠️ **三層保證各擋一條不同路徑，缺一不可**：①`Priority` 讓它進得去；②`CanTransitionAway` 擋自然過渡；③空的 `CanBeInterruptedBy` 擋中斷。只做其中一層，另外兩條路仍會把角色換回 Idle。<br>✅ **2026-09-14 已接線**：兩份 config 的所有 living state（含 **Traversal**）都已把 Death 加進 `CanBeInterruptedBy`；在此之前 `DeathState` 雖然存在卻**永遠進不去**（`docs/26` §A.5）。<br>🔴 **位移＝`ExecuteVerticalOnlyMovement`（2026-09-14 修正）**：原本沿用 `ExecuteBaseMovement`，它讀 `MoveSpeed × MoveDirection` ⇒ 全速奔跑中死亡會**滑行**（`BlockInput` 有一幀延遲，B9 減速還要時間）。改用既有的「只結算垂直」能力後，水平速度在**進入的那一幀**就消失。PlayMode `PD1` 釘住（刻意不歸零 MoveSpeed 來證明與輸入封鎖無關）。**刻意不呼叫** `MovementModel.UpdateMotion`（死亡不是 locomotion 的一種）。 |<br>🔄 **D3-R1 修訂（2026-09-14，respawn）**：第 ② 層由恆 `false` 改為 **`!IsDead`**，`ValidTransitions` 由空改為 **Idle／Move**；①③ **一字未動**（`CanBeInterruptedBy` 仍然留空）。跳躍／翻滾／出手／受擊／external request **仍然全都拉不出 Death**——唯一能救人的是 `CharacterHealth.Revive()`（`IsDead` 的唯一寫入者）。⇒ 不是「把門打開」，是讓門的條件與進門對稱：`CanEnter => IsDead` ／ `CanTransitionAway => !IsDead`。⛔ 出口不含 Action／Jump／Roll——「重生瞬間就能出手」是沒人設計過的能力。規格見 `docs/25` §8；`HD7`／`HD9`／`HD10`／`A38` 釘住。
 
 ---
 
@@ -1238,6 +1303,8 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | 2026-07-27 | v0.26 | **輪 4.1 Hold／Tap 分流 ＋ 應用層暫停**：①§1.4 `UiModeArbiterSource` 語意 **toggle → hold**，新增分流表（按住＝UI 模式／短按＝暫停）與三條紀律：分流走 **Input System 原生 interaction 而非自刻計時器**（同 `walkIsToggle` 精神——操作語意屬 per-game 差異，該住資產）、**Tap 門檻必須 ≤ Hold 門檻**（正確性條件非調味）、進出邊沿刻意不對稱（進場 `WasPerformedThisFrame`／離場 `!IsPressed()`，後者對失焦**會自癒**）；②**§0.2 新增 `App/` 應用層**＋補完 `Presentation/` 遺漏的 `Audio/`／`IK/` 與頂層兩檔（舊漂移，順手修）；③**design-doc 新增 §4.9 應用層**——`Time.timeScale` 是全域狀態、`ArbiterData` 是**單一角色**的仲裁旗標，把暫停做成第 5 個 Block 旗標會在第二隻角色進場時露餡；④§7.2 M3 補 Hold／Tap interaction 綁定與「暫停器不要掛在角色 Root」，M7 隨語意改寫，**新增 M8**（含關鍵驗收：暫停中能否再短按解除＝驗證 Tap 判定用的是不受 `timeScale` 影響的真實時間）；⑤§7.3 新增一列「暫停刻意不碰 `Cursor` 且不封鎖輸入」（兩個缺口理由不同，各自記明未來的正解），並複驗 `Cursor.lockState` 相機閘門**仍然成立**（暫停不碰游標，失效條件未觸發）。⑥**（輪 4.2）`Cursor` API 擁有權移交**：§1.4 記 `UiModeArbiterSource` 由「獨佔三樣」降為兩樣，新增 `App/CursorModeController` 為唯一擁有者（OR 合併所有「想要自由游標」的來源，形狀同 `ArbiterPipeline`）；§7.3 上列「暫停刻意不碰 Cursor」**結案**（壓力在同一階段到來：暫停時游標需常駐），並記下**不採「存○還原」**的理由（埋 LIFO 假設，暫停改綁 Esc 即壞）；相機閘門那列複驗**仍成立但理由更換**（兩模式都放開游標，但對相機期望一致），失效條件收窄為「游標自由但相機仍該轉」；§7.2 M3 補 `CursorModeController` 接線與「缺席即大聲壞掉」，**新增 M9**。程式碼新增 2 檔（`App/GamePauseController.cs`、`App/CursorModeController.cs`）＋修改 `UiModeArbiterSource`（移除 Cursor 寫入、公開 `IsUiModeActive`）＋`ThirdPersonCamera`（移除 `Start` 初始鎖定＝第二個寫入者）；另修 `CharacterPipelineRunnerEditor` 的 `Repaint()` → `RequiresConstantRepaint()`（Editor-only：GUIClip 失衡／`SerializedProperty` 已 dispose 兩條錯誤的根因）；**新增測試 12 條**（`[Test]` 83 → **95**） | Core Dev |
 | 2026-07-27 | v0.27 | **兩個互相抵銷的 bug ——`Move(Vector3.zero)` 與「不知道為何存在的保護」**：①§2.1 順序 6a 新增 **`Time.deltaTime <= 0` 整段跳過**（`MotionDriver.IsTimeFrozen`）——根因是零位移的 `Move` 會讓 Unity 的 `isGrounded` 回報 false（它由「上一次 Move 有沒有向下撞到東西」決定），連鎖出假的 `JustLeftGround`／`JustLanded`（症狀：站著暫停再解除會聽到落地聲）。守衛刻意表述為「**沒有時間流逝**」而非「暫停」，故 MotionDriver 不需認識應用層；②**§7.3「暫停不封鎖角色輸入」結案**——追查發現「暫停中按跳躍不會跳」靠的正是上述 bug 的副作用（`IsGrounded` 恆 false ⇒ `JumpState.CanEnter` 失敗），**修 ① 會讓保護消失、缺口打開**，故兩件同批修：`GamePauseController` 實作 `IArbiterSource` 要求 `BlockInput`；③Runner 新增 `externalArbiterSources`（角色階層外的來源注入點，沿用既有三個介面欄位的同款 pattern）——方向是「角色收外部給的 source」而非查詢全域，與游標的「高層擁有、低層回報意圖」相反且兩者都對，判準是**狀態的 scope 屬於誰**；④§7.2 M3 補 `External Arbiter Sources` 接線（沒拖＝缺口仍開）、M8 新增 ⑥⑦⑧（落地聲回歸／跳躍缺口回歸／空中暫停仍正常）。程式碼修 3 檔；**新增測試 1 條**（`[Test]` 95 → **96**）。⚠️ `IsTimeFrozen` 無法自動測（需控制 `Time.deltaTime` 與真實 `CharacterController`），走人工驗收 | Core Dev |
 | 2026-07-27 | v0.28 | **M3.x-A：Pose 管道擁有權修正（輪 3 Footstep 前置）**：①**調查結論先行**——Foot Contact 偵測完全不需要 `AnimationFacadeBase` 暴露 Model／Clip／Mixer／normalized time，**ADR-003 D4 四條契約一條都沒被觸及**（維持 Accepted、不修改、不新增 ADR、不加 `IAnimationModel`）；②確立擁有權規則「**管道的 lifetime owner ＝ 該管道的唯一 Writer**」——`FootIKPoseData` 的擁有者由 `FootIKController` 移交唯一 Writer `FootIKRig`（以**欄位初始式**持有，早於所有 `Awake`，故「拿得到同一份實例」從時序紀律變成結構保證），`Bind()` 簽名減一參數；`FootIKTargetData` 維持單寫單讀、`FootIKPoseData` 自此**單寫多讀**；③**owner 語意明文限定**為 lifetime／authority，**非業務擁有權**——Rig 不解讀資料、不判定 plant/lift、不認識消費端，Adapter 純度不變；④`OnAnimatorIK` 的單一 return 拆成兩條管道各守自己的前提（唯一行為差異：無 Controller 時 Pose 仍寫入，目前不可觀察）；⑤§7.1 **新增 A11**（建構點恰好一個且在唯一 Writer 檔內）——⚠️ 刻意不用 A5 式成員名掃描，因兩條管道**成員同名**會假陽性；⑥`docs/05-foot-ik.md` §3.5.1／組裝段／職責表與 design-doc §4.6 同步。**新增測試 3 條**（`[Test]` 96 → **99**）。⚠️ **`FootstepDetector` 本輪完全未動工**（milestone 切分：M3.x-A 擁有權／M3.x-B 偵測器） | Core Dev |
+| 2026-09-13 | v0.38 | **Traversal V3**：順序 2.7 改為 grounded stationary sensing＋Move/Facing direction source，Candidate 加 ledge frame／interval 與 fixed-capsule corridor；pure EntryPolicy 分離 entry legality；MotionBakeData optional traversal markers 由 Editor bake root／hand-in-root；PlanBuilder commit 固定六 knot contact／transfer constraints；MotionDriver 唯一執行 piecewise delta 與 C1 center collision profile，保存 collision evidence 並冪等 restore。§3.3 與 A47／A48 同步；完整 EditMode 394（393 pass／1 skip）、PlayMode 41／41 | Core Dev |
+| 2026-09-13 | v0.38.1 | **Traversal V3 Correctness／Debug Pass**：Entry distance 改 asymmetric far/close band，safe `AlreadyClose` 接受、penetrating 才 `TooCloseUnsafe`；Contact 改 paired shared root constraint 並以 committed capsule support plane 作 soft safety clamp；piecewise Y 在 Contact／Transfer／Exit 吸收高度差，Exit→Recovery hold destination。新增 hand contact measurement、original/warped vertical metrics 與 presentation-only minimal Hand IK（只讀 committed plan，不碰 Physics／root）。A49 同步；focused EditMode 80／80、Traversal PlayMode 31／31；完整 EditMode 407（406 pass／1 skip）、PlayMode 41／41。production Bake 尚待 Editor author marker／bone／IK window 後 Play 驗。 | Core Dev |
 
 ---
 
@@ -1262,17 +1329,17 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | **A1** | asmdef 依賴方向單向：`Project.Runtime` 不得引用 `Project.Editor`／測試組件；Runtime 對所有平台開放；Editor／Tests 限定 Editor 平台 | 依賴方向 | `ArchitectureRegressionTests.A1_*` | 解析三份 asmdef 的 `references`／`includePlatforms` 宣告 |
 | **A2** | Runtime 程式觸及 `UnityEditor` 一律包在 `#if UNITY_EDITOR` 內 | 依賴方向（建置期） | `ArchitectureRegressionTests.A2_*` | 原始碼掃描＋前處理器巢狀追蹤（`#if`／`#else`／`#endif`） |
 | **A3** | Runtime 不得引用 `System.Linq` | Zero GC | `ArchitectureRegressionTests.A3_*` | 原始碼掃描（零 GC 紀律中**可機器判定**的切片）。⚠️ **已知能力邊界（2026-07-26 實測界定）**：A3 是 token 掃描，抓不到「**對介面型別 `foreach` 導致 struct enumerator 裝箱**」這類配置——那裡沒有任何可疑 token，只有一個看起來正常的 `foreach`（實例：`EvaluateTransitions` 對 `IReadOnlyList<T>` 迭代，每帧 40 B，只有 Profiler 抓得到）。**熱路徑迭代介面型集合時一律用索引迴圈**；零 GC 的完整驗收走 §7.4 SOP，A3 只是靜態可見的那一片 |
-| **A4** | 層級依賴禁令：`Presentation` ✗ StateMachine／Pipeline／InputData；`Core/StateMachine` ✗ Pipeline／Runner；`Core` ✗ Animancer／Animator；**`Core/Movement`（不遞迴）✗ StateMachine／Presentation（producer context-free）**；🆕 **`Core/Movement/Models` ✗ StateMachine／Pipeline（model 不得反向認識 FSM；但**允許** Presentation，D4 要求自驅 Facade）**；🆕（輪 4）**`Core/Arbitration` ✗ `Project.Presentation`／`IPresentationController`（仲裁層只能透過黑板旗標與表現層溝通，不得直接呼叫 Controller，design-doc §4.5）——刻意**不**禁 StateMachine，§2.5 的資料流本就是「Arbiter 讀 state → 轉譯成旗標」**；`Core/Blackboard` ✗ 任何消費者；🆕（2026-09-04）**`Core/Pipeline` 新增規則**（組裝根的依賴必須明確登記） | 依賴方向／DIP／ADR-003 D2・D3／design-doc §4.5 | `ArchitectureRegressionTests.A4_*` | **①黑名單**：每層一組禁用 token，掃描去註解後的原始碼；`TopLevelOnly` 控制是否遞迴。<br>🆕 **②白名單（2026-09-04 升級）**：每層另列 `AllowedNamespaces`，**未列出的 `Project.*` 命名空間一律不通過**。<br>⚠️ **為什麼要加**：黑名單只擋想得到的，想不到的**預設放行**——`AIMovementSource` 每帧讀 `Project.Core.Effects`（與 ADR-003 D2 producer context-free 直接衝突）就是這樣**靜默通過**的（§7.3 紅字條目原話：「這是靜默通過，不是被批准」）。白名單把預設值反過來：新增合法依賴的成本是「補一行」，而那一行正是該有人停一秒的地方。<br>📌 該筆已知張力現以**明文例外**留在 `Core/Movement` 的白名單內並附註解，償還時刪掉那一行即可 |
-| **A5** | 黑板成員單一寫入者：`MovementIntent`→每隻角色當下唯一 active 的 `IMovementIntentSource`（現有合法實作：`PlayerLocomotionPolicy`／`AIMovementSource`）；`Intent`→`CharacterPipelineRunner`；🆕 **Movement Output（`MoveSpeed`／`MoveDirection`／`UpperBodyWeight`）→`LocomotionModel`（＝當下 active model）**；`IsGrounded`／`JustLanded`／`JustLeftGround`→`MotionDriver`；🆕（輪 4）**`Arbitration`→`ArbiterPipeline`（第一次擁有合法寫入者）** | Ownership／Single Writer | `ArchitectureRegressionTests.A5_*` | 以賦值形 regex 掃描 Runtime，比對允許檔名白名單；Prefab 必須只配置一顆 active producer |
+| **A4** | 層級依賴禁令：`Presentation` ✗ StateMachine／Pipeline／InputData；`Core/StateMachine` ✗ Pipeline／Runner；`Core` ✗ Animancer／Animator／🆕 **`UnityEngine.UI`**；🆕（2026-09-15）**`Presentation` 亦 ✗ `UnityEngine.UI`**——`Project.Runtime.asmdef` 為了 `App/PlayerHud` 新增了 UnityEngine.UI 參考，那是**組件層級**的，整個 Runtime 從此都編得過 uGUI ⇒ **加參考的同一刻就把 Core／Presentation 的門關上**，否則畫面佈局的責任會滲進角色表現與 gameplay（`docs/17` §3.3 紅線 2 的同一種汙染）；**`Core/Movement`（不遞迴）✗ StateMachine／Presentation（producer context-free）**；🆕 **`Core/Movement/Models` ✗ StateMachine／Pipeline（model 不得反向認識 FSM；但**允許** Presentation，D4 要求自驅 Facade）**；🆕（輪 4）**`Core/Arbitration` ✗ `Project.Presentation`／`IPresentationController`（仲裁層只能透過黑板旗標與表現層溝通，不得直接呼叫 Controller，design-doc §4.5）——刻意**不**禁 StateMachine，§2.5 的資料流本就是「Arbiter 讀 state → 轉譯成旗標」**；`Core/Blackboard` ✗ 任何消費者；🆕（2026-09-04）**`Core/Pipeline` 新增規則**（組裝根的依賴必須明確登記） | 依賴方向／DIP／ADR-003 D2・D3／design-doc §4.5 | `ArchitectureRegressionTests.A4_*` | **①黑名單**：每層一組禁用 token，掃描去註解後的原始碼；`TopLevelOnly` 控制是否遞迴。<br>🆕 **②白名單（2026-09-04 升級）**：每層另列 `AllowedNamespaces`，**未列出的 `Project.*` 命名空間一律不通過**。<br>⚠️ **為什麼要加**：黑名單只擋想得到的，想不到的**預設放行**——`AIMovementSource` 每帧讀 `Project.Core.Effects`（與 ADR-003 D2 producer context-free 直接衝突）就是這樣**靜默通過**的（§7.3 紅字條目原話：「這是靜默通過，不是被批准」）。白名單把預設值反過來：新增合法依賴的成本是「補一行」，而那一行正是該有人停一秒的地方。<br>📌 該筆已知張力現以**明文例外**留在 `Core/Movement` 的白名單內並附註解，償還時刪掉那一行即可 |
+| **A5** | 黑板成員單一寫入者：`MovementIntent`→每隻角色當下唯一 active 的 `IMovementIntentSource`（現有合法實作：`PlayerLocomotionPolicy`／`AIMovementSource`）；`Intent`→`CharacterPipelineRunner`；🆕 **Movement Output（`MoveSpeed`／`MoveDirection`）→`LocomotionModel`（＝當下 active model）**；`IsGrounded`／`JustLanded`／`JustLeftGround`→`MotionDriver`；🆕（輪 4）**`Arbitration`→`ArbiterPipeline`（第一次擁有合法寫入者）** | Ownership／Single Writer | `ArchitectureRegressionTests.A5_*` | 以賦值形 regex 掃描 Runtime，比對允許檔名白名單；Prefab 必須只配置一顆 active producer |
 | **A6** | `ResetTransientState()` 清 trigger 意圖與邊沿旗標，但**不得**清 `MovementIntent` | Intent Contract（連續型 vs trigger） | `MovementIntentTests.ResetTransientState_*` | 行為測試 |
 | **A7** | `MoveSpeed`／`MoveDirection` 完全由 `MovementIntent` 序列導出、可重現（無隱藏輸入） | Intent Contract（ADR-003 §13.4 單一真相） | `MovementIntentTests.Smoother_*` | 同一意圖序列餵兩個獨立實例，輸出須一致；含收斂／snap-to-0／滑行保留方向 |
 | **A8** | 未指派 `GaitProfileSO` 時，producer 輸出＝原始推桿量（Stage 1 行為等價保證）；gait 解析規則（Walk 優先、零輸入不生意圖、Clamp01）；🆕 **hold／toggle 兩種 Walk 型態語意**（toggle 只看邊沿不看 Held、放開後閂住、再按翻回）；🆕 **toggle 狀態必須存在黑板**——同一顆 producer 換一塊新黑板時型態須從乾淨狀態開始（＝producer 無私有殘留，ADR-003 D5／§9-L5） | 行為等價／資料驅動／Ownership | `MovementIntentTests.ProduceIntent_*`／`ResolveIntensity_*` | 行為測試 |
-| **A9** 🆕 | **通用管線不得認識 locomotion 概念**：`CharacterPipelineRunner` 原始碼不得出現 `MoveSpeed`／`MoveDirection`／`UpperBodyWeight`／`LocomotionSpeedSmoother`／`SmoothDamp`／`GaitProfile`／`LocomotionModel` | DIP／ADR-003 D4（Stage 2 完成判準本身） | `ArchitectureRegressionTests.A9_*` | 掃描去註解**且去字串常值**後的 Runner（Tooltip／LogError 指名預設元件屬設定指引，非型別依賴） |
+| **A9** 🆕 | **通用管線不得認識 locomotion 概念**：`CharacterPipelineRunner` 原始碼不得出現 `MoveSpeed`／`MoveDirection`／`LocomotionSpeedSmoother`／`SmoothDamp`／`GaitProfile`／`LocomotionModel` | DIP／ADR-003 D4（Stage 2 完成判準本身） | `ArchitectureRegressionTests.A9_*` | 掃描去註解**且去字串常值**後的 Runner（Tooltip／LogError 指名預設元件屬設定指引，非型別依賴） |
 | **A10** 🆕 | **跨帧平滑狀態全域唯一**：Runtime 內宣告 `LocomotionSpeedSmoother` 的持有者**恰好一個**（＝active model） | Ownership／行為等價（B9 收步不斷） | `ArchitectureRegressionTests.A10_*` | 宣告形 regex 掃描 Runtime；0 個＝平滑遺失，>1 個＝Idle↔Move 切換重置收步 |
 | **A5 補充** 🆕（M3.x-B） | `PresentationEvents`→`PresentationPipeline`。⚠️ 這條同時是 **`IPresentationController`「對黑板只讀不寫」契約的機器化守衛**：任何 Controller 想寫這一區都會在此變紅，契約不需要靠人記得 | Ownership／Single Writer | `ArchitectureRegressionTests.A5_*` | 同 A5 |
 | **A11** 🆕 | **Pose 管道的 lifetime owner ＝ 它的唯一 Writer**：`FootIKPoseData` 的建構點**恰好一個**且必須位於 `FootIKRig.cs`（＝唯一 Writer） | Ownership（單寫**多**讀管道） | `ArchitectureRegressionTests.A11_*` | **建構形** regex 掃描 Runtime（涵蓋 `new FootIKPoseData(` 與欄位初始式 `= new(`）。>1 個＝有 Reader 自己 new 了一份，會**靜默**讀到永不更新的空快照（症狀「IK 沒反應」且不報錯）；0 個＝管道消失。⚠️ **刻意不用 A5 那種成員名賦值掃描**——`FootIKTargetData` 與 `FootIKPoseData` **成員同名**（皆有 `LeftFootPosition` 等），成員名掃描會把 Controller 對 Target 的合法寫入誤判為違規 |
 | **A16** 🆕 | **AI NavMesh 只查路、不取得位移／旋轉 authority**：`AIMovementSource` 必須關閉 agent 的 `updatePosition`／`updateRotation`，且不得引用 `CharacterController` | 唯一位移出口／ADR-003 D2 | `ArchitectureRegressionTests.A16_*` | 原始碼 token 掃描；實際位移鏈另由 Play 驗收 |
-| **A13′** 🟡 Trial | `StateType` 恆為 `{None, Idle, Move, Jump, Roll, Action}` 六員 | ADR-004 D3 | `ArchitectureRegressionTests.A13Prime_*` | enum 名稱與順序精確比對；Trial 失敗時與 code／ADR 一起 revert |
+| **A13′** 🟡 Trial | `StateType` 恆為 `{None, Idle, Move, Jump, Roll, Action, Traversal}` 七員；Traversal kind 不得擴成多個 StateType | ADR-004 D3＋ADR-008 D1 | `ArchitectureRegressionTests.A13Prime_*` | enum 名稱與順序精確比對；新增 topology 必須先有 ADR |
 | **A19** 🟡 Trial | 禁止一個 Action 一個 `ActionState` subclass | ADR-004 D3／YAGNI | `ArchitectureRegressionTests.A19_*` | 掃描 Runtime 的 `: ActionState` 宣告；例外必須先附書面理由 |
 | **A20** 🟡 Trial | Action 層不得引用 `CharacterController`，位移只經 `MotionDriver` | ADR-004 D4 | `ArchitectureRegressionTests.A20_*` | 掃描 Action files |
 | **A21** 🟡 Trial | external request endpoint／projectile 不得播放動畫、強制 transition 或寫 `IntentData` | ADR-004 D1／D2 | `ArchitectureRegressionTests.A21_*` | 掃描 request／sink／projectile files 的 authority token |
@@ -1281,6 +1348,23 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | **A24** 🟡 Trial | **Action 身分單一來源**：①「Action 身分」enum 全專案恰好宣告一次於 `Core/Actions/ActionSlot.cs`；② 冷卻執行期狀態（`_cooldownEndTime`）只准住在 `ActionState` | ADR-005 D1／ADR-004 D2 | `ArchitectureRegressionTests.A24_*` | 掃描 `Assets/Scripts` 全樹。⚠️ 遠端分支上原編號 A23，與本機同輪的 AnimationKey 不變量撞號，合併時順延為 A24 |
 | **A25** 🟡 Trial | Slow 不得擴散到 MovementIntent 下游；速度階層、停步、Foot IK 與音效只能消費自然縮小後的同一份意圖 | ADR-005 Acceptance G／ADR-003 D2 | `ArchitectureRegressionTests.A25_*` | 掃描五個下游檔案，不得出現 Slow／effect state／multiplier 符號 |
 | **A26** 🟡 Trial | 近戰命中時機只能來自 Action lifecycle；VFX／particle collision 不得成為命中來源 | docs/11 §4 紅線／ADR-004 D2 | `ArchitectureRegressionTests.A26_*` | `MeleeHitboxSink` 必須實作 `IActionLifecycleSink`、提交 `Reaction`，且不得出現 `ParticleSystem`／`OnParticleCollision` |
+| **A33** 🆕 | **Direction Authority 快照維持被動且不做 presentation**：`RecordFacingDebug` 不得呼叫 facing 決策 API；`CharacterFacingSource` 不得有 `OnDrawGizmos`／`UnityEditor.Handles`；六個 facing `_debug*` 欄位不得被其他 Runtime 檔案讀取 | Observability 範圍收斂（`docs/18` §1.1）＋「記錄，不重算」／debug 欄位單向 | `ArchitectureRegressionTests.A33_*` | 快照／測試可保留；四箭頭、deadzone、label、history、HUD 目前全部不做。日後 combat 8-way 有具體問題才重開 presentation |
+| **A34** 🆕 | **Foot IK 兩條 debug presentation 都只畫真實採樣快照**：runtime `LineRenderer` 更新方法與 Scene Gizmo drawer 均不得呼叫 `Physics`／sampling API；Game 主通道不得使用仍受 Gizmos 開關控制的 `Debug.DrawLine`；Scene 通道不得 selected-only | 「記錄，不重算」＋ PlayMode Game View 直接可見（`docs/05` §3.5.5；`docs/18` §1.1～§1.2） | `ArchitectureRegressionTests.A34_*` | `Tick` 必須更新 runtime lines；`LineRenderer` 與 `UNITY_EDITOR || DEVELOPMENT_BUILD` 必須存在。正常 Play 不需開 Gizmos；Release build 不含此功能 |
+| **A35** 🆕 | Combat directional locomotion 不得引用 Camera 或以 runtime angle 切 1D／2D | ADR-007 D1／actor presentation policy | `ArchitectureRegressionTests.A35_*` | 掃描 model／speed profile 的 camera、angle 與 mixer token |
+| **A36** 🟡 Trial | `ActionState` 不得認識 Animancer layer、AvatarMask 或 base-layer companion | ADR-006 D1 | `ArchitectureRegressionTests.A36_*` | State 只送 animation key；layer ownership 留在 authored mapping／Facade |
+| **A35** 🆕 | Combat directional locomotion 不得引用 Camera 或以 runtime angle 切 1D／2D | ADR-007 D1／actor presentation policy | `ArchitectureRegressionTests.A35_*` | 掃描 model／speed profile 的 camera、angle 與 mixer token |
+| **A36** 🟡 Trial | `ActionState` 不得認識 Animancer layer、AvatarMask 或 base-layer companion | ADR-006 D1 | `ArchitectureRegressionTests.A36_*` | State 只送 animation key；layer ownership 留在 authored mapping／Facade |
+| **A39** 🆕 | Traversal physics query 只存在於 `TraversalProbe`；classifier／debug presentation 只讀量測或 snapshot | Probe query ownership／docs/22 §9 | `ArchitectureRegressionTests.A39_*` | 掃描 query API 與 debug 方法 |
+| **A40** 🆕 | Traversal debug 不得以 Gizmos 或 Presentation 重發 query／分類 | 「記錄，不重算」 | `ArchitectureRegressionTests.A40_*` | 掃描 runtime lines／Gizmo 與 Facade |
+| **A41** 🆕 | `PlayerRuntimeData` 不得新增 `TraversalCandidate`／`TraversalKind` | Blackboard ownership | `ArchitectureRegressionTests.A41_*` | schema token 掃描 |
+| **A42** 🆕 | `JumpState` 不得引用 `Project.Core.Environment` 或 traversal 型別 | Jump fallback 隔離／ADR-008 D3 | `ArchitectureRegressionTests.A42_*` | 去註解後掃描 `JumpState.cs` |
+| **A43** 🟡 Trial | `TraversalState` 無 physics query；committed movement 只走 MotionDriver，且不得成為 grounded／vertical 第二 writer | ADR-008 D2／D4 | `ArchitectureRegressionTests.A43_*` | runtime token 與 writer 掃描 |
+| **A44** 🟡 Trial | `Core/StateMachine → Core/Environment` 只准經 Traversal integration seam | ADR-008 D2 | `ArchitectureRegressionTests.A44_*` | 白名單限 `TraversalState`／params／`FullBodyStateMachine` |
+| **A45** 🟡 Trial | Jump selection policy 不得查 Physics／Time／blackboard，且 `JumpState` 不得直接依賴 `TraversalProbe` | ADR-008 D3／D7 | `ArchitectureRegressionTests.A45_*` | policy／Jump source token 掃描 |
+| **A46** 🟡 Trial | Motion Warp 不得查 Physics、直接寫 `transform.position` 或寫入 traversal blackboard；位移 delta 仍由 `MotionDriver` 的 `CharacterController.Move` 執行 | ADR-008 D4 | `ArchitectureRegressionTests.A46_*` | warp／MotionDriver source token 掃描 |
+| **A47** 🟡 Trial | `TraversalEntryPolicy`／`TraversalPlanBuilder`／root solver／warp plan 必須是 pure committed-data transform，不得查 Physics／Time／blackboard／Probe／Transform | ADR-008 D8／D9 | `ArchitectureRegressionTests.A47_*` | 合併掃描 policy／params／plan source token |
+| **A48** 🟡 Trial | `CharacterController.center／height／radius` 的 runtime writer 只能是 `MotionDriver`，且 restore 必須覆蓋三個原始值 | ADR-008 D11 | `ArchitectureRegressionTests.A48_*` | 全 Runtime 掃描 shape assignment 與 restore token |
+| **A49** 🟡 Trial | Traversal Hand IK 只消費 MotionDriver committed plan，不得依賴 Probe／Physics、改 root 或新增 PlayerRuntimeData 欄位 | ADR-008 D2／D9 | `ArchitectureRegressionTests.A49_*` | 掃描 Hand IK Controller／Rig 與 blackboard schema |
 
 > **掃描法的已知精度（誠實記錄，非缺陷）**：①只掃 Runtime（`Core`／`Presentation`）——單一寫入者是**執行期**契約，`Editor/` 的除錯 Inspector 可手動改寫黑板意圖屬合法例外；②掃描前移除註解，避免文件性文字造成假陽性；字串常值內含 `//` 會被一併截斷，此偏差只會讓檢查**變寬鬆**（漏報），不會假陽性；③token 採子字串比對，刻意保守。
 
@@ -1296,9 +1380,10 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | **W0** | 探索守衛：`Assets/Prefabs` 下至少找得到一個帶 `CharacterPipelineRunner` 的 prefab | 防止 prefab 搬移後整組檢查靜默通過 |
 | **W1** | 核心驅動 seam 解析得出：`IMovementIntentSource`／`IMovementModel`／`AnimationFacadeBase`／`MotionDriver`／`stateMachineConfig` | **斷言「解析得出來」而非「欄位有填」**——Runner 的 `Awake` 有同物件 `GetComponent` 補洞，X Bot 正是刻意留空 |
 | **W2** | 每個角色恰好一顆 active `IMovementIntentSource` | **補上 A5 條文寫了但從未實作的那一半**（「Prefab 必須只配置一顆 active producer」）。兩顆並存時誰勝出取決於 `GetComponent` 回傳順序＝單一寫入者靠運氣成立 |
-| **W3** | Action Sink Bindings 結構完整：Slot 非 `None`、無重複、Sink 實作 `IActionLifecycleSink` | enum 一律讀 `intValue`（`ActionSlot` 數值刻意不連續，`enumValueIndex` 會把 `Reaction(100)` 讀成 4） |
+| **W3** | Action Sink Bindings 結構完整：Slot 非 `None`、Sink 實作 `IActionLifecycleSink`、**同一顆 sink 不得在同一個 slot 註冊兩次**（🆕 2026-09-14：一個 slot 可以有多顆**不同的** sink，見 `docs/11`） | enum 一律讀 `intValue`（`ActionSlot` 數值刻意不連續，`enumValueIndex` 會把 `Reaction(100)` 讀成 4） |
 | **W4** | **關聯式契約**：config 註冊的每個 Action（且該 definition 有 `EmitsRelease` 的 phase）都要有可解析的 sink | 不寫死 slot 清單＝不斷言尚未發生的未來。複製 `ResolveActionLifecycleSinks` 的 **all-or-nothing** 語意：清單非空即完全忽略 legacy 單顆欄位 |
 | **W5** | 有 `IInputSource` 的角色必須有可達的 `IArbiterSource` | 取代 M3 的「沒拖＝暫停中按跳躍會卡住」。**斷言結果不斷言位置**：掛在角色階層或走 `externalArbiterSources` 皆可 |
+| **SL1–SL6** 🟡 Trial | X Bot 四個 Spell key＝Layer 1 upper-body mask＋Layer 0 Spell Walk／Run 雙 8-way ring；Idle／Move 留 Layer 0；mask 排除 root／legs；Fireball／Ice 使用 soft target；兩個 gait ring 的 threshold／playback 由既有 1D anchors＋MotionBakeData 推導；Sprint gait／最大速度來源保持不變且不提前 author Sprint directional ring | `SpellLayeringWiringTests` 唯讀檢查 prefab／AvatarMask／ActionDefinition／Transition／Bake／Gait assets |
 | **W6** | `CursorModeController`（若存在）的 `uiModeSource`／`pauseController` 皆已指派 | 取代 M3 的「這顆缺席時開場游標不會被鎖住」 |
 
 > 失敗訊息一律含：prefab 路徑、component、contract、expected、actual、**症狀**。
@@ -1346,7 +1431,7 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | ~~B9 平滑＋`MoveSpeed` 動畫參數驅動仍在 Runner~~ | ✅ **已結案（Stage 2，2026-07-25）** | B9 平滑、Movement Output 導出、`SetFloat` 驅動三者已整組遷入 `LocomotionModel`；Runner 不再認識任何 locomotion 概念，並由 **A9** 自動守住不回流。ADR-003 §9-L1 消解 |
 | trigger 意圖（Jump／Roll／Fire）尚未 domain 分區 | `IntentData` 仍為扁平單一 struct，由 Runner 直接寫 | **ADR-003 D5 YAGNI**：pattern（domain-partitioned）已定，`MovementIntent` 先落地；Combat 輪出現 `CombatIntent` 時才分區。因此 §5 表「`InputData` Readers ＝ `PlayerLocomotionPolicy`（唯一）」在 Stage 1 尚未字面成立（Runner 仍讀 input 產 trigger 意圖），屬**已知過渡**而非違規 |
 | ~~FSM 的 Idle／Move 門檻讀 `MoveSpeed`（衍生值）而非 intent~~ | ✅ **已結案（Stage 2，2026-07-25）** | 採「由 model 提供門檻信號」路線：`CanEnter` 改問 `IsProducingMotion`，0.1 門檻回歸 model 內部。**未改為讀原始 intent**——原因即當初記錄的分岔風險（放開輸入瞬間切 Idle 但仍在滑行），該理由至今成立 |
-| 🆕 **Movement Output 仍是黑板欄位**（D4 字面要求「不再是黑板欄位」） | `MoveSpeed`／`MoveDirection`／`UpperBodyWeight` 仍在 `PlayerRuntimeData`，但語意已改為「active model 發布的輸出」、寫入者唯一且為 model | **刻意的 migration intermediate state（2026-07-25 裁決）**：D4 最終目標不變，但完全內化需連動 `MotionDriver` API（改為顯式傳值）與 `JumpState` 空中控制（intrinsic 狀態也消費這組值），會模糊「ambient delegate／intrinsic override」界線，風險大於本輪收益。待第二個 model（Strafe／Swim）進場時一併處理——屆時「多個 model 寫同一組欄位」的壓力會自然逼出正確形狀 |
+| 🆕 **Movement Output 仍是黑板欄位**（D4 字面要求「不再是黑板欄位」） | `MoveSpeed`／`MoveDirection` 仍在 `PlayerRuntimeData`，但語意已改為「active model 發布的輸出」、寫入者唯一且為 model | **刻意的 migration intermediate state（2026-07-25 裁決）**：D4 最終目標不變，但完全內化需連動 `MotionDriver` API（改為顯式傳值）與 `JumpState` 空中控制（intrinsic 狀態也消費這組值），會模糊「ambient delegate／intrinsic override」界線，風險大於本輪收益。待第二個 model（Strafe／Swim）進場時一併處理——屆時「多個 model 寫同一組欄位」的壓力會自然逼出正確形狀 |
 | 🆕 **Sprint 規劃由 buff 驅動，但 producer 不得回讀 gameplay state** | 現行控制方案（參考終末地）中 sprint 不是按鍵而是**加速 buff** 的結果；`SprintAction` 因此未綁鍵、`sprintIntensity` 欄位暫時無來源（填 1.0 閒置） | **未來會撞到 ADR-003 D2**：buff 是 gameplay state，producer 直接查詢它＝context-free 破功（§7-A4 的層級掃描會直接擋）。可行方向是「buff 寫進黑板的 status／capability region，producer 讀**資料**而非查詢系統」，但那條界線（描述性 vs gameplay authority，ADR-003 §13.2）需要真需求才裁決。**現在不做**——YAGNI，且提前決定會在沒有壓力測試的情況下把介面定死 |
 | 🔴 **`AIMovementSource` 每幀直接讀 gameplay effect 元件**（2026-09-02 由 Slow 落地，**上一列預言的張力已實際發生**） | `AIMovementSource.ResolveDesiredSpeedNormalized` 在 `Awake` 取得同物件上的 `TemporaryGameplayEffectState`，每幀查詢倍率並乘進 `MovementIntent.DesiredSpeedNormalized`（`docs/11` §7.5） | **與 §2.5／本節上一列的 producer context-free 紀律有張力**：producer 正在每幀回讀 gameplay state，亦與 `CLAUDE.md`「Gameplay reads data. Gameplay does not query other gameplay systems directly.」相衝。<br>⚠️ **A4 沒有擋下來**——它是 token 掃描，禁用清單裡沒有 `Project.Core.Effects` ⇒ **這是靜默通過，不是被批准**。<br>📌 **使用者 2026-09-02 裁決：先跑 Play 確認 Slow 的展示價值，再決定要不要收斂到上一列指出的 blackboard status region。本輪不開新 ADR、不為了純度改黑板 schema**（schema 變更是 `CLAUDE.md` 開 ADR 的判準①）。<br>✅ **Play 已完整通過（含 Acceptance G）**：減速生效／到期自動恢復／重複命中不疊層／跨系統自動傳播（跑步→走路動畫、腳步聲變疏、停步選片降級），五檔零修改。⇒ **這筆 debt 的償還與否，已與功能是否成立脫鉤**——功能已證明，剩下純粹是 producer 該不該直接讀 gameplay state 的紀律問題。<br>💰 **revert 成本低**——改動全是加法，且 `A25` 已鎖住「Slow 不得擴散到五個下游檔案」。 |
 | 🟡 **`MotionBakeData` 的運動模型是一維的**（理論限制；⚠️ **2026-09-04 尚無實測證據**——原本用來佐證的 slash1 滑步，事後查出是 Definition 的 `Bake` 欄位未指派、烘焙路徑從未執行，見 `docs/11` §4.1.1 的更正） | 模型＝**一個純量速度曲線 ＋ 一條 yaw 曲線**，重播為 `transform.forward × speed` ＋ `Rotate(up, deltaYaw)`（`MotionDriver.ExecuteBakedCurveMovementAtTimes`）。丟失**側向位移**與**速度正負號**。`slash1` 的烘焙資料為 0.6s／轉 **95°**／位移 0.80m。⚠️ **但該資料從未被消費**（Definition 的 `Bake` 為空），故「重建殘差＝滑步」**未經證實**。改 `Based Upon` 重烘後數值幾乎不變（1.3367407 → 1.3367412）這點仍成立，但它證明的只是「`Based Upon` 改的是參考座標系、不是運動量」 | ⚖️ **模型本身不是錯的**——Locomotion 真正需要的就是純量速度（Mixer threshold `speed_i/speed_max`、gait 分層、停步選片都吃它）。**是「攻擊」屬於不同消費者、需求不同**。<br>🔵 **候選方向（未採用、未實作）**：把 root motion 烘成**三軸局部速度曲線**（`applyRootMotion=true` ＋ `Animator.Update()` 步進 ＋ `InverseTransformVector` 轉角色局部座標系），作為 `MotionBakeData` 的**新增欄位**而非新資料類別——避免專案出現第二套運動表示法。<br>📚 **2026-09-04 調研結論（供日後實作，不必重查）**：<br>**(A) 消費 root motion delta** —— 官方文件確認：`deltaPosition` **只在 `applyRootMotion = true` 時才會被計算**（關掉恆為 0），**但只要任何腳本實作 `OnAnimatorMove`，Animator 就不會自動把 root motion 套到 transform**，控制權交給該 callback。⇒ **`applyRootMotion = true` ＋ `MotionDriver` 實作 `OnAnimatorMove`，可同時保住單一寫入者與全保真位移**，滑步在構造上不可能發生。<br>🔴 **這推翻了 ADR-001「`applyRootMotion` 恆為 false」的隱含前提**——當初用「恆為 false」達成單一寫入者是**鈍刀**，代價正是讀不到 delta、只能改用烘焙近似。要採用須開新 ADR，並重新確認與 Foot IK、重力結算的互動。⚠️ 本專案走 Animancer 而非 Animator Controller，動手前先讀 Animancer 的 root motion 文件。<br>**(B) Motion Warping**（解的是「揮劍構不到／衝過頭」，不是滑步）—— 演算法：`offset = 目標位移差 × (已累積 root motion / 該段總 root motion)`，於 `LateUpdate`（Animator 之後）按進度比例補正；組成為 warp phases（分段對應目標點）／T·R offsets／play rate scaling。⚠️ **需要一個目標** ⇒ 依賴已延後的 auto-target，排在 (A) 之後。<br>參考：Unity `MonoBehaviour.OnAnimatorMove` 官方文件；Traverser（AitorSimona，免費開源、自帶 custom motion warping ＋ root motion）；Kinemation Motion Warping 的機制文件；內建窮人版 `Animator.MatchTarget()`（零依賴，但僅單目標點單區間）。<br>⚠️ **網路上的既有實作不可直接搬用**：參考過的 extractor 有反射掃描覆寫（與本專案的具名映射風格相衝、資料流變隱形）、清單路徑的 `SetValue` 型別錯誤、遞迴無 visited set、四元數經 euler 重組導致累積誤差等問題。**可取的是想法，不是程式碼。**<br>📌 **本輪不做**：ADR-005 仍在 `Trial`，換運動模型會讓 A／B／C／E 的驗證失去意義。眼前以**換一支轉向較小的 slash** 解決（選 clip 判準見 `docs/11` §4.1.1）。日後要做屬**開新 ADR 的等級**（動 `MotionBakeData` schema ＋ `MotionDriver` 驅動路徑）。 |

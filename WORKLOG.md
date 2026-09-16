@@ -1,4 +1,4 @@
-# WORKLOG
+﻿# WORKLOG
 
 > 唯一的進度管理文件。每完成一項立即更新。
 > 歷史架構決策請看 `docs/changelog.md` 與 `docs/ADR/`；此檔只管「現在手上的工作」。
@@ -6,6 +6,2184 @@
 ---
 
 ## 🔖 交辦（下一會話 Handoff）
+
+> # ✅ 2026-09-15（晚）— **敵人卡死 ＋ 死亡收束 ＋ 貼身鏡頭**（四項落地、一項退回裁決）
+>
+> EditMode **545 total／544 passed／0 failed／1 skipped**（+22 條；skip 是既有 NavMesh 環境限制）。
+> PlayMode **56／56 passed**（`CO5` 先失敗 2 次、後連過 4 次 ⇒ **確認為 flaky**，見下方 🔴）。
+>
+> ## 做了什麼
+>
+> | 項目 | 狀態 | 正本 |
+> |---|---|---|
+> | **敵人只會迂迴時卡死** | ✅ 修好（側移諮詢 NavMesh ＋ 新增 `Recover` 模式 ＋ `Approach` 無路徑退化） | `docs/21` §1.2.1 |
+> | **屍體仍是合法目標** | ✅ 修好，`docs/15` §16-7 **結案** | `docs/15` §4.2 |
+> | **屍體吃掉火球** | ✅ 修好（`TryRequestHit` 對死者不消耗自己、不施 Slow） | 測試 `SlowEffectTests` |
+> | **屍體仍用頭追著玩家轉** | ✅ 修好（`HeadLookController` 加 `IsDead` 抑制，比照 `CharacterFacingSource.DeathSuppressed`） | — |
+> | **貼身鏡頭穿進角色** | ✅ 做了（`ShadowsOnly` 抑制 ＋ 遲滯）**數值未經人眼驗收** | `docs/09` §12 |
+> | **亂序操作髒狀態** | ✅ 改成可重現的測試（用**出貨用** config 跑 400 帧亂序 → 鬆手 → 斷言收斂）**目前全綠** | `StateMachineChaosConvergenceTests` |
+> | **投射物 tunneling** | ✅ 加了接線守門（每物理步位移 ≤ 半徑；現況 0.10 vs 0.15） | `PrefabWiringTests` |
+> | **動畫腳頻過快** | ⛔ **未執行，退回裁決** | 見下方 🟠 |
+>
+> ## ✅ 腳頻（原 B1）— **A′ 已落地**，舊契約正式廢除
+>
+> **廢除**：「Combat 8-way 所有方向與 gait anchor 等速」。正本 `docs/21` §1.5.1、摘要 `docs/11` §13。
+>
+> 新規則（兩個環共用，**零手填**）：
+> `threshold = dir × min(gaitAnchor, bake/max × maxPlaybackStretch)`，`playback = |threshold| / (bake/max)`。
+> `maxPlaybackStretch` 是唯一設計參數（X Bot **1.35**／Y Bot 1 ＝不拉伸）。
+>
+> | 方向 | bake m/s | threshold | ％ of fwd | playback |
+> |---|---:|---:|---:|---:|
+> | Forward | 3.578 | 0.7500 | 100% | 1.313（**不變**） |
+> | Forward Diagonal | 3.622 | 0.7500 | 100% | 1.297（**不變**） |
+> | Right | 2.265 | 0.4884 | 65.1% | 1.350 |
+> | Backward／Back Diagonal | 2.214 | 0.4773 | 63.6% | 1.350 |
+> | Left | 2.165 | 0.4667 | 62.2% | 1.350 |
+>
+> **最高 playback 2.17× → 1.35×。** Walk 環不受影響（預算沒咬到）。
+> ⛔ 使用者裁決：**不得**加最低方向速度比例或其他手感補償，先以純推導結果進 Play；太慢再另開 tuning。
+>
+> **資產**：新增 `XBotSpellDirectionalSpeedProfile.asset`、接上 X Bot、改寫 mixer idx 10/11/12/15/16。
+> **程式**：`CombatDirectionalSpeedProfileSO` 加 `maxPlaybackStretch` ＋ 四個斜向欄位（四格全填才啟用八向插值；
+> 留空沿用 cardinal L1 ⇒ **Y Bot 逐位元不變**）。
+> **測試**：`SL5`／`L6` 已更新為新 baseline 並改名；`CombatDirectionalSpeedProfileTests` 新增八向與 stretch 測項。
+>
+> ⚠️ **已知並接受的副作用**：`ApplyCombatDirectionalSpeedLimit` 只看 `InCombat`、不看當前 mixer
+> ⇒ **X Bot 在所有戰鬥中側移都會變慢**，不只施法時。`L6` 原本明文禁止此事，該禁令一併廢除。
+>
+> ## 🔴 火球／冰刺命中判定 — **首要嫌疑：敵人的碰撞膠囊與網格錯位 0.18 m**
+>
+> 回報：①火球**穿過敵人之後**才銷毀並受傷 ②冰刺視覺命中但實際不中。
+>
+> ### 已用 throwaway PlayMode 探針排除的（皆已刪除）
+>
+> | 量測 | 結果 |
+> |---|---|
+> | 真 `Projectile_Fireball` vs 合成 CC（r=0.32） | 第 16 物理步命中、當步扣血、下一步銷毀 ✅ |
+> | 真 `Projectile_Fireball` vs **真 Y Bot prefab** | 命中於 `z=-0.459`，幾何預期 `-0.470` ⇒ **誤差 1.1 cm** ✅ |
+>
+> 同時排除：碰撞矩陣（全開）／layer 2 vs 7（未擋）／`m_AutoSyncTransforms = 0`／
+> `CharacterController` 收不到 trigger／`ThrownProjectile` 的傷害路徑。
+> **⚠️ 但探針裡 Y Bot 的腳本全被停用 ⇒ Capsule Offset 沒有作用。那正是沒重現的原因。**
+>
+> ### ✅ 已排除的三個假說（都量過，量級不夠）
+>
+> | 假說 | 實測 | 判定 |
+> |---|---|---|
+> | 敵人 capsule offset 位移 | 上限 0.18 m | ⛔ 影片過衝約 1 m，**差 5 倍** |
+> | 投射物取樣太稀（tunneling） | `fixedDeltaTime = 0.02` ⇒ 每步 0.1 m；投射物直徑 0.3、敵人膠囊 0.64 | ⛔ 連續覆蓋，穿不過去 |
+> | VFX／collider／root Transform 脫鉤 | collider vs root **0.000000 m**；VFX 根 **0.000 m** | ⛔ Transform 層完全一致 |
+>
+> 📌 **PhysX 同步延遲確實存在但有界**：`m_AutoSyncTransforms = 0` ⇒ `collider.bounds.center`
+> 相對 Transform 呈**鋸齒狀 drift 0.015–0.120 m，每個物理步歸零**，`Physics.SyncTransforms()` 後為 0。
+> 峰值 ≈ 一個物理步的位移。**解釋不了 1 m。**
+> ⚠️ 探針 frame 0 曾量到 15.78 m——那是 `Instantiate` 後首次物理同步前，PhysX 還停在 prefab
+> authored 座標（`m_LocalPosition.z: 7.32436`）的**量測假象**，不是執行期行為。
+>
+> 📌 `FireSparks` 的 `simulationSpace = World` ⇒ 已發射的火花**留在世界座標**拖在後面。
+> 不是 bug，但它會系統性地讓**肉眼**把命中位置判偏（看到的尾巴不是火球本體）。
+>
+> ### 🔴 目前唯一在量級上對得上的根因：**瞄準點在 entry 就鎖死**
+>
+> （Codex 偵查 → 本會話逐條驗證）
+>
+> `ActionState.CaptureReleaseContext(data)` 在**進入 Action 的那一幀**執行
+> （[ActionState.cs:178](Assets/Scripts/Core/StateMachine/States/ActionState.cs:178)，
+> 註解「第 1 段邊界取得一次承諾」），之後 `_releaseContext` 是定值。
+> Fireball 的 release 在 `FallbackDuration 1.2 × ReleaseNormalizedTime 0.35` = **0.42 秒後**。
+>
+> Y Bot 實際側移速度（**Codex 算 2.19 m/s 是錯的，漏算方向速度上限**）：
+> `min(holdStrafeSpeedNormalized 0.35, Bake_StrafeLeftLoop 1.6443 / Bake_SprintFwdLoop 6.2614 = 0.2626)`
+> × 6.2614 = **1.644 m/s**。
+>
+> | 階段 | 時間 | 相對鎖死座標的位移 |
+> |---|---:|---:|
+> | 抬手 | 0.42 s | 0.69 m |
+> | 飛行（約 3 m ÷ 5 m/s） | 0.60 s | 0.99 m |
+> | **合計** | | **≈ 1.7 m** |
+>
+> **敵人膠囊直徑 0.64 m ⇒ 側移中的敵人打不中是預期行為，不是偶發。**
+> 這同時解釋了「看起來穿過身體」：過肩鏡頭下，飛向敵人一秒前位置的火球，投影就是擦過身體。
+>
+> ### 另外兩條獨立且已驗證的缺陷
+>
+> 1. **`spawnPoint` 接錯**：Slot 2 的 `FireballEmitter.spawnPoint` = `{fileID: 5221306491677144301}`
+>    = **`mixamorig:Spine2`（胸椎）**，而 prefab 裡有命名正確、掛在右手下的 `ThrowSpawnPoint`
+>    （local offset `(0, 0.006, 0.12)`）沒被使用。**火球目前從胸口長出來。** 無爭議，可直接修。
+> 2. **冰刺視覺與判定形狀分離**：`Human_Spell_Ice` 六排 emitter 沿 +Z 在
+>    0.58／1.15／1.87／2.66／**3.42**／**4.42** m，而判定球前緣 `castDistance 0.4 + effectRadius 3`
+>    = **3.4 m** ⇒ 最後兩排超出 **0.42 m／1.42 m**（還沒算冰刺 mesh 的 0.79–0.82 尺寸）。
+>    ⛔ 單純把 `effectRadius` 加大是**錯的**——會連背後與左右一起打到，違背「前方一列」的語意。
+>
+> ### ⚠️ 仍然成立的結構性弱點（今天不是主因，但該修）
+>
+> 位移在 `Update`（`Time.deltaTime`）、判定在物理步，**兩者不同步**。目前不穿透是**參數碰巧**
+> （0.1 m 步長 vs 0.64 m 膠囊），不是結構保證；調高速度或掉幀就會放大。
+> 📌 `PrefabWiringTests.ProjectileStepPerPhysicsTick_StaysWithinItsOwnRadius` 斷言的
+> `speed × fixedDeltaTime ≤ radius` **是機率護欄不是保證**——它假設的取樣間距不是真實間距。
+> 結構修法：`FixedUpdate` ＋ `SphereCast` 掃掠（會改變位移語意，需裁決）。
+>
+> ### ✅ 2026-09-16（晚）— **VFX 回到原生模型：生成時脫離投射物**（裁決 B，正本 `docs/11` §18）
+>
+> §16 把 core 的 `startSpeed` 歸零雖然對齊了，卻**把拖尾一起殺掉**（使用者回報）。
+> 實測組成後發現兩個原因疊加：
+> ①三個尾巴是掛在 core 粒子上的 `[Birth]` 子發射器，**空間展開來自 core 的本地位移**；
+> ②它們用 `rateOverDistance`（6／1／2 每公尺）出粒，**出粒數綁在移動距離上**。
+> ⇒ 這個 VFX 的前提是「**發射器不動、火球是會飛的粒子**」，與我們的「GameObject 在飛」互相衝突。
+>
+> **裁決 B**：`Initialize` 時把視覺 `SetParent(null, worldPositionStays: true)` 留在發射點；
+> core 照原設定自走 **15 m/s**；投射物也以 **15 m/s** 平行飛。
+> ✅ 視覺零妥協 ✅ 不變量**變強**（兩套獨立模擬靠同源同速同向對齊）
+>
+> ⚠️ **只改 startSpeed 會踩到的兩個隱藏地雷**（讀 duration／stopAction 才發現）：
+>
+> | 欄位 | 改為 | 不改會怎樣 |
+> |---|---|---|
+> | core `duration` | 5.0 → **0.1** | `max=1`＋`life=1.0` ⇒ 死了會補生 ⇒ detach 後**每秒從槍口再射一發** |
+> | core `stopAction` | Destroy → **None** | 掛在 core 上 ⇒ core 結束時把**還活著的尾巴一起殺掉** |
+>
+> **命中收尾**：`Clear()` core（火球消失於接觸點）＋ `Stop(StopEmitting)` 全部；
+> ⛔ 不整個 `Destroy`——那會把尾巴一刀切掉。
+>
+> **資產**：core `startSpeed` **15**／`duration` **0.1**／`stopAction` **None**；
+> `FireballEmitter.projectileSpeed` 20 → **15**。第三方來源全程未動。
+>
+> 📌 **`projectileSpeed` 與 core 的 `startSpeed` 必須永遠一致**，改一邊要同步另一邊（`PV1` 守）。
+>
+> ⚠️ **需要人眼確認**：①火球會不會重複發射（`duration 0.1` 應已擋掉，屬推導未實測）
+> ②命中時尾巴是自然淡出還是被切斷。
+>
+> ### ✅ 2026-09-16 — **火球視覺速度回復 ＋ 投射物改為連續掃掠**（正本 `docs/11` §17）
+>
+> §16 把 core 的 `startSpeed` 歸零後，core 與 collider 對齊了，但**視覺速度由 20 掉到 5 m/s**。
+> 使用者裁決「視覺上還是原本的好」⇒ 把 collider 拉到特效原速。
+>
+> ```
+> 原本  發射器 5 ＋ 粒子 15 = 20 m/s
+> 現在  發射器 20 ＋ 粒子 0 = 20 m/s     ← core 仍釘在 collider 上
+> ```
+>
+> ⚠️ **提速強制了掃掠**：20 m/s ⇒ 每步 0.40 m；正面命中窗 0.94 m（安全），
+> **擦邊命中窗只剩 0.27 m ⇒ 必漏**。兩件事不能只做一半。
+>
+> | 項目 | 新契約 |
+> |---|---|
+> | 位移／判定 | `FixedUpdate` ＋ `Physics.SphereCastNonAlloc`，start → desiredEnd |
+> | hit authority | **掃掠唯一。`OnTriggerEnter` 已整段移除** |
+> | 合法命中 | ①非自己 ②非 owner／其子物件 ③**非屍體**（透明，同 tick 繼續往後找） |
+> | LayerMask | `~0` ＋ `QueryTriggerInteraction.Collide`（維持現行廣義行為；⛔ 本輪不重構 layers） |
+>
+> **命中順序（不可調換）**：① 位移截斷到 `hit.distance` → ② impact 用 `hit.point` → ③ 才結算完成。
+> ⛔ 不得先移到 `desiredEnd` 再回頭處理。
+>
+> **測試契約更替**：⛔ 移除 `ProjectileStepPerPhysicsTick_StaysWithinItsOwnRadius`
+> （`speed × fixedDeltaTime ≤ radius` **不是保證**，只是機率護欄）；
+> ✅ 新增 `ProjectileSweepPlayModeTests` `PS1`–`PS4`：
+> **60 m/s（每步 1.2 m vs 膠囊 0.64 m）不 tunneling**／接觸點截斷／owner 排除／屍體透明。
+>
+> **資產**：`FireballEmitter.projectileSpeed` 5 → **20**；Throw 的 emitter **不動**（維持 5）。
+>
+> 📌 投射物 prefab 上的 kinematic `Rigidbody` 與 `isTrigger` 已非命中所需，**刻意保留不動**。
+>
+> ### 🔴 **真正的主因找到了：視覺 core 與 collider 分家**（2026-09-16，正本 `docs/11` §16）
+>
+> `Human_Spell_Fireball` 是為**靜止發射器**設計的 VFX——位移由**粒子自己**承擔
+> （`main.startSpeed = 15`，Local）。而 `ThrownProjectile` **同時也在搬 GameObject**（5 m/s）。
+>
+> ```
+> 視覺 core = 5 ＋ 15 = 20 m/s      判定 = 5 m/s      ⇒ 相對 10 m/s，差距線性拉開
+> ```
+>
+> 實測：飛 0.22 s 差 **2.22 m**、0.67 s 差 **6.68 m**。**玩家瞄的是 core、遊戲判的是 collider。**
+>
+> **六項排查**（使用者指定）：① core 粒子 localZ **+2.22（AHEAD）** ② `startSpeed` **15.00** ← 唯一推力源
+> ③ velocityOverLifetime False ④ inheritVelocity False ⑤ forceOverLifetime False
+> ⑥ subEmitters **True × 4** —— 非推力源，但四個尾巴都是從 core 粒子生出來的
+> ⇒ **釘回 core，整條視覺鏈一起回正**。
+>
+> **修法**：`Projectile_Fireball.prefab` 的 nested instance override `startSpeed 15 → 0`。
+> ⛔ 第三方來源（`Assets/Kevin Iglesias/…`）**一行未動**——腳本先驗 `GetAssetPath` 屬於我們的 prefab
+> 才寫入，事後 `git status --porcelain "Assets/Kevin Iglesias/"` 複查為空。
+> **驗收：core↔collider 距離 2.22 m → 0.02 m。**
+>
+> **不變量**：**視覺 core ≈ collider**（使用者裁決，投射物唯一該守的視覺／判定不變量）。
+> 由 `ProjectileVisualAlignmentPlayModeTests.PV1` 守，斷言的是**可觀察距離 ≤ 1 m**，
+> ⛔ 不是 `startSpeed == 0`（那是實作細節，換素材或改用其他推進模組都會讓它失效卻仍破壞不變量）。
+> core 身分用**結構判準**（帶 SubEmitter 的那個），不用名字也不用粒子大小。
+> 📌 trail／sparks 不在約束內：`FireSparks` 維持 World，只要它們明確是尾巴。
+>
+> ⚠️ **Play 要確認的視覺副作用**：core 不再自走 ⇒ **拖尾會明顯變短**（相對速度 15 → 5）。
+> 要加長就調 trail 的 lifetime／startSpeed，⛔ **不是把 core 速度加回去**。
+> ⚠️ **未處理的殘差**：core billboard 半徑約 0.28 vs collider 0.15 ⇒ 視覺球大一圈（**尺寸差**非位置差）。
+>
+> 📌 **這條與下面的 Fix 1（瞄準點過期，1.7 m）獨立**，兩者都真實存在；
+> 本條量級更大（10 m/s 持續拉開），是**主因**，Fix 1 降為次要。
+>
+> ### ✅ 兩條已修（使用者裁決「1 3 能改」）
+>
+> **Fix 1 — 承諾拆成 facing ／ effect 兩份**（正本 `docs/11` §14）
+>
+> | 欄位 | 何時取 | 用途 |
+> |---|---|---|
+> | `_releaseContext` | 段落邊界（原樣） | facing 承諾，**不變** |
+> | `_effectContext` 🆕 | **每帧刷新、release 當下定案** | 投遞給 sinks |
+>
+> ⚠️ **這是刻意推翻一條被測試守著的契約**：`TD5`／`TD5B` 原文「release **不得**在 release 時重解」、
+> 「facing 與世界效果必須是**同一份**承諾」。已依 CLAUDE.md 於同一工作包更新為新 baseline，
+> 並在測試註解完整記錄推翻理由（0.42s 抬手 ＋ 0.6s 飛行 ＋ 1.644 m/s 側移 ⇒ 1.7m vs 0.64m 膠囊）。
+> **代價**：身體朝向與彈道相差約 **13°**（3 m 距離）。⚠️ **Play 時若覺得那個落差怪，這個決定可以退回**。
+> 新守門：`AC1`（effect 跟上 **且** facing 不動）／`AC2`（瞄準失效保留上次落點）。
+>
+> **Fix 3 — 冰刺判定形狀對齊視覺形狀**（正本 `docs/11` §15）
+>
+> `OverlapSphere`（身前 0.4 為心、半徑 3）→ `OverlapCapsule`（沿施法方向 0.58→4.42、橫向 0.7）。
+> 數值來源是 VFX 自己的 emitter 佈局。X Bot 的 `effectRadius` 已由 3 改為 **0.7**（Editor API）。
+> 新守門：`SlowEffectTests.IceHitVolume_*` 三條（涵蓋全列／跟著方向轉／退化不 NaN）。
+> ⛔ 順帶被 `A29` 擋下一次：我原本在 sink 裡寫 `transform.root.forward` 當退化後備——
+> 那是**讓 sink 自己發明方向權威**。已改為塌成零長度膠囊。
+>
+> ### ⛔ 第 2 項（`spawnPoint` 接在 `mixamorig:Spine2`）**沒有動**
+>
+> 使用者只授權 1 和 3。而且再評估：`ThrowSpawnPoint`（右手）是給 **Throw** 用的，
+> **法術從軀幹放出來本來就合理** ⇒ Codex 把它列為「缺陷」可能過頭，那是美術取向選擇而非接線錯誤。
+>
+> ### 📌 仍未修的結構性弱點
+>
+> 投射物位移在 `Update`、判定在物理步，**兩者不同步**（實測 drift 0.015–0.120 m 鋸齒）。
+> 今天不是主因，但目前不穿透是**參數碰巧**不是結構保證。
+> `PrefabWiringTests.ProjectileStepPerPhysicsTick_StaysWithinItsOwnRadius` 斷言的
+> `speed × fixedDeltaTime ≤ radius` **是機率護欄不是保證**。
+> 結構修法：`FixedUpdate` ＋ `SphereCast` 掃掠（會改變位移語意，需裁決）。
+>
+> ### 🔍 Play 時請確認這三件
+>
+> 1. **火球打得到側移中的敵人**；以及身體朝向與彈道那 13° 落差**看起來能不能接受**
+> 2. **冰刺打得到最遠那兩排涵蓋的敵人**，且**背後的敵人不再被打到**
+> 3. Debug gizmo：投射物的黃球（實際 collider）／紅球串（物理取樣）；
+>    AoE 的膠囊**綠＝查到目標、紅＝0 個**，標籤直接寫出最近目標距離與判定結論
+>
+> 📌 ③「看不出緩速」你已澄清是**敵人本來就太慢**，不是緩速壞掉 ⇒ 不列為缺陷。
+>
+> ## ⛔ 還是你的：人類 Play 驗收
+>
+> 除了原本 Capsule V2 的那份清單（**平台邊緣那項你已裁決結案：radius 0.32 ＋ cap 0.18
+> ⇒ 最壞懸空 0.50 m，可接受，cap 留 0.18**），本輪新增要看的：
+>
+> - **敵人不再卡死**：把敵人逼到牆縫／平台邊緣，看它會不會自己走回來。
+>   選中敵人看 Scene view 的 `AI move:` 標籤——出現**洋紅 `Recover`** 就是它出過網又自己救回來。
+> - **貼身鏡頭**：走到敵人身上，角色應該消失但**影子還在**；退開要平順恢復、**不得閃爍**。
+>   太早／太晚消失就調 `hideTargetBelowDistance`（目前 0.95）。
+> - **屍體**：打死敵人後，角色不得繼續朝屍體轉、不得用頭追屍體；火球要能**穿過屍體**打到後面的敵人。
+>
+> ---
+
+> # ✅ 2026-09-15 — **Dynamic Capsule V2 已完整落地**（正本：`docs/27` §13；**白話教學：`docs/28`**）
+>
+> EditMode **523 total／522 passed／0 failed／1 skipped**（唯一 skip 是既有 NavMesh 環境限制）；
+> PlayMode **56／56**；recompile 0 errors。資產已接、場景已存檔。
+>
+> ## 做了什麼
+>
+> | | |
+> |---|---|
+> | **TraversalProbe base-center bug** | ✅ 修好。`Awake` 快照 `AuthoredCenter/Radius/Height`，環境查詢全部改讀它。🔒 由 `TR1`（行為，掃 3 個 radius）＋`TR2`（欄位）守住 |
+> | **Pose solver** | ✅ `CapsulePoseSolver`——純函式、零 GC（inline `Vec2x8`，不用 `new[]`）、確定性（Dykstra 24 次，`CP10` 拿 300 次比對釘住） |
+> | **Profile 資產** | ✅ `CapsulePoseProfileSO` ＋ X Bot／Y Bot 各一份（**網格不同，數值差 42%，不可共用**） |
+> | **Runtime** | ✅ 五層管線 Desired→Capped→Smoothed→Safe→center；`locomotionHasAuthority` 參數**消失** |
+> | **Debug** | ✅ 五個圓環 ＋ 舊 MoveDirection 模型的紅虛線對照 |
+> | **Tests** | ✅ `CP1–CP12`／`CD1–CD5`／`CO1–CO7`／`TR1`×3・`TR2` |
+> | **資產** | ✅ 兩隻 prefab 接線完成；SampleScene 的 radius override 已清除**並存檔** |
+>
+> ## 效果（用 shipping code 跑真實動畫）
+>
+> | clip | 上半身超出（前） | （後） | 改善 |
+> |---|---:|---:|---:|
+> | **Run** | 0.204 | **0.024** | **88%** |
+> | **Sprint** | 0.271 | **0.091** | **66%** |
+> | RunStrafe45 | 0.209 | 0.030 | 85% |
+> | **純側移** | 本來就沒穿模 | 解出 **0.000** | V1 會推 0.12 到**錯的一側** |
+>
+> 真實場景 Play（按住 W）：`desired=0.201 → capped=0.180`，`status=Corrected`，殘餘 0.0000。
+>
+> ## 🔴 下一個會話要知道的三件事
+>
+> 1. **Sprint 仍殘餘 9 cm，那不是 bug，也不要靠加大 `MaxOffset` 去追。**
+>    根因是膠囊頂端剛好切在頭頂（`docs/28` §G）。要解得動 `height`／`center.y`
+>    ——會連帶影響 step-over、天花板檢查與 traversal corridor ⇒ **獨立裁決，本輪明確沒做**。
+> 2. **Y Bot 幾乎全程 `Infeasible`，那是訊號不是錯誤**：它的 Chest flesh radius 0.2902，
+>    `allow` 只剩 0.0298，**胸膛本來就快把膠囊塞滿**。
+>    ⛔ **不要為了讓它不 infeasible 去調小 flesh radius**——那是竄改量測值。要解得加大它的 radius。
+>    （已實測不會抖：最壞 0.71 m/s，平滑時間常數 0.12 s。）
+> 3. **⛔ 不得再用「核心質心是否在 radius 內」當判準**（使用者裁決）。
+>    也不得用骨骼點代替網格——`docs/27` §11 就是這樣得出錯誤結論的。
+>
+> ## ⛔ 唯一還沒做的：人類 Play 驗收（看起來對不對）
+>
+> 自動化涵蓋了「數字對不對」，涵蓋不了「看起來對不對」。請實際 Play 看：
+>
+> - **Locomotion**：Idle／Walk／Run／Sprint／Strafe L,R／RunStrafe 45,135／Stop 有沒有抖或歪
+> - **貼牆**：正面跑向牆、斜向跑向牆、沿牆 strafe、轉身貼牆、停止貼牆——頭還看不看得到穿模
+> - **邊緣**：站到平台邊緣。偏移 0.18 會把**底部支撐點**一起前移 0.18，
+>   可能出現「看起來踩空卻站著」或「還沒走到邊就掉下去」。**這一項是 cap 值能不能留在 0.18 的關鍵。**
+> - **Gameplay**：Attack／Spell／Roll／Hurt／Death 期間碰撞行為合不合理（V2 這些狀態**不再停用**偏移）
+> - **Traversal**：按著 W 靠牆能不能起攀（這是這輪修的 bug）；Climb／Vault 不得再出現 CorridorBlocked
+>
+> 📌 Debug：進 Play → 點 Game view → **`** 或 **F1** 開面板 → **F2** 切 Capsule Offset。
+> 五個圈：灰＝基準／黃＝Desired／橙＝Capped／青＝Smoothed／洋紅＝實際寫入。
+> **五圈重合 ＝ 姿勢站直不需要偏移，那不是壞掉。**
+
+
+> # 🔴 2026-09-15 — **交辦：Capsule Offset ↔ Traversal 幾何衝突**（正本：`docs/27`）
+>
+> > ## 🔴 2026-09-15 更新：**下方的「問題陳述」歸因已被程式閱讀推翻，先讀 `docs/27` §10 第 0 條**
+> >
+> > 下方把失敗歸因於「站位退後 0.12 m 吃掉 entry 合法帶」，並引用「合法帶只剩 20 cm」。
+> > 那個 20 cm 是 `docs/24` **§9.3 的 Vault1m 舊值**，`docs/24` §10 的工作包一已把它改成 **0.70 m 寬**；
+> > Climb 路徑的實錄合法帶是 **[0.06, 0.81] m**（§19.2 面板 `legal 0.06–0.81`）。
+> > ⇒ **0.34 在帶內，而且比 0.22 更接近理想的 0.462** ⇒ 距離判斷推不出失敗。
+> >
+> > 更可疑的是 `TraversalProbe` 沿 corridor 取樣時用的是**當下（已偏移）的 `characterController.center`**
+> > （`TraversalProbe.cs:665`／`:265`／`:435`）⇒ 整條 corridor 檢查膠囊往前推 0.12 ⇒ `CorridorBlocked`，
+> > 而那是 `TraversalEntryPolicy.Evaluate` 的**第一個** return，距離根本沒被評估。
+> >
+> > **⚠️ 這是程式閱讀，沒有 Play 證據。** 決定性證據很便宜：暫時把 `X Bot` 偏移開回來
+> > ＋ 打開 `drawTraversalPanelText`（⚠️ `RuntimeDebugPanel.RescanScene` 每次掃描都會把它強制壓成 false ⇒ **必須先停用 X Bot 上的 `RuntimeDebugPanel` 元件**，這也正是現在看不到 reject reason 的原因），
+> > 撞牆讀一次 **Entry reject reason** 即可分流。
+> > ⛔ 在讀到那個 reason 之前，**不要**在 A／B／C 之間做選擇——三條路都建立在下方這個歸因上。
+>
+> > ## ✅ 2026-09-15 **再更新：已用 PlayMode 探針證實，歸因確定是錯的**（正本：`docs/27` §10 第 0 條）
+> >
+> > 探針 `Assets/_Project/Tests/PlayMode/CapsuleOffsetTraversalCorridorSpike.cs`（throwaway spike，只讀 `probe.Candidate`）
+> > 掃 radius {0.12, 0.22, 0.32} × {基準／偏移開啟／**對照組：站位退後同樣 0.12 但 center 不偏移**}：
+> >
+> > | case | root→wall | 結果 |
+> > |---|---:|---|
+> > | baseline | 0.150 | `Climb2m` ✅ |
+> > | **offset-on** | **0.270** | `None` ／ **CorridorBlocked** ／ `EntryToClearanceBlocked` ❌ |
+> > | **control（同站位、不偏移 center）** | **0.270** | `Climb2m` ✅ |
+> >
+> > （0.22／0.32 半徑行為完全一致，連 `EntryCapsuleWallClearance` 都同為 0.0600。）
+> >
+> > 🔴 **同一個站位、相反的結果 ⇒ 站位不是原因，`characterController.center` 被偏移才是。**
+> > reject 發生在 **Probe** 的 `IsCapsuleSegmentClear`（entry→clearance 段），
+> > `TraversalEntryPolicy` 的距離判斷**根本沒被執行到**。
+> > ⇒ **A／B／C 三條路都在解一個不存在的問題**；`MaxOffset` 不需要調。
+> >
+> > **修法方向**：讓 probe 讀 authored 基準 center。但 probe 在 `Core`、`MotionDriver._capsuleBaseCenter`
+> > 在 `Presentation` ⇒ 不能直接問；候選 (a) probe 自己在 `Awake` 快照（多一個「基準」持有者）
+> > (b) 走黑板欄位（單一真相，但要改 §1.1 權限表與 `WriterRules`）。
+> > **這是 traversal 程式改動、traversal 仍 frozen ⇒ 等使用者裁決，本會話未動手。**
+> >
+> > 📌 本輪**未改任何 runtime 程式**（只新增一個測試檔＋改文件）。PlayMode **49/49**（48 ＋ 本探針）；recompile 0 errors。
+>
+> > ## ✅ 2026-09-15 **第三次更新：radius 已裁決為 0.32、已清理；`MaxOffset` 重新量測完畢**（正本：`docs/27` §10-0b ＋ **§11**）
+> >
+> > **① radius 裁決**：**0.32 ＝ authored baseline**（使用者）。SampleScene 那個未 commit 的
+> > `0.12` 實例 override 已用 `PrefabUtility.RevertPropertyOverride` 清除，X Bot／Y Bot 現在都是 0.32。
+> > `docs/27` 全篇 0.22 算術已改（§0／§1.5／§8.2／§9.5.1／§9.5.2／§10-2）。
+> > ⚠️ **場景只改在 Unity 記憶體裡，尚未落盤 —— 需要使用者 Ctrl+S。**
+> > 還原方式：Inspector 重新輸入 0.12。
+> >
+> > **② 重新量測**（`docs/27` §11；AnimationMode 121 幀 × 12 支 locomotion clip，preview scene，不碰使用者場景）。
+> > 🔴 **踩到的坑**：humanoid clip 的 root motion **烘在 hips 裡**，不去趨勢會量到「Sprint 質心前移 4.16 m」。
+> > 去趨勢要用**首尾質心差**，用 `clip.averageSpeed` 會殘留誤差。
+> > 可信度：反推速度 1.64／3.58／6.26 對得上 1.62／3.50／6.10；Run／Sprint 質心 0.162／0.159
+> > 與舊值 0.161／0.160 **差 1 mm ⇒ 重現前一輪量測**。
+> >
+> > | 相對 0.32 膠囊 | 結果 |
+> > |---|---|
+> > | **核心質心** | **從來沒有離開膠囊**。最糟 Sprint 0.212，離表面還有 **10.8 cm** |
+> > | **頭** | 只有 Run（+0.020）／**Sprint（+0.085）**／RunStrafe45（+0.031／+0.002）超出 |
+> > | **純側移** | `StrafeLeftLoop` 往左走、核心卻往**右**傾（cXavg +0.029）；`StrafeRightLoop` 也是反的 |
+> >
+> > **⇒ `MaxOffset = 0.12` 在 r = 0.32 下沒有任何量測支撐。**
+> > 跟核心走 ⇒ 需要 **0**；改成追衝刺的頭 ⇒ 上界 **0.085**（且那是改變功能定義，撞上 §4.3「⛔ 不要用 max」）；
+> > 而純側移時偏移會把膠囊推到**錯的一側**，誤差 ≈ 0.149 m，比它要修的 0.099 還大一個量級。
+> > ⇒ **`X Bot` 目前關閉恰好是證據支持的狀態，本輪不改、也沒有重開。**
+> >
+> > **③ 下一步需要使用者裁決的三件事**（`docs/27` §11.4）：
+> > (a) `Y Bot` 要不要跟著調（同 radius、同 MaxOffset，三條讀法一字不改適用）；
+> > (b) 頭穿模三選一（加大 radius／加重 Head 權重／接受）——加大 radius 會再撞 traversal corridor；
+> > (c) dynamic capsule 這個功能本身留不留。
+> > 📌 **但 §10 第 0 條的 probe bug 無論如何都該修**，與 (c) 無關：那是 traversal 自己讀錯基準，
+> > 任何第二個寫 `center` 的人都會再踩到。
+>
+> > ## 🔄 2026-09-15 **第四次更新：§11 的結論作廢；upper-body occupancy 研究完成**（正本：`docs/27` **§12**）
+> >
+> > 🔴 **使用者指出：以「核心質心是否在 radius 內」判定不需要 dynamic capsule 是錯的完成條件。**
+> > Play 畫面明確看得到頭／上半身穿牆 ⇒ 需求客觀成立。`docs/27` §11 已標記作廢並記錄錯在哪。
+> > ⛔ **後續不得再用核心質心當判準。**
+> >
+> > **錯在四件事**：①用平均回答外緣問題；②骨骼點 ≠ 網格（低估 3–10 倍）；
+> > ③忽略膠囊在高處會變窄（頭高只有 0.306、顱頂只剩 0.067，不是 0.32）；④Play 證據優先於推導。
+> >
+> > **§12 改以蒙皮網格重測**（`BakeMesh` 28k 頂點，依 dominant bone 只留 Spine1/Spine2/Neck/Head，
+> > ⛔ 排除手腳武器）：
+> >
+> > | | Spine1 | Spine2 | Neck | **Head** |
+> > |---|---:|---:|---:|---:|
+> > | RunFwd | 0.010 | 0.010 | 0.036 | **0.204** |
+> > | **Sprint** | 0.029 | 0.042 | 0.092 | **0.271** |
+> > | 純側移 | 0 | 0 | 0 | **0** |
+> >
+> > **求解法**（連續、非 argmax）：每個 landmark 配一個離線量的 flesh radius `r_i`
+> > （Spine1 0.204／Spine2 0.187／Neck 0.095／Head 0.211），
+> > 「球在膠囊內」⇔ `|q_i − c| ≤ ρ_i`，`ρ_i = sqrt((R−r_i)² − max(0, y_i−topC)²)`；
+> > **`c*` ＝ 原點在 `∩D(q_i, ρ_i)` 的投影**。凸集投影對輸入連續 ⇒ 換 active constraint 不跳。
+> > 實測 `dEst/frame ≤ 0.0124 m`（≈0.8 m/s），回頭驗真實網格**殘餘全為負**（完全覆蓋，餘裕 1.4–7.0 cm）。
+> >
+> > **需求量**：Walk 0／**Run 0.231**／**Sprint 0.296**／純側移 **0**／RunStrafe45 0.241（方向 Z:X = 2.7:1，**不是 45°**）。
+> > ⇒ **現行模型兩端都錯且方向相反**：側移需要 0 卻推 0.12（還推向反側）；前跑需要 0.20–0.30 卻只給 0.12。
+> >
+> > **cap 取捨**（Sprint；膠囊整顆平移 ⇒ 底部支撐點同步前移）：
+> > 0.12 → 殘餘 0.151／支撐前移 0.12；**0.18 → 殘餘 0.091**；0.30 → 殘餘 −0.023／支撐前移 0.296。
+> > 📌 下半身外露**不是偏移造成的**（cap=0 就有 0.125），且 cap=0.06 反而讓它降到 0.076。
+> >
+> > **⇒ 建議 cap = 0.18**（拿掉 2/3 穿模，支撐前移還在一個腳掌量級），剩下的交給**膠囊高度／`center.y`**
+> > 這個獨立槓桿——根因是膠囊頂端剛好切在頭頂。⛔ 那是另一個裁決，不在本輪。
+> >
+> > **⛔ 本輪只研究，未實作、未重開玩家 dynamic capsule、未改任何 runtime 程式。**
+> > 需要裁決：(a) cap 取 0.12／0.18／0.30；(b) 要不要另開膠囊高度的題；
+> > (c) `r_i` 寫死還是放 authored SO（目前 4 個數字量自 X Bot 網格，**換角色就不對**）。
+> > 📌 實作前應先修 §10 第 0 條的 probe bug——偏移變大後它會壞得更明顯。
+> >
+> > 🟠 **順帶抓到一件要先確認的事**：`X Bot` 的膠囊半徑，prefab 是 **0.32**、
+> > SampleScene 有一個**未 commit 的覆寫 0.12**、`docs/27` 全篇算術用的是 **0.22**，`Y Bot` 是 0.32。
+> > `MaxOffset` 0.12 ＝ 整個半徑。**0.12 是刻意的還是誤觸？** 見 `docs/27` §10 第 0b 條。
+>
+> ## ✅ 測試狀態（2026-09-15 收工前已跑完）
+>
+> EditMode **519／518 passed／0 failed／1 skipped**（唯一 skip 是既有 NavMesh 環境限制）；
+> PlayMode **48／48**；live Editor recompile 0 errors。
+>
+> ⚠️ **排測試前務必先確認 `scene.isDirty == false`。**
+> dirty 時 EditMode test runner 會跳強制存檔對話框、**無限期卡死主執行緒**
+> （本輪踩過一次，`cancel_tests` 也 timeout，只能重開 Editor）。
+> dirty 就請使用者存檔，⛔ **不要自己存**——那是使用者的場景。
+>
+> ## 問題陳述
+>
+> **動態碰撞箱（capsule offset）與攀爬（traversal）在幾何上直接衝突，目前以「玩家關閉」暫時迴避。**
+>
+> | | 站位（root 到牆面） |
+> |---|---|
+> | 偏移關閉 | 膠囊前緣 ＝ `r` ＝ **0.22 m** |
+> | 偏移開啟（滿值 0.12） | 膠囊前緣 ＝ **0.34 m** |
+>
+> ⇒ 角色停在**比原本遠 0.12 m** 的位置，而 `docs/24` §19 記載可執行起攀站位帶
+> **只剩約 20 cm 寬** ⇒ **直接吃掉 60%**。按著 W ＝ 全速 ＝ 偏移滿值，正好是最糟情況。
+> **Play 實測：按著 W 完全無法起攀。**
+>
+> 📌 **clamp 在這裡根本不會介入**：`CapsuleCast` 只有在 root 距牆 < `0.12 + 0.19 = 0.31 m`
+> 時才撞得到牆，但角色在 0.34 m 就被 `CharacterController` 擋下了——永遠走不到 0.31。
+> ⇒ **不是 clamp 沒做對，是「膠囊變大」與「起攀要夠近」本質衝突。**
+>
+> ## 目前狀態（不是待辦，是已生效的裁決）
+>
+> - `X Bot.capsuleOffset.Enabled = **false**`、`Y Bot = **true**`（敵人無 `TraversalProbe`，不受影響）
+> - **Traversal 維持 frozen** ——⛔ 不為了 capsule offset 去改 `TraversalProbe` ／ entry policy
+> - ⛔ **不刪除** solver／tests／gizmo。它們完好、有測試、可隨時重新啟用
+> - `MaxOffset` 未動（0.12）
+> - **dynamic capsule 本身沒有被否決**；暫停的只是 Player integration
+>
+> ## 🔴 下一個會話要小心的三個陷阱
+>
+> 1. **⛔ 不要以為換成 pose-driven 就解決了。** 實測跑步時核心質心前移 **0.161 m**，
+>    比現在的 0.12 **更大** ⇒ 換模型只會讓衝突更嚴重。
+>    **做之前必須先量「貼牆減速段」的質心軌跡**——角色撞牆前會減速，質心可能回收，
+>    但那是假設，`docs/27` 沒有量過。
+> 2. **⛔ 不要只改 `TraversalProbe` 去讀 base center。** 那只修一半：probe 讀對了，
+>    但**物理站位仍然退後 0.12 m**，起攀照樣失敗。
+> 3. **⛔ 不要把「頭穿模」當成同一個問題。** 實測衝刺時頭在核心質心前 **0.245 m**，
+>    而膠囊半徑只有 0.22 ⇒ **即使把膠囊中心對齊質心，頭仍在外面 2.5 cm**。
+>    那是獨立的取捨（加大半徑／加重 Head 權重／接受），而加大半徑**又會再吃掉起攀帶**。
+>
+> ## 三條可能的路（`docs/27` §9.5.3，都未裁決）
+>
+> | 路 | 內容 | 風險 |
+> |---|---|---|
+> | **A** | 等 traversal entry band 變寬到能吸收 0.12 m | 那是 traversal 自己的工作；`docs/24` §10–§11 已指出真正瓶頸是 `ForwardScanDistance 1.25 m` < 理想進場距離 1.402 m |
+> | **B** | 為玩家單獨調低 `MaxOffset` 到 traversal 容忍得了的量 | 最省事，但要先量出「容忍得了的量」是多少；且偏移變小後效果可能看不出來 |
+> | **C** | 改走 pose-driven 並確認貼牆時站位影響較小 | 見陷阱 1——**未經量測前不成立** |
+>
+> ## 先讀哪裡
+>
+> **`docs/27-pose-driven-capsule-study.md`** —— §1 是三個假設被實測推翻的完整數據、
+> §9.5 是 clamp 的實作與這次衝突的機制、§10 是裁決紀錄與仍然開著的問題。
+> ⛔ 在 §10 的三個問題有答案前，不要動手改 traversal。
+>
+> ## 順帶可用的工具（這幾輪剛做的）
+>
+> 進 Play → 點 Game view → **`** 或 **F1** 開 Debug Panel（F2 Capsule Offset／F3 Foot IK／
+> F4 Traversal Runtime Lines／F5 Traversal Scene Gizmos；**預設全開**，面板是用來關掉的）。
+> Traversal 的可視化現在有：掃描射線階梯、**以角色為中心的攀爬高度圓環**
+> （黃＝Climb1m 上限、紅＝Climb2m 上限、灰＝ScanCeiling）、以及**線框球**標出
+> 手抓點／牆面接觸點／該站的位置／人上去所需的空間。
+> 📌 **`ForwardScanDistance` 現在畫得出來了**（腰高的琥珀色水平線）——
+> `docs/24` §19 說它才是真正卡住玩家的東西，以前只存在於 Inspector 裡。
+
+> # ✅ 2026-09-15 — **敵人血條／動態碰撞箱／Debug Panel**
+>
+> EditMode **519／518 passed／0 failed／1 skipped**；PlayMode **48／48**；recompile 0 errors。
+> ✅ **人類 Play 驗收已通過**（2026-09-15 使用者）：敵人血條版面、debug 圖層皆無問題。
+>
+> 📌 收尾時三條測試紅燈，**三條都是治具的錯不是程式**，值得記下來：
+> * `C11`：`CaptureCapsuleBaseCenter` 只擷取一次且在 `UpdateCapsuleOffset` 開頭，
+>   測試卻**先把 center 弄髒才呼叫** ⇒ 擷取到的「authored 基準」是偏移後的位置。
+> * `CO2`：用「跑 40 幀」＋絕對容差去驗 SmoothDamp 的漸近收斂 ⇒ **頻率相關**
+>   （PD2 才剛因為同一類問題被修過）。改成依**時間**跑滿 5 個時間常數、比對峰值比例。
+> * `CO3`：牆放在 `radius + 0.06`，但 clamp 用的是 `radius − skinWidth` 去掃
+>   ⇒ 實際間隙 0.14 > 移動距離 0.12，**根本掃不到**。改用 `castRadius + 0.06`。
+>
+> ## ① 敵人頭上血條（`App/WorldSpaceHealthBar`）
+>
+> 可見性直接讀既有的 `CombatContext.InCombat` ⇒ **零新增狀態、零新增黑板欄位**。
+> 敵人自己在順序 2.5 就在寫它，且已有黏性進出半徑（8m 進／12m 出）
+> ⇒ **邊界不閃爍是免費附贈的**，不是另做的防抖。
+>
+> 🔴 **死亡也要隱藏，理由不明顯**：`AIMovementSource` **完全不認識死亡**
+> （2026-09-14「屍體持續面向玩家」的同一個根因）⇒ 死掉的敵人**仍然是 `InCombat`**。
+> 只看 `InCombat` 的話屍體頭上會掛著一條空血條。
+> 📌 同一個教訓第二次出現：**「死了」不會自動傳播，每個讀者都要自己認識它。**
+>
+> 順帶抽出 `App/HealthBarFill`（第二個使用者到了）——抽它的理由不是省三行，
+> 是那個**除零守衛**：`MaxHealth == 0` 除下去是 NaN，而 **Unity 不會為 NaN 的 `fillAmount` 報任何錯**。
+>
+> ## ② 動態碰撞箱：collision-aware clamp（見上方交辦）
+>
+> `SolveTargetOffset` → **`SolveDesiredOffset`**，`touchingWall` 參數移除 ⇒ 求解層完全不認識幾何體。
+> 夾持改用 `Physics.CapsuleCast`，**cast 半徑刻意縮一個 `skinWidth`**
+> （用原半徑掃，角色貼牆站定時起點就已重疊 ⇒ 回 `distance = 0` ⇒ 又變回舊行為）。
+>
+> ## ③ Runtime Debug Panel（`App/RuntimeDebugPanel`，掛在 X Bot 上）
+>
+> 🔴 **第一版用 `GUILayout.Toggle` 是錯的**：`CursorModeController` 把游標鎖住並隱藏
+> ⇒ **勾選框根本點不到**。改成純鍵盤（` / F1 開關，F2–F5 切頻道）。
+> 🔴 **第二個錯**：Capsule Offset 用 `Gizmos`／`Handles` 畫 ⇒ **Game 視窗看不到**。
+> 改成 `LineRenderer`（與 Foot IK／Traversal 既有作法一致）。
+>
+> ⚠️ 過程中還抓到一個**只有 Development Player build 才會炸**的錯：插入位置把既有 Gizmos 程式碼
+> 從 `#if UNITY_EDITOR` 併進了 `UNITY_EDITOR || DEVELOPMENT_BUILD`。
+> **Editor recompile 與 `dotnet build` 都抓不到**（兩者都定義 `UNITY_EDITOR`）。已拆開。
+>
+> ## ④ Traversal 可視化：射線 ＋ 關鍵高度 ＋ 線框球
+>
+> 使用者要求「不需要文字，給我射線以及關鍵高度表示」。
+> 第一版把高度畫成角色**側邊的短刻度** ⇒ 使用者回報「不知道那是什麼、為什麼在側邊」
+> ⇒ 改成**以角色為中心的水平圓環**（套在身上才讀得出是高度門檻）。
+> 偵測點改用**線框球**：手抓點（最大）／牆面接觸點／該站的位置／人上去所需的空間。
+> ⛔ 全部取自 authored settings 與已算好的快照，**沒有新增任何 cast**（`docs/18` §1「記錄，不要重算」）。
+>
+> F6 文字頻道移除；`drawTraversalPanelText` 在面板掃描時被強制壓成 false。
+> 所有 debug 預設開啟（**程式欄位初值與兩隻 prefab 的序列化值都要改**——
+> 欄位初值不會覆蓋既有序列化值）。
+>
+> ## ⛔ 仍未做
+>
+> 1. ~~**人類 Play 驗收**：敵人血條位置／大小、debug 圖層讀不讀得懂~~
+>    ⇒ ✅ **2026-09-15 使用者驗收通過，無問題**。本工作包的 ① ③ ④ 就此結案。
+> 2. Ground Probe／Normal **刻意不做**，理由見 `docs/27` §9.7
+
+> # 🎉 2026-09-15 — **第 3＋5 項完成：HUD（血條／冷卻）——六項全部結案**
+>
+> EditMode **509／508 passed／0 failed／1 skipped**（唯一 skip 是既有 NavMesh 環境限制）；
+> PlayMode **45／45**；live Editor recompile 0 errors。
+> **剩下的只有人眼**：版面位置、大小、顏色、看不看得懂。
+>
+> ## ⭐ 這一項真正的內容：`docs/17` §3.3 紅線 2 第一次被真實需求測試
+>
+> 血量在黑板上（ADR-009 D1 的共享真相）⇒ HUD 只是又一個讀者，沒問題。
+> **但冷卻住在 `ActionState` 內部（ADR-004 D2），不在黑板上。**
+> 最順手的做法就是加一個 `PlayerRuntimeData.Cooldowns[]` —— **那正是紅線 2 禁止的東西**。
+>
+> ✅ 實際採用：`CharacterPipelineRunner.GetActionCooldownNormalized(slot)`，
+> 走紅線 2 自己點名的既有 pattern（`public InputDebugSnapshot InputDebug`）——
+> Runner → FSM → `ActionState` 的**唯讀轉送**，不快取、不判斷、不記錄。
+>
+> 📌 **換算也留在擁有者那一側**：`CooldownVariance` 讓每次冷卻長度不同，
+> HUD 若拿 authored 的 `Cooldown` 當分母，進度條會在**變異非零時**失準
+> ——一種只在特定資產設定下才發作、看起來只是「進度條有點怪」的靜默錯誤。
+> ⇒ `ActionState` 在 commit 當下記下**這一次實際用掉的長度**並回答 0–1（`T27` 釘住）。
+>
+> ## 🔴 順手關掉一扇剛被打開的門
+>
+> `Project.Runtime.asmdef` 為了 HUD 新增了 `UnityEngine.UI` 參考——那是**組件層級**的，
+> 不處理的話整個 Runtime 從此都編得過 `Image`／`Canvas`。
+> ⇒ 同一輪把 `UnityEngine.UI` 加進 `Core` 與 `Presentation` 的 `A4` Forbidden 清單。
+> **加參考的同一刻就要關門**，否則畫面佈局的責任會慢慢滲進角色表現與 gameplay。
+>
+> ## HUD 為什麼住在 `App/` 而不是 `Presentation/`
+>
+> 不是品味，是**機器擋的**：`LayerRules` 禁 `Presentation` → `Project.Core.Pipeline`，
+> 而 HUD 需要 Runner 才問得到冷卻。它也**不是** `IPresentationController`
+> ——那支介面只收 `PlayerRuntimeData`，硬要塞就會逼出紅線 2 禁止的那個欄位。
+> 📌 `docs/17` 紅線 3 早就預測了這件事，只是觸發它的不是 `StateType` 而是 `Pipeline`。
+>
+> ## v1 的兩個刻意省略
+>
+> * **無文字**：數字標籤每幀配置字串，是 HUD 最典型的 GC 來源，而本專案穩態 PlayerLoop 是 **0 B**
+>   （changelog v0.24 實測）。v1 只有 `Image.fillAmount`（float 賦值，零配置）。
+>   要加數字必須先準備無配置的 int→char 寫法。
+> * **無圖示**（使用者裁決）：三格用色塊區分（素／橘／藍）。
+>   📌 順帶查清楚：血條／冷卻圈**本來就不需要美術資源**，Unity 內建的 `UISprite`／`Knob` 就夠。
+>   真正有美術需求的只有技能圖示，而它不在關鍵路徑上。
+>
+> ## 改了哪些資產（走 Editor API，可還原）
+>
+> `X Bot.prefab` 新增子物件 **`PlayerHud`**（Screen Space Overlay Canvas ＋ CanvasScaler 1920×1080；
+> ⛔ 刻意不加 GraphicRaycaster —— HUD 不接受點擊，加了只會擋滑鼠射線）：
+> 左下血條（`Filled/Horizontal`）＋ 下方置中三顆冷卻圓（`Filled/Radial360`，逆時針、從頂端開始）。
+> 建構腳本是冪等的（先刪同名子物件再建），還原＝刪掉 `PlayerHud` 子物件。
+>
+> 📌 **HUD 掛在角色底下**，因此 `GetComponentInParent` 就解析得到 Runner ⇒ **零場景接線**，
+> 也完全沒有動到 `SampleScene`。若日後要改成場景層級的 Canvas，`runner` 是序列化欄位，顯式指派即可，程式不必動。
+>
+> ## 新增測試（+9）
+>
+> `PlayerHudTests` 七條（含 🔴 **`MaxHealth == 0` 不得除以零** —— Unity 不會為 NaN 的 `fillAmount` 報任何錯，
+> 畫面上只是「血條怪怪的」）／`ActionStateTests.T27`（冷卻進度的分母）／`PrefabWiringTests.W24`（HUD 接線四項）。
+>
+> ## ⛔ 仍未做
+>
+> 1. **人類 Play 驗收**（唯一剩下的事）：版面位置、大小、顏色、看不看得懂。
+> 2. 無圖示、無數字、無敵人血條、無傷害數字、無 UI 動畫。
+> 3. 冷卻圓的 `fillClockwise = false`（逆時針收攏）是猜的手感，看了不對就改那一個布林值。
+
+> # ✅ 2026-09-14 — **第 6 項完成：重生**（正本：`docs/25` §8 ＋ **ADR-009 D3-R1**）
+>
+> EditMode **500／499 passed／0 failed／1 skipped**（唯一 skip 是既有 NavMesh 環境限制）；
+> PlayMode **45／45**；live Editor recompile 0 errors。
+> **剩下的只有人眼**：站得起來嗎、傳送位置對嗎、重生後還能正常打嗎。
+>
+> ## 🔴 這一項動到了一條已裁決的不變量，但**只動對應「死亡」的那一層**
+>
+> `DeathState` 的三層鎖裡**只有第 ② 層改了**：
+>
+> | 層 | 舊 | 新 |
+> |---|---|---|
+> | ① 進得去（`CanEnter` ＋ Priority） | `IsDead` | **一字未動** |
+> | ② 出不來（自然過渡） | 恆 `false` | **`!IsDead`** |
+> | ③ 出不來（被中斷 `CanBeInterruptedBy`） | 空 | **一字未動，仍然是空的** |
+>
+> **關鍵洞見**：原本的「出不來」其實一直是「**死著就出不來**」的簡寫——當時沒有任何東西
+> 能讓 `IsDead` 變回 false，所以兩者等價。`Revive()` 存在之後兩者才分家。
+> ⇒ 修訂後是 `CanEnter => IsDead` ／ `CanTransitionAway => !IsDead`，**進門與出門問同一個已 commit 的事實**。
+> 跳躍／翻滾／出手／受擊／external request **仍然全都拉不出 Death**。
+>
+> **為什麼離開走「自然過渡」而不是「中斷」**：中斷的語意是「別的狀態比我更該發生、把我打斷」。
+> 沒有任何狀態「打斷」死亡——是死亡這個前提本身消失了。所以第 ③ 層完全沒被碰過。
+>
+> ## authority ／ orchestration 分離（使用者裁決）
+>
+> | 角色 | 誰 | 不負責 |
+> |---|---|---|
+> | Survivability authority | `CharacterHealth.Revive()`（唯一能把 `IsDead` commit 回 false） | 重生點、傳送、FSM |
+> | Position authority | `MotionDriver.Teleport()` | 何時搬、搬去哪 |
+> | Orchestration | `RespawnController`（**自己零真相**） | 任何真相 |
+>
+> ⛔ 傳送**必須**經過 `MotionDriver`——它是 position 的單一寫入者（全專案沒有任何地方直接寫
+> `transform.position`）。讓 controller 自己搬 Transform 會當場多出第二個寫入者。
+>
+> ## 🔴 為什麼重生鍵不能走 `InputData`
+>
+> `BlockInput` 的語意是「本幀管線看不到任何輸入」，Runner 在順序 2 直接把整份 `InputData`
+> 歸零；而 `DeathArbiterSource` 正是在 `IsDead` 時抬起它 ⇒ **死著的時候收不到任何輸入，包括重生鍵。**
+> ⇒ 比照 `GamePauseController`：自己持 `InputAction`、自己在 `Update` 讀。
+> **重生與暫停同類——system-level 指令，不是角色的動作。**
+>
+> ## 順序：先傳送、再救活
+>
+> 反過來會留下**「活著、站在屍體原地、輸入已解封」**的一幀——足以讓玩家按出一個動作、
+> 或讓敵人打中他，而他其實應該已經在重生點了。
+>
+> ## 🐛 首跑抓到一個真缺陷
+>
+> `MotionDriver.Teleport` 原本在 `characterController == null` 時 early-return
+> ⇒ 退化配置會被**搬到新位置卻留著死前的垂直速度**，而清掉那個速度正是這個方法存在的理由之一。
+> 已改為「只有停用／還原 CharacterController 那一步需要它，其餘清理無論如何都跑」，
+> 由 `Teleport_WithoutCharacterController_StillResetsVerticalVelocity` 釘住。
+>
+> ## 改了哪些資產（走 Editor API，可還原）
+>
+> 1. **兩份 `StateMachineConfig`**：Death 的 `ValidTransitions` 由**空**改為 **[Idle, Move]**；
+>    `CanBeInterruptedBy` 兩份都確認**仍為 0 筆**。⛔ 出口刻意不含 Action／Jump／Roll——
+>    「重生瞬間就能出手」是沒人設計過的能力，而且看起來像 bug。
+> 2. **`X Bot.prefab`**：根物件新增 `RespawnController`，`RespawnAction` 綁 **`<Keyboard>/r`**，
+>    `health`／`motionDriver` 顯式指派，`respawnPoint` **留空**（＝退回場景開場姿態）。
+>
+> 還原＝清空那兩筆 `ValidTransitions`、刪掉那顆元件。
+>
+> ## 新增測試（+12）
+>
+> `HD7` 改寫為「**死著的時候**什麼都拉不出來」／`HD9`（復活同幀放行）／`HD10`（按著所有鍵復活仍先落 Idle）／
+> `H11`–`H13`（Revive 三條，含「重生鍵不得變成活著時的免費補血鍵」）／`RespawnControllerTests` 六條／
+> `W23`（重生接線三件事都不得缺）／`A38` 的 Death 出口斷言由「必須留空」改為「必須恰好是 Idle/Move」。
+>
+> ## ⛔ 仍未做
+>
+> 1. **人類 Play 驗收**（唯一剩下的事）。
+> 2. **沒有 checkpoint 系統**：只有一個重生點，且目前用的是「場景開場姿態」的退路。
+>    要顯式重生點就建一個空 GameObject 拖進 `respawnPoint` 欄位。
+> 3. **沒有 encounter reset**：敵人不回血、不歸位。那是未來獨立的 **Restart Encounter** 功能。
+> 4. **不清除暫時效果**：死前中的 Slow 會帶到重生後直到過期。已知邊界。
+> 5. **沒有 `RespawnState`**：等到重生真的需要有持續時間的 phase（起身動畫、無敵窗）再考慮升格。
+> 6. 六項中只剩 **3＋5（血條／冷卻 UI）**。
+
+> # ✅ 2026-09-14 — **第 4 項完成：武器只在攻擊時顯現**（正本：`docs/11` 2026-09-14 段）
+>
+> EditMode **488／487 passed／0 failed／1 skipped**（唯一 skip 是既有 NavMesh 環境限制）；
+> PlayMode **45／45**；live Editor recompile 0 errors。
+>
+> ## 🔴 本項的真正內容不是武器，是一條被誤當成設計的限制
+>
+> 掛點確實是既有的 `IActionLifecycleSink`（`Begin` 顯現／`Cleanup` 收起）——
+> **但它當時是 per-slot 單顆的**，而 Slot1 已經被 `MeleeHitboxSink` 佔走
+> （`ResolveActionLifecycleSinks` 明文把「同 slot 綁兩顆」當成 `LogError`，`W3` 還把它釘住了）。
+>
+> **使用者裁決：改成一個 slot 可以有多顆 sink。**
+> 理由是 seam 的真實語意本來就是「這個 Action 的副作用」，而一個 Action 天生可以同時有
+> 命中判定、武器顯隱、刀光、VFX、音效——它們共用同一組時點，卻沒有理由互相認識。
+> ⛔ 明確否決 composite sink（把多接收者問題藏到另一層）與
+> ⛔ 讓 `MeleeHitboxSink` 兼管 `WeaponSocket`（把 gameplay 與 presentation 綁死）。
+>
+> | | 內容 |
+> |---|---|
+> | **資料結構** | 稀疏陣列 → **jagged** `IActionLifecycleSink[][]`（外層＝slot） |
+> | **順序** | ＝ Inspector binding 順序，且穩定（除錯時人會照著清單讀 log） |
+> | **仍禁止** | 同一顆 sink 在同一個 slot 註冊兩次（症狀：命中判定跑兩次 ⇒ 傷害變兩倍） |
+> | **合法** | 同一顆 sink 綁到**不同** slot ⇒ 比較的是「(slot, sink 實例)」組合 |
+> | **相容** | 既有單顆 binding 與 legacy 單顆欄位一字不必改 |
+> | **零 GC** | 全部配置在組裝期；派送是對具體陣列的索引迴圈 |
+>
+> **`IActionLifecycleSink` 介面本身一字未改**——變的只有「一個 slot 有幾個接收者」。
+> 因此**不開 ADR**（`IActionLifecycleSink` 不在 CLAUDE.md 列舉的核心驅動介面內），走 Living Docs。
+>
+> ## 武器顯隱（v1 ＝ 瞬間顯隱，不是 dissolve）
+>
+> 新增 `Presentation/Equipment/WeaponVisibilitySink`：`Begin` 顯現／`Release` **刻意不動**
+> （那是命中的瞬間，與武器該不該看得見無關）／`Cleanup` 收起。
+> `Cleanup` 在自然播完與被中斷**兩條路徑**都會被呼叫 ⇒ 不會「被打斷後劍卡在手上」。
+>
+> 📌 **可見狀態存在 `WeaponSocket` 裡，不在 sink 裡**——因為 `Rebuild()` 會銷毀重建實例
+> （`Awake`，以及在 Inspector 右鍵微調掛載位移時）。狀態若存在呼叫端，隱藏中的武器會在**調整位移的那一刻**
+> 突然冒出來，而且只在調位移時發作。順帶也解掉了兩顆元件的 `Awake` 順序不可依賴的問題。
+>
+> ⚠️ **dissolve 未做**（使用者裁決 v1 只做「何時」）。要換成溶解只需替換
+> `WeaponVisibilitySink.ApplyVisibility` 一個方法，時點與接線都不必動。
+> Sword 是第三方資產（CLAUDE.md 禁改）⇒ 需要另建 dissolve 材質並在執行期換上，屬材質／VFX 工作。
+>
+> ## 改了哪些資產（走 Unity Editor API，可還原）
+>
+> `Assets/Prefabs/X Bot.prefab`：在 `X Bot` 根物件上**新增一顆 `WeaponVisibilitySink`**
+> （`weaponSocket` 指向同物件的 `WeaponSocket`、`visibleWhenIdle = false`），
+> 並在 Runner 的 `Action Sink Bindings` **新增一列 `Slot 1 → WeaponVisibilitySink`**。
+> 最終清單：`[Slot1→MeleeHitboxSink] [Slot2→ThrowProjectileEmitter] [Slot3→GroundEffectSink] [Slot1→WeaponVisibilitySink]`。
+> 還原＝刪掉那一列 binding 與那顆元件。
+>
+> ## 新增測試（+15）
+>
+> `ActionStateTests.T26`（多 sink 派送與順序）／`ActionSinkResolutionTests`（6 條：組裝期解析、
+> 交錯 slot、重複拒絕、跨 slot 共用、無效列不位移、legacy 相容）／`WeaponSocketTests`（6 條顯隱行為，
+> 含「`Rebuild` 不得靜默變回可見」）／`PrefabWiringTests.W22`（sink 必須解析得到掛點且必須被綁到 slot）。
+>
+> ## ⛔ 仍未做
+>
+> 1. **人類 Play 驗收**：劍出現／消失的時機看起來對嗎？揮劍時劍在手上嗎？放火球時劍應該不出現。
+> 2. shader dissolve（見上）。
+> 3. 六項中的 **3／5（UI）與 6（重生）未動**，定位資料仍在下方原始清單裡。
+
+> # ✅ 2026-09-14 — **六項中的第 2、第 1 已完成**（戰鬥手感切片）
+>
+> EditMode **473／472 passed／0 failed／1 skipped**（唯一 skip 是既有 NavMesh 環境限制）；
+> PlayMode **45／45**；live Editor recompile 0 errors。
+> **剩下的只有人眼的部分** —— 敵人會不會真的打到人、屍體停住的朝向好不好看。
+>
+> ## 第 2 項：攻擊距離死區 —— 契約是**等號**，不是區間
+>
+> 🔴 **本輪最重要的發現：專案早就有一條反向的不變量，而它只守了一半。**
+> `PrefabWiringTests.W10` 原本斷言 `attackRange ≤ maximumEngagementDistance`
+> （2026-09-05 的「還在 Approach 就揮拳」）。加上本輪要的
+> `attackRange ≥ maximumEngagementDistance`（否則有死區）之後，
+> **兩個必要條件的交集只有相等** ⇒ W10 改為要求兩者是同一個數字。
+> ⇒ 沒有新增 W21；**把新的一半折進既有的 W10**，一條契約只留一個地方。
+>
+> ⚠️ 相等仍有殘留重疊：最後 `distanceHysteresis` 那段（`max − deadZone` → `max`）
+> 敵人是 Approach 且已在攻擊圈內，會邊走邊揮一小段。要消除就得再製造死區
+> ⇒ **兩害相權取表現瑕疵，不取 gameplay 死局**（已寫進 `docs/21` §1.3）。
+>
+> **數值取自物理，不是手感猜測**：`MeleeHitbox` 是 root 空間 `(0,1,0.9)`、size `(0.9,1.2,1.2)`
+> 的 box ⇒ 前緣 z = **1.5 m**；玩家 CharacterController 半徑 0.12 ⇒ 實際可及約 **1.62 m**。
+> 故 Y Bot 兩個欄位同取 **1.6**（敵人停在 `1.6 − 0.15 = 1.45 m`，仍在觸及範圍內）。
+>
+> ## 第 1 項：屍體轉向 —— 死亡是 facing 的**否決層**
+>
+> 依使用者裁決採 (a)：`CharacterFacingSource.Tick` 讀 `Survivability.IsDead`，
+> 為真時不論哪個優先序解出什麼都不送 request。不送 ⇒ MotionDriver 維持既有 rotation
+> （Priority 4 既有語意）⇒ **沒有新增任何「凍結朝向」機制**。
+>
+> ⚠️ 記下這個教訓：**`DeathArbiterSource` 的 `BlockInput` 只擋得住「輸入產生的意圖」。**
+> facing 的第二優先序讀 `CombatContext`，由 `AIMovementSource` 在順序 2.5 直接寫黑板，
+> 不經過輸入 ⇒ 封鎖輸入對它完全無效。**日後任何「死後還在動」的症狀都要先問這一句。**
+>
+> ## 🔴 順帶修掉一個既有的假紅燈（不是本輪造成的）
+>
+> PlayMode `PD2_DeathState_StillFalls` 的第二條斷言寫成 `VerticalVelocity < -0.5f`，
+> 那**正是它自己上面那段註解禁止的形狀**——一個偽裝成速度的時間門檻（需要約 0.05 s 累積）。
+> Editor 跑得快時 10 幀只有 ~0.042 s ⇒ 實測 -0.41、**穩定紅燈**（連跑兩次都一樣，不是 flake）。
+> 已改為**單調遞減**斷言（第 2 幀 → 第 10 幀必須更負），完全不依賴幀長。
+> 📌 順帶釐清：`SyncGroundedState` 刻意在**積分之前**發布 `data.VerticalVelocity`
+> ⇒ 黑板上的值恆落後一幀，**第 1 幀必定是 0**，取樣要從第 2 幀開始。
+>
+> ## 改了哪些資產（皆走 Unity Editor API，可還原）
+>
+> `Assets/Prefabs/Y Bot.prefab` 兩個序列化 float：
+> `AIMovementSource.maximumEngagementDistance` **2 → 1.6**、
+> `AIInputSource.attackRange` **1.8 → 1.6**。
+> 還原＝把這兩個值改回去即可（無結構變更；`git diff` 該檔的其餘 193 行是**上一輪**
+> 加 `MeleeHitbox` 的未 commit 變更，不是本輪產生的）。
+>
+> ## ⛔ 仍未做
+>
+> 1. **人類 Play 驗收**：敵人現在會不會真的打到人？停下來的距離手感如何？
+>    屍體停住時的朝向自然嗎？（1.6 m 是從碰撞體幾何推出來的**起點**，不是定案手感值。）
+> 2. 六項中的 **3／4／5／6 未動**，定位資料仍在下方原始清單裡。
+
+> # 📋 2026-09-14 — **使用者 Play 後點名的六項**（下一輪處理；本輪只記錄與定位，未改任何東西）
+>
+> 依 Hurt／Death 垂直切片完成後的實際遊玩體驗提出。**排序是使用者給的原始順序，不是優先級。**
+> 下面每一項都附本輪查到的定位，⛔ **但沒有一項做過完整診斷**——動手前仍要自己確認。
+>
+> ## ~~1. 敵人死亡後屍體會不斷面向玩家~~ ✅ 2026-09-14 已完成（採 (a)，見本段上方的完成紀錄）
+>
+> 🔍 **已定位，根因清楚**：`CharacterFacingSource`（順序 4.6）**完全不認識死亡**
+> （`grep "IsDead\|Survivability\|Death"` 在該檔零命中），每幀照常送 facing request 給 `MotionDriver`。
+> `DeathArbiterSource` 封鎖的是 **`BlockInput`**，不是 facing。
+> 而 facing 的來源之一 `CombatContext` 由 `AIMovementSource`（順序 2.5）產生——**它也不認識死亡**。
+>
+> ⇒ 有兩個候選修法層，**要先裁決**：
+> * (a) `CharacterFacingSource` 讀 `Survivability.IsDead` 後不送 request（最靠近症狀）
+> * (b) 死亡時停止產生 `CombatContext`（更上游，但會連帶影響別的 consumer）
+>
+> ## ~~2. 敵人攻擊距離比迂迴距離短，玩家得自己往前靠~~ ✅ 2026-09-14 已完成（契約改為等號，見本段上方的完成紀錄）
+>
+> 🔍 **已定位，是數值帶重疊**（`Y Bot.prefab` 實測值）：
+>
+> | 欄位 | 值 |
+> |---|---|
+> | `AIMovementSource.minimumEngagementDistance` | 1.25 |
+> | `AIMovementSource.maximumEngagementDistance` | **2.0** |
+> | `AIInputSource.attackRange` | **1.8** |
+>
+> ⇒ 敵人在 **1.25–2.0 m** 這個帶內會判定「距離剛好」而 `Hold`／`Strafe` 不再前進，
+> 但只有 **≤1.8 m** 才會送出攻擊 request ⇒ **1.8–2.0 m 之間是一個「站得住但打不到」的死區**。
+> ⚠️ 不是只改一個數字就好：`distanceHysteresis = 0.15` 會讓實際停留點再浮動，
+> 兩者的關係應該是**契約**（攻擊範圍必須涵蓋整個 hold 帶），值得用測試釘住而不是手調。
+>
+> ## ~~3. 沒有血條　／　5. 技能冷卻要 UI 顯示~~ ✅ 2026-09-15 已完成（uGUI；見本段上方的完成紀錄）
+>
+> 🔍 **這兩項是同一件事：專案目前完全沒有 UI 層。**
+> `grep -rln "Canvas\|UnityEngine.UI\|UIDocument" Assets/Scripts/` 只命中 `GamePauseController`。
+> ⚠️ **這是本清單裡唯一會長成新子系統的項目**，需要先決定 uGUI vs UI Toolkit、
+> 以及「表現層怎麼讀角色資料」的邊界（`IPresentationController` 是讀黑板的既有 seam）。
+>
+> ✅ **好消息是資料端已經備好，不需要為 UI 新增黑板欄位**：
+> * 血量：`data.Survivability.CurrentHealth` / `MaxHealth`（已在黑板）
+> * 冷卻：`ActionState.GetCooldownRemaining(slot)` **已經是 public**，其註解原文就是
+>   「供測試與**（未來）HUD** 讀取」
+>
+> ⛔ 依 `docs/17` 的 Observability 紅線：**不得為了顯示新增黑板欄位。**
+>
+> ## ~~4. 武器要攻擊時才顯現，其他狀態消融~~ ✅ 2026-09-14 顯隱已完成（**dissolve 未做**，見本段上方的完成紀錄）
+>
+> 🔍 `Presentation/Equipment/WeaponSocket`（`00-map` 標註「**只做視覺附著，不是裝備系統**」），
+> 有 `weaponPrefab`／`socket`／`Rebuild()`。
+> 顯隱時機的既有掛點是 **`IActionLifecycleSink`**（`Begin`／`Release`／`Cleanup`）——
+> 近戰與投射物都走它，不必新建 seam。
+> ⚠️ 「消融」若是指 shader dissolve，那是材質／VFX 工作，與顯隱時機是兩件事，建議分開評估。
+>
+> ## ~~6. 需要重生按鈕~~ ✅ 2026-09-14 已完成（走 ADR-009 **D3-R1 修訂**，不開新 ADR；見本段上方的完成紀錄）
+>
+> ⚠️ **這一項會動到已裁決的不變量，不是單純加功能。**
+> `DeathState` 目前是**吸收態**，而且「出不去」是**刻意用三層鎖＋測試釘住的**
+> （`CanTransitionAway=false` ＋ 空的 `CanBeInterruptedBy`／`ValidTransitions`；`HD7`／`A38` 守）。
+> 重生 ＝ 明確地重新開放那道門 ⇒ 屬於**決策變更**，要先想清楚「誰有權把角色從 Death 拉出來」，
+> 並同步更新 `HD7`／`A38`／dev-spec §3.3 的 Death 列，⛔ 不要靠繞過測試達成。
+>
+> ---
+> ~~**建議順序**（僅供參考，使用者未指定）：2 → 1 是純數值／小改且直接改善戰鬥手感；~~
+> ~~4 次之；6 需要一次裁決；3＋5 最大，建議獨立成一個 slice。~~
+>
+> ~~**2026-09-14 更新**：2 與 1 已完成。**剩餘順序建議：4 → 6 → 3＋5。**~~
+> ~~4 走既有 `IActionLifecycleSink` 掛點，不需新 seam；6 需要一次裁決~~
+> ~~（誰有權把角色拉出 Death）；3＋5 會長出新子系統，建議獨立成一個 slice。~~
+>
+> ~~**2026-09-14 再更新**：2、1、4 已完成（4 的 dissolve 除外）。~~
+> ~~**剩餘：6（重生按鈕）與 3＋5（血條／冷卻 UI）。**~~
+>
+> ~~**2026-09-14 三更**：**2、1、4、6 皆已完成**（4 的 shader dissolve 除外）。~~
+> ~~**六項中只剩 3＋5（血條／冷卻 UI）。**~~
+>
+> # 🎉 **2026-09-15 結案：六項全部完成。**
+>
+> 唯一未做的子項是 **4 的 shader dissolve**（使用者裁決 v1 只做「何時顯隱」）。
+> **所有項目的共同剩餘工作＝人類 Play 驗收**，各段完成紀錄裡都列了各自要看什麼。
+>
+> 📌 **兩件仍然成立的順手事**（都不必新增任何 seam）：
+> ① UI 上要加「重生」按鈕就直接綁 `RespawnController.Respawn()`（已是 public，就是為此開的）；
+> ② 武器 dissolve 只需替換 `WeaponVisibilitySink.ApplyVisibility` 一個方法。
+>
+> 📌 **HUD 之後若要長大**（敵人血條、傷害數字、buff 列）先讀 `docs/17` §3.3 的三條紅線
+> ——第 2 條與第 3 條在這一輪都被真實需求測試過，實證紀錄就寫在那裡。
+
+> # ✅ 2026-09-14 — **Hurt ／ Death 垂直切片完成，遊戲內可用**（正本：`docs/26` §K）
+>
+> EditMode **471／470 passed／0 failed／1 skipped**（唯一 skip 是既有 NavMesh 環境限制）；
+> PlayMode **45／45**；live Editor recompile 0 errors。
+> **剩下的只有人眼的部分** —— 動畫好不好看、0.7 s 硬直手感、死亡姿勢。
+>
+> ## 用了哪些素材
+>
+> | 用途 | Clip | 長度 |
+> |---|---|---|
+> | Hurt | `Fists_Hit_Right`（`MovementAnimsetPro_Fighting.fbx`） | **0.700 s**（由 1.167 s trim） |
+> | Death | **`Death_1`**（同一支 FBX） | 2.467 s |
+>
+> 專案內窮舉 325 支 clip 才找到 `Death_1`／`Death_2`（檔名完全看不出來——
+> memory `kubold-fbx-name-does-not-predict-content` 再次應驗）。選 `Death_1`：較短、位移較小。
+> Player／Enemy **共用同一支**，沒有建角色專屬 Death framework。
+>
+> ## 🔴 本輪最重要的發現：**Hurt 的 bake 不能拿來驅動 gameplay**
+>
+> `Fists_Hit_Right` 原生帶 **1.15 m 後退**，`Bake_Fists_Hit_Right` 也忠實烘了進去（峰值 **2.27 m/s**）。
+> 但烘焙器用 `Vector3.Distance` 取速度 ⇒ **無號**，而 `ExecuteBakedCurveMovement` 沿 `transform.forward`
+> 積分 ⇒ **一支「往後踉蹌」的動畫會把受擊者往前推進攻擊者**。方向錯、量級也錯。
+>
+> 修法（⛔ 沒有在 state 裡乘 offset）：匯入設定改 **Bake Into Pose**（視覺保留、膠囊不動）＋
+> `HurtState`／`DeathState` 改走**既有的** `ExecuteVerticalOnlyMovement` ＋ bake **只剩提供時長**一個職責。
+>
+> ⚠️ 順帶釐清一個反直覺事實：**`lockRootPositionXZ` 不影響 `SampleAnimation` 讀到的 root 曲線**
+> ⇒ 烘焙器仍會量到原始位移。「Bake Into Pose」修的是**視覺**，不是 bake 內容。已寫進 dev-spec §0.4 新增列。
+>
+> ## 🔴 順帶修掉的三個既有靜默缺陷
+>
+> 1. **玩家從來沒有過受擊反應** —— `DamageDefinition` 只掛在敵人 config，`X Bot` 的 37 筆 mapping 也沒有受擊動畫。
+> 2. **敵人的拳頭從來不造成傷害** —— `Y Bot` 完全沒有 `MeleeHitboxSink`、binding 是空的、`EmitsRelease=false`。
+> 3. **兩隻角色都沒掛 `CharacterHealth`／`DeathArbiterSource`**（上一輪列為人工項但未執行）。
+>
+> ⇒ 現在由 **`W18`**（每隻角色都要能受傷與死亡）、**`W19`**（Hurt／Death 動畫鍵解析得出來）、
+> **`W20`**（Hurt 時長來自 bake，不是程式常數）釘住。
+>
+> ## 第一版數值（全部 authored）
+>
+> Player HP 100／Enemy HP 100／近戰 25（雙方）／Fireball 20／Slow 投射物 15／Ice AoE 15
+> ⇒ **雙方都是 4 下致死**。
+>
+> ## ⚰️ `DamageDefinition.asset` 已刪除
+>
+> 刪前確認 `grep -rl <GUID>` 在 `Assets/` **零引用**。`A37` 已由「只允許一個已知孤兒」**收緊為零容忍**。
+> `ActionSlot.Reaction = 100` enum 成員與數值**仍保留**（ADR-005：淘汰某一格要留著它的數值）。
+>
+> ## ⛔ 仍未做
+>
+> 1. **人類 Play 驗收**（`docs/26` §K.7）——這是唯一剩下的事。
+> 2. **屍體 mesh 會離膠囊約 1 m**（`Death_1` 的姿勢位移）。膠囊不動（`PD1` 釘住），
+>    但貼牆死亡時 mesh 有機會穿模。第一版接受。
+> 3. **沒有屍體清理／respawn**：`DeathState` 是吸收態，死了就永久停在那裡。
+> 4. `docs/15` §16-7（target validity 改讀 `IsDead`）依裁決**未做**，維持開啟。
+
+
+> # ✅ 2026-09-14 — **Model B migration 完成：受擊不再是 Action**（正本：`docs/26` §J）
+>
+> EditMode **468／467 passed／0 failed／1 skipped**（唯一 skip 是既有 NavMesh 環境限制）；
+> PlayMode **41／41**；live Editor recompile 0 errors。**⛔ 人類 Play 驗收尚未做。**
+>
+> ## 做了什麼
+>
+> `ActionSlot.Reaction` 退役 → 受擊成為 **`StateType.Hurt = 8`**，
+> 由 **`SurvivabilityData.JustTookDamage`** 驅動（與 `DeathState ← IsDead` 完全對稱）。
+> `ActionState` 裡**兩處「如果是 Reaction 就反過來」全部刪除**。
+> `HurtState` 形狀照抄 `RollState`——共用底層 animation/motion 執行層，不共用 Action semantic。
+>
+> ## 🔴 盤點時發現的既有缺陷（不是本輪造成的，已順帶修掉）
+>
+> **玩家在此之前從來不會有受擊反應。** `DamageDefinition` 只掛在**敵人** config；
+> `X Bot.prefab` 的 37 筆 transition mapping 裡也**沒有任何受擊動畫**。
+> 而且不會有任何錯誤訊息——因為 `GetActionDefinition(Reaction)` 回 null 就靜默拒絕。
+>
+> ## 資產改動（全走 Editor API，⛔ 未手改 YAML；還原方式見 `docs/26` §J.2）
+>
+> 兩份 config 的 rules 全面重寫 ＋ `bakeMappings` 加 `Hurt → Bake_Fists_Hit_Right`；
+> 敵人 config 移除 `DamageDefinition`；**`EnemyPunchDefinition.Interruptible: false → true`**；
+> `Y Bot` 的 mapping `"Damage" → "Hurt"`；`X Bot` **新增** mapping `"Hurt" → Damage.asset`。
+>
+> ## ⛔ 三個仍開著的項目
+>
+> 1. **沒有 Death 動畫** —— `Assets/ScriptableObjects/Animation/` 裡沒有任何 Death transition。
+>    `Play("Death")` 會 LogWarning 並 return，**角色仍然是死的**（authority 與 playback 已解耦），
+>    只是維持上一個姿勢。**選哪一支 clip 是 authoring 決定，未代為挑選。**
+> 2. **`DamageDefinition.asset` 仍在磁碟上**（Slot 仍是 100，但沒有任何 config 引用它，
+>    內容已全數遷移）。刪除屬破壞性動作 ⇒ **等使用者裁決**；在那之前由 `A37` 指名釘住。
+> 3. **`docs/15` §16-7（target validity 改讀 `IsDead`）刻意未做** ——
+>    使用者明確要求不把 targeting scope 拉進本輪。前置條件已解除，等單獨排程。
+>
+> ## 新增的兩條架構不變量
+>
+> - **`A37`** —— runtime 不得引用退役的 `ActionSlot.Reaction`；Slot-100 資產只允許一個**指名的**孤兒；
+>   **任何 config 都不得把它接回 `actionDefinitions`**（那才是會讓 Action 路徑復活的動作）。
+> - **`A38`** —— 讀**出貨 config** 驗 permission 矩陣。
+>   ⭐ 特別守住「**Roll／Traversal 擋 Hurt 必須由 `CanBeInterruptedBy` 表示，不得靠 priority 代替**」
+>   （`HD8` 另從行為面驗：把 Hurt priority 拉到 999 仍然進不了 Roll）。
+
+
+> # 🟠 2026-09-14 — **Hurt／Death ＋ 動態 Collider：程式全部落地，停在 Integration Gate**
+>
+> 正本：**`docs/25`**（§7＝實作狀態）＋ **`docs/ADR/009`（🟡 Trial）**。
+> 三個 assembly `dotnet build` **0 errors**（Runtime／Editor／Tests.EditMode）。
+>
+> ## 🔴 兩件必須先知道的事
+>
+> 1. **EditMode 測試尚未跑過。** 本輪後段 live Editor 主執行緒無回應——
+>    `recompile`／`recompile_status`／`console` 連續 timeout 超過 5 分鐘（`unity status` 仍顯示 ready，
+>    那只代表 socket 在聽）。**開場第一件事：確認 Editor 可用後跑完整 EditMode。**
+> 2. **沒有做任何資產改動 ⇒ Stage B 在遊戲裡完全不會發生。**
+>    `DeathState` 沒有 config 規則就永遠進不去。這正是 `docs/24` §14.2 記過的
+>    「有程式、有測試、但遊戲裡從來沒跑過」——**不要跳過下面的清單就去 Play。**
+>
+> ## 盤點的三個關鍵結論（決定了「要新增的東西比預期少很多」）
+>
+> 1. **受擊反應已經是一個 Action** —— `ActionSlot.Reaction = 100` ＋ `DamageDefinition.asset`。
+>    ⇒ **沒有新增 Hurt state。**
+> 2. **「這招不可被打斷」的 policy 欄位已經存在** —— `ActionPhaseEntry.Interruptible`。
+>    ⇒ 未來 Super Armor **零新程式**，就是把那格設 false。
+> 3. 🔴 **敵人攻擊打不斷的根因是 `EnemyPunchDefinition.Phases[0].Interruptible: 0`** ——
+>    一個布林值，不是程式問題。
+>
+> ## 使用者裁決（`docs/25` §5）
+>
+> - **D1**：collider 跟隨**當下真正具有位移 authority 的 motion source**；v1 只做 locomotion
+>   （世界 `MoveDirection` → Root local）。⛔ 不用 `transform.forward`；
+>   ⛔ 實際位移只能當診斷／fallback（撞牆時趨近 0，會在最需要時失去方向）。
+> - **D2**：**玩家攻擊可否被受擊打斷 —— 這輪不動**，玩家側既有值一個都沒碰。
+> - **D3**：黑板 `Survivability` ＋ `CharacterHealth` 單一寫入者；最小欄位
+>   `CurrentHealth`／`MaxHealth`／`IsDead`，⛔ 不放 hit direction／damage source／invulnerability。
+>
+> ## 🔧 Integration Gate —— 人工 Editor 清單（一次做完）
+>
+> ### A. 資產（走 Editor API 或 Inspector，⛔ 不得手改 YAML）
+>
+> | # | 資產 | 改什麼 | 為什麼 |
+> |---|---|---|---|
+> | A1 | `PlayerStateMachineConfig.asset` | 新增 `State: 7`（Death）規則：`Priority: 100`、`CanBeInterruptedBy` **留空**、`ValidTransitions` **留空** | 沒有這條，`DeathState` 永遠進不去 |
+> | A2 | 同上 | 把 Death(7) **加進** Idle(1)／Move(2)／Jump(3)／Roll(4)／Action(5)／Traversal(6) 的 `CanBeInterruptedBy` | Jump／Roll／Traversal 目前是**空清單** ⇒ 死亡打不斷它們 |
+> | A3 | `EnemyStateMachineConfig.asset` | 同 A1＋A2（該檔只有 State 1–5，沒有 Traversal） | 敵人也要會死 |
+> | A4 | 🔴 `EnemyPunchDefinition.asset` | `Phases[0].Interruptible: 0 → **1**` | **這是「敵人攻擊被打斷」的全部**。還原＝設回 0 |
+> | A5 | `X Bot.prefab` ／ `Y Bot.prefab` | 掛 **`CharacterHealth`**（Root，與 `ActionRequestTarget` 同物件）＋ **`DeathArbiterSource`**（Root）；設 `maxHealth` | 缺 `CharacterHealth` ⇒ 該角色不會受傷也不會死（`Survivability` 恆為 default，行為與導入前相同） |
+> | A6 | 三個攻擊 sink 所在的 prefab | 確認新欄位 `damage`（預設 10）合理 | 數值在資產不在程式 |
+> | A7 | Animancer | 需要 **`Death`** 這個 animation key 的 transition（`DeathState.AnimationKey` 預設 `"Death"`） | 沒有它 Death 進得去但沒有動畫。素材見 memory `kubold-action-catalog` |
+>
+> ### B. 測試（live Editor）
+>
+> `unity cmd recompile` → 輪詢 `recompile_status` 到 completed → `unity cmd run_tests --mode EditMode`。
+> 預期新增 `SurvivabilityTests`（H1–H9）與 `CapsuleOffsetTests`（C1–C9）；
+> `ActionStateTests.T14/T24`、`SlowEffectTests` 的 GroundEffect 那條已改讀新 seam。
+>
+> ### C. Play 驗收（ADR-009 §5 的 AC5／AC6）
+>
+> - 敵人攻擊中被打 ⇒ **攻擊中斷並播受擊**（不是把攻擊播完）。
+> - 致死 ⇒ 倒地，之後**不再回到 locomotion 或 attack**。
+>
+> ### D. Collider（**預設停用**，要測才開）
+>
+> `MotionDriver` 的 `Capsule Offset → Enabled` 打勾。七項驗收情境在 `docs/25` §5 D1：
+> forward／backward／左右 strafe／diagonal／**敵人持續面向玩家但側移繞圈**／停止回 neutral／
+> **貼牆移動不得更容易卡住**。Gizmo 四色向量：藍＝facing、青＝MoveDirection、
+> 黃＝target offset、洋紅＝current offset。
+>
+> ## ⚠️ 實作中發現、已處理的一個真實衝突
+>
+> `CharacterController.center` 現在有**兩個**執行期寫入者（traversal profile ＋ 動態偏移）。
+> `BeginTraversalCollisionProfile` 若在偏移非零時擷取基準，整段 traversal 會建立在偏掉的基準上，
+> 而 `RestoreTraversalCollisionProfile` 之後會把那個偏移「還原」成**永久值**。
+> ⇒ 已在該方法開頭加 `ResetCapsuleOffsetImmediate()`。**這不是保險，是必要條件。**
+>
+> ## 另一個逼出來的設計決定
+>
+> 「死後不產生 intent」**不能**寫在輸入層：`A27` 明文禁止 `AIInputSource` 出現 `PlayerRuntimeData`。
+> ⇒ 改用 `DeathArbiterSource`（`IArbiterSource` → `BlockInput`）。
+> `ArbiterPipeline` 的檔頭本來就寫著「不知道有死亡……新增封鎖來源＝實作介面掛上階層，管線零改動」——
+> **既有不變量把答案逼出來了，不是我選的。**
+
+> # 🟡 2026-09-14 — **新工作包：Hurt／Death ＋ 動態 Collider**（正本：`docs/25`）；盤點完成，**待裁決 D1–D3**
+>
+> Traversal 已暫停（見下一段）。本工作包**尚未寫任何程式**。
+>
+> ## 盤點的三個關鍵結論（決定了「要新增的東西比預期少很多」）
+>
+> 1. **受擊反應已經是一個 Action** —— `ActionSlot.Reaction = 100` ＋ `DamageDefinition.asset`
+>    （`AnimationKey: Damage`，`Interruptible: 1`），由 `MeleeHitboxSink`／`ThrownProjectile`／
+>    `GroundEffectSink` 經 `ActionRequestTarget.RequestAction` 投遞。⇒ **不需要新的 Hurt state。**
+> 2. **「這招不可被打斷」的 policy 欄位已經存在** —— `ActionPhaseEntry.Interruptible`（per-phase，authored）。
+>    `CanBeInterruptedBy`（跨 StateType）與 `CanReenter`（Action→Action，含 Reaction）**都讀它**。
+>    ⇒ 使用者問的「未來 Super Armor 要在哪定義」**已經有答案，零新程式**。
+> 3. 🔴 **敵人攻擊打不斷的根因是一個既有資產欄位** —— `EnemyPunchDefinition.Phases[0].Interruptible: 0`
+>    ⇒ `CanReenter` 第一關就 return false ⇒ Reaction 永遠重入不了。**改這個布林值即可。**
+>
+> ## 真正缺的東西（只有這些）
+>
+> `Health`／`Damage` 量值／`StateType.Death`（值 7）／`DeathState`／死亡的 **lethal 中斷授權**
+>（`Interruptible: false` 的 Action 目前會連 Death 一起擋掉）。
+> Collider 部分：`MotionDriver` **已有** runtime center-shift 通道（`TraversalCollisionProfile`，
+> traversal 用、目前三個 binding 全關），本輪是替它接上第二個驅動來源。
+>
+> ## ⚠️ 實作前必須知道的風險
+>
+> `TraversalProbe` **逐幀讀** `CharacterController` 的 `center`／`radius`／`height`（14 處）
+> ⇒ 動態 center 會直接改變起攀合法性與 `EntryCapsuleWallClearance`。
+> **traversal committed 期間必須強制權重 0**，且不得與 traversal profile 同時寫 `center`。
+> 其餘五條副作用（牆面無 sweep／斜坡失去接地／轉向掃弧／停止歸零／空中）見 `docs/25` §3.3。
+>
+> ## 下一步
+>
+> **`docs/25` §5 的 D1–D3 裁決** → Stage A（Survivability 骨架）→ Stage B（Death ＋ 中斷授權）
+> → Stage C（Collider v1）。Stage D（per-animation capsule）與 traversal 共用同一個欄位，
+> **建議在 traversal 解除暫停前不做**。
+
+> # 🛑 2026-09-14 — **Traversal 暫停修改；已完成 Regression Diagnosis**（正本：`docs/24` §19）
+>
+> 使用者裁決：**先暫停繼續修改攀爬系統**，本輪只做診斷，**不新增 case／offset／fallback、不調參數、不重寫**。
+> 診斷已完成且**未改任何 `.cs`／`.asset`／`.prefab`／`.unity`／`.meta`**，也沒跑 git。
+>
+> ## 開場先知道這四件事（其餘細節在 `docs/24` §19，不要重讀 §13–§18）
+>
+> 1. 🔴 **整個 traversal 子系統沒有任何 git 還原點。** 18 個 `.cs`、9 個測試、3 支 bake `.asset`、
+>    `TraversalStateParams.asset`、`X Bot.prefab` 接線——全部 `??` untracked 或未 commit 的 `M`；
+>    四個分支都不含 traversal 檔案，stash 空。**⇒「哪一次改壞的」沒有 commit 可以指，
+>    也沒有東西可以 revert。** 這是「越改越差卻說不出是哪一次」的結構性原因。
+>    **E0：請使用者先把目前整包（含 untracked）commit 起來，之後每個實驗才有 diff 可看。**
+> 2. ⭐ **最大嫌疑不是 §15–§18，是更早的 piecewise。** piecewise 把全部 correction 綁在
+>    `LeftContact` 那一格；Climb2m 的 contact 在**第 7 格（0.233 s）**，endpoint 窗則是 **1.62 s**
+>    ⇒ **壓縮 7 倍**。實測站位 0.23 m ⇒ 0.232 m 要在 0.233 s 內吃掉 ＝ 峰值 **1.49 m/s**，
+>    是該動畫自身速度（0.187 m/s）的 **8 倍**。Vault 的 contact 在第 18 格，所以沒事。
+> 3. ⚠️ **影片上的 `R 19.0 cm` 推不出來。** 從 bake 的兩個 grip edge ＋ 場景箱子的實際四元數推導，
+>    這段程式在水平邊緣上只能產出 **1.93 cm**（與 §16 記的 19.29 mm 完全吻合），而且**與站位無關**。
+>    ⇒ 疑點在 **committed `TraversalLedgeFrame`（感測）**，不在 IK。
+>    而 `TraversalDebugWindow` **剛好不顯示 ledge frame** —— 唯一能分辨的證據沒被印出來。
+> 4. ⛔ **在 E1／E5 拿到結果之前，不要再動 IK／錨定／primary-vs-dual。** §15–§18 四輪都是在
+>    沒有這兩項證據的情況下調錨定，結果是使用者說「比我提出反饋時還爛」。
+>
+> ## 下一輪只做這兩件事（都只需要一次 Play）
+>
+> - **E1**：`TraversalDebugWindow` 加一段**唯讀**顯示 committed ledge frame
+>   （`EdgeOrigin／Tangent／TangentMin/Max／TopNormal／WallNormal`）。
+> - **E5**：Play 時確認 `Hand IK:` 那行是不是 `Active`（§14.2 的歷史就是「有程式、有測試、遊戲裡沒跑過」）。
+>
+> 之後才輪到 A/B 對照：**E2** `Bake_Climb2m.Traversal.enabled = false`（一鍵關掉 piecewise＋HandIK＋
+> Exit 凍結＋reboundForce 四層，回到 1.62 s 的 endpoint 窗）、**E3** `enableHandIK = false`、
+> **E4** `entryPolicy.maximumCloseError` 0.4 → 0.10。全部可逆，還原方式在 §19.10。
+>
+> ## 順手查到、之前沒人記過的事實
+>
+> - `Bake_Climb2m.rootReachConstraint` 是 `enabled: 1` 但**三條曲線 109 格全為 0** ⇒ 這一層目前**完全沒作用**。
+>   §18「RootReachConstraint 已壓住伸展」的前提**對現在的資產不成立**，別再沿用。
+> - 三個 binding 的 `collisionProfile` **全部關閉、曲線皆空** ⇒ 「Capsule 穿模」目前**沒有任何機制在處理**。
+> - `Bake_Climb1m` **整支沒有 `Traversal:` 區塊**（唯一沒被重推的 bake）。
+>   目前 `climb1mEnabled: 0` 所以不影響玩，但打開就會靜默走 endpoint、沒有 Hand IK。
+>
+> ---
+> <details><summary>以下為上一輪（退版回 §16）的交辦，保留備查</summary>
+
+> # 🔴 2026-09-14 — **已退版回 §16**；Playtest 影片推翻了前兩輪的前提
+>
+> ## ⚠️ 開場先做兩件事
+>
+> 1. **補跑 EditMode 測試並確認全綠。** 上一輪退版後 PlayMode **41/41 通過**，
+>    但 EditMode 在交接時仍在執行、**結果未確認**。（同一輪還踩了「EditMode 沒跑完就排 PlayMode／
+>    排 eval_file」的坑，導致一個 eval timeout——見 `.claude/skills/unity-live-control`。）
+> 2. **讀 `docs/24` §13–§18 之前先知道：§17／§18 已經被退掉**，那兩節描述的東西**不在程式裡**。
+>
+> ## 退了什麼、現在是什麼狀態
+>
+> 使用者原話：「**這修的比我提出前面那段反饋時還爛**」。已回退到他給排序回饋時的 §16 狀態：
+>
+> | 項目 | 現況 |
+> |---|---|
+> | `TraversalHandIKController` | 已移除 anchor blend／grip latch／surface tracking，**恢復固定腕點目標** |
+> | `TraversalWarpPlan` | 已移除 `TraversalContactSurface` 與 `LeftWristToContact`／`RightWristToContact` |
+> | `TraversalPlanBuilder` | 已移除對應接線 |
+> | `Bake_Climb2m` IK 窗 | 已重烘回 **L `0.212963` / R `0.203704`** |
+> | `Bake_Vault1m` | 未變動 |
+> | 測試 | `B11`／`B15` 恢復原斷言；`SURF1`／`SURF2` 已移除 |
+> | 編譯 | live Editor 0 errors |
+>
+> ⚠️ `TraversalContactDerivation` 的 release 改成顯式的 `KinematicRelease()`
+>（各手自己的 `FixedGoalExtensionStart − fade`）。這是**為了重現 §16 的數值**而寫的，
+> 行為與 §16 相同，但寫法與當時不同——重烘時要注意。
+>
+> ## 🔴 影片給出的兩個事實（前幾輪的量測完全沒涵蓋）
+>
+> 使用者提供 `C:\Users\USER\Videos\2026-09-14 06-50-22.mp4`。
+> **可以用 ffmpeg 抽影格當圖片讀**（技法已寫進 `.claude/skills/unity-live-control`）。
+>
+> **① 實際起攀站位是 0.17–0.23 m，不是理想的 0.462 m。**
+> 面板讀數：`2 Entry ACCEPT — AlreadyClose / wall 0.17 m (legal 0.06–0.81)`，另一次 `wall 0.23 m`；
+> `4 Fit: approach animated 0.000 m → required −0.230 m`。
+> ⇒ **前幾輪所有離線量測都做在 0.462 m 上，量的不是使用者在玩的情境。**
+> 這是方法錯誤，不是參數沒調好。**以後任何 traversal 的驗收都要掃站位範圍，不能只量理想點。**
+>
+> **② 右手根本沒抓到邊緣。**
+> `Execution: hand residual  L 0.0 cm   R 19.0 cm`，畫面上**左手扣在頂面、右手攤在立面上**。
+> L=0.0 是因為 root 就是解來服務 primary（左手）的（§16），誤差整包丟給 secondary。
+> `docs/24` §16 記的是「secondary 19.29 mm」——那是**理想站位**下的值；實際站位是 **19 cm**。
+>
+> ## 未完成的量測（下一步的關鍵）
+>
+> 腳本已存進 repo：**`docs/artifacts/residual_sweep.cs.txt`**（本輪 timeout，未取得結果）。
+> 用法：複製到暫存 `.cs` 後 `unity cmd eval_file --file <path>`。
+> 內容：**0.15 → 0.80 m 每 5 cm，記錄兩手各自的 contact residual 與 root correction**。
+> 它要回答的問題：那 19 cm 是「這個站位特有」還是「§16 之後全距離都這樣」——
+> **兩者要修的地方完全不同**：
+> - 若全距離都大 ⇒ §16「root 只服務 primary、誤差全給 secondary」這個決定要重新評估。
+> - 若只在近站位大 ⇒ 問題在 entry band 允許 0.06 m 起攀，而動畫要 0.462 m。
+>
+> ⛔ **在拿到這份資料之前不要再改 IK。** 前三輪都是在沒有實際站位資料的情況下調錨定方式，
+> 結果是「數字一直變好、使用者體感沒變、最後變更差」。
+>
+> ## 使用者的品質排序（仍然有效）
+>
+> 1. **手掌固定到 ledge 的可信度** ← 最大破綻，即上面那兩點
+> 2. 翻越結尾 → 站立收斂：已量，**root 本身平滑**；「被接管」感來自 **Foot IK 的離散啟用**（`docs/24` §17.5 的量測仍成立）
+> 3. **攀爬起手／貼牆入口**：設計題，未動
+> 4. Capsule 穿模：非優先
+>
+> ## 🔴 仍未驗證的前提
+>
+> **沒有人確認過執行期 `TraversalHandIKController.Status` 真的是 `Active`。**
+> 影片面板顯示的 `hand residual` 來自 MotionDriver 的 commit-time 量測，**不是** IK 的執行狀態。
+> 這個子系統的歷史正是「有程式、有測試、但遊戲裡從來沒跑過」（`docs/24` §14.2）。
+> Play 時請確認，或在 `TraversalDebugWindow` 補一行顯示 controller 的 `Status`。
+
+</details>
+
+> # 🔴 2026-09-14 — **錨定的是接觸點，不是手腕**（正本 `docs/24` §18）；⚠️ Hand IK 是否真的在跑仍未驗證
+>
+> ## 為什麼前幾輪都沒解決
+>
+> 使用者在 §17 之後仍回報「**仍不像固定點**」。數字都對（錨定延長到骨盆越過平台、reach ≤0.957），
+> 畫面還是不對 ⇒ **量錯了東西**。
+>
+> `AvatarIKGoal.LeftHand` 的 goal 是**手腕**，我們 commit 的也是固定的**手腕**點。
+> 但抓握期間手掌會轉 **61.4°**，手腕到接觸點約 14.5 cm ⇒
+> **手腕完美釘死時，指尖仍在邊緣上掃過 15.2 cm**——是 §14–§17 一路在修的漂移量的 2–7 倍。
+> **前幾輪一直在把手腕釘得更準，但釘的本來就不是該固定的東西。**
+>
+> ## 修法
+>
+> 把「手腕→接觸點」偏移換算到**手骨座標系**（抓住時 latch 一次朝向），用當下手部旋轉還原：
+> `wristTarget(n) = anchoredContact − handRotation(n) * offsetInHand`
+> ⇒ 手掌翻轉時手腕讓位、接觸點留在原地。同時把退化起點從 reach 0.90 移到 **0.98**
+>（`RootReachConstraint` 已壓住伸展，從 0.90 退化等於在撐起段砍掉一半權重）。
+>
+> | | 舊（釘手腕） | 新（釘接觸點） |
+> |---|---|---|
+> | reach 峰值 | 0.950 | **0.874** |
+> | 接觸點最大偏移 | **15.2 cm** | **0（建構保證）** |
+> | 抓握窗內錨定權重 | 受 reach 衰減 | **全程 1.0** |
+>
+> ⭐ 反直覺但合理：**釘接觸點比釘手腕更省手臂**。§15 為了不超伸而提前放手、並因此失去錨定，
+> 其實是釘錯目標造成的假兩難。
+>
+> ## 🔴 最重要的未驗證前提
+>
+> **從來沒有人確認過執行期 `TraversalHandIKController.Status` 真的是 `Active`。**
+> 所有量測都是離線重建 plan 的結果，而這個子系統的歷史正是
+> 「有程式、有測試、但遊戲裡從來沒跑過」（`docs/24` §14.2 一次列出三個死路徑）。
+>
+> **Play 時第一件事：開 `Window ▸ Project ▸ Traversal Debug`，看 Hand IK 那一行是不是 `Active`。**
+> 若是 `NotBound`／`AwaitingPose`／`RootMappingUnavailable`／`OutsideContactWindow`／`ResidualTooLarge`，
+> 那才是真正的問題，§14–§18 的數字都還沒機會生效。
+>
+> ## 驗證
+>
+> **EditMode 447／446 passed／0 failed／1 existing skipped**、**PlayMode 41／41**。
+> 本輪**未改任何資產**（只改執行期的目標解析）。⛔ 未執行 Git。
+>
+> ## 使用者排序中未動的項目
+>
+> 2. 翻越結尾收斂：已量，**root 本來就平滑**；「被接管」感來自 **Foot IK 的離散啟用**（§17.5）。下一輪修接手時機，不要動 warp。
+> 3. **攀爬起手／貼牆入口**：設計題，需先定運動邏輯。
+> 4. Capsule 穿模：非優先。
+
+> # 🟠 2026-09-14 — 手掌錨定改成「面約束」（正本 `docs/24` §17），待 Play 驗收
+>
+> ## 使用者回饋的排序（本輪只做第 1 項）
+>
+> 1. **手掌固定到 ledge 的可信度** ← 本輪
+> 2. 翻越結尾 → 站立的收斂：已量，**root 本來就平滑**，問題在別處（見下）
+> 3. **攀爬起手／貼牆入口**：未動，是設計題
+> 4. Capsule 穿模：非優先
+>
+> ## 做了什麼
+>
+> 量到的破綻：**IK 權重在 n=0.24 就歸零，那時 root 距平台頂面還有 0.485 m** ——
+> 「手撐起身體」的後半段完全沒有錨定。放手的理由是放開後 reach ratio 會衝到 1.05+（手臂被拉直）。
+>
+> 語意修正：**contact 是面約束，不是點約束。** 真實 mantle 的手掌會沿頂面滾動，
+> 釘死一個點必然超過手臂長度。改成依 reach ratio（0.90→1.00）在
+> 「錨定固定點」與「貼在已驗證邊緣面上的動畫手腕」之間**連續混合**，
+> 並新增 `TraversalContactSurface`（純資料）把「不得穿進頂面／不得滑出已驗證區間」變成執行期保證。
+> 同時把 IK 窗還原成動畫量到的抓握結束（`Bake_Climb2m` L 0.2130→**0.2685**、R 0.2037→**0.2593**）
+> —— **這一步才讓 §16 的 `RootReachConstraint` 真正開始工作**（手在 0.213 就放開時它無事可做）。
+>
+> | | 前 | 後 |
+> |---|---|---|
+> | 權重歸零時 root 距頂面 | −0.485 m | **−0.156 m** |
+> | 歸零時骨盆 | 平台下方 0.270 m | **已越過平台 +0.002 m** |
+> | 錨定期間最大 reach ratio | 1.048 | **0.957** |
+>
+> ## 第 2 項的結論：不要再動 warp
+>
+> 逐格一階差分：`drootY` 平滑收斂，**n≈0.81 時 rootDy 已經是 +0.000**，沒有 snap 也沒有突變點。
+> ⇒ 「被接管」**不是 root warp 造成的**。最可能是 **Foot IK 的啟用是離散事件** ——
+> `isGrounded` 要等 exit(0.8333) 之後的貼地力才變 true，Foot IK 才突然接手 clip 尾段那 1.1 cm 姿勢差。
+> **下一輪修接手時機與斜坡，不要動 warp。**
+>
+> ## 已知殘留
+>
+> - 錨定退場時 `drootY` 在 n≈0.38 有約 **0.5 cm/step** 的小凸起（reach 約束淡出的導數不連續，**本輪新引入**）。
+> - 第 3 項攀爬入口未動。
+>
+> ## 驗證
+>
+> **EditMode 447／446 passed／0 failed／1 existing skipped**、**PlayMode 41／41**。
+> 新增 `SURF1`／`SURF2`；`B15` 改守「窗必須覆蓋整個抓握期」；
+> `B11` 改守「抓握期間除了宣告過的 reach 約束外，不得有第二個東西推身體」。
+> 資產：`Bake_Climb2m` 的 IK 窗（還原法見 `docs/24` §17.7）。⛔ 未執行 Git。
+>
+> ## Play 驗收
+>
+> 1. 撐起身體時**手看起來有沒有像固定點**（本輪的目標）。
+> 2. 手肘有沒有被拉直／手臂扭曲（量測說 reach ≤ 0.957，應該沒有）。
+> 3. 結尾收斂有沒有變差（本輪沒動那段）。
+
+> # 🟠 2026-09-14 — Traversal 工作包二完成；待 Climb2m Play 品質驗收（正本 `docs/24` §16）
+>
+> ## A：先量後決定不再調窗
+>
+> 用 production `Bake_Climb2m` ＋ `X Bot` preview rig 逐格量測。以同法 goal-envelope proxy 比較，
+> §15 的 kinematic release 已把左手最大 reach ratio **1.1019 → 0.8706**、reach>1 格數
+> **3 → 0**；右手現為 **0.8849／0 格**。1.1019 不取代 §15 full-chain 的實測峰值 **1.086**。
+> release 段仍有 L/R **10.2／3.7 mm 每格** goal 混合增量與 **63.9／69.5°/s** 方向角速度增量，
+> 但 authored 動畫本身峰值就是 **403.6／436.0°/s**，且 envelope 已是 smoothstep。
+> 判定剩餘量不是再挪窗能乾淨消除，依工作包指示直接處理 contact 結構；**Bake IK window 未再修改**。
+>
+> ## B：Primary root ＋ Secondary surface residual
+>
+> `TraversalPlanBuilder` 已移除雙手 absolute root 平均與 `SolveDual`：`BothHands` 固定 Left primary，
+> root correction 只由 primary grip contact 決定；secondary 在 primary root 決定後查 Probe 已提交的
+> `TraversalLedgeFrame`／safety interval，成功才發布 wrist target 給 Hand IK。窄 ledge 無 secondary
+> surface 時保留 authored pose並停用該手 IK，不再壓縮雙手間距。
+>
+> Climb2m 理想進場同資料：舊平均 L/R residual **9.64／9.64 mm**；新解 primary L **0 mm**、
+> secondary R **19.29 mm**（明確交給 IK）；contact→transfer correction 漂移仍 **0 mm**。
+> `FingerContactClearance`／grip edge／wrist↔grip 仍只屬 animation/contact fitting，不是 Probe geometry；
+> Plan／IK 沒有新增 Physics query。
+>
+> ## C：架構圖與驗證
+>
+> `docs/artifacts/architecture-tour.html` 已新增圖 19：
+> `Probe → Selection → Animation Fitting → TraversalPlan → Piecewise Root Warp → Contact → Hand IK`，
+> 並更新頁尾 Traversal Trial 基線。實際檔案沿用既有 inline SVG／notes 體例（原檔沒有 Mermaid runtime）。
+>
+> 新增 `HC6`、更新 `HC4／M6`，`A47` 禁止恢復 `SolveDual`。
+> **focused 24／24；EditMode 445 total／444 passed／0 failed／1 existing skipped；PlayMode 41／41。**
+> 原本唯一紅燈 M6 已關閉，沒有新紅燈。
+>
+> ## 資產／還原／Play
+>
+> 本工作包**沒有修改任何 `.asset／.prefab／.unity／.meta`**，因此 B/C 無資產還原步驟。
+> `Bake_Climb2m` 仍是 L `[0.037037,0.064815,0.212963]`、R `[0.037037,0.064815,0.203704]`；
+> 若要還原上一輪 release，必須走 Unity Editor API 設回 §15 記錄的舊窗，不可手改 YAML。
+> ⚠️ 撐起自然度只有 Unity 匯入／離線數值量測，沒有自動化視覺測試保護，仍待人類 Play。
+
+> # 🟠 2026-09-13 — Climb2m「手把身體撐起來」修正，待 Play 驗收（正本 `docs/24` §15）
+>
+> 使用者確認結尾浮空已消失，只剩撐起階段的手臂視覺問題。本輪用真實旋轉 2 m 箱、
+> 近面射線、場景 `X Bot` probe settings 與 preview-scene `X Bot` rig 逐格量測。
+>
+> ## 根因（不是 root）
+>
+> - contact→transfer root correction 漂移 **0.000 cm**；root freeze 正常。
+> - root 上升 **1.691 m** 時，動畫腕部本來會移動 L **11.52 cm**／R **11.03 cm**。
+> - 舊 IK 卻把腕部固定到 plant end：n=0.2593 左臂 reach ratio **1.030**，
+>   肘角從 authored 130° 被拉到 **180°**；n=0.2685 reach **1.086**。
+>
+> ## 最小修正
+>
+> `TraversalContactDerivation` 對雙手支撐另外量
+> 「fixed contact wrist 開始連續要求比 authored wrist 更長肩—腕距離」，
+> 讓既有 0.1 s fade 在該事件前歸零。Transfer marker／root mapping／runtime 架構不變；
+> 單手 Vault、Climb1m、FBX、Animancer 都沒動。
+>
+> `Bake_Climb2m`（Editor API、X Bot）：
+> L release **0.268519→0.212963**（0.240741 歸零）；
+> R release **0.259259→0.203704**（0.231481 歸零）。
+>
+> ## 驗證／還原
+>
+> 新增 B15；**EditMode 444／442 passed／1 known M6 failed／1 skipped**；
+> **PlayMode 41／41**。要還原舊行為，經 Unity Editor API 把兩窗設回
+> L `[0.037037,0.064815,0.268519]`、R `[0.037037,0.064815,0.259259]`、rotation 0；
+> 不可手改 YAML。B15 保護數值與幾何事件，但畫面自然度沒有自動化視覺測試，仍待 Play。
+>
+> ## Play 只看兩件
+>
+> 1. 接觸後把身體撐起來時，肩／肘是否不再被拉直或扭曲。
+> 2. 已通過的結尾貼地是否仍維持（不得重新出現浮空／延後落地聲）。
+>
+> # 🟠 2026-09-13 — **Phase 3 Hand IK 接上了**（正本 `docs/24` §14），待 Play 驗收
+>
+> ## ⚠️ 先更正：玩家是 `X Bot`，不是 `Y Bot`
+>
+> 場景有兩個角色：**`X Bot` ＝ `PlayerInputSource` ＋ `TraversalProbe`，layer Player ⇒ 玩家**；
+> `Y Bot` ＝ `AIInputSource`，layer Enemy。
+> 我用 `FindAnyObjectByType<CharacterController>()` 拿到 `Y Bot` 就當成玩家、沒驗證，
+> 把兩支 bake 重推到敵人 rig 上（已全部改回 `X Bot`）。
+> ⛔ **`docs/24` §13.3 說「出貨資料用錯 rig」是錯的**——原本就是 `X Bot`，是我改壞又改回。
+> `TraversalIntegrationWiringTests` 早就寫著 `PlayerPrefabPath = "Assets/Prefabs/X Bot.prefab"`，
+> **repo 裡已經有答案，我沒去看。**
+>
+> ## Hand IK 為什麼一直是死路徑（三個原因，全部已修）
+>
+> 1. **掛不上去**：兩個 MonoBehaviour 是 `FootIKController.cs`／`FootIKRig.cs` 的**次要類別**
+>    ⇒ Unity 無法 AddComponent。已拆成 `TraversalHandIKController.cs`／`TraversalHandIKRig.cs`。
+> 2. **bake 沒授權**：`handIKEnabled=0`、窗全 0 ⇒ 停在 `NotConfigured`。
+>    已由 `TraversalContactDerivation` 自動寫入（窗＝測出來的 plant 換算，`rotationWeight=0` 只釘位置）。
+> 3. **prefab 沒掛**：已掛上 `X Bot`（controller 在 root、rig 在 `Model`），`motionDriver` 已接。
+>
+> 另修掉一個設計缺陷：IK 淡出終點原本綁在 Exit marker，`Climb2m` 因此淡出長達 2 秒
+> （手放開後還被黏著往上拖）。改成淡出與淡入等長。
+>
+> ## 實測（真實 2 m 箱、理想站位、玩家 rig）
+>
+> 抓握期間手自己會漂 **1.9 – 7.0 cm**（以前沒人管，手就鑽進牆裡）；
+> IK 生效期間**最大殘差 0.166 m < 放棄門檻 0.35 m ⇒ IK 會接手**。
+> 權重曲線與抓握窗吻合（0.042 淡入 → 0.083–0.250 滿權重 → 0.292 淡出）。
+>
+> ## 資產改動（都走 Editor API）
+>
+> | 資產 | 改了什麼 | 還原 |
+> |---|---|---|
+> | `Bake_Climb2m` / `Bake_Vault1m` | grip edge Y ＋ Hand IK 窗 | 重跑 `TraversalContactDerivation.Apply(bake, XBotPrefab, …)` |
+> | `X Bot.prefab` | 新增 Hand IK controller ＋ rig | 移除這兩個元件 |
+> | `SampleScene.unity` | `X Bot` 的 `WeaponSocket.weaponPrefab` ← null（拿掉擋視野的劍） | 把 `Sword` prefab 指回去 |
+>
+> ## 驗證
+>
+> **EditMode 443／441 passed／1 failed（`M6`，工作包二）／1 existing skipped**、**PlayMode 41／41**。
+> 新增 `PlayerPrefab_TraversalHandIK_IsAttachedWiredAndAuthored`（守住「掛了、接了、bake 授權了」），
+> `A49` 改讀新檔並釘住「必須是自己檔案的主類別」。
+>
+> ## 下一步：Play 驗收
+>
+> 爬 2 m 箱，看 ①抓握期間手還會不會鑽進牆 ②手臂會不會因為 IK 被拉扭 ③結尾那一下浮空還在不在。
+>
+> # 🟠 2026-09-13 — Playtest 點名的**兩個可見缺陷已修**，待 Play 驗收（正本 `docs/24` §13）
+>
+> ## 使用者的原話
+>
+> 「工作包一改了什麼**我沒體驗到**。我看不順眼的只有：**上去的瞬間手指插進牆面**、
+> **動畫結束會有微小浮空**（有落地聲佐證）。」
+> ⚠️ 記住這條回饋：**改動的價值由「看不看得到」決定，不是由「數字有沒有變好」決定。**
+>
+> ## ① 手指插進牆面 —— grip edge 的 Y 基準取錯
+>
+> 原本取「動畫自己的障礙物頂面」，但實測四根手指的**指尖**騎在那條平面上下各約 1 cm，
+> 同時越過牆面 3–5 cm（扣過邊緣是對的）⇒ 指尖落在轉角實心裡。
+> 改成由**真正壓在頂面上的四根指尖**取最低者，再讓出 `FingerContactClearance = 0.01 m`。
+> 結果：四指從 −0.013…+0.009 變成 **+0.010…+0.032**（全部浮在頂面上）。回歸測試 `B14`。
+>
+> ## ② 結尾浮空 ＋ 落地聲 —— 同一個原因
+>
+> Exit 之後 plan 位置凍結 ⇒ `Move(Vector3.zero)` **不回報觸地** ⇒ `isGrounded` 全程 false
+> ⇒ `FootIKController`（閘門就是 `IsGrounded`）**整段關閉**；
+> 而 clip 最後一格不是站定姿勢（腳趾比 Idle 高 **1.2 cm**）⇒ 浮空；
+> 狀態結束重力恢復才觸地 ⇒ `JustLanded` ⇒ 落地聲。
+> 改成 Exit 之後沿用 locomotion 的 `reboundForce = −2` 貼地力，讓角色真的坐上去、
+> grounded 由物理回答，Foot IK 在 traversal 內就接手。
+>
+> ## ⚠️ 過程中的事故（已修正，但要知道）
+>
+> 我先用 `Y Bot` 重烘 `Bake_Vault1m`，把接觸窗寫壞（0.207→0.356、reach −0.430＝手在身後）。查出兩件事：
+>
+> 1. **`X Bot` 與 `Y Bot` 的手不一樣**：同一格指尖差 **3.7 cm 高、3 cm 前**。
+>    場景用的是 **`Y Bot`** ⇒ **推導必須用 `Y Bot`**，否則 grip edge 一開始就偏。
+> 2. **接觸偵測對 rig 過度敏感**：原本只取「最長低速段」，低速 ≠ 接觸。
+>    已加物理合理性過濾——**手在身體後方的低速段不可能是抓握**（`ConsiderPlantRun`）。
+>    加上之後兩個 rig 對兩支 clip 結果完全一致。
+>
+> ⚠️ **`Bake_Climb2m`／`Bake_Vault1m` 已用 `Y Bot` 重新推導並寫入**（Editor API，未手改 YAML）。
+> 這兩個 `.asset` **未進版控**（`??`）⇒ **沒有 git 還原路徑**，要還原只能重跑推導
+> （現在是可重現的：`TraversalContactDerivation.Apply(bake, YBotPrefab, out report)`）。
+>
+> ## 下一步：Play 驗收（只看這兩件）
+>
+> 1. 爬上 2 m 箱子時，**抓握瞬間手指是不是貼在頂面上**而不是插進去。
+> 2. 動畫結束時**還有沒有那一下浮空／落地聲**。
+>    （落地聲可能改成在角色真的坐上平台的那一刻響——那是對的時機；若你覺得爬牆不該有落地聲，再說。）
+>
+> ## 驗證狀態
+>
+> live Editor recompile 0 errors；**EditMode 442／440 passed／1 failed／1 existing skipped**、
+> **PlayMode 41／41**。唯一紅燈 `M6` 屬工作包二。⛔ 未執行 Git。
+>
+> # 🟢 2026-09-13 — Traversal **工作包一完成**（感測範圍推導 ＋ Animation Fitting v1），待 Play 驗收
+>
+> **正本：`docs/24` §10–§12（落地紀錄）、`docs/22` §19（摘要）。**
+> 鏈路定案：`Probe → Selection → Animation Fitting → TraversalPlan → Root Warp → Contact → IK`
+>
+> ## 做了什麼（三項）
+>
+> 1. **感測範圍改由動畫需求推導**，不是換一個 magic number。
+>    `TraversalStateParamsSO.GetRequiredSensingReach()` ＝
+>    `max(啟用 kind 的推導進場距離 + MaximumFarError) / cos(MaximumFacingAngle)`；
+>    `TraversalState` 推給 `TraversalProbe.SetDerivedRangeRequirements()`，Probe 取 `max(authored, derived)`。
+>    **1.25 → 2.138 m。**
+> 2. **落地預算與分類證據分離**：`Vault1mMaxDepth`(0.6) 只留給分類；
+>    新增 `TraversalCandidate.LandingSurfaceDepth`，Probe 沿真正的落腳面續掃
+>    （Climb 走平台頂面、Vault 走牆另一側地面）。
+> 3. **Animation Fitting v1**（`Core/StateMachine/TraversalAnimationFit.cs`，純函式）：
+>    `rate = 動畫助跑 / 需求助跑`，夾 [0.6, 1.6]，由 `AnimationFacadeBase.SetPlaybackSpeed`
+>    （新增 virtual，預設 no-op）套用，`OnExit` 設回 1。
+>    ＋ 修掉 `TryGetNaturalExitDepth` 量錯時間點的舊 bug（量在 clip 結尾 → 改量在 Exit marker）。
+>
+> ## 實測（離線重建，真實場景＋真實資產）
+>
+> | | 前 | 後 |
+> |---|---|---|
+> | Vault 可執行站位 | 1.10–1.25（**20 cm**） | **1.00–1.70 m** |
+> | 理想站位・水平 exit correction | 0.765 m | **0.001 m** |
+> | 理想站位・水平 contact correction | — | 0.015 m |
+>
+> ## ⚠️ 下一步：**Play 驗收**（唯一未完成項）
+>
+> 請在 1 m 薄牆前**退開約 1.2–1.5 m** 按 Jump（貼牆仍會 `TooCloseUnsafe`，那是預期的）。
+> 看四件事：①能不能穩定觸發 ②助跑速度看起來自不自然（rate 在動）
+> ③放手後有沒有還在往前滑 ④`Window ▸ Project ▸ Traversal Debug` 的 `4 Fit` 那一行有沒有數字。
+>
+> **已知會看到、但不屬本工作包的**：矮牆上 Vault 的**垂直** correction 固定 −0.33 m
+> （`Vault1m` 是對 ~1.02 m 障礙物做的，那面牆實高 0.699 m）⇒ 需要 clip selection，已延後。
+> 另外 exit 之後 root 會被凍結、run-out 在原地播完（既有行為，`docs/24` §12 列為待評估）。
+>
+> ## 驗證狀態
+>
+> live Editor recompile 0 errors；**EditMode 441／439 passed／1 failed／1 existing skipped**、
+> **PlayMode 41／41**。唯一紅燈 `M6_NarrowLedge_ShrinksAndClampsHandSeparation`
+> **屬工作包二**（使用者已指定在那裡連同 contact 語意一起修）。
+> ⛔ 未執行 Git；未改任何 `.asset`／`.prefab`／`.unity`（新欄位靠 C# 欄位初始式生效，
+> 實測 `animationFit enabled=True / [0.60, 1.60]`，不需要改資產）。
+>
+> ## 工作包二（使用者已定義，尚未開始）
+>
+> 重新評估合成 `gripEdge` 語意 ／ root constraint 改單一 primary contact（不再雙手平均）／
+> secondary hand 做實際表面查詢與 residual ／ authored offset 明確歸屬 animation-contact fitting
+> （不得混進 probe geometry）／ 同工作包修掉 `M6` ／ 完成後才重新評估 Phase 3 Hand IK。
+> ⛔ 先不要用 IK 去修那 −0.16 m／+0.10 m 的手腕 offset——已驗證它與站位無關且接近動畫原始
+> contact pose，屬 animation/contact definition 問題。
+>
+> # 🔵 2026-09-13 — Traversal：參考實作研究輪完成，**Phase 3 Hand IK 應延後**（正本 `docs/24`）
+>
+> ## 一句話
+>
+> **root mapping 已經是對的；擋住玩家的是 entry 合法窗與感測範圍互相矛盾。**
+> 先讀 **`docs/24-traversal-reference-study.md`** §8（鏈路 KEEP／改語意／缺層）與 §9（實測證據）。
+>
+> ## 本輪確定的三件事（全部有實測，不是推論）
+>
+> 1. **測試有一條紅的**：`TraversalWarpPlanTests.M6_NarrowLedge_ShrinksAndClampsHandSeparation`
+>    （EditMode 428／426 passed／**1 failed**／1 skipped）。§18.3 改成「每隻手用自己的橫向偏移」之後
+>    窄 ledge 不再壓縮雙手間距 ⇒ 這條測試編碼的是已被取代的 baseline，**要在同一工作包內更新**。
+> 2. **Climb2m 的 root mapping 正確**：離線重建真實 probe ＋ 真實 2 m 箱 ＋ 逐格取樣真實 clip，
+>    站 0.15／0.30／0.46／0.60／0.80 m **五個站位**，接觸瞬間手腕相對真實邊緣都是
+>    −0.162 m（下）／+0.09~0.10 m（外），與動畫自身關係（−0.163／+0.1025）差 ≤1 cm。
+>    ⇒ 「手抓的位置不對」剩下的量級就是**這支動畫的抓握姿勢本身**。
+> 3. ⛔ **真正的阻塞**：`ForwardScanDistance = 1.25 m`，但 Vault1m 由 bake 推導的理想進場距離是 **1.402 m**，
+>    合法帶 [1.00, 1.75]。理想點在感測範圍外，**可執行站位只剩 1.10–1.30 m 約 20 cm 寬的縫**。
+>    薄牆實測 0.20–0.97 m 全部 `TooCloseUnsafe`。加上 `climb1mEnabled=0` ⇒
+>    **場景裡 1 m 級障礙物實際遊玩幾乎都沒反應**。這就是「改了跟沒給一樣」的原因。
+>
+> ## 研究結論：我們缺了一整層
+>
+> 五個參考實作（ALS／UE GASP／KINEMATION／Traverser／DPS）**全部**都有
+> **Animation Fitting 層**（依量到的尺寸選 clip ／ 依高度推算 montage 起始時間 ／ 依長度縮放 play rate），
+> 我們**一個都沒有**⇒ 所有尺寸落差只剩「加大位置 correction」一個出口。
+> 這就是 `maxHorizontalCorrection` 1.5↔2.5 反覆、以及 Vault 0.666 m run-out 的來源。
+>
+> ## 下一步順序（`docs/24` §10，依「擋住玩家的程度」排，不是依技術趣味）
+>
+> 1. 修 `ForwardScanDistance` vs 推導進場距離的矛盾（止血）
+> 2. **補 Animation Fitting**：先做 play rate 縮放（KINEMATION 式）
+> 3. correction 內插參數：時間 → **該軸 root motion 進度**（`accum/total`），並移除「抓握期間凍結」特例
+> 4. Contact target 降為**單主手 ＋ authored offset**（`MatchTarget` 天生單 target；DPS 雙手 braced hang 也只約束左手）
+> 5. 修 `M6` 紅燈（與 4 同一個工作包）
+> 6. **最後**才是 Phase 3 Hand IK ——在 1–4 完成前做它等於用 IK 去蓋前面每一層的誤差
+>
+> ## 工具筆記（本輪新增，值得沿用）
+>
+> 可以**完全不進 Play Mode** 重建整條 traversal 鏈路：以 `HideFlags.HideAndDontSave` 建臨時
+> `CharacterController + TraversalProbe`（`settings` 用反射從場景 player 複製、手動 Invoke `Awake`），
+> 在**真實場景**跑 `probe.Tick()`，再串 `TraversalEntryPolicy` / `TraversalPlanBuilder`；
+> 動畫取樣在 `EditorSceneManager.NewPreviewScene()` 內（記得 `applyRootMotion = true`）。
+> ⚠️ **放 rig 之前一定要先射線找地面高度、並確認用的是箱子的「近面」**——
+> 本輪第一次掃描把 rig 放在 y=0／用了遠面，得到「所有 1 m 障礙物都 CorridorBlocked」的**假結論**。
+> `unity cmd eval_file` 的腳本是**方法體**：不能寫 `using`，要用完整命名空間，最後 `return`。
+>
+> # 🟠 2026-09-13 — Traversal Phase 2：三個基準點 bug 已修，**測試尚未跑過**
+>
+> ## 開場先做兩件事
+>
+> 1. **確認 Editor 沒卡住**：`unity status`。上一輪在使用者 Play Mode 中排了 EditMode 測試，
+>    主執行緒被鎖住。若 Pipeline 命令 timeout，請使用者停掉 Play／Test Runner。
+> 2. **補跑測試**（這是唯一的未完成驗收）：
+>    先確認 `EditorApplication.isPlaying == false`，再
+>    `unity cmd run_tests --mode EditMode --timeout 900 --detach` →
+>    `unity cmd run_tests --mode PlayMode --async_tests true`。
+>    上一次全綠是 **EditMode 428／427 passed／0 failed／1 existing skipped、PlayMode 41／41**。
+>    ⚠️ `B9`／`B10`／`B11` 的期望值可能需要隨 §18 的新數字更新。
+>
+> ## 工具（**先讀 memory `unity-live-editor-control`**）
+>
+> `unity` CLI 可以直接驅動使用者開著的 Editor：`unity cmd run_tests` 跑測試、
+> `unity cmd eval_file` 讀寫資產與場景、`recompile`／`console`。
+> ⛔ `unity test` 會另開 batchmode 撞 project lock；PlayMode 必須 `--async_tests true`；
+> **recompile 未完成或使用者在 Play 時不要排測試**（已踩兩次）。
+> 資產可改但**只能走 Editor API**（`CLAUDE.md`「Unity Asset Authoring」，2026-09-13 解禁）。
+>
+> ## 這輪做了什麼（正本：`docs/23` ＋ `docs/22` §13–§18）
+>
+> - **`docs/23`** ＝ 模型審查，推翻「V3 已完成」：三支正式 Bake 當時沒有 `Traversal` block，
+>   piecewise／contact／IK 在出貨資料上從未執行過。
+> - **§13 Phase 1**：移除 root 播放頭時間重映（實測去同步 Climb1m +0.82 m／Vault1m −1.02 m）；
+>   垂直改加法；correction 窗由 bake 推導；selection／plan 的否決全部帶理由。
+> - **§14–15 Phase 2**：`TraversalContactDerivation` 從動畫**自動測出**接觸標記
+>   （手先動再停住＝接觸）；進場距離下放到每支動畫。
+> - **§16**：Transfer knot 改為沿用接觸 correction ⇒ **抓握期間零額外位移**；
+>   Debug 規則改為 **Scene View 只畫幾何、零文字**，數值在 `Window ▸ Project ▸ Traversal Debug`，
+>   Game View 什麼都沒有，所有旗標預設關閉。
+> - **§17**：對齊點由**手腕**改為**動畫自己的抓握邊緣**（四指扣頂面、拇指按牆面的姿勢會原樣落位）。
+> - **§18（本輪最後、未測）**：修掉三個自己引入的 bug——進場距離與接觸解算基準不一致、
+>   左右手對稱擺放、終點誤用探測常數。接觸修正 **0.303 → 0.025 m**、離開修正 **0.388 → 0.025 m**。
+>
+> ## 下一步：Play 驗收
+>
+> 請使用者站在**離牆約 0.46 m**（Climb2m 的理想距離）按 Jump。
+> 預期：抓握瞬間不再有往後扯、放手後不再往前飄。
+> 讀現場數據用 `unity cmd eval_file`（腳本樣板見 `docs/22` §18.1 的檢查項）：
+> `probe.Candidate`／`EntryEvaluation`／`SelectionEvaluation`、
+> `MotionDriver.LastCommittedTraversalPlan`／`LastCommittedTraversalDiagnostics`／
+> `LastTraversalMaxBlockedDisplacement`（這三個**不會**在 traversal 結束時被清掉，就是為了這件事加的）。
+>
+> ## 已知未解
+>
+> - **Vault1m 的 run-out**：clip 總位移 3.259 m、自然落點在邊緣內側 1.857 m，遠超落腳面 0.6 m
+>   ⇒ 離開修正仍有 0.666 m。要靠修剪播放區間或改 playback speed，**不要再加大 correction 預算**。
+> - **Climb1m 已由使用者裁決停用**（`climb1mEnabled=0`）；其手部全程滑動，測不到接觸。
+>   已接受的後果：1 m 厚箱子爬不上去（Jump apex 0.9535）。
+> - **Hand IK 仍不存在**：`TraversalHandIKController`／`TraversalHandIKRig` 是次要 MonoBehaviour
+>   類別（在 `FootIKController.cs`／`FootIKRig.cs` 內），Unity 無法掛載。要拆成同名檔案才能用。
+>   殘差已降到可由 IK 收拾的量級，但**root 正確之前不要用 IK 去蓋**。
+> - 使用者提過「先讓角色調好距離再上去」的 adjust step——尚未實作，待 Play 後再定。
+>
+> ## ⚠️ 這輪反覆犯的錯（請避免）
+>
+> 1. **修症狀的字面，不修症狀所屬的問題**。例：使用者說「Game 視窗一堆字」，
+>    我只關了 Game 視窗的 TextMesh，結果把更多字堆進 Scene View。
+> 2. **用沒認出來的視覺特徵下推論**。截圖裡的洋紅長條被我當成 debug 線追了兩輪，
+>    實際上是角色手上的劍（材質 null ⇒ Unity 的材質遺失色）。見 memory `unity-visual-artifact-triage`。
+> 3. **拿自己編的測試資料當證據**。要用 `unity cmd eval_file` 讀**使用者場景的真實幾何**。
+>    一次假警報：候選的 `entryCapsuleWallClearance` 亂填 ⇒ 殘差從 1.7 cm 變成 19 cm。
+> 4. **使用者要的是修好，不是選項**。真正需要裁決時才列選項，其餘自己判斷後直接做。
+
+> # 🟠 2026-09-13 — Traversal 修復 **Phase 1／3 完成**（Runtime decidability ＋ Root/Pose 同步），待 Unity 跑測試
+>
+> **先讀 `docs/23-traversal-motion-mapping-review.md`**（模型審查正本）與 **`docs/22` §13**（Phase 1 落地）。
+> ⚠️ 本輪推翻了先前「V3 已完成、只剩接線」的前提：三支正式 Bake **沒有 `Traversal` block**，
+> 因此 piecewise／contact／Hand IK 在出貨資料上**從未被執行過**；Hand IK 的兩個元件是次要 MonoBehaviour
+> 類別（`FootIKController.cs`／`FootIKRig.cs` 內），**Unity 無法掛載**。
+>
+> **Phase 1 已做**：①移除 endpoint 的 `trajectoryNormalized` 重映 ⇒ root 時間 ≡ 動畫時間
+> （修正前實測去同步 Climb1m +0.82m／Climb2m +0.53m／Vault1m −1.02m，**且在 correction=0 時就發生**）；
+> ②垂直改為與水平同型的加法 correction（移除乘法後段集中）；
+> ③新增 `MotionBakeData.GetVerticalSettleNormalizedTime()`，未 author 時 correction 窗由 bake 推導
+> （Vault 0.460／Climb1m 0.569／Climb2m 0.833），取代涵蓋整支 clip 的 0.8 預設；
+> ④`TraversalSelectionPolicy.Evaluate` 回帶理由的結果 ⇒ **靜默否決結束**
+> （實測門檻 `safeReach = 0.9535 − 0.15 = 0.8035 m`，≤0.80m 的 ledge 以前會無聲讓給普通 Jump）；
+> ⑤`TryCreate`／`TryBuild` 新增帶 `TraversalWarpPlanRejection` 的多載，`TraversalPlanMode` 區分
+> `Piecewise`／`EndpointFallback`／`Failed`；⑥Debug 面板去除全部 `Vector3` 全值，新增 entry L 形誤差拆解、
+> 合法距離帶、facing 箭頭、當前格 original/warped 連線、`NO WARP PLAN` 標記。
+>
+> **驗證現況**：四個 assembly `dotnet build` **0 errors**；**測試已在使用者開啟中的 Editor 實跑**
+> （`unity cmd run_tests`，見 memory `unity-live-editor-control`）：
+> **EditMode 421 total／420 passed／0 failed／1 existing skipped**、**PlayMode 41／41 passed**。
+> 新增的 B1–B7、S1–S5、WARP4B 全綠；更新過的 WARP4 與 PlayMode `V2_CommittedWarp…` 亦綠。
+> ⛔ 註記：`unity test` 會另開 batchmode 而撞 project lock，要用 `unity cmd run_tests`；
+> PlayMode 必須加 `--async_tests true`。
+> 新增 `TraversalBakedAssetTests`（B1–B7，**直接載入三支正式 Bake**）與 `TraversalSelectionPolicyTests` S1–S5。
+> 兩條既有斷言因為編碼了被移除的舊語義而在同一工作包內更新：`WARP4`（＋新增 `WARP4B`）與 PlayMode
+> `V2_CommittedWarpEndsAtCandidateAndIgnoresLaterProbeTarget`（量測點 0.8 → 1.0）。
+>
+> **未做**：未執行 Git；未改 FBX／`.asset`／`.prefab`／`.meta`／`.unity`／`.inputactions`；
+> 未調 entry 容差／capsule／collision profile／hand rotation weight（`docs/23` §J）。
+>
+> **Playtest 回饋後續（同日，見 `docs/22` §13.7）**：①Debug 文字全部移出 Game View ——
+> 新增 `Window ▸ Project ▸ Traversal Debug` EditorWindow 放數值與決策鏈，空間關係留在 Scene View；
+> 新欄位 `drawTraversalPanelText` 預設 false（prefab 未序列化 ⇒ 不用改 prefab）。
+> ②修掉「終點固定高 5 cm」——`DestinationClearanceMargin` 是 query 抬升量卻被寫進 committed 終點，
+> 現已分離（corridor 最後一段仍用抬升版，否則會被落腳面擋掉）。
+> ③量測確認 **Climb1m 的手部高度誤差只有 +3 mm，問題在水平**（手落在邊緣內側 0.45–0.50 m），
+> ⛔ 不得用調 root 高度掩蓋，正解是 Phase 2 contact knot。
+> ④**使用者裁決：暫時停用 Climb1m** —— 新增 per-kind 內容開關（預設全開，Inspector 取消勾選即可），
+> 停用回 `KindDisabled`。⚠️ 已接受的後果：Jump apex 0.9535 m ⇒ 1 m 厚箱子上不去。
+> 驗證：**EditMode 424／423 passed／0 failed／1 skipped**、**PlayMode 41／41 passed**。
+>
+> **🟢 Phase 2 部分完成（同日，見 `docs/22` §14）**：
+> ⚠️ **規則變更**：使用者裁決解除「AI 不碰資產」，改為**可改但只能走 Unity Editor API**
+> （正本 `CLAUDE.md`「Unity Asset Authoring」；⛔ 仍不得手改 YAML）。
+> ①新增 `TraversalContactDerivation`——從動畫**自動測出**接觸標記（手先動再停住 ＝ 接觸，
+> 門檻是該手自身最大速度的 15%，相對量）。實測：**Vault1m 是單手翻越**（右手從不停住）、
+> **Climb2m 雙手 n=0.065**；Climb1m 測不到（手全程滑動，已停用）。
+> ②統一 bake／runtime 的旋轉空間（改用 yaw-only 逆旋轉，不再用 `InverseTransformPoint`）。
+> ③把測出的 marker 寫進 Vault1m／Climb2m 的 bake ⇒ **`HasValidBakedData` 首次為 true**，
+> piecewise 真的走得到：Climb2m 殘差 **1.7 cm**、Vault1m **0.0 cm**。
+> ④同時修掉 Phase 1 的一個真 bug：`HasAuthoredWarpEnd` 分不出「作者填了 0.8」和「建構子預設 0.8」，
+> 導致 bake 推導窗從未生效（改為顯式 `overrideWarpWindowEnd`，回歸測試 B8）。
+> ⑤資產改動（`climb1mEnabled=0`、Vault `maxHorizontalCorrection` 1.5→2.5、兩支 bake 的 marker）
+> 全部經 Editor API 寫入。
+> 驗證：**EditMode 426／425 passed／0 failed／1 skipped**、**PlayMode 41／41**。
+>
+> **🟢 Phase 2（續）完成（`docs/22` §15）**：進場距離已下放到各支動畫
+> （`MotionBakeData.TryGetDesiredEntryDistance()` ＝ 接觸時手的前伸距離 ＋ 該時刻已走的水平位移）。
+> 推導值 **Climb2m 0.354 m／Vault1m 1.243 m**；`TraversalEntryPolicy.Evaluate` 新增
+> `desiredWallDistanceOverride`（`NaN` 退回全域，合成 bake 的既有測試不受影響）。
+> 效果：Vault 最大水平修正 **1.618 → 0.825 m**，因此 `maxHorizontalCorrection` 的 2.5 權宜放寬
+> **已撤回為 1.5**。
+> ⚠️ **玩法可見變更**：Vault 現在要求離牆 **0.84–1.59 m**，貼牆按 Jump 不再翻越
+> （`Vault1m` 是跑動翻越、自帶 0.57 m 助跑；站定貼牆翻需要另一支動畫，素材庫沒有）。
+> 被拒絕會退回普通 Jump（apex 0.9535），所以 **1 m 薄牆貼牆時過不去**——與 Climb1m 停用同類的內容缺口。
+> **Play 時請退開約一個身位再按 Jump。**
+> 驗證：**EditMode 427／426 passed／0 failed／1 skipped**、**PlayMode 41／41**。
+>
+> **🟢 Playtest 回饋修正（`docs/22` §16）**：
+> ①**「手抓牢固之後身體還在位移」＝真正的動作缺陷**。Transfer knot 舊版指向另一個空間目標，
+> 導致整段抓握期（Climb2m n=0.065→0.269）correction 一路內插；手的世界位置 ＝ clip 手位置 ＋ correction，
+> 所以手被拖著在牆上滑。改為 **Transfer 沿用最後一次接觸的 correction ⇒ 抓握期間零額外位移**，
+> 位移交還動畫自己。回歸測試 `B11`。
+> ②**Debug 徹底改規則**：Scene View **只畫幾何、零文字**（唯一例外 `NO WARP PLAN` 一行）；
+> 數值全在 Traversal Debug 視窗；Game View 什麼都沒有。**所有 traversal debug 旗標預設關閉**，
+> prefab 序列化值一併設 0。順手修掉影片裡那條洋紅線（`DrawHandDebug` 的 `solved` 未綁定時是原點）。
+> 驗證：**EditMode 428／427 passed／0 failed／1 skipped**、**PlayMode 41／41**。
+>
+> **🟢 對齊點修正（`docs/22` §17）**：使用者指出正確抓握姿勢是「四指按頂面、拇指按牆面」。
+> 量測證實**動畫本來就做對了**——`Climb2m` 四指末端貼頂面、拇指低一截貼牆面。
+> 錯的是我們把**手腕**釘在真實邊緣：手腕本該在頂面下方 **16.3 cm**、後方 **10.3 cm**，
+> 硬釘上去＝把角色抬高 16 cm、往前推 10 cm ⇒ **高度不準＋身體穿進牆裡**。
+> 改為對齊 **grip edge**（新增 `LeftGripEdgeInRoot`／`RightGripEdgeInRoot`，自動測出：
+> 頂面高度＋手部最前端接觸點）。⚠️ 頂面高度**攀爬取結束高度、翻越取垂直峰值**——
+> 用錯會讓 Vault 的 grip edge 翻負號。
+> 結果：抓握點對邊緣誤差 **0.000 m**，手腕回到動畫原本的相對關係，root 往後退 10.3 cm 不再穿模，殘差 **0.0 cm**。
+> 驗證：**EditMode 428／427 passed／0 failed／1 skipped**、**PlayMode 41／41**。
+>
+> **原 Phase 2 說明**：讓正式 Bake 真正能驅動 piecewise —— 擴充 `IMotionFeatureAnalyzer` 加 hand/contact
+> feature、自動推導六個 knot、統一 bake-space 與 runtime-space 的旋轉（目前 bake 存完整 rotation、
+> runtime 只按 yaw 還原）、並處理 `Bake_Vault1m` 的 3.26m 水平總位移（要分離 traversal 主體與助跑／跑出，
+> 現在會以 `HorizontalCorrectionExceeded` 失敗，至少已可觀測）。
+
+> # 🟢 2026-09-13 — Traversal V3 Correctness + Debug Pass 完成，停在 Editor Integration Gate
+>
+> **Playtest 四項答案／修正**：正式 Vault1m／Climb1m／Climb2m Bake 尚無 serialized Traversal block，故實際執行走
+> endpoint fallback，hand target 沒進 root execution，vertical 也在單一尾段 window 修正；repo 原本完全沒有 Hand IK；貼牆由
+> `TraversalEntryRejectReason.TooClose` 無條件拒絕。現已改為 V3 contact constraint 真正寫入 committed knots、Entry/Contact/
+> Transfer/Exit 分段 Y mapping、Exit→Recovery destination hold，以及 asymmetric Entry distance band（safe `AlreadyClose` 接受、
+> penetration 才 `TooCloseUnsafe`）。
+>
+> **Hand IK／Debug**：沿用 Presentation Pipeline 與 Animator IK seam 實作最小 Hand IK target/pose 雙管道；只讀 MotionDriver
+> committed plan/time，不讀 Probe、不查 Physics、不改 root。每手 author start/full/release，Exit 前 weight 平滑回 0；invalid/
+> unbound/unconfigured/disabled/outside-window/residual-too-large 均安全 weight=0 並顯示狀態。Entry、Contact、Vertical、IK 的
+> runtime TextMesh＋Scene Gizmo 已能顯示 current/desired、真正 reason、animated/target/error、original/warped/platform Y、
+> IK enabled/weight/target/animated/solved/residual。
+>
+> **目前驗證**：Unity compile 0 errors；Correctness＋Architecture focused EditMode 80／80；Traversal focused PlayMode 31／31；
+> full EditMode 407 total／406 passed／0 failed／1 existing skipped；full PlayMode 41／41（Jump／Roll／Action／Locomotion regression）。
+> 未修改 FBX／`.meta`／`.unity`／`.inputactions`／第三方動畫或任何 serialized asset value；未執行 Git。
+>
+> **唯一剩餘 Gate**：在三個 MotionBakeData author markers＋手骨＋IK timings 後重烘，使 Game debug 從 `Endpoint fallback`
+> 變成 `Piecewise V3`；Player Root 掛 `TraversalHandIKController`、Animator 物件掛 `TraversalHandIKRig`，再 Play 驗正常距離、
+> 合法貼牆、TooFar／TooCloseUnsafe／lateral／facing、三種 traversal、contact/vertical/IK 數值。本輪不要轉向 CollisionProfile。
+
+> # 🟢 2026-09-13 — Traversal V3 runtime／tests／docs 完成，停在 Editor Integration Gate
+>
+> **修正的五個真實根因**：①移除 Probe／Classifier speed gate，grounded stationary 改用 committed facing；②以 pure
+> `TraversalEntryPolicy` 分離 Candidate 與 Executable，太遠／太近／側偏／朝向超界 Reject；③ endpoint warp 升級為
+> Entry／左右手 Contact／Transfer／Exit／Recovery 固定六 knot；④ standing capsule 與 animated body envelope 的差異正式
+> 由 `TraversalCollisionProfile` 承載，不再誤寫成 capsule 大小單一原因；⑤ MotionBakeData 加 authored marker＋自動 hand-in-root sampling。
+>
+> **Environment／commit**：`TraversalLedgeFrame` 提供 edge origin、tangent、wall/top normal、合法 interval；Probe 仍是
+> 唯一 query owner，並預算 Entry→Clearance→Transfer→Exit fixed-capsule corridor evidence。JumpPressed 只消費 snapshot。
+> PlanBuilder commit 時計算 hand targets、root constraints、transfer clearance 與 piecewise corrections，執行期不回讀 Probe。
+>
+> **Collision／Recovery**：C0 fixed capsule baseline＋C1 centerOffset 已接；MotionDriver 是 center／height／radius 唯一 writer，
+> 保存 requested/actual/blocked delta、CollisionFlags 與實際 capsule。Exit、early recovery、failure restore 冪等；C2 height 與
+> C3 radius 為 disabled evidence-gated seam，未在無 Play 證據時啟用。Hand／Foot IK 保留為 root／collision 正確後的 quality pass。
+>
+> **自動驗證（Unity 6000.5.1f1）**：import／compile 0 errors；focused EditMode **92／92**、focused PlayMode
+> **35／35**；full EditMode **394 total／393 passed／0 failed／1 existing skipped**；full PlayMode **41／41 passed**。
+> 完整回歸涵蓋 Jump／Roll／Action／Locomotion；Architecture A39–A48 全綠。
+>
+> **硬邊界**：未修改 FBX／`.meta`／`.unity`／`.inputactions`／第三方動畫資產或既有 serialized asset values；未新增
+> StateType／blackboard plan 欄位／第二 movement authority；未擴 Free Climbing、Ledge Hang、Moving Platform、Air Grab；未執行 Git。
+>
+> **下一步只剩一次 Editor Integration Gate**：三支 traversal 各自 author Entry／hand Contact／Transfer／Exit／Recovery、
+> 選 hand bone 並重烘；Play 驗 stationary Jump、四種 Entry Reject 與 Vault1m／Climb1m／Climb2m。記錄 hand residual、
+> chest／pelvis／limb penetration、requested-vs-actual delta、Exit error、Recovery latency，再以證據決定 C2／C3 或最小 Hand IK。
+
+> # 🟢 2026-09-12 — Traversal V2 runtime／tests／docs 完成，停在 Editor Integration Gate
+>
+> **V2 的三項已驗證理由**（不是假說）：使用者實際 Play 發現① fixed baked trajectory 對環境高度／厚度／
+> entry distance 敏感，起點／終點／接觸點 alignment error 明顯；②部分低平台可由 Normal Jump 自然登上，
+> 卻被 Climb1m 搶走；③主要位移完成後仍等 animation 100%，visual tail 造成 recovery latency。
+>
+> **Selection**：新增純 static `TraversalSelectionPolicy`。Classifier／Probe 不變；Vault 永遠保留 contextual
+> traversal，Climb1m／Climb2m 則從既有 ground Jump bake 的 launch velocity、gravity 與倍率推導 apex，扣
+> `normalJumpReachSafetyMargin` 後決定 Normal Jump 或 Traversal。Policy 不查 Physics／Time、不寫黑板；
+> `JumpState` 不依賴 `TraversalProbe`。
+>
+> **Committed Motion Warp**：三種 kind 仍共用既有 `TraversalState`。`OnEnter` 只以 committed candidate、
+> entry pose、binding bake 建一次 `TraversalWarpPlan`；執行期不回讀 Probe。水平映射實際 destination，垂直保留
+> `VerticalCurve` shape，yaw 對齊 traversal forward；correction 只在 per-binding warp window smoothstep 吸收。
+> 每幀以 warped current-minus-previous delta 交給 `MotionDriver`／`CharacterController.Move`，沒有直接
+> `transform.position` teleport。退化資料回退 V1 committed motion，拒絕 early recovery，不產 NaN／巨大 spike。
+>
+> **Recovery**：每格 binding 新增 `recoverNormalizedTime`，有效值不早於 warp end。有效 warp 完成且到 recovery
+> 門檻後即可交還既有 `Jump → Move → Idle`，不等待動畫 1.0；`_canRecover` 與 `_isFinished` 分離，visual tail
+> 由既有 animation transition/blend 接手。沒有新增 Vault／Climb／Warp／Recovery StateType 或黑板欄位。
+>
+> **自動驗證（Unity 6000.5.1f1）**：batch compile 0 errors；focused EditMode 53／53、focused PlayMode 22／22；
+> full EditMode **379 total／378 passed／0 failed／1 existing ignored**；full PlayMode **36／36 passed**。
+> 完整套件涵蓋既有 Jump／Roll／Action／Locomotion。新增 J1–J5、WARP1–WARP7、R1–R5 與 A45／A46。
+>
+> **硬邊界**：未重設 Probe／Classifier、未新增 physics query owner、未新增 StateType／blackboard traversal 欄位、
+> 未修改 FBX／animation content／`.asset/.prefab/.unity/.inputactions`，未加入 IK，未執行 Git。
+>
+> **下一步只做一次人工 Integration Gate**：分別調 Vault1m／Climb1m／Climb2m 的 warpStart、warpEnd、
+> recoverNormalizedTime；default tolerance 不足時才調水平／垂直 tolerance。Play 測低平台 Jump 與三種 traversal，
+> 記錄 target 對齊誤差、腳／手接觸偏差、recovery latency、穿模／踏空。若 root／capsule 已正確而只剩末端接觸
+> 偏差，下一輪才評估 Hand／Foot IK。
+
+> # 🟢 2026-09-12 — Traversal V1 production wiring 完成，停在 Play Validation Gate
+>
+> **完成**：新增且只新增一個 `StateType.Traversal`／`TraversalState`；Vault1m、Climb1m、Climb2m
+> 依 committed candidate 共用同一個 lifecycle。Candidate 在 `CanEnter` 鎖存，執行期不回讀 Probe、
+> 不 query／reclassify；Traversal priority 高於 Jump，None 保留原 Jump fallback，`JumpState.cs` 未修改。
+> 三種 traversal 一律走既有 `ExecuteCommittedCurveMovement`，completion 前不可 transition；完成後由
+> `Jump → Move → Idle` authored transitions 決定 grounded ambient 或既有 airborne fall-entry。
+>
+> **資料／治理**：用最小 `TraversalStateParamsSO` 三格 binding（animation key＋MotionBakeData），未建立 library／
+> dictionary framework。新增 `ADR-008` Trial，僅記 Integration topology；ADR-006／007 未因本輪被虛構成 Accepted。
+> `PlayerRuntimeData` schema、`IMovementModel`、`BaseState` 與既有 ownership 不變。
+>
+> **Production asset wiring（使用者明確授權）**：`TraversalStateParams.asset` 已接 Vault1m／Climb1m／Climb2m；
+> 三個 Animancer TransitionAsset 直接引用既有 FBX sub-clip；既有 Motion Bake pipeline 以 30 FPS 產出三份 bake，
+> 垂直峰值約 1.02／1.18／2.00m。`PlayerStateMachineConfig` 的 Traversal priority=30、interrupt 空、transitions
+> `Jump → Move → Idle`，Idle／Move 可進 Traversal；`X Bot.prefab` 已有三個對應 Animancer mapping。
+>
+> **工具／自動驗證（production 專案，Unity 6000.5.1f1）**：官方 Unity CLI **1.0.0-beta.9** 與專案
+> `com.unity.pipeline` **0.7.0-exp.1** 已安裝。Runtime／Editor compile 0 errors；EditMode
+> **363 total／362 passed／0 failed／1 existing ignored**（含新增 wiring tests 3／3）；PlayMode **26／26 passed**。
+> 新增 T1–T9（另含 animation-start guard）與 A43／A44；既有 Jump／Roll／Action／Locomotion 全套無 regression。
+> 既有 Probe PlayMode fixture 補 `Physics.SyncTransforms()`，消除 batchmode 建地面後立刻開跳的初始化時序不穩定；
+> runtime 行為未因此變更。
+>
+> **硬邊界**：只在使用者後續明確授權後修改指定 `.asset`／`X Bot.prefab`；未改 `.unity/.inputactions`、FBX／
+> animation content、Probe／Classifier，未做 warping／MatchTarget／IK／capsule resize，未執行 Git。
+>
+> **下一步只做人工 Play Validation**：驗 1m 薄牆、1m 厚平台、2m climb、None→Jump、vault 落差→Falling；
+> 記錄起／終點誤差、穿模、踏空、手腳接觸偏差。
+> 本輪不修 alignment；證據回來後才判斷小型 target correction 或 Motion Warping。
+
+> # 🟢 2026-09-12 — Traversal V1 Environment Probe ＋垂直位移通道完成，停在 Integration Gate
+>
+> **工作包**：`docs/22-traversal-v1.md` §9 的 W1–W11 與 §9.3 測試已同批完成。
+> `Core/Environment` 現有唯一 physics-query owner `TraversalProbe`、純函式 `TraversalClassifier`、
+> 高度／depth 雙遲滯、完整 candidate／reject snapshot，以及只讀 snapshot 的 Game View runtime lines
+> 與 Scene View Gizmo。Runner 只在順序 2.7 可選 Tick；candidate 不進黑板，尚不驅動任何 State／Motion。
+>
+> **垂直通道**：`MotionBakeData.VerticalCurve` 與 analyzer 已落地；
+> `MotionDriver.ExecuteCommittedCurveMovement(...)` 以播放頭前後差值消費水平／垂直曲線，期間暫扣重力，
+> 但仍經共用 `SyncGroundedState` 發布 `IsGrounded／VerticalVelocity／JustLanded／JustLeftGround`。
+> 舊的 Jump／Roll／Action／Locomotion 呼叫端與路徑未改。
+>
+> **自動驗證**：Runtime build 0 errors（2 個既有 framework warning）；Editor build 0 errors
+> （7 個既有 reference warning）；隔離副本的 EditMode 全套 **358 total／357 passed／0 failed／1 skipped**，
+> PlayMode 全套 **16／16 passed**。隔離副本因 `com.kitwright.unity.mcp` 與 Unity 6000.5.1 API
+> 不相容而只在副本移除該 package；原專案的 package／資產均未改。
+>
+> **硬邊界狀態**：未新增 StateType／黑板欄位，未改 `IMovementModel`／`BaseState`，未修改任何
+> `.asset/.prefab/.unity/.inputactions` 或動畫美術資產，也未執行 Git 操作。原本已開啟的 Unity Editor
+> 自動為新增 `.cs` 產生標準 companion `.meta`；Codex 未手動編輯任何 `.meta`。
+>
+> **接線已完成並靜態核對（2026-09-12）**：玩家 `X Bot.prefab` Root 有且只有一個 `TraversalProbe`，
+> 與 `CharacterController`／`CharacterPipelineRunner` 同物件；`obstacleMask = 19`，涵蓋 SampleScene 的
+> Default layer 並排除 Player／Enemy。兩個 debug 通道目前開啟；SampleScene 的 X Bot instance 正常繼承，
+> 沒有 component removal／override；敵人 `Y Bot` 維持不掛 probe。
+>
+> **下一步只剩人工 Integration Gate**：烘三支 traversal `MotionBakeData`、依場景調 W4 tuning，
+> 最後 Play 驗 debug 線與既有 gameplay 手感。⛔ 不要在此之前
+> 擴到 Traversal State／FSM 接線；那是 §9.5 的下一個工作包。
+>
+> # 🟠 2026-09-12 — Traversal state reconciliation（純文件輪，無程式變更）
+>
+> **起因**：使用者指出「traversal 之前已做過實際驗證，只是忘記同步文件」，要求以實際狀態為基線重整文件。
+>
+> **掃描結果：在本 repo 內找不到任何 traversal 實作或驗證產物。** 九條可重跑的檢查與結果全部記在
+> `docs/22` §0.0——**⛔ 下一個會話不要再重跑一次同樣的搜尋。** 摘要：所有分支的 commit grep 0 筆、
+> stash 空、`Assets/Scripts` 與 `Assets/_Project` 的 traversal 符號只有 1 筆註解、`StateType` 仍是 6 個、
+> 烘焙資產 0 筆、場景只有一般關卡幾何。⚠️ 證據限制：`.gitignore:100` 忽略整個 `MovementAnimsetPro/`，
+> 第三方動畫包的匯入工作在 git 中不可見（但程式與 SO 都在版控內，故程式面結論可靠）。
+> **若使用者能指出驗證所在（另一個專案／筆記／截圖），`docs/22` §0.0 與 §3 應立即重寫。**
+>
+> **真正找到的不同步（已修）**：`WORKLOG` 裡 combined vertical slice 的 Play 證據**從未回填 ADR 勾選框**，
+> 導致 `docs/17` §7-F4 記成「七條驗收一條都沒打勾」，下一輪規劃因此低估進度、過度保守。已 fold back：
+> **ADR-006 → 5/8 通過**（剩 E 回歸、H 零 GC）、**ADR-007 → 4/7 通過**（剩 A2、E、G，F 只驗 EditMode）。
+> ⇒ **兩份 ADR 剩下的都不是程式，是「兩次 Play ＋ 跑一次 PlayMode ＋ 一次 Profiler」。**
+> 做完即可翻 `Accepted`，`docs/18` §6-C 的 **X-3**（新增 `TraversalState`）隨之自動解除。
+>
+> **`docs/18` §6-C 文案已修**：舊標題「暫時不要做」被後續會話誤讀為永久禁令。改為五態狀態欄
+> （🧊benchmark-freeze／⏸roadmap-defer／🔬spike-done／🚧in-implementation／⛔prohibited），
+> 並明寫「⛔ 不得把 🧊 讀成 ⛔；判斷方式是解除條件成立了沒」。**未更動任何裁決內容。**
+>
+> **三個技術結論複查**：①⛔ **`Climb1m` 無素材是錯的，已由使用者指正並更正**——三支 clip 齊全，
+> `Vault1m`／`Climb2m`／`Slide` 在 `SlideClimb.fbx`，**`Climb1m` 在 `RunStrafeUpdate.fbx`**（皆 Humanoid、loop 0）。
+> 成因是搜尋只比對 FBX **檔名**。**教訓：Kubold 的檔名不預測內容，找 clip 必須窮舉所有 `.meta` 的 sub-clip**
+> （`for f in $(find Assets -iname "*.fbx.meta"); do grep -H "^      name:" "$f"; done`），已寫進 `docs/04` §2 與 `docs/22` §0.0。
+> **連帶反轉**：`Vault1m` 與 `Climb1m` 同為 1m ⇒ 高度分不開 ⇒ **obstacle depth 是 V1 必要維度，且必須在 P1 就進分類器**；
+> ②垂直位移缺口**確認仍存在**，無任何 branch／commit 修過；
+> ③`JumpState` 搶狀態**已對資產核實並修正結論**——中途搶奪可由「`CanBeInterruptedBy` 留空」排除
+> （Jump／Roll 今天就是這樣），**真正的 must-fix 換成「退出幀是否 grounded」**，只能 Play 驗。
+>
+> ⚠️ 本輪**只動文件**（`docs/17`／`docs/18`／`docs/22`／`docs/00-map`／ADR-006／ADR-007／本檔），
+> 未動任何 runtime code。不做任何 Git 操作。
+
+> # 🟡 2026-09-11 — Spell 8-way＋soft target combined vertical slice 已實作，結構性 Play 通過，待腳步手感驗收
+>
+> 使用者批准 ADR-006／007 暫時同為 Trial 的一次性例外。X Bot 四個 Spell key 已 author 成 Layer 1
+> `Human Body Upper Mask`，Layer 0 companion 指向 Spell 專用 `Locomotion_2D_Spell_WalkRun`；一般 Idle／Move
+> 仍維持原 Layer 0／1D。`AnimancerFacade` 統一處理 overlay 淡入淡出與兩層預熱，ActionState 仍只送 key。
+> 舊 `UpperBodyWeight` dead field 已移除。
+>
+> `PlayerCombatContextSource` 在同一 target producer 內發布無記憶 soft candidate：12m、水平半角 25°、
+> camera alignment 優先、distance 次要。Fireball／Ice 顯式採 `CameraConeSoftTarget`；每個 Action／連段段落
+> 開始只取一次，段內不追蹤、不 fallback，facing 與 projectile release 共用同一 commitment。全套 EditMode
+> 330 passed／0 failed／1 skipped，Unity compile 0 errors。Live Play 已驗證：Spell 時 Layer 0 保持 8-way、
+> Layer 1 播 Fireball／Ice 且使用 upper-body mask；Forward／Backward／Left／Right／Forward-right 能依
+> `MoveX / MoveZ` 選到對應 child；Action 結束 overlay 歸零；無目標、前方、側方、背後、雙目標與段內
+> target 消失情境皆符合 snapshot 規則，Console 無 gameplay error。仍待使用者以正常鏡頭／輸入驗收動畫
+> blend、瞄準修正量與整體手感；無新 hard lock-on／方向來源／movement policy。
+>
+> 🆕 原 FullRing 把全套 Run directional clips 校正到 Sprint 6.2614 m/s，造成現行 Walk／Run 腳步快轉。
+> 已改為 Walk 8-way（radius 0.35）＋Run 8-way（radius 0.75）雙環；各 child playback 由該 gait 的
+> target world speed／各自 `MotionBakeData` 推導。補齊四支 Walk diagonal bake，兩支異常 import clip 已套回
+> Locomotion-位移 SOP。Sprint gait、`Gait_ActionRPG` 與 MotionDriver 的 Sprint 最大速度來源皆未改；
+> directional Sprint ring 刻意延後到 Sprint 操作真正啟用時。Live Play 接線抽查：Layer 0＝新 mixer（17 children），
+> Walk Left／Backward 分別為 `1.33274×`，Run Left／Backward 分別為 `2.16935×`／`2.12143×`；
+> Layer 1 Ice 同時保持播放，Console 無 error。待使用者確認腳步快轉觀感已改善。
+
+> # 🟡 2026-09-11 — Enemy Punch locomotion 滑動已修正，待 Play 驗證
+>
+> 根因不是 root motion 或 Punch_Move，而是 `EnemyPunchDefinition.Start.Bake` 原本為 null：
+> `ActionState.OnUpdateMotion` 因此走 `ExecuteBaseMovement`，在 Punch 播放期間繼續消費 AI 留在 blackboard 的
+> `MoveDirection / MoveSpeed`。已用既有 `MotionBakeEditor.BatchBake`（X Bot humanoid sample rig、60 FPS）
+> 對 `Enemy_Punch_R` transition 實際引用的 `Fists_Punch_R` FBX sub-clip 建立
+> `Bake_Fists_Punch_R.asset`，並接到 `EnemyPunchDefinition.Start.Bake`。Bake 與 clip duration 均為
+> 0.8000001 秒，`AutoAverageSpeed`、所有水平 speed samples、`TargetLocalDirection` 皆為 0；
+> 因此 Action 期間走既有 baked-motion 分支，不再消費 AI locomotion 水平位移。Fireball／Ice 仍維持
+> no-Bake → `ExecuteBaseMovement`，未新增 MovementLock／AttackMovementPolicy。新增
+> `EnemyPunchMotionWiringTests` 鎖定接線、provenance、duration、零水平位移與兩個玩家法術 no-Bake；
+> 相關 EditMode tests 51/51 passed，Unity compile 0 errors。
+>
+> 施法 8-way 後續已於本檔最上方的 combined vertical slice 落地；本段只保留 Enemy Punch 交辦歷史。
+
+> # 🟡 2026-09-11 — Y Bot combat directional locomotion minimum set 已實作，待 Play 驗證
+>
+> Y Bot 的 `Move` 已改接專用 Cartesian 2D mixer：Idle＋`WalkFwdLoop`／`WalkBwdLoop`／
+> `StrafeLeftLoop`／`StrafeRightLoop`，不含 diagonal、Run、Crouch，所有 child playback speed 都是 1。
+> Back／Left／Right 已用既有 60 FPS 流程補 `MotionBakeData`；Y-only
+> `CombatDirectionalSpeedProfileSO` 直接引用四方向 bake 與 MotionDriver 同一份最大速度 bake，
+> `LocomotionModel` 只在該 actor `InCombat` 時以 committed facing local direction 套用 bake-derived speed cap。
+> X Bot profile 維持 null、`Move` 仍指向原有 1D `Locomotion.asset`。Unity 編譯 0 errors；本輪指定
+> EditMode tests 13/13 passed。注意：這組 walk cardinal bakes 都約 1.64435 m/s，並沒有素材內建的
+> strafe/back 較慢差異；刻意不手填第二套倍率，待 Play 後再由使用者決定是否要換素材政策。
+
+---
+
+> # 🟡 2026-09-11 — Enemy AI v1 baseline 已收斂，待 Play 驗證
+>
+> 採 A 方案：既有 `AIMovementSource` 擁有 aggro 8/12 黏性進出與 tactical movement；
+> `AIInputSource` 擁有 attack pulse／0.5s retry；`CharacterFacingSource` Priority 2 擁有敵人 persistent facing；
+> `ActionState` 保持唯一執行權威。`EngagementMovement` 新增明確 `Strafe`，`Hold` 收斂為零移動 fallback，
+> 不再用「Hold」名稱承載側移行為。新增 T35 證明 pulse 後下一幀 external Reaction 可被消費；
+> W15 守同一 target、aggro／engagement／attack 三層距離關係。未來 Utility 僅記於 `docs/21`，未實作。
+
+---
+
+> # 🟡 2026-09-11 — Enemy attack request pulse 已實作，待 Play 驗證
+>
+> `AIInputSource.WantsToAttack` 保留持續條件；`Slot1ButtonDown` 改為首次入圈立即送、留圈每 0.5 秒重試、
+> 離圈重新武裝的單幀 pulse。retry 只代表 producer 多久重送 request，不是 cooldown；AI 未讀 FSM／ActionState，
+> `ActionState` 的 cooldown／variance／grounded／lifecycle 權威與既有 intent-vs-Reaction 仲裁皆未改。
+> `AIInputSourceTests` 已覆蓋首次、非逐幀、interval 前後、離圈、重入；A27 另守 AI 不反向依賴狀態機，
+> 並鎖住 `PlayerInputSource` 三個 slot 仍採 `WasPressedThisFrame()`。純 C# 驗證完成後停在 Integration Gate，
+> 等使用者 Play 驗證 Enemy cadence 與 Fireball／Ice／Melee reaction starvation 是否解除。
+
+---
+
+> # 🟡 2026-09-10（最新裁決）— Observability 範圍收斂 ＋ Foot IK Game View probes 已實作（**待 Unity 驗證**）
+>
+> **本段取代下方較早的 O-1 四箭頭交辦。** world-space debug presentation 只保留兩類：
+> ① Traversal／可跳上平台檢測；② Foot IK。判準是「玩家看角色行為時，無法知道系統實際採樣了
+> 什麼世界幾何資料」。Facing／MoveDirection／Direction Authority 不再投入四箭頭、history 或 HUD；
+> Direction Authority 的 Editor-only snapshot 與 A33 測試保留，日後 combat 8-way 有具體問題再重開。
+>
+> ## 已完成
+>
+> 1. `CharacterFacingSource`：移除四箭頭、deadzone、label；保留 `RecordFacingDebug` snapshot。
+>    A33 改守「只記錄、不重算、無 world-space presentation、無跨檔讀取」。
+> 2. `FootIKController`：在既有 query 點快取本幀真實 ankle／heel／toe probes、hit／miss、raw normal、
+>    clamped `SoleNormal`、residual lift、pre-IK goal 與最終 target／sole pose。Game View 主通道改用
+>    runtime `LineRenderer`，正常 Play 即可看且不依賴 `Gizmos`；Scene View 另保留 `OnDrawGizmos` 詳查。
+>    🆕 同一 snapshot 另畫 heel origin → toe origin 的深灰連線，並以薄荷綠箭頭顯示 production offset
+>    真正使用的 corrected foot-space `+Z`；不改解算、不改 offset、不新增 query。
+>    🆕 Scene View 再以實心點標出 `L/R BASE`、`L/R HEEL`、`L/R TOE`，並畫 BASE→HEEL 橘線、
+>    BASE→TOE 藍線。BASE 快取的是 `sample.TargetPosition`（corrected ankle target），不是原始
+>    Animator IK goal／bone Transform；既有 wire sphere 是 query hit／miss end。
+> 3. 新增 A34：Foot IK runtime renderer／Scene Gizmo 禁止重新呼叫 Physics／sampling API；
+>    Game 主通道必須使用真正 renderer，禁止以 `Debug.DrawLine` 或 selected-only Gizmo 代替。
+>    零新黑板欄位、零新 public API、零 Debug Framework；只存在於 Editor／Development debug。
+> 4. 文件同步：`docs/05` §3.5.5、`docs/18` §1、`docs/17` 檔頭、`docs/02` §7.1。
+>
+> ## Traversal 邊界
+>
+> Production code 目前缺的是**角色前方 obstacle query 本身**，不只是缺 traversal candidate owner。
+> 全域盤點到的 physics query 只有 Foot IK 向下射線、相機遮擋 SphereCast、鏡頭瞄準 Raycast、
+> 地面特效的向下探地／附近碰撞，以及戰鬥目標 overlap；沒有任何查詢會產出角色前方的
+> origin／direction／distance／hit point／hit normal。`CharacterController` 的 isGrounded／stepOffset／
+> slopeLimit 也不暴露這些資料；`MotionDriver` 的 `CharacterController.Move` 是碰撞解算，且忽略
+> `CollisionFlags`、沒有 `OnControllerColliderHit`／hit snapshot。因此本輪只固定未來顯示契約：前方 probe、obstacle hit、
+> top／standable candidate、clearance、最終可跳判定。
+> 不建立假 drawer、不為顯示發明 world data；等真正 query＋classification owner 落地時一起實作。
+>
+> ## 驗證與 Integration Gate
+>
+> - Runtime build：✅ 0 errors（2 個既有 NUnit target-framework warnings）。
+> - EditMode CLI build：✅ 以 NUnit 相容目標 `TargetFrameworkVersion=v4.7.2` 建置為 0 errors；
+>   預設 4.7.1 會觸發既有 NUnit 參考失配。Unity EditMode 實跑仍待驗。
+> - Unity：跑 EditMode 全套，特別確認 A2／A33／A34 與既有 FootIKTests。
+> - Game View **關閉 `Gizmos`**、不選角色，仍應看到雙腳 runtime probes：cyan ankle、orange heel、blue toe；
+>   miss 紅色；黃色 raw normal、綠色 clamped sole normal；洋紅為 pre-IK goal → target／sole pose。
+> - 深灰線必須直接連 heel/toe sample origins；薄荷綠箭頭由兩點中點指向 foot-space `+Z`／toe 方向。
+>   由上方觀察其 XZ 投影是否與模型腳掌長軸一致；此項只驗 basis，不調 `HeelOffset`／`ToeOffset`。
+> - 關閉個別 `drawFootIKRuntimeLines` 應只關 Game View runtime 線；切換 Game View `Gizmos` 不應影響它。
+> - Scene View 的細節由 `drawFootIKSceneGizmos` 控制；它不是 Game View 可見性的前提。
+> - 確認 Direction Authority 四箭頭／文字已不再出現。
+>
+> ⚠️ 不做任何 Git 操作；由使用者自行 commit。
+
+---
+
+> # ⛔ 2026-09-10（較早方案，已被上方最新裁決取代）— Benchmark fold-back ＋ O-1 四箭頭歷史紀錄
+>
+> ## 開場指令
+>
+> **直接做 Integration Gate 檢查清單，不要重新規劃。** 使用者已裁決的界線寫在下方，照做即可。
+>
+> ## A. 已完成（純文件 fold-back，無程式風險）
+>
+> | # | 內容 | 檔案 |
+> |---|---|---|
+> | 1 | `docs/18` §7 的 **S1–S7 全數套用**到 `docs/17`：**S2** 撤回「traversal 是 jump 特化」（推理錯誤）、**S4** 更正「第一份 world 資料」事實錯誤（`CombatContext.TargetPosition` 早是先例）、**S1** 時間軸全表重算（debug 預覽段 **28%**、traversal 全段 **37%**）、S3 腳步 IK「提前采样」列為未定、S5／S6 Ground Normal 由 🔴 校準為 🟡／🟢、S7 補 `stepOffset`／`slopeLimit` 真缺口 | `docs/17` |
+> | 2 | `docs/17` §7-**F1 已解決**（211 筆未 commit 工作已由 `71f5a5c` 入版控），檔頭修訂提示同步 | `docs/17` |
+> | 3 | **F7 fold back**：dev-spec §1.1 `MoveDirection` `Vector2` → **`Vector3`**（程式碼區塊 ＋ 權限表型別欄）。⇒ **ADR-007 翻 Accepted 的這項阻礙已排除** | `docs/02` |
+> | 4 | **F8 fold back**：dev-spec §1.1 補 **`CombatContext`** 欄位與權限表列；§2.1 補**順序 2.6**（Combat Context Producer）與**順序 4.6**（CharacterFacingSource），兩列都寫明「為什麼只能卡在這個夾縫」 | `docs/02` |
+> | 5 | 新增 **§2.9 Continuous／Committed／Suspended** 詞彙（定義 ＋ repo 案例對照 ＋ committed≠targeted 兩軸 ＋ Jump 逐軸混合）。⚠️ **只是分析模型，不是契約**：不改 `IMovementModel`／state contract、不進 dev-spec §1／§2／§3.1、**未開 ADR** | `docs/01` |
+> | 6 | `docs/00-map.md` 指標同步（`docs/18` 狀態改為已套用；新增 §2.9 的最短路徑列） | `docs/00` |
+>
+> ## B. 已完成（程式）— Observability **O-1 Direction Authority 三箭頭**
+>
+> **宿主**：`Assets/Scripts/Core/Facing/CharacterFacingSource.cs`（全專案唯一同時看得到
+> Action commitment／`MoveDirection`／`transform.forward` 的地方，ADR-007 D3）。
+>
+> - `Tick` 由「兩段 early-return」改為**單一出口**（`&&` 短路，**逐位元等價**），讓 debug 快照有唯一記錄點。
+> - 新增 `#if UNITY_EDITOR` 區塊：`RecordFacingDebug`（**只賦值不判斷**，零 GC）＋ `OnDrawGizmos` 四支箭。
+> - 四支箭**畫在不同高度**（forward 0.05／move out 0.25／intent 0.45／request 0.65）：
+>   一致時疊成整齊垂直堆，任何分岔一眼看得到（同高度會 z-fight，看不出差 0.5° 還是完全一致）。
+> - 顏色：白＝實際朝向｜綠＝model 輸出｜藍＝意圖｜**洋紅＝Action commitment 贏**｜**黃＝MoveDirection 贏**｜紅＝快照過期。
+> - Action commitment 來源時另畫**死區扇形**（回答「死區是不是吞掉了本幀請求」）。
+> - Label 印：outcome（`RequestSent`／`DeadzoneSuppressed`／`NoDirection`）、來源、死區角度、**∠(move out → forward)**。
+> - `[SerializeField] drawDirectionAuthorityGizmos = true`（Editor-only）＝ per-character 總開關，**不需要接線**（新欄位取 C# 初始值）。
+> - **Play 中從未被 Tick** ⇒ 紅字明講「是接線問題，不是 facing 邏輯」；Edit mode 不吵。
+>
+> **守住的界線**（使用者裁決）：`#if UNITY_EDITOR` 全包｜零新黑板欄位｜零新 public API｜
+> 不重算 facing policy｜無 runtime HUD｜無新 Debug framework。
+>
+> **新增架構測試 `A33_FacingDebugSnapshot_RecordsWithoutRecomputing`**：
+> ①四個 drawer 方法體內**禁止**出現 `TryResolveFacing`／`ShouldRequestFacing`／`IsWithinFacingDeadzone`／
+> `TryGetActiveFacingCommitment`／`RequestFacing`（＝「記錄，不要重算」的機器化）；
+> ②`_debug*` 欄位不得被任何其他 runtime 檔案讀取（單向紀律）。
+>
+> ## C. ⚠️ 驗證狀態（**誠實分界**）
+>
+> | 項目 | 狀態 |
+> |---|---|
+> | `dotnet build Project.Runtime.csproj` | ✅ **0 警告 0 錯誤** |
+> | `dotnet build Project.Tests.EditMode.csproj` | ✅ **0 錯誤**（4 個 MSB3277 是既知的組件參考噪音） |
+> | EditMode 測試實跑 | ❌ **未跑**——需要 Unity Test Runner（我跑不到） |
+> | Play 驗證 | ❌ **未做** |
+>
+> ## D. 🔴 Integration Gate — 需要使用者在 Unity Editor 做的事
+>
+> 1. **開 Editor 讓它重新編譯 ＋ 生成 `.meta`**（本輪沒有新增 `.cs` 檔，只改既有檔案，風險低）。
+> 2. **跑 EditMode 全套**，特別確認新增的 **A33** 與既有的 **A2／A31／A32／W11** 全綠。
+> 3. **Play 驗收 O-1**（這就是 O-1 的第一個真實驗收案例）：
+>    - Scene／Game view 打開 Gizmos。
+>    - **玩家**：一般移動時四支箭應同向；**施法／攻擊瞬間**箭頭應轉為**洋紅**（Action commitment 贏），
+>      且身體朝向被承諾方向拉住。
+>    - **敵人（Y Bot）**：進入戰鬥後應**持續** target-facing——側移／後退時
+>      **綠（move out）與白（forward）應該分岔**，這正是 8-way 要驗的東西。
+>    - 若出現紅字「從未被 Tick」⇒ 該角色的 Runner 沒排到 `CharacterFacingSource`，是接線問題。
+> 4. **Git commit（使用者執行）**——建議切點：`docs/17` `docs/18`（新檔）`docs/00` `docs/01` `docs/02`
+>    ＋ `Core/Facing/CharacterFacingSource.cs` ＋ `ArchitectureRegressionTests.cs`。
+>    ⚠️ `docs/artifacts/architecture-tour.html` 也在工作樹中被改動，但**不是本輪產出**，請自行判斷是否一起進。
+>
+> ## E. ➡️ 下一個實作區塊（使用者已裁決，**O-1 可用後直接開始，不要再擴張 observability**）
+>
+> **Combat / casting lower-body 8-way locomotion。**
+> - 玩家與敵人**共用同一套** 8-way locomotion／`MoveX`／`MoveZ` 解算，**不做兩套 controller**。
+> - 差異**只在 facing policy**：Player 只在需要的 combat／casting 情境取得 combat-facing；
+>   Enemy 進入 combat 後**持續**維持 target-facing（側移／後退／迂迴／施法時皆然）。
+> - 動畫方向解算鏈：**world movement → relative to current committed facing → MoveX／MoveZ**。
+>   ⛔ **不得**直接拿 camera-relative direction 當動畫方向。
+> - ⚠️ 若實作中發現 **ADR-007 尚未滿足的驗收條件會阻塞 8-way**，**回報具體 blocker，不要自行擴張 scope**。
+>
+> **暫緩**（使用者明確排序）：O-2 Foot IK 探測可視化、O-3 Stop trace。⛔ 不要同時展開。
+>
+> ## F. 🟡 本輪新發現的 finding（**只回報，未自行裁決**）
+>
+> **F10 — `docs/02-dev-spec.md` §7.1 自動項清單漏了 9 條已存在的架構測試**
+> （`A12` `A14` `A15` `A27` `A28` `A29` `A30` `A31` `A32`；本輪已補登 `A33`）。
+> ⚠️ 其中 **`A31`／`A32` 正是 ADR-007 D3 的兩條核心不變量**——機器守著，人讀的清單裡卻不存在。
+> `CLAUDE.md` Context Discipline 把 §7.1 表當成「最便宜的正確架構摘要」，漏三分之一就不能再當摘要用。
+> **不是本輪造成的**；逐條補寫要讀 9 支測試，屬獨立工作包 ⇒ **是否排程由使用者決定**。詳見 `docs/18` §8-F10。
+
+---
 
 > # ✅ 2026-09-10（同日後續）— 敵人失地：精簡 Jump 資產 ＋ Y Bot 映射已接線，W13 綠
 >
