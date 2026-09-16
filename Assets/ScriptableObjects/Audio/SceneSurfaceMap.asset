@@ -28,3 +28,9 @@ MonoBehaviour:
     Surface: 1
   - Material: {fileID: 2100000, guid: 31321ba15b8f8eb4c954353edc038b1d, type: 2}
     Surface: 1
+  - Material: {fileID: 2100000, guid: 0f172d6685f3cc84da5b1d10aebccb5c, type: 2}
+    Surface: 2
+  - Material: {fileID: 2100000, guid: 57d89eb40abf8ba46b67907aa953c3fa, type: 2}
+    Surface: 3
+  - Material: {fileID: 2100000, guid: 96af5d935fe9d5748b436d6c3bac1f05, type: 2}
+    Surface: 4
