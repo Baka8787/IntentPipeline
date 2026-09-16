@@ -1,9 +1,10 @@
 # 38 — Valid Standing Support（碰撞支撐 ≠ 可站支撐）
 
-> **狀態**：研究 ＋ 兩個 throwaway spike 已完成。**⛔ 尚未接線，停在設計裁決點。**
-> 本輪**沒有**改 CharacterController radius／prefab／JumpState／Falling entry／traversal，
+> **狀態**：✅ **已裁決並落地（2026-09-17）——採用方案 B，`supportRadius = 0.14`。**
+> EditMode 596／595 passed、PlayMode **66／66**（+5 條 `StandingSupportTests`）。
+> ⛔ **人工 Play 驗收未做**（見 §9）。throwaway spike 已依規則刪除，數據固化為測試斷言。
+> 本輪**沒有**改 CharacterController radius／prefab capsule／JumpState／Falling entry／traversal，
 > **沒有**把 Foot IK 升成 grounding authority，**沒有**新增 StateType。
-> EditMode 596／595 passed 不變。
 
 ## 0. 問題陳述
 
@@ -377,11 +378,53 @@ if (grounded && !HasValidStandingSupport()) grounded = false;   // ← 唯一新
 
 ---
 
-## 8. 現況與下一步
+## 8. ✅ 落地紀錄（2026-09-17）
 
-- Spike 檔案**保留**（裁決未定，數據需可重現）。⚠️ **裁決後若不採用 B，刪掉它。**
-- ⛔ **沒有任何 grounding authority 被接進正式 state machine。**
-- 外部原碼副本在 session scratchpad（`refs/`），**未進 repo**——
-  它們是第三方原碼，本文已記錄來源與版本，重抓即可。
+使用者裁決：**採用 B，supportRadius ≈ 0.14。**
 
-**等待裁決**：採用 B（`supportRadius` 取多少）／改用 C／維持現況。
+| 檔案 | 實際改動 |
+|---|---|
+| 🆕 `Presentation/Motion/StandingSupportProbe.cs` | 純靜態函式（~90 行），`SphereCastNonAlloc` ＋ 呼叫端持有緩衝 ⇒ **零配置**。過濾自身 collider、過濾起始重疊、比對 slope limit |
+| `Presentation/Motion/MotionDriver.cs` | `SyncGroundedState` 的等號改為 `isGrounded && HasValidStandingSupportThisFrame()`；＋4 個 `[SerializeField]`；＋每帧快取 |
+| 🆕 `Tests/PlayMode/StandingSupportTests.cs` | 5 條：邊緣更嚴格／樓梯不誤判／斜坡不誤判／平地不否決／設定退化不否決 |
+| `Prefabs/X Bot`、`Y Bot` | **只填新欄位**；已複查 `m_Radius` 仍為 **0.32**（前後皆印出比對） |
+| ⛔ 刪除 | `Tests/PlayMode/ValidStandingSupportSpike.cs`（throwaway，數據已固化成斷言） |
+
+### 8.1 兩個實作期的設計決定
+
+**① 每帧只查一次。** `SyncGroundedState` 在一帧內會被多處呼叫（重力路徑、committed 垂直曲線、
+traversal 各段共 9 個呼叫點），不快取就是每帧多次 SphereCast。
+比照同檔 `GetGravityThisFrame` 既有的 `_gravityFrame` 慣例。
+
+**② 只有否決權、沒有授予權。** `isGrounded == false` 時本層完全不介入；
+設定退化（radius 0／depth 0／buffer null）時**一律回 true**——
+失敗方向必須是「什麼都不做」，而不是讓角色憑空掉下去。由 `DegenerateSettings_DoNotVeto` 守住。
+
+### 8.2 🐛 測試抓到的設定錯誤（與 spike 同一個坑，第二次踩）
+
+樓梯／斜坡測試第一版從 y=3.0／6.0 放下，但沉降只走 12×0.03 = 0.36 m ⇒ **根本沒落地**
+⇒ 取樣數 0、斷言空轉。**`Assert.Greater(checkedSamples, N)` 的前提斷言救了這次**——
+沒有它，兩條測試會「通過」而實際什麼都沒驗。
+⇒ 樓梯／斜坡改為先 raycast 找表面；**平台邊緣掃描刻意不用**（邊緣外探不到表面，
+會退回高空起點 ⇒ 量測工具在待測區域失效）。
+
+---
+
+## 9. ⛔ 還沒做的：人工 Play 驗收
+
+自動化涵蓋「數字對不對」，涵蓋不了「看起來對不對」。請實際 Play 看：
+
+1. **平台邊緣**：站到極限邊緣，腳尖懸空應從 0.434 m 降到約 0.204 m。走過去會**更早**開始下墜。
+2. 🔴 **Foot IK 的副作用**（最可疑的一項）：`FootIKController` 的閘門是 `data.IsGrounded`
+   ⇒ 站在邊緣時 Foot IK 會**更早關閉**，腳可能突然彈回動畫姿勢。
+   **這一項可能讓邊緣的視覺變差**，只能人眼判斷。
+3. **樓梯／斜坡**：上下樓梯、走斜坡不得有任何憑空下墜（測試已覆蓋合成幾何，但實際場景的
+   collider 組成不同）。
+4. **Traversal**：貼邊起攀的條件會變嚴（`TraversalState` 讀 `IsGrounded`）。
+5. **落地音效**：`JustLanded` 邊沿時機改變；目前 Landing 走 Footstep Bank，應照常。
+
+⚠️ 若邊緣視覺因 Foot IK 反而變差，**先調 `standingSupportRadius` 往上**（0.18／0.22 的數據見 §5.1），
+⛔ 不要去關 Foot IK 的閘門——那會動到 Foot IK 鐵律。
+
+📌 若 0.204 仍嫌寬，**方案 C 的 2/3 footprint 是現成的下一階**（實測 0.114，同樣 0 誤判）。
+外部原碼副本在 session scratchpad，未進 repo；本文已記錄來源與版本，重抓即可。

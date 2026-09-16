@@ -101,6 +101,17 @@ namespace Project.Core.Blackboard
         /// 而 Move() 發生在本影格 LateUpdate，狀態機 Tick 發生在 Update，順序上更早。
         /// 因此本影格 Update 讀到的 IsGrounded，實際上是「上一影格」LateUpdate 結算後的結果，
         /// 這是 CharacterController 架構下的正常延遲，非 Bug，使用端只需知悉即可。
+        ///
+        /// <para><b>🆕（2026-09-17）本欄位已含 valid-standing-support 否決（正本 `docs/38`）</b></para>
+        /// **`IsGrounded` 不再等同於 `CharacterController.isGrounded`。**
+        /// Unity 的膠囊會讓**側面**掛在平台角上（實測 root 可超出邊緣 0.23–0.32 m），
+        /// 因此 <c>MotionDriver.SyncGroundedState</c> 會再用一個**較小的有效支撐半徑**
+        /// （出貨 0.14，碰撞半徑仍是 0.32）重做一次 floor query，查不到就否決。
+        /// 形狀取自 Unreal 的 <c>ComputePerchResult</c>。
+        ///
+        /// ⚠️ **只有否決權、沒有授予權**：`characterController.isGrounded == false` 時該層不介入。
+        /// ⇒ 讀取者語意不變（「角色是否站在可站的地面上」），但**邊緣的判定更嚴格**，
+        /// 走到邊緣時會比以前更早失去觸地。
         /// </summary>
         public bool IsGrounded;
 

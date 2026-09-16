@@ -428,6 +428,12 @@ MonoBehaviour:
   overrideMoveSpeed: 0
   gravity: -9.81
   reboundForce: -2
+  requireValidStandingSupport: 1
+  standingSupportRadius: 0.14
+  standingSupportSearchDepth: 0.3
+  standingSupportMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
   aimFacingTurnSpeed: 8
   capsuleOffset:
     Enabled: 1
