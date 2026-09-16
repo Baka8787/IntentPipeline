@@ -12,7 +12,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 482bd9bce0e670643910e8cd019e70ca, type: 3}
   m_Name: Player_JumpTakeoff
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Audio.AudioDefinitionSO
-  clips: []
-  volume: 1
-  volumeJitter: 0
-  pitchRange: {x: 1, y: 1}
+  clips:
+  - {fileID: 8300000, guid: e2f6d35c180718a44be875d855d581c6, type: 3}
+  - {fileID: 8300000, guid: c6847e85956cf3e47b75ba78de0dd62f, type: 3}
+  - {fileID: 8300000, guid: a935b27c373dbde43a9cf72e86ae538c, type: 3}
+  - {fileID: 8300000, guid: ab5e2177156e40d4981471e0d08ec6cf, type: 3}
+  - {fileID: 8300000, guid: 0224087966f497f4ab4da405c42062b7, type: 3}
+  - {fileID: 8300000, guid: 1e588bee4dab84345acaaa6049f10a8e, type: 3}
+  - {fileID: 8300000, guid: 95b807a2e34672e4186fe5be2ebdff36, type: 3}
+  - {fileID: 8300000, guid: dd99c7ef3207cb440a43ce33ff215184, type: 3}
+  volume: 0.45
+  volumeJitter: 0.12
+  pitchRange: {x: 0.96, y: 1.04}

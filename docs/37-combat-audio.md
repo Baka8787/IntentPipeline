@@ -1,8 +1,11 @@
 # 37 — 戰鬥音效（Combat Audio）
 
-> **狀態**：程式 ／ 資產 ／ 測試已落地（EditMode **592 / 591 passed / 0 failed / 1 skipped**、PlayMode **61 / 61**）。
-> ⛔ **尚未有任何音檔** —— 所有 `AudioDefinition` 的 clip 池目前是空的，因此**現在 Play 是靜音的**。
-> 素材決策見 §6。
+> **狀態**：程式 ／ 資產 ／ **素材** ／ 測試皆已落地
+> （EditMode **592 / 591 passed / 0 failed / 1 skipped**、PlayMode **61 / 61**）。
+> **56 個 clip 已匯入並接線 ⇒ 現在 Play 應該聽得到聲音。**
+> ⛔ **但選材沒有經過耳朵**——我無法試聽音訊，依據只有客觀量測、檔名語意與專案已知事實。
+> 試聽頁：`D:/Unity Project/_AudioResearch/Combat/audition.html`（瀏覽器開啟，含 56 個選用 ＋ 31 個備援）。
+> 素材來源、授權與重建程序見 §6。
 >
 > **routing**：本輪**不開 ADR**。唯一的跨系統契約變更是黑板加了一個 `SurvivabilityData.JustDied`，
 > 它與既有的 `JustTookDamage` 同寫入者、同發布點、同生命週期，屬**加法**而非 ownership 變更
@@ -162,63 +165,109 @@ mixer 路由、ducking、優先權／virtualization、腳步聲的進一步微�
 
 ---
 
-## 6. 🔴 素材盤點：Sonniss GDC 2026 **不適合本輪**
+## 6. 素材：Sonniss GDC 2026 —— **已下載、已選材、已匯入**
 
-使用者指定盤點 part1。已重新抓官方 track list（`https://gdc.sonniss.com/` → Google Sheet，
-346 筆檔案／121 個 library）逐筆比對。
+> 🔄 **2026-09-17 修訂：本節的第一版結論「不建議下載」被自己的量測推翻，已改寫。**
+> 那個結論建立在「346 檔 ÷ 121 library ≈ 每個 library 只有 2–4 顆 ⇒ 湊不出 shuffle 池」。
+> **錯在把「檔案數」當成「素材數」。** 實際切開之後：`SWSH_SWING IMPACTS` **一個檔 61.8 秒、
+> 內含 21 個獨立揮擊 take**；`WEAPBlnt_Spear And Stick Impact` 16 個；`FGHTImpt_4 x Punch` 4 個。
+> production library 的慣例就是「一個檔放一整組 take」。
+> ⚠️ **教訓：track list 只能告訴你有什麼，不能告訴你有多少。**
 
-### 6.1 ⛔ 決定性問題：它是 sampler，不是素材庫
+### 6.1 分卷對照（用 HTTP Range 讀 central directory，**沒有下載整包**）
 
-**346 個檔案 ÷ 121 個 library ≈ 每個 library 只有 2–4 個檔。**
-官方頁面原文就說這些「只是供應商完整收藏的一小部分樣本」。
+| 分卷 | 大小 | 內容 | 戰鬥相關 |
+|---|---:|---|---|
+| part1 | 1.21 GB | `344 Audio` 自己的 library，**A→H** | ⚠️ 少量：Anime Fight Voices 1+2、Cinematic Fight、Historical Weapons、Elemental Palette |
+| **part2** | 1.32 GB | Alexander Kopeikin／Cinematic Sound Design／David Dumais／Epic Stock Media／Federico Soler | ✅ **全部好東西都在這裡** |
+| part3 | 1.39 GB | InMotionAudio／Ivo Vicic／Jake Fielding／Just Sound Effects | ⛔ 純環境音 |
+| part4 | 1.73 GB | Sonic Bat／Sonik Sound Library | ⛔ 純環境音 |
+| part5 | 0.80 GB | SoundBits／The Noisery／TheWorkRoom／Victor Ermakov | ⚠️ 只有 Vox Hominis ＋ Vox Bestiae |
 
-而 `AudioDefinitionSO` 的 shuffle bag 需要**每個事件 4–6 顆**才能擺脫重複疲勞
-（`docs/34` 已經證明過反面：三個腳步事件共用同一顆 clip ⇒ 使用者回報「素材單調」）。
-⇒ **2–4 顆「不同 library 的不同東西」不構成一個池。**
+> 📌 **使用者指定的 part1 剛好不是重點那一卷**——part1 是 344 Audio 的 A→H
+> （古董／理髮廳／聖誕節／恐怖氛圍）。**part2 才是。**
 
-### 6.2 part1 具體有什麼（part1 ＝ `344 Audio` 自己 A→H 的 library，已由 `docs/34` 以 Range 讀 zip 目錄驗證）
+### 6.2 實際下載量：**256 MB，不是 6.45 GB**
 
-| 需求 | part1 命中 | 可用檔數 | 判定 |
-|---|---|---|---|
-| melee swing | `Historical Weapons Vol. 2`（Sword Slide Cuts／Spear+Stick Wooden／Metal Shield Spin） | 3（且都是 **impact** 不是乾淨的揮空聲） | ⚠️ 勉強 |
-| melee hit ／ body hit | `Cinematic Fight Vol. 1`（"4 x Punch, Body 02"／Choking Tension） | **1**（而且是**四連拳的一整段**，要自己切） | ⛔ |
-| hurt ／ exertion vocal | `Anime Fight Voices Vol. 1 + 2`（Active Yell／Warrior Breaths／Fight Exhale／Aggressive Yell） | 6 | ⚠️ part1 最好的東西，但**動漫風**、男女混雜 |
-| spell cast | — | **0** | ⛔ |
-| magical impact | `Elemental Palette Designed Vol. 1`（Wind Whoosh／Water Liquid Impact／Metal Pass-By） | 3（泛用元素，不是法術） | ⚠️ |
-| death impact | — | **0** | ⛔ |
+zip 支援 Range ⇒ 可以只抓需要的**檔案**，比「只抓需要的分卷」更細一級。
+從 part1／part2／part5 共抽出 **63 個檔**（13 個 library）。
 
-### 6.3 ⭐ 真正適合戰鬥的東西**全都不在 part1**
+🐛 **踩過一次**：`probe.sh` 第一版沒驗證 `Content-Length`，抓不到時 `TAILSTART` 變負數
+⇒ Range 標頭失效 ⇒ 伺服器回 200 整包 ⇒ **本來只想讀 1 MB 目錄，卻開始下載 1.2 GB**。
+現在有兩道硬性驗證（見 `Tools/audio-pipeline/probe.sh`），⛔ 不要拿掉。
 
-| Library | Supplier | 對應事件 | 分卷 |
-|---|---|---|---|
-| **Emotion and Magic** | Alexander Kopeikin | **spell cast**（energy flow／action gesture onslaught／drone tension） | part2+ |
-| **100 kHz Designed Ice** | Alexander Kopeikin | **Ice Spike**（surface cracking fissure／block crushed heavy／ice block snapping） | part2+ |
-| **Melee Weapons SFX Pack 2** | David Dumais Audio | **melee swing**（"Quick Heavy Weapon Swing To Thud Impact"／"Swift Melee Weapon Swing With A Long Blade"）——**全包最好的揮擊** | part2+ |
-| **Elemental Mutation Whooshes and Impacts** | Epic Stock Media | **Fireball**（"Whoosh Fire Deep Growl Saturated"）／**Ice**（"Whoosh Glass Crystal Fragments Sharp Shards"） | part2+ |
-| **Anime Game** | Epic Stock Media | **Enemy Death**（"Explosion Small Blast **Enemy Death** Crunchy Boom"）／melee hit | part2+ |
-| **Humanoid Creatures Vol 4** | Epic Stock Media | **hurt ／ death vocal**（"Flutter **Death** Vocal"／"Creature **Pain** Intense Yell"） | part2+ |
-| Vox Hominis – Human Effort Voices | SoundBits | exertion（Panting／Crying） | part4+ |
+### 6.3 處理：63 個母帶 → **87 個 game-ready clip**
 
-> ### 📌 結論
-> **①本輪指定的 part1 剛好是最不相關的那一卷**（344 Audio 的 A→H 是古董／理髮廳／聖誕節／恐怖氛圍，
-> 戰鬥相關的只有三個 library、共 ~10 個檔）。
-> **②就算抓滿 7.47 GB，每個 library 也只有 2–4 顆** ⇒ 湊不出任何一個事件的池。
-> ⇒ **不建議為戰鬥音效下載 Sonniss**。它是「拿去挖掘靈感／當素材層」的包，不是「拿來接事件」的包。
-> License 本身沒問題（royalty-free、可商用、不需標註；⛔ 明文禁止 AI/ML 訓練）。
+每個 clip 都做四件事（`Tools/audio-pipeline/cut.mjs`）：
 
-### 6.4 目前狀態
+| 步驟 | 為什麼 |
+|---|---|
+| 依靜音切出單一 take | 母帶是「一個檔 20 個 take」 |
+| **砍掉前置靜音** | 本 repo 踩過的坑（`docs/34`：腳步 clip 29.7 ms 前置靜音是延遲預算最大單項）。這批母帶更糟——`ice, crack` **514 ms**、`magic, drone` **639 ms**。攻擊音晚到半秒等於沒有 |
+| 48 kHz / mono / 16-bit PCM | 與既有腳步素材同規格。**mono 是 3D 音效的必要條件**——立體聲檔不會被正確空間化 |
+| peak 正規化至 −1 dBFS | 讓同一個池裡的變化版本音量一致。⛔ **刻意不用 compressor／loudnorm**——它們會壓掉 transient，而打擊感就是 transient |
 
-**13 個 `AudioDefinition` 資產已建立、已接線，clip 池全空。**
-`AudioDefinitionSO.GetNextClip()` 池空時回 `null`、呼叫端靜默跳過
-⇒ **不會報錯、不會炸，只是沒聲音**。填 clip 是純資產工作，**程式零改動**。
+### 6.4 選材結果（Selected／可用）
 
----
+| 事件 | 選用 | 來源 | 備註 |
+|---|---:|---|---|
+| Melee Swing | **9** / 22 | David Dumais `SWSH_SWING IMPACTS`（21 takes 同源） | ✅ 池內一致性最好 |
+| Melee Hit | **10** / 28 | `4 x Punch, Body` ＋ `Sword Slide Cuts` ＋ `METAL SWING HIT` | ⛔ **排除 16 個木棍撞擊**——角色持劍（`slash1` ＋ WeaponSocket），語意不符 |
+| Fireball Cast | 2 | `MAGAngl_Magic Light Spell`、`DSGNStngr_Power Up Bright` | ⚠️ 薄 |
+| Fireball Release | 3 | `FIREWhsh_Whoosh Fire Deep Growl`、`Woosh Debris`、`Woosh Sweep` | |
+| Fireball Impact | 4 | `EXPLDsgn_Explosion Small Blast`、Colossal/Ultra Impacts | |
+| Ice Cast | 2 | `GLASMvmt_Whoosh Glass Crystal`、`ICEFric_Dry Ice Squeal` | ⚠️ 薄 |
+| Ice Spawn | 3 | `ice, surface cracking, fissure`、`ice block snapping` | |
+| Ice Impact | 5 | `ice, block of ice crushed`、`ICEFric`、`ELECMisc` | |
+| Player Hurt | 4 | Anime Fight Voices（男 2／女 2） | |
+| Enemy Hurt | 2 | `HMNBrth_Screeching Breath`、`CREAEthr_Grim Pain` | ⚠️ 薄 |
+| Player Death | **1** | `VOXReac_Flutter Death Vocal` | 🔴 **最薄的一項** |
+| Enemy Death | 2 | `CREAMnstr_Sea Beast Pain` ＋ 疊 `EXPLDsgn` 小爆炸 | |
+| Jump Takeoff | 8 | `HMNBrth_Panting Male`（7 takes）＋ 吐氣 | |
 
+⚠️ **法術與死亡仍然薄**，正如使用者預期的「Sonniss 適合真實 weapon／impact／body Foley，
+法術需要另外找 designed／stylized 的素材」。⇒ 見 §6.6。
+
+### 6.5 ⛔ wav **不進版控**——這是授權問題，不是檔案大小問題
+
+License v2.0 明文禁止「distribute, publish, sub-license or otherwise supply the sound effects
+**as sound effects** to any other person」，而本 repo 是**公開**的
+（`github.com/Baka8787/IntentPipeline`）⇒ commit 原始 wav 等同以音效的形式散布。
+授權允許的是散布**成品專案**，不是散布素材本身。
+
+⇒ 比照既有的 `MovementAnimsetPro`（付費 Kubold 資產）處理：`.gitignore` 排除
+`Assets/Audio/Combat/**/*.wav` 與 `*.wav.meta`。
+
+**⭐ 素材不在 git 裡，但「怎麼得到它」在**：完整重建程序在 `Tools/audio-pipeline/`
+（Range 盤點 → 選擇性抽取 → 量測 → 切段 → 選材 → 匯入 → 接線，10 支腳本）。
+
+⚠️ **重跑之後 GUID 會變** ⇒ `AudioDefinition` 的 clip 參照會斷掉。
+`WireClips.cs` 以「資料夾 → 定義」重新接線、不依賴 GUID，跑一次即恢復。
+
+### 6.6 ⛔ Boolean SFX Free Sampler —— **沒有下載，建議也不要**
+
+使用者指定的候選（`booleanbeats.itch.io`）查過了：**40 個 MP3，128 kbps，共 1.2 MB。**
+
+| 問題 | 說明 |
+|---|---|
+| **128 kbps MP3** | ⛔ 不是可用的素材來源格式。MP3 有 encoder delay／padding ⇒ **天生帶前置靜音**，正是 §6.3 花力氣在砍的東西 |
+| 有損疊有損 | 匯進 Unity 再壓一次 |
+| 12 個分類 40 個音 | 每類約 3 個 ⇒ 又是 sampler 問題 |
+
+📌 **下載本身需要走 itch.io 的 name-your-own-price 流程**（要人工點「No thanks, just take me
+to the downloads」）——依使用者指示「需要登入／人工接受條款／付款頁就停下」，**沒有繞過**。
+但即使繞過也不建議用：品質不足以當本專案的素材來源。
+
+**法術素材缺口的正解**：一個真正的遊戲 SFX 包（每個事件 5–10 顆 wav 變化），
+而不是 GDC bundle 也不是 128 kbps sampler。這是採購決定 ⇒ 留給使用者。
 ## 7. 已接線的資產（可還原清單）
 
 | 資產 | 改了什麼 | 怎麼還原 |
 |---|---|---|
-| `Assets/ScriptableObjects/Audio/Combat/*.asset` ×13 | **全新建立**（clip 池空） | 刪資料夾 |
+| `Assets/ScriptableObjects/Audio/Combat/*.asset` ×13 | **全新建立**，clip 池已填（2–10 顆／事件）＋ volume／jitter／pitchRange | 刪資料夾 |
+| `Assets/Audio/Combat/**` | **56 個 wav 匯入**（48k/mono/PCM/preload/forceToMono/normalize off）。⛔ wav 與 wav.meta 已 gitignore（授權，見 §6.5）；資料夾 .meta 與 `SOURCES.md` 有進版控 | 刪資料夾；重建走 `Tools/audio-pipeline/` |
+| `Tools/audio-pipeline/` | **新建** 11 支腳本 ＋ README＝素材重建程序 | 刪資料夾 |
+| `.gitignore` | ＋ Sonniss 衍生 wav 的排除規則（授權理由，非體積） | revert 該段 |
 | `Assets/ScriptableObjects/Audio/PlayerAudioLibrary.asset` | **新建**，3 筆（Hurt／Death／JumpTakeoff） | 刪檔 |
 | `Assets/ScriptableObjects/Audio/EnemyAudioLibrary.asset` | **新建**，2 筆（Hurt／Death；敵人不跳） | 刪檔 |
 | `Assets/Prefabs/X Bot.prefab` | ＋3 顆 `ActionAudioSink` 子物件（Melee／Fireball／Ice）＋3 筆 slot binding；`MeleeHitboxSink.hitAudio`、`GroundEffectSink.impactAudio` 填入；`library` → `PlayerAudioLibrary` | `git checkout` 該檔 |
@@ -237,9 +286,19 @@ mixer 路由、ducking、優先權／virtualization、腳步聲的進一步微�
 
 ## 8. ⛔ 還沒做的：人工 Play 驗收
 
-**先決條件：§6.4 的 clip 池要先有東西，否則 Play 是靜音的。**
+**clip 已經填好了 ⇒ 直接 Play 就有聲音。**
 
-填完 clip 後請聽：
+⚠️ **最重要的一項在第 0 條**——其餘七條是技術驗收，第 0 條才是這批素材真正的未知數。
+
+0. 🔴 **選材對不對**（我沒有耳朵，這一項完全沒有被驗證過）：
+   先開 `D:/Unity Project/_AudioResearch/Combat/audition.html` 逐個聽過，
+   再進 Play 聽在**動畫與畫面尺度**下對不對。重點懷疑：
+   ①近戰揮擊／命中是否夠「厚」且與 `slash1` 的重量相符；
+   ②法術是否太 UI／太卡通（素材來自 designed library，不是實錄）；
+   ③人聲是否出戲（Anime Fight Voices 是**動漫風**，男女混雜）。
+   換素材只要把 `Cut/` 裡的備援拖進 `Assets/Audio/Combat/...` 再跑一次 `WireClips.cs`。
+
+技術驗收：
 
 1. **Fireball**：Cast 與 Release 是兩聲還是糊成一聲（`FallbackDuration 1.2 × ReleaseNormalizedTime 0.35` ⇒ 相隔 **0.42 s**）
 2. **Fireball Impact**：聲音是否出現在**接觸點**而不是角色身上（火球飛遠時差異最明顯）

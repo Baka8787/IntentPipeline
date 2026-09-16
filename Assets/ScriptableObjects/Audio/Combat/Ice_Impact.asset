@@ -12,7 +12,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 482bd9bce0e670643910e8cd019e70ca, type: 3}
   m_Name: Ice_Impact
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Audio.AudioDefinitionSO
-  clips: []
-  volume: 1
-  volumeJitter: 0
-  pitchRange: {x: 1, y: 1}
+  clips:
+  - {fileID: 8300000, guid: 5e0736414a44c8a4cb4e07a27b7cf4c4, type: 3}
+  - {fileID: 8300000, guid: 8d2cf464e0cd2274285f2d8e82fce2cb, type: 3}
+  - {fileID: 8300000, guid: 74675d7b500e0474a85dc7b7ed23084e, type: 3}
+  - {fileID: 8300000, guid: a87d5cbe8a745cd4898289bcbfb20a4b, type: 3}
+  - {fileID: 8300000, guid: 4cba054698d6c8946904e10d538a179f, type: 3}
+  volume: 0.9
+  volumeJitter: 0.1
+  pitchRange: {x: 0.94, y: 1.06}

@@ -120,3 +120,19 @@ crashlytics-build.properties
 #   ⚠️ `.claude/skills/` 與 `.agents/skills/` **要**進版控——那是專案的工具資產。
 # =========================================================================
 /.claude/worktrees/
+
+# ──────────────────────────────────────────────────────────────────────
+# Sonniss #GameAudioGDC Bundle 衍生的戰鬥音效（2026-09-17）
+#
+# ⚠️ **這不是「檔案太大」，是授權問題。** License v2.0 明文禁止
+#    「distribute, publish, sub-license or otherwise supply the sound effects
+#     **as sound effects** to any other person」。
+#    本 repo 是**公開**的（github.com/Baka8787/IntentPipeline）⇒ commit 原始 wav
+#    等同以音效的形式散布。授權允許的是「散布**成品專案**」，不是散布素材本身。
+#
+# ⇒ 比照既有的 MovementAnimsetPro（付費 Kubold 資產）處理：檔案留在本機，不進版控。
+#    ⭐ 接線**不會**因此壞掉——AudioDefinition 資產（含 clip GUID 參照）有進版控，
+#      只是 clip 檔案本身缺席。重建方式記在 docs/37 §6.5。
+#    來源與授權紀錄：D:/Unity Project/_AudioResearch/Combat/_meta/
+/[Aa]ssets/Audio/Combat/**/*.wav
+/[Aa]ssets/Audio/Combat/**/*.wav.meta

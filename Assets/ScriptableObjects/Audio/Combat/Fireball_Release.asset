@@ -12,7 +12,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 482bd9bce0e670643910e8cd019e70ca, type: 3}
   m_Name: Fireball_Release
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Audio.AudioDefinitionSO
-  clips: []
-  volume: 1
-  volumeJitter: 0
-  pitchRange: {x: 1, y: 1}
+  clips:
+  - {fileID: 8300000, guid: 3315b0acdd6f82c4781e60c27efab919, type: 3}
+  - {fileID: 8300000, guid: 68e2243c66980cf48a3d19d98d0c3a88, type: 3}
+  - {fileID: 8300000, guid: 772ec5a2c1ce9344ebd76b7f34a131a9, type: 3}
+  volume: 0.85
+  volumeJitter: 0.1
+  pitchRange: {x: 0.95, y: 1.05}

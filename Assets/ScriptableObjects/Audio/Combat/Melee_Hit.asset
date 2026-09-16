@@ -12,7 +12,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 482bd9bce0e670643910e8cd019e70ca, type: 3}
   m_Name: Melee_Hit
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Audio.AudioDefinitionSO
-  clips: []
-  volume: 1
-  volumeJitter: 0
-  pitchRange: {x: 1, y: 1}
+  clips:
+  - {fileID: 8300000, guid: 35d098989aa859f459368ea252c78253, type: 3}
+  - {fileID: 8300000, guid: b9aeb22cde0ad9644ad1373e7a139602, type: 3}
+  - {fileID: 8300000, guid: a61a123a283818342b75688b6dc8c09f, type: 3}
+  - {fileID: 8300000, guid: ca683d51ee1cd8d4fb8b22447a59afab, type: 3}
+  - {fileID: 8300000, guid: 0ca40dc646b8841478536ab8fa3b919d, type: 3}
+  - {fileID: 8300000, guid: d802d5b20817293478795b2010cf93a0, type: 3}
+  - {fileID: 8300000, guid: 147a20ca3a2d7bc44bf4c2f57c57352d, type: 3}
+  - {fileID: 8300000, guid: ed738b16adcae3a40a5b609e322df4ed, type: 3}
+  - {fileID: 8300000, guid: 7353ef40a37965741b1e848dab9c4031, type: 3}
+  - {fileID: 8300000, guid: 8c6b4f6f7ca9eea4baacac292a6fb649, type: 3}
+  volume: 0.95
+  volumeJitter: 0.1
+  pitchRange: {x: 0.94, y: 1.06}

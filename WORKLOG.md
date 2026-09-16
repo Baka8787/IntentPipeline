@@ -7,7 +7,7 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
-> # 🔊 2026-09-17 — **戰鬥音效**（程式／資產／測試已落地，⛔ **尚無音檔 ⇒ 現在 Play 是靜音的**）
+> # 🔊 2026-09-17 — **戰鬥音效**（程式／資產／**素材**／測試全部落地，⛔ **選材未經人耳驗證**）
 >
 > EditMode **592 total／591 passed／0 failed／1 skipped**（+10 條 `CA1`–`CA10`；skip 為既有 NavMesh 環境限制）。
 > PlayMode **61／61 passed**。**正本 `docs/37-combat-audio.md`**。
@@ -37,19 +37,38 @@
 > | Player／Enemy 各一份 `AudioLibrarySO`（同一個 enum，不同資產 ⇒ **不把陣營寫進詞彙**） | ✅ |
 > | 13 個 `AudioDefinition` 資產建立並接線 | ✅（**clip 池全空**） |
 >
-> ## 🔴 需要你決定的一件事：**素材**
+> ## ⭐ 素材：已下載、已切、已選、已匯入（**56 個 clip**）
 >
-> **Sonniss GDC 2026 盤點完了 ⇒ 不建議下載**（已重抓官方 track list 逐筆比對，正本 `docs/37` §6）：
-> ①它是 **sampler**——346 檔 ÷ 121 library ≈ **每個 library 只有 2–4 顆**，湊不出任何一個事件的 shuffle 池；
-> ②**指定的 part1 剛好是最不相關的那一卷**（`344 Audio` 的 A→H ＝ 古董／理髮廳／聖誕節／恐怖氛圍）；
-> ③真正好的東西**全在 part1 之外**（Alexander Kopeikin 的 `Emotion and Magic`／`100 kHz Designed Ice`、
-> David Dumais 的 `Melee Weapons Pack 2`、Epic Stock Media 的 `Elemental Mutation`／`Anime Game`／
-> `Humanoid Creatures Vol 4`）——但即使抓了，每個也只有 2–4 顆。
+> **上一版我說「不建議下載 Sonniss」——那個結論被自己的量測推翻了。**
+> 它建立在「346 檔 ÷ 121 library ⇒ 每個只有 2–4 顆，湊不出池」，**錯在把檔案數當成素材數**：
+> `SWSH_SWING IMPACTS` 一個檔 **61.8 秒、內含 21 個獨立揮擊 take**；木質撞擊 16 個；四連拳 4 個。
+> production library 的慣例就是一個檔放一整組 take。⚠️ **track list 只能說有什麼，不能說有多少。**
 >
-> ⇒ **正解是一個「拿來接事件」的遊戲 SFX 包**（每個事件 5–10 顆變化），不是 GDC bundle。
-> 決定之後把 clip 拖進 `Assets/ScriptableObjects/Audio/Combat/*.asset` 即可，**程式零改動**。
+> | | |
+> |---|---|
+> | 分卷盤點 | 用 **HTTP Range 讀 zip central directory**，5 卷全部盤完，**沒有下載整包** |
+> | ⭐ 重點修正 | **你指定的 part1 不是重點那卷**——part1 是 344 Audio 的 A→H（古董／理髮廳／聖誕節）。**part2 才是**（Kopeikin 冰與魔法、David Dumais 近戰、Epic Stock Media） |
+> | 實際下載 | **256 MB**，不是 6.45 GB（Range 讓我們只抓需要的**檔案**，比「只抓需要的分卷」更細一級） |
+> | 處理 | 63 母帶 → **87 個 clip**：切 take → **砍前置靜音** → 48k/mono/16-bit → peak −1 dBFS。⛔ 不用 compressor（會壓掉 transient） |
+> | 前置靜音實測 | `ice, crack` **514 ms**、`magic, drone` **639 ms** ⇒ 不砍的話攻擊音會晚半秒 |
+> | 選材 | **56 個**進 Unity（每事件 ≤10），31 個留 `Cut/` 當備援 |
+> | ⛔ 授權 | wav **不進版控**——License v2.0 禁止「以音效的形式散布」，而 repo 是**公開**的。比照 `MovementAnimsetPro`。**重建程序在 `Tools/audio-pipeline/`（11 支腳本）** |
+> | Boolean SFX | **沒下載，也不建議**：40 個 **128 kbps MP3**（MP3 天生帶前置靜音，正是我們在砍的東西）。且下載要走 itch 的 name-your-own-price 人工流程 ⇒ 依你指示沒有繞過 |
 >
-> ## Play 驗收（⚠️ **先填 clip，否則是靜音的**）
+> ## 🔴 唯一真正沒被驗證的事：**選材對不對**
+>
+> **我沒有耳朵。** 選材依據只有：①客觀量測 ②檔名語意（UCS 前綴）③與專案已知事實的匹配
+> （角色持劍 ⇒ 排除 16 個木棍撞擊）。**「符合 demo 的視覺與動畫重量」完全沒有被驗證過。**
+>
+> ⇒ 先開 **`D:/Unity Project/_AudioResearch/Combat/audition.html`**（瀏覽器，含 56 選用 ＋ 31 備援，
+> 每個都有播放器與「在遊戲裡什麼時候會聽到」的情境說明）。
+> 重點懷疑：①近戰夠不夠厚 ②法術會不會太 UI／太卡通 ③人聲會不會出戲（Anime Fight Voices 是**動漫風**）。
+> 換素材：把 `Cut/` 的備援拖進 `Assets/Audio/Combat/...` → 跑 `WireClips.cs`。
+>
+> ⚠️ **最薄的幾項**：`Player_Death` 只有 **1** 顆；`Enemy_Hurt`／`Fireball_Cast`／`Ice_Cast` 各 2 顆。
+> 法術與死亡正如你預期的「Sonniss 適合真實 weapon／body Foley，法術要另外找」——那是採購決定，留給你。
+>
+> ## Play 驗收（**clip 已填好，直接 Play 就有聲音**）
 >
 > 完整清單見 `docs/37` §8。最關鍵的三項：
 > **①Melee 連段要響三聲**（只響一聲＝有人把 §5.1 的節流閘門加回去了）
