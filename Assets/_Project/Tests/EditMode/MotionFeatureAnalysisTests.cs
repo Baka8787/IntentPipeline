@@ -336,5 +336,40 @@ namespace Project.Tests.EditMode
             var result = RunFootPhase(new List<MotionFeatureSample>());
             Assert.IsNull(result.FootPhaseCurve, "無採樣 → 安全預設 null，不拋例外");
         }
+
+        [Test]
+        public void VerticalCurve_RecordsRootYRelativeToFirstSample()
+        {
+            var samples = new List<MotionFeatureSample>
+            {
+                new MotionFeatureSample(0f, 3f, 0f, 0f),
+                new MotionFeatureSample(0.5f, 3.75f, 0f, 0f),
+                new MotionFeatureSample(1f, 2.5f, 0f, 0f),
+            };
+            var target = ScriptableObject.CreateInstance<MotionBakeData>();
+            _created.Add(target);
+            var context = new MotionFeatureContext(samples, 1f, Threshold, LeftBaseline, RightBaseline);
+
+            new VerticalCurveAnalyzer().Analyze(context, target);
+
+            Assert.IsNotNull(target.VerticalCurve);
+            Assert.AreEqual(3, target.VerticalCurve.length);
+            Assert.AreEqual(0f, target.VerticalCurve.Evaluate(0f), 1e-4f);
+            Assert.AreEqual(0.75f, target.VerticalCurve.Evaluate(0.5f), 1e-4f);
+            Assert.AreEqual(-0.5f, target.VerticalCurve.Evaluate(1f), 1e-4f);
+        }
+
+        [Test]
+        public void VerticalCurve_EmptySamples_LeavesCurveNull()
+        {
+            var target = ScriptableObject.CreateInstance<MotionBakeData>();
+            _created.Add(target);
+            var context = new MotionFeatureContext(
+                new List<MotionFeatureSample>(), 0f, Threshold, LeftBaseline, RightBaseline);
+
+            new VerticalCurveAnalyzer().Analyze(context, target);
+
+            Assert.IsNull(target.VerticalCurve);
+        }
     }
 }

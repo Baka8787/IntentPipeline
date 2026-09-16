@@ -1,5 +1,6 @@
-using Project.Core.Actions;
 using UnityEngine;
+using Project.Core.Actions;
+using Project.Core.Survivability;
 
 namespace Project.Presentation.Actions
 {
@@ -13,9 +14,13 @@ namespace Project.Presentation.Actions
 
         [SerializeField] private Collider hitbox;
 
+        // 🆕（ADR-009 D2）揮擊傷害。數值在資產上，不在程式裡（同 ThrownProjectile.damage）。
+        [SerializeField, Min(0f)] private float damage = 10f;
+
         // 固定容量只在元件建立時配置一次；命中窗內不用 HashSet／List，因此多 collider 命中也不產生 GC。
         // 若極端情況超過容量，直接關窗比失去去重能力更安全：寧可漏掉第 17 個目標，也不能重複結算。
-        private readonly ActionRequestTarget[] _hitTargets = new ActionRequestTarget[MaxTargetsPerSwing];
+        // 🔄（ADR-009 D2）去重鍵由 ActionRequestTarget 改為 CharacterHealth——收件者換了，鍵就得跟著換。
+        private readonly CharacterHealth[] _hitTargets = new CharacterHealth[MaxTargetsPerSwing];
         private int _hitTargetCount;
         private bool _releasedThisExecution;
         private bool _windowOpen;
@@ -66,18 +71,18 @@ namespace Project.Presentation.Actions
         {
             if (!_windowOpen || other == null) return;
 
-            ActionRequestTarget target = other.GetComponentInParent<ActionRequestTarget>();
-            if (target == null || target.transform.root == transform.root) return;
-            TryRequestHit(target);
+            CharacterHealth health = other.GetComponentInParent<CharacterHealth>();
+            if (health == null || health.transform.root == transform.root) return;
+            TryRequestHit(health);
         }
 
-        internal bool TryRequestHit(ActionRequestTarget target)
+        internal bool TryRequestHit(CharacterHealth health)
         {
-            if (!_windowOpen || target == null) return false;
+            if (!_windowOpen || health == null) return false;
 
             for (int i = 0; i < _hitTargetCount; i++)
             {
-                if (_hitTargets[i] == target) return false;
+                if (_hitTargets[i] == health) return false;
             }
 
             if (_hitTargetCount >= _hitTargets.Length)
@@ -90,8 +95,10 @@ namespace Project.Presentation.Actions
                 return false;
             }
 
-            _hitTargets[_hitTargetCount++] = target;
-            target.RequestAction(ActionSlot.Reaction);
+            _hitTargets[_hitTargetCount++] = health;
+            // 🆕（ADR-009 D2）近戰與投射物、地面 AoE 走同一條新 seam：只送傷害，
+            // 「要播受擊還是要死」由持有生命值的一方決定。
+            health.ApplyDamage(damage);
             return true;
         }
 

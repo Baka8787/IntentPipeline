@@ -143,5 +143,40 @@ namespace Project.Tests.EditMode
                 "AimPoint 高低差只能影響瞄準，不得把角色 root 轉出水平面產生 pitch。");
             Assert.Less(Vector3.Angle(targetForward, new Vector3(1f, 0f, 1f)), Epsilon);
         }
+
+        /// <summary>
+        /// 🆕（2026-09-15）**貼身抑制的遲滯。**
+        ///
+        /// 2026-09-15 錄影（63s／71s／90s）：貼身纏鬥時相機被壓到 <c>minDistance</c>，
+        /// 落在角色網格內部 ⇒ 畫面被角色背部填滿。防穿牆本身沒壞（它正確地拉近了），
+        /// 壞的是「拉到極限之後沒有人負責讓角色讓開」。
+        ///
+        /// ⚠️ 遲滯是這個功能的**必要**部分，不是優化：門檻是一個距離、而相機距離每帧都在阻尼變化，
+        /// 沒有遲滯就會在門檻附近逐帧顯示／隱藏 ⇒ 角色閃爍，比穿模更糟。
+        /// </summary>
+        [Test]
+        public void T13_TargetProximityHide_UsesHysteresisSoItCannotFlicker()
+        {
+            const float threshold = 0.95f;
+            const float hysteresis = 0.15f;
+
+            Assert.IsFalse(ThirdPersonCamera.ResolveTargetHidden(false, 1.2f, threshold, hysteresis),
+                "距離充足時不得隱藏角色");
+            Assert.IsTrue(ThirdPersonCamera.ResolveTargetHidden(false, 0.9f, threshold, hysteresis),
+                "跨過門檻必須隱藏");
+
+            // 關鍵：已隱藏時要退出必須走比較寬的門檻，門檻正上方的距離不得立刻恢復顯示。
+            Assert.IsTrue(ThirdPersonCamera.ResolveTargetHidden(true, 1.0f, threshold, hysteresis),
+                "已隱藏時，僅略高於門檻不得恢復顯示——那正是閃爍的來源");
+            Assert.IsFalse(ThirdPersonCamera.ResolveTargetHidden(true, 1.2f, threshold, hysteresis),
+                "距離明確拉開（超過門檻＋遲滯）之後必須恢復顯示");
+        }
+
+        [Test]
+        public void T14_TargetProximityHide_IsDisabledByZeroThreshold()
+        {
+            Assert.IsFalse(ThirdPersonCamera.ResolveTargetHidden(true, 0.01f, 0f, 0.15f),
+                "門檻 0 ＝ 停用本功能，必須連『已隱藏』的狀態都能退出，否則關掉功能後角色會永遠消失");
+        }
     }
 }

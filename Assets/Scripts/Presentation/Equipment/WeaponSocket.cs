@@ -41,6 +41,10 @@ namespace Project.Presentation.Equipment
 
         private GameObject _instance;
 
+        // 目前想要的可見狀態。**預設 true ＝ 沒有人管的話武器就一直看得見**（導入本旗標前的行為）。
+        // 只有 WeaponVisibilitySink 會去改它；沒掛那顆元件的角色行為逐位元不變。
+        private bool _visible = true;
+
         private void Awake() => Rebuild();
 
         /// <summary>
@@ -74,10 +78,35 @@ namespace Project.Presentation.Equipment
             instanceTransform.localPosition = localPosition;
             instanceTransform.localEulerAngles = localEulerAngles;
             instanceTransform.localScale = localScale;
+
+            // 重建後必須把**目前想要的**可見狀態套回去，否則 Rebuild 會靜默地把武器變回可見。
+            _instance.SetActive(_visible);
         }
 
         /// <summary>供 EditMode 驗證：目前是否真的掛上了東西。</summary>
         internal bool HasAttachment => _instance != null;
+
+        /// <summary>
+        /// 設定掛載物的可見性。**這顆元件仍然不知道「攻擊」的存在**——它只被告知「現在該不該看得見」，
+        /// 由誰、依據什麼決定，是呼叫端（`WeaponVisibilitySink`）的事。
+        ///
+        /// <para><b>為什麼可見狀態存在這裡，而不是呼叫端</b></para>
+        /// 因為 <see cref="Rebuild"/> 會銷毀並重建實例（Awake、以及 Inspector 右鍵微調掛載位移時）。
+        /// 若可見狀態存在呼叫端，每次重建都會靜默地把武器變回可見，而且**只在調整位移時才發作**
+        /// ——那是最難聯想到原因的一類 bug。
+        ///
+        /// <para><b>順帶解掉 Awake 順序問題</b></para>
+        /// 兩顆元件的 <c>Awake</c> 先後由 Unity 決定、不可依賴。把狀態存在這裡之後兩種順序都成立：
+        /// 先 socket ⇒ 實例已存在、直接切；先 sink ⇒ 只記下旗標，稍後 <see cref="Rebuild"/> 套用。
+        /// </summary>
+        public void SetVisible(bool visible)
+        {
+            _visible = visible;
+            if (_instance != null && _instance.activeSelf != visible) _instance.SetActive(visible);
+        }
+
+        /// <summary>供 EditMode 驗證：掛載物目前是否可見（沒有掛載物 ⇒ false）。</summary>
+        internal bool IsAttachmentVisible => _instance != null && _instance.activeSelf;
 
         /// <summary>
         /// 掛載點解析：**直接指定 → 依名稱查找 → 退回自己**。

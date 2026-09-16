@@ -1,5 +1,6 @@
 using Project.Core.Actions;
 using Project.Core.Effects;
+using Project.Core.Survivability;
 using UnityEngine;
 
 namespace Project.Presentation.Actions
@@ -27,8 +28,31 @@ namespace Project.Presentation.Actions
 
         [Tooltip("落點沿段落邊界承諾的瞄準方向、距施法者多遠。無瞄準承諾時才退回角色正前方。")]
         [SerializeField, Min(0f)] private float castDistance = 0.4f;
-        [SerializeField, Min(0f)] private float effectRadius = 3f;
+
+        // 🔄 **2026-09-15：判定形狀由「球」改為「沿施法方向的膠囊」。**
+        //
+        // 🐞 舊形狀是錯的，而且錯得很安靜：`Human_Spell_Ice` 的六排冰刺沿 local +Z 排在
+        //    0.58／1.15／1.87／2.66／3.42／4.42 m，**左右只有 ±0.17 m**——它是一條**線**。
+        //    舊判定卻是以身前 0.4 m 為心、半徑 3 m 的**球**：
+        //      前緣只到 0.4 + 3 = 3.4 m ⇒ **最後兩排冰刺（3.82／4.82 m）完全在判定外**
+        //      （使用者 Play 回報：「冰刺中了但沒生效」；debug gizmo 顯示 overlap 查到 0 個 collider）
+        //      同時左右與**背後** 3 m 內卻都會被打到——和「前方一列冰刺」的語意完全相反。
+        //
+        // ⛔ **不可以只把 effectRadius 加大到 4.42**：那會讓背後與側面的打擊範圍一起變成 4.42 m。
+        //    形狀錯了就要換形狀，不是把錯的形狀放大。
+        //
+        // 📌 數值的來源是 VFX 本身的 emitter 佈局（見上），不是手感猜測；
+        //    若日後換掉 ice VFX，這三個值要跟著該素材重新量。
+        [Tooltip("判定膠囊的橫向半徑。涵蓋冰刺 ±0.17m 的排列偏移 ＋ 冰刺 mesh 本身的寬度。")]
+        [SerializeField, Min(0f)] private float effectRadius = 0.7f;
+        [Tooltip("判定膠囊沿施法方向的**起點**（相對落點）。對齊第一排冰刺。")]
+        [SerializeField, Min(0f)] private float effectNearReach = 0.58f;
+        [Tooltip("判定膠囊沿施法方向的**終點**（相對落點）。對齊最後一排冰刺。")]
+        [SerializeField, Min(0f)] private float effectFarReach = 4.42f;
         [SerializeField, Min(0.01f)] private float slowDuration = 3f;
+
+        // 🆕（ADR-009 D2）爆發傷害。數值在資產上，不在程式裡（同 ThrownProjectile／MeleeHitboxSink）。
+        [SerializeField, Min(0f)] private float damage = 10f;
         [SerializeField, Min(0.01f)] private float effectLifetime = 3f;
 
         [Tooltip("往下探地時視為「地面」的層。")]
@@ -61,8 +85,9 @@ namespace Project.Presentation.Actions
 
             if (!TryResolveGroundPoint(in context, out Vector3 center)) return;
 
-            SpawnVisual(center);
-            ApplyToTargetsAround(center);
+            Quaternion rotation = ResolveEffectRotation(center);
+            SpawnVisual(center, rotation);
+            ApplyToTargetsAround(center, rotation * Vector3.forward);
         }
 
         public void Cleanup() { }
@@ -144,7 +169,25 @@ namespace Project.Presentation.Actions
             return found;
         }
 
-        private void SpawnVisual(Vector3 center)
+        /// <summary>
+        /// 判定膠囊的兩個端點。**端點抬高一個 radius**，讓膠囊自地面向上撐開約 2×radius
+        /// ⇒ 站立角色（CharacterController 高 1.83）落在覆蓋範圍內，而不是只掃到腳踝。
+        /// </summary>
+        internal void ResolveHitCapsule(Vector3 center, Vector3 forward, out Vector3 start, out Vector3 end)
+        {
+            // ⛔ **方向只能來自呼叫端交付的承諾**（A29：sink 不得自行解算方向權威）。
+            // 退化時產生零長度膠囊（＝一顆球），而不是就地發明一個朝向。
+            Vector3 flat = new Vector3(forward.x, 0f, forward.z);
+            flat = flat.sqrMagnitude > 0.0001f ? flat.normalized : Vector3.zero;
+
+            Vector3 lift = Vector3.up * effectRadius;
+            float near = Mathf.Min(effectNearReach, effectFarReach);
+            float far = Mathf.Max(effectNearReach, effectFarReach);
+            start = center + flat * near + lift;
+            end = center + flat * far + lift;
+        }
+
+        private void SpawnVisual(Vector3 center, Quaternion rotation)
         {
             if (effectPrefab == null)
             {
@@ -154,7 +197,7 @@ namespace Project.Presentation.Actions
                 return;
             }
 
-            GameObject instance = Instantiate(effectPrefab, center, ResolveEffectRotation(center));
+            GameObject instance = Instantiate(effectPrefab, center, rotation);
             if (Application.isPlaying) Destroy(instance, Mathf.Max(0.01f, effectLifetime));
         }
 
@@ -176,10 +219,22 @@ namespace Project.Presentation.Actions
                 : transform.root.rotation;
         }
 
-        private void ApplyToTargetsAround(Vector3 center)
+        private void ApplyToTargetsAround(Vector3 center, Vector3 forward)
         {
-            int count = Physics.OverlapSphereNonAlloc(
-                center, effectRadius, _overlapBuffer, targetMask, QueryTriggerInteraction.Collide);
+            ResolveHitCapsule(center, forward, out Vector3 capsuleStart, out Vector3 capsuleEnd);
+            int count = Physics.OverlapCapsuleNonAlloc(
+                capsuleStart, capsuleEnd, effectRadius, _overlapBuffer, targetMask,
+                QueryTriggerInteraction.Collide);
+
+#if UNITY_EDITOR
+            // 記錄**這一次真正送進 OverlapSphere 的中心與結果**（不是 gizmo 事後重算的預測值）。
+            _debugLastOverlapCenter = center;
+            _debugCapsuleStart = capsuleStart;
+            _debugCapsuleEnd = capsuleEnd;
+            _debugLastOverlapCount = count;
+            _debugLastOverlapTime = Time.time;
+            _debugHasOverlap = true;
+#endif
 
             for (int i = 0; i < count; i++)
             {
@@ -195,13 +250,17 @@ namespace Project.Presentation.Actions
         }
 
         /// <summary>
-        /// 投遞的兩件事都是**既有**機制：Reaction 走 `ActionRequestTarget`（與投射物、近戰同一條鏈），
-        /// Slow 走 `TemporaryGameplayEffectState`。本元件不認識傷害、血量或狀態堆疊。
+        /// 投遞的兩件事都是**既有**機制：傷害走 `CharacterHealth`（與投射物、近戰同一條鏈），
+        /// Slow 走 `TemporaryGameplayEffectState`。
+        ///
+        /// 🔄（ADR-009 D2）原本這裡直接呼叫 `RequestAction(ActionSlot.Reaction)`。
+        /// 改成只送傷害之後，本元件**依然**不認識血量或狀態堆疊——它只知道「打多少」，
+        /// 「要播受擊還是要死」由 `CharacterHealth` 決定。受擊鏈路本身一字未改。
         /// </summary>
         internal void ApplyToRoot(Collider other)
         {
-            ActionRequestTarget target = other.GetComponentInParent<ActionRequestTarget>();
-            if (target != null) target.RequestAction(ActionSlot.Reaction);
+            CharacterHealth health = other.GetComponentInParent<CharacterHealth>();
+            if (health != null) health.ApplyDamage(damage);
 
             TemporaryGameplayEffectState effectState = other.GetComponentInParent<TemporaryGameplayEffectState>();
             if (effectState != null)
@@ -242,12 +301,96 @@ namespace Project.Presentation.Actions
             return TryResolveGroundPoint(in context, out point);
         }
 
+#if UNITY_EDITOR
         private void OnDrawGizmosSelected()
         {
             ActionReleaseContext context = default;
             if (!TryResolveGroundPoint(in context, out Vector3 center)) return;
+            ResolveHitCapsule(center, ResolveEffectRotation(center) * Vector3.forward,
+                out Vector3 start, out Vector3 end);
             Gizmos.color = new Color(0.4f, 0.8f, 1f, 0.35f);
-            Gizmos.DrawWireSphere(center, effectRadius);
+            Gizmos.DrawWireSphere(start, effectRadius);
+            Gizmos.DrawWireSphere(end, effectRadius);
+            Gizmos.DrawLine(start, end);
         }
+
+        // ⚠️ **Editor-only 診斷，不參與判定。**
+        //
+        // 上面那個 `OnDrawGizmosSelected` 畫的是**事後用 default context 重算的預測中心**，
+        // 而且只在選取時顯示 ⇒ 它回答不了「這一發到底在哪裡查的、查到幾個」。
+        // 2026-09-15 使用者回報「冰刺視覺上命中但實際不會中」——要分辨
+        // 「中心算錯」與「中心對但沒查到目標」，就必須看**實際送進 OverlapSphere 的那一組值**。
+        private Vector3 _debugLastOverlapCenter;
+        private Vector3 _debugCapsuleStart;
+        private Vector3 _debugCapsuleEnd;
+        private int _debugLastOverlapCount;
+        private float _debugLastOverlapTime;
+        private bool _debugHasOverlap;
+
+        [Header("Debug（Editor-only）")]
+        [Tooltip("把最近一次 OverlapSphere 的實際中心與半徑畫出來，並標示查到幾個 collider。")]
+        [SerializeField] private bool drawOverlapDebug = true;
+        [SerializeField, Min(0.1f)] private float overlapDebugPersistSeconds = 3f;
+
+        /// <summary>點到膠囊軸線的最短距離——判定是否落在膠囊內的正確量度（不是到中心點的距離）。</summary>
+        private static float DistanceToSegment(Vector3 point, Vector3 a, Vector3 b)
+        {
+            Vector3 ab = b - a;
+            float lengthSquared = ab.sqrMagnitude;
+            if (lengthSquared <= 0.0001f) return Vector3.Distance(point, a);
+            float t = Mathf.Clamp01(Vector3.Dot(point - a, ab) / lengthSquared);
+            return Vector3.Distance(point, a + ab * t);
+        }
+
+        private void OnDrawGizmos()
+        {
+            if (!drawOverlapDebug || !_debugHasOverlap) return;
+            if (Time.time - _debugLastOverlapTime > overlapDebugPersistSeconds) return;
+
+            // 🟢 查到目標／🔴 一個都沒查到。顏色直接把「中心對不對」與「有沒有打到」分開回答：
+            //    球畫在敵人身上卻是紅的 ⇒ 中心對、但 overlap 沒收到 ⇒ 問題在 mask／collider／時序。
+            //    球根本不在敵人身上 ⇒ 中心就錯了 ⇒ 問題在落點解析。
+            Gizmos.color = _debugLastOverlapCount > 0
+                ? new Color(0.2f, 1f, 0.4f, 0.9f)
+                : new Color(1f, 0.25f, 0.2f, 0.9f);
+            Gizmos.DrawWireSphere(_debugCapsuleStart, effectRadius);
+            Gizmos.DrawWireSphere(_debugCapsuleEnd, effectRadius);
+            Gizmos.DrawLine(_debugCapsuleStart, _debugCapsuleEnd);
+            Gizmos.DrawLine(_debugLastOverlapCenter, _debugLastOverlapCenter + Vector3.up * 2f);
+
+            // 從施法者拉一條線到判定中心：一眼看出 castDistance 把中心放在哪裡
+            // （它只有 0.4 m，而 VFX 的冰刺是**向前排成一列**、會伸得遠得多）。
+            Vector3 casterPosition = transform.root.position;
+            Gizmos.color = new Color(1f, 1f, 1f, 0.8f);
+            Gizmos.DrawLine(casterPosition, _debugLastOverlapCenter);
+
+            // 📊 沒查到目標時，把**最近的敵對標記有多遠**也算出來——
+            //    那直接回答「是超出半徑，還是半徑內卻沒收到」。
+            float nearest = float.PositiveInfinity;
+            var markers = FindObjectsByType<ActionRequestTarget>(FindObjectsSortMode.None);
+            for (int i = 0; i < markers.Length; i++)
+            {
+                if (markers[i] == null || markers[i].transform.root == transform.root) continue;
+                float distance = DistanceToSegment(
+                    markers[i].transform.position, _debugCapsuleStart, _debugCapsuleEnd);
+                if (distance < nearest) nearest = distance;
+            }
+
+            string verdict = _debugLastOverlapCount > 0
+                ? "命中"
+                : float.IsInfinity(nearest)
+                    ? "場上沒有敵對標記"
+                    : nearest > effectRadius
+                        ? $"⚠ 最近目標 {nearest:0.##}m > 半徑 {effectRadius:0.##}m ⇒ **超出判定範圍**"
+                        : $"⚠ 最近目標 {nearest:0.##}m 在半徑內卻沒收到 ⇒ 查 mask／collider";
+
+            UnityEditor.Handles.color = Gizmos.color;
+            UnityEditor.Handles.Label(_debugLastOverlapCenter + Vector3.up * 2.1f,
+                $"AoE overlap: {_debugLastOverlapCount} collider(s)  r={effectRadius:0.##}\n"
+                + $"center {Vector3.Distance(casterPosition, _debugLastOverlapCenter):0.##}m "
+                + $"from caster (castDistance={castDistance:0.##})\n"
+                + verdict);
+        }
+#endif
     }
 }

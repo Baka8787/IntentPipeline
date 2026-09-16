@@ -404,12 +404,16 @@
     <li><a href="#f8"><span class="n">08</span>表現層兩段發布</a></li>
     <li><a href="#f9"><span class="n">09</span>離線烘焙鏈</a></li>
     <li><a href="#f10"><span class="n">10</span>Foot IK 雙管道</a></li>
-    <li><a href="#f11"><span class="n">11</span>取景與選目標</a></li>
+    <li><a href="#f11"><span class="n">11</span>方向權威</a></li>
     <li class="grp">L3 · 呼叫鏈</li>
     <li><a href="#f12"><span class="n">12</span>主迴圈全鏈</a></li>
     <li><a href="#f13"><span class="n">13</span>按鍵到命中</a></li>
     <li><a href="#f14"><span class="n">14</span>落地音</a></li>
     <li><a href="#f15"><span class="n">15</span>輸入封鎖</a></li>
+    <li><a href="#f16"><span class="n">16</span>Action 收束</a></li>
+    <li><a href="#f17"><span class="n">17</span>Combat Context</a></li>
+    <li><a href="#f18"><span class="n">18</span>Locomotion Stop</a></li>
+    <li><a href="#f19"><span class="n">19</span>Traversal 全鏈</a></li>
     <li class="grp">收尾</li>
     <li><a href="#use">怎麼用這頁</a></li>
   </ol>
@@ -421,18 +425,18 @@
   <div class="eyebrow">Unity Character Framework · 架構導覽</div>
   <h1>IntentPipeline 架構導覽</h1>
   <p class="lede">
-    從<strong>整帧管線</strong>一路縮放到<strong>單一模組內部</strong>的十五張圖。
+    從<strong>整帧管線</strong>一路縮放到<strong>單一模組內部</strong>的十九張圖。
     每一張都標了三件事：這樣做的理由、當初否決了什麼、以及哪一條測試在守著它。
     看完應該能不看程式碼，把每一層講給別人聽。
   </p>
-  <p class="src">同步至 2026-09-10：Direction Authority、MAP Jump、Walk-off Falling 與敵人落地資料已納入。</p>
+  <p class="src">同步至 2026-09-14：Direction Authority、MAP Jump、Traversal primary contact 與 Hand IK 已納入。</p>
 
   <div class="stats">
-    <div><div class="v">80</div><div class="k">Runtime ＋ Editor 程式檔</div></div>
-    <div><div class="v">10,483</div><div class="k">程式行數</div></div>
-    <div><div class="v">292</div><div class="k">EditMode 測試條目</div></div>
-    <div><div class="v">27</div><div class="k">架構回歸測試</div></div>
-    <div><div class="v">7</div><div class="k">ADR 決策紀錄</div></div>
+    <div><div class="v">96</div><div class="k">Runtime ＋ Editor 程式檔</div></div>
+    <div><div class="v">19,579</div><div class="k">程式行數</div></div>
+    <div><div class="v">445</div><div class="k">EditMode 測試條目</div></div>
+    <div><div class="v">43</div><div class="k">架構回歸測試</div></div>
+    <div><div class="v">8</div><div class="k">ADR 決策紀錄</div></div>
     <div><div class="v">13</div><div class="k">管線步驟（順序 1–7）</div></div>
   </div>
 </header>
@@ -1044,7 +1048,7 @@
       <text class="s m fl" x="708" y="82">Output</text>
       <text class="xs mu" x="708" y="102">MoveSpeed</text>
       <text class="xs mu" x="708" y="118">MoveDirection</text>
-      <text class="xs mu" x="708" y="136">UpperBodyWeight</text>
+      <text class="xs mu" x="708" y="136">MoveX / MoveZ</text>
 
       <text class="xs m mu" x="20" y="40">策略（可換）</text>
       <text class="xs m mu" x="248" y="40">意圖（黑板）</text>
@@ -1516,12 +1520,12 @@
 <section class="tier">
   <div class="tier-head">
     <span class="code">L3</span>
-    <h2>呼叫鏈：四條端到端路徑</h2>
+    <h2>呼叫鏈與生命週期：八條端到端路徑</h2>
     <span class="zoom">×16</span>
   </div>
   <p class="tier-intro">
     前面兩層是靜態結構，這一層是「按下去之後實際發生什麼」。
-    刻意用文字樹而不是圖——呼叫鏈是有縮排層次的序列，樹狀文字比方框箭頭更誠實。
+    呼叫順序用文字樹，生命週期則用分支流程圖；兩者都把正常路徑與失敗／中斷路徑一起畫出來。
   </p>
 
   <!-- ---- 10 ---- -->
@@ -1714,6 +1718,350 @@
       </p></div>
     </div>
   </figure>
+
+  <!-- ---- 16 ---- -->
+  <figure id="f16">
+    <h3><span class="num">16</span>Action 收束：完成、取消、中斷都不能留下殘態</h3>
+    <p class="src">ActionState.cs · IActionLifecycleSink · ActionStateTests T17／T27 · A26</p>
+
+    <svg viewBox="0 0 860 540" role="img" aria-label="Action 生命週期分支：啟動失敗、取消、自然完成與 FSM 中斷最後都經 Cleanup、冷卻提交與狀態復位">
+      <rect class="boxf" x="280" y="20" width="300" height="70"></rect>
+      <text class="s m fl" x="430" y="45" text-anchor="middle">ActionState.OnEnter</text>
+      <text class="xs mu" x="430" y="64" text-anchor="middle">CaptureReleaseContext → sink.Begin()</text>
+      <text class="xs mu" x="430" y="80" text-anchor="middle">EnterPhase(Start)</text>
+
+      <line class="lnf" x1="430" y1="92" x2="430" y2="120" marker-end="url(#mk-f)"></line>
+      <rect class="box" x="270" y="124" width="320" height="82"></rect>
+      <text class="s m" x="430" y="149" text-anchor="middle">Active execution</text>
+      <text class="xs mu" x="430" y="168" text-anchor="middle">Start／Loop／End；每段至多 Release 一次</text>
+      <text class="xs gd" x="430" y="187" text-anchor="middle">只有 ActionState 擁有 phase 與 lifecycle 時序</text>
+
+      <path class="lnd" d="M278,56 L105,56 L105,254" marker-end="url(#mk-d)"></path>
+      <path class="lnf" d="M430,208 L430,232 L320,232 L320,254" marker-end="url(#mk-f)"></path>
+      <path class="lnf" d="M430,232 L535,232 L535,254" marker-end="url(#mk-f)"></path>
+      <path class="lnf" d="M430,232 L750,232 L750,254" marker-end="url(#mk-f)"></path>
+
+      <rect class="boxd" x="10" y="258" width="190" height="108"></rect>
+      <text class="s m dn" x="105" y="282" text-anchor="middle">啟動未成立</text>
+      <text class="xs mu" x="105" y="302" text-anchor="middle">request 消失：沒有 sink</text>
+      <text class="xs dn" x="105" y="323" text-anchor="middle">缺 Start：Begin 後 Cleanup</text>
+      <text class="xs mu" x="105" y="344" text-anchor="middle">phase=None，立刻放行</text>
+
+      <rect class="boxd" x="225" y="258" width="190" height="108"></rect>
+      <text class="s m dn" x="320" y="282" text-anchor="middle">動作內 Cancel</text>
+      <text class="xs mu" x="320" y="302" text-anchor="middle">Loop 讀到移動意圖</text>
+      <text class="xs dn" x="320" y="323" text-anchor="middle">入 Cancel 時先 Cleanup</text>
+      <text class="xs mu" x="320" y="344" text-anchor="middle">播收手動畫後 Complete</text>
+
+      <rect class="boxg" x="440" y="258" width="190" height="108"></rect>
+      <text class="s m gd" x="535" y="282" text-anchor="middle">自然完成</text>
+      <text class="xs mu" x="535" y="302" text-anchor="middle">Start-only／End 時長到</text>
+      <text class="xs gd" x="535" y="323" text-anchor="middle">Complete()</text>
+      <text class="xs mu" x="535" y="344" text-anchor="middle">或缺後續 phase 時保底</text>
+
+      <rect class="boxd" x="655" y="258" width="195" height="108"></rect>
+      <text class="s m dn" x="752" y="282" text-anchor="middle">FSM 中斷</text>
+      <text class="xs mu" x="752" y="302" text-anchor="middle">authored Interruptible 通過</text>
+      <text class="xs dn" x="752" y="323" text-anchor="middle">OnExit()</text>
+      <text class="xs mu" x="752" y="344" text-anchor="middle">不播放 Cancel phase</text>
+
+      <path class="ln" d="M105,368 L105,397 L430,397"></path>
+      <path class="ln" d="M320,368 L320,397"></path>
+      <path class="ln" d="M535,368 L535,397"></path>
+      <path class="ln" d="M752,368 L752,397 L430,397"></path>
+      <line class="lnf" x1="430" y1="397" x2="430" y2="425" marker-end="url(#mk-f)"></line>
+
+      <rect class="boxf" x="235" y="430" width="390" height="76"></rect>
+      <text class="s m fl" x="430" y="455" text-anchor="middle">共同收束</text>
+      <text class="xs mu" x="430" y="475" text-anchor="middle">Cleanup safety net → CommitCooldown → ResetExecutionState</text>
+      <text class="xs gd" x="430" y="494" text-anchor="middle">清空 active slot 後，後續 OnExit 自然成為 no-op</text>
+
+      <text class="xs dn m" x="430" y="528" text-anchor="middle">⚠ Cancel 會先關窗，Cleanup 契約因此必須可重複安全；不要把「被呼叫一次」當成生命週期保證。</text>
+    </svg>
+
+    <figcaption>
+      <strong>Interrupt 與 Cancel 是兩條不同路。</strong>Cancel 是 Action 內部的 authored 收手；Interrupt 是 FSM 換狀態。
+      兩者共同保證 sink 不留殘態、冷卻不被洗掉，但不承諾 Cleanup 只會被呼叫一次。
+    </figcaption>
+    <div class="notes">
+      <div class="note why"><span class="lab">為什麼</span><p class="bd">
+        Hitbox 或手持特效一旦漏掉 Cleanup，就會把一次性的命中窗變成永久玩法狀態；所以自然完成與 OnExit 都有 safety net。
+      </p></div>
+      <div class="note no"><span class="lab">否決了</span><p class="bd">
+        不讓各 sink 自己猜動畫播完了沒有，也不靠粒子／trigger 決定生命週期；sink 只執行 Begin／Release／Cleanup。
+      </p></div>
+      <div class="note test"><span class="lab">守衛</span><p class="bd">
+        <code>T17</code> 守自然完成仍 Cleanup，<code>T27</code> 守連段只 Begin 一次且最後收束，<code>A26</code> 守近戰開窗時機只能來自 Action lifecycle。
+      </p></div>
+      <div class="note self"><span class="lab">自我檢核</span><p class="bd">
+        「Cancel phase 剛進入就 Cleanup，之後 Complete 又走 safety net，sink 為什麼不能把第二次呼叫當錯誤？」
+      </p></div>
+    </div>
+  </figure>
+
+  <!-- ---- 17 ---- -->
+  <figure id="f17">
+    <h3><span class="num">17</span>Combat Context：進場、黏住、失效、離場</h3>
+    <p class="src">PlayerCombatContextSource.Tick() · CombatContextTests · docs/15 §4／§19</p>
+
+    <svg viewBox="0 0 860 720" role="img" aria-label="Combat Context 生命週期：互動和威脅搜尋進場，合法目標保持黏性，失效後才重選，無目標且逾時才離場，最後發布值型別快照">
+      <rect class="box" x="20" y="20" width="245" height="64"></rect>
+      <text class="s m" x="142" y="44" text-anchor="middle">玩家 Action intent</text>
+      <text class="xs mu" x="142" y="64" text-anchor="middle">RequestedActionSlot != None</text>
+
+      <rect class="box" x="307" y="20" width="245" height="64"></rect>
+      <text class="s m" x="430" y="44" text-anchor="middle">受到敵對 Action</text>
+      <text class="xs mu" x="430" y="64" text-anchor="middle">self request target 有 pending</text>
+
+      <rect class="box" x="595" y="20" width="245" height="64"></rect>
+      <text class="s m" x="718" y="44" text-anchor="middle">威脅半徑候選</text>
+      <text class="xs mu" x="718" y="64" text-anchor="middle">ActionRequestTarget marker</text>
+
+      <path class="lnf" d="M142,86 L142,106 L430,106 L430,124" marker-end="url(#mk-f)"></path>
+      <path class="lnf" d="M430,86 L430,124" marker-end="url(#mk-f)"></path>
+      <path class="lnf" d="M718,86 L718,106 L430,106"></path>
+
+      <rect class="boxf" x="245" y="128" width="370" height="66"></rect>
+      <text class="s m fl" x="430" y="153" text-anchor="middle">PlayerCombatContextSource.Tick（順序 2.6）</text>
+      <text class="xs mu" x="430" y="174" text-anchor="middle">先記 interaction time，再驗證保留中的 target</text>
+
+      <path class="lnf" d="M430,196 L430,220 L200,220 L200,242" marker-end="url(#mk-f)"></path>
+      <path class="lnf" d="M430,220 L660,220 L660,242" marker-end="url(#mk-f)"></path>
+
+      <rect class="boxg" x="20" y="246" width="360" height="100"></rect>
+      <text class="s m gd" x="200" y="272" text-anchor="middle">既有 target 仍合法</text>
+      <text class="xs mu" x="200" y="294" text-anchor="middle">active ＋ 非自己 ＋ 未超出 leaveRadius</text>
+      <text class="xs gd" x="200" y="318" text-anchor="middle">直接保留，完全不重新掃描</text>
+      <text class="xs mu" x="200" y="336" text-anchor="middle">更近的敵人不會偷走目標</text>
+
+      <rect class="box" x="480" y="246" width="360" height="100"></rect>
+      <text class="s m" x="660" y="272" text-anchor="middle">沒有 target／target 已失效</text>
+      <text class="xs mu" x="660" y="294" text-anchor="middle">Clear → OverlapSphereNonAlloc</text>
+      <text class="xs fl" x="660" y="318" text-anchor="middle">相機錐內 alignment → 距離</text>
+      <text class="xs mu" x="660" y="336" text-anchor="middle">只在此時選一次新候選</text>
+
+      <path class="ln" d="M200,348 L200,374 L430,374"></path>
+      <path class="ln" d="M660,348 L660,374 L430,374"></path>
+      <line class="lnf" x1="430" y1="374" x2="430" y2="400" marker-end="url(#mk-f)"></line>
+
+      <rect class="boxf" x="230" y="404" width="400" height="66"></rect>
+      <text class="s m fl" x="430" y="430" text-anchor="middle">InCombat = 先前已在場 ∨ 本幀互動 ∨ 有 target</text>
+      <text class="xs mu" x="430" y="451" text-anchor="middle">純半徑進場也會以進場時刻啟動 disengage 計時</text>
+
+      <line class="lnf" x1="430" y1="472" x2="430" y2="498" marker-end="url(#mk-f)"></line>
+      <rect class="boxd" x="205" y="502" width="450" height="58"></rect>
+      <text class="s m dn" x="430" y="527" text-anchor="middle">離場閘門：沒有合法 target ＋ disengageSeconds 已到</text>
+      <text class="xs mu" x="430" y="548" text-anchor="middle">兩者同時成立才 Exit；否則保持目前語境</text>
+
+      <path class="lnd" d="M205,532 L95,532 L95,586" marker-end="url(#mk-d)"></path>
+      <path class="lng" d="M655,532 L765,532 L765,586" marker-end="url(#mk-g)"></path>
+      <text class="xs dn m" x="126" y="522">成立</text>
+      <text class="xs gd m" x="704" y="522">未成立</text>
+
+      <rect class="boxd" x="20" y="590" width="250" height="54"></rect>
+      <text class="s m dn" x="145" y="613" text-anchor="middle">Exit ＋ ClearTarget</text>
+      <text class="xs mu" x="145" y="632" text-anchor="middle">InCombat=false</text>
+
+      <rect class="boxg" x="590" y="590" width="250" height="54"></rect>
+      <text class="s m gd" x="715" y="613" text-anchor="middle">保持語境</text>
+      <text class="xs mu" x="715" y="632" text-anchor="middle">更新 target position 快照</text>
+
+      <path class="lnf" d="M145,646 L145,681 L241,681" marker-end="url(#mk-f)"></path>
+      <path class="lnf" d="M715,646 L715,681 L619,681" marker-end="url(#mk-f)"></path>
+      <rect class="boxf" x="245" y="654" width="370" height="54"></rect>
+      <text class="s m fl" x="430" y="678" text-anchor="middle">發布 CombatContextData 值快照</text>
+      <text class="xs mu" x="430" y="697" text-anchor="middle">HeadLook／Action soft target 只讀；root facing 不讀</text>
+    </svg>
+
+    <figcaption>
+      黏性不等於每幀找最近敵人：<strong>合法 target 存在時完全不重選</strong>；只有失效才重新掃描。
+      黑板保存的是位置快照，不是 Transform，也不把 Combat Context 升格成常駐 facing 模式。
+    </figcaption>
+    <div class="notes">
+      <div class="note why"><span class="lab">為什麼</span><p class="bd">
+        距離遲滯避免邊界抖動，時間閘門避免剛離開半徑就瞬間脫戰；兩者共同處理「黏住但不能永遠黏住」。
+      </p></div>
+      <div class="note no"><span class="lab">否決了</span><p class="bd">
+        不每幀 soft-lock 最近敵人、不把 Transform 放進黑板，也不因為 <code>InCombat</code> 就持續旋轉角色 root。
+      </p></div>
+      <div class="note test"><span class="lab">守衛</span><p class="bd">
+        <code>CombatContextTests</code> 守距離＋時間離場、黏性與失效重選；<code>A5</code> 守唯一寫入者，<code>A31</code> 守它不能變成第二個 facing sender。
+      </p></div>
+      <div class="note self"><span class="lab">自我檢核</span><p class="bd">
+        「第二個敵人更靠近玩家，但目前目標仍合法，這一幀會不會換目標？」——不會，連掃描都不做。
+      </p></div>
+    </div>
+  </figure>
+
+  <!-- ---- 18 ---- -->
+  <figure id="f18">
+    <h3><span class="num">18</span>Locomotion Stop：不是第六個 State 的承諾位移</h3>
+    <p class="src">LocomotionModel／LocomotionStopRuntime／Selector · docs/07 §6／§9 · A12／A14／A15</p>
+
+    <svg viewBox="0 0 860 744" role="img" aria-label="Locomotion Stop 流程：放開輸入形成邊沿，選 Walk 或 Run 停步，等待腳相或立即播放，Update 更新私有生命週期，LateUpdate 執行烘焙位移，完成或中斷後失效並回到一般移動">
+      <rect class="boxf" x="145" y="18" width="570" height="78"></rect>
+      <text class="s m fl" x="430" y="42" text-anchor="middle">Stop request：raw intent 從有到無的第一幀</text>
+      <text class="xs mu" x="430" y="63" text-anchor="middle">Grounded ＋ 上一幀持有 ambient motion ＋ deltaTime &gt; 0</text>
+      <text class="xs gd" x="430" y="83" text-anchor="middle">release-entry intensity 在 smoother.Tick 前快照，tier 不受幀率影響</text>
+
+      <line class="lnf" x1="430" y1="98" x2="430" y2="122" marker-end="url(#mk-f)"></line>
+      <rect class="box" x="275" y="126" width="310" height="60"></rect>
+      <text class="s m" x="430" y="151" text-anchor="middle">SelectTier ＋ 選 LU／RU 變體</text>
+      <text class="xs mu" x="430" y="171" text-anchor="middle">不合法／無配置 → 維持既有 B9 收步</text>
+
+      <path class="lnf" d="M430,188 L430,212 L205,212 L205,236" marker-end="url(#mk-f)"></path>
+      <path class="lnf" d="M430,212 L655,212 L655,236" marker-end="url(#mk-f)"></path>
+
+      <rect class="boxg" x="30" y="240" width="350" height="90"></rect>
+      <text class="s m gd" x="205" y="265" text-anchor="middle">Walk：Pending phase match</text>
+      <text class="xs mu" x="205" y="286" text-anchor="middle">等待最近的 authored 未來入場腳相</text>
+      <text class="xs gd" x="205" y="308" text-anchor="middle">等待期間維持 release-entry 速度／方向</text>
+
+      <rect class="box" x="480" y="240" width="350" height="90"></rect>
+      <text class="s m" x="655" y="265" text-anchor="middle">Run：立即選片</text>
+      <text class="xs mu" x="655" y="286" text-anchor="middle">依目前 FootPhase 選 LU／RU</text>
+      <text class="xs mu" x="655" y="308" text-anchor="middle">不把 Walk 修正擴散到已驗收的 Run</text>
+
+      <path class="ln" d="M205,332 L205,356 L430,356"></path>
+      <path class="ln" d="M655,332 L655,356 L430,356"></path>
+      <line class="lnf" x1="430" y1="356" x2="430" y2="380" marker-end="url(#mk-f)"></line>
+
+      <rect class="boxf" x="250" y="384" width="360" height="72"></rect>
+      <text class="s m fl" x="430" y="410" text-anchor="middle">StartPlaying ＋ PlayWithCallback</text>
+      <text class="xs mu" x="430" y="431" text-anchor="middle">Begin／Pending 時已 Generation++；回調只設 CompletionRequested</text>
+      <text class="xs gd" x="430" y="449" text-anchor="middle">FSM 仍停在 Move；沒有新增 StateType</text>
+
+      <path class="lnf" d="M430,458 L430,480 L215,480 L215,500" marker-end="url(#mk-f)"></path>
+      <path class="lnf" d="M430,480 L645,480 L645,500" marker-end="url(#mk-f)"></path>
+
+      <rect class="box" x="20" y="504" width="390" height="100"></rect>
+      <text class="s m" x="215" y="529" text-anchor="middle">Update · 順序 3</text>
+      <text class="xs mu" x="215" y="550" text-anchor="middle">B9：Playing 照常推進；Pending 暫停；並更新 timeout</text>
+      <text class="xs mu" x="215" y="570" text-anchor="middle">重新輸入、離地、位移授權斷鏈 → Invalidate</text>
+      <text class="xs dn" x="215" y="590" text-anchor="middle">暫停只 Hold，不產生邊沿、不完成</text>
+
+      <rect class="boxg" x="450" y="504" width="390" height="100"></rect>
+      <text class="s m gd" x="645" y="529" text-anchor="middle">LateUpdate · 順序 6</text>
+      <text class="xs mu" x="645" y="550" text-anchor="middle">Playing → ExecuteBakedCurveMovement</text>
+      <text class="xs mu" x="645" y="570" text-anchor="middle">否則 → ExecuteBaseMovement</text>
+      <text class="xs gd" x="645" y="590" text-anchor="middle">兩路最後都只由 MotionDriver 呼叫 Move</text>
+
+      <path class="ln" d="M215,606 L215,630 L430,630"></path>
+      <path class="ln" d="M645,606 L645,630 L430,630"></path>
+      <line class="lnf" x1="430" y1="630" x2="430" y2="650" marker-end="url(#mk-f)"></line>
+      <rect class="boxf" x="220" y="654" width="420" height="62"></rect>
+      <text class="s m fl" x="430" y="678" text-anchor="middle">完成／逾時／中斷 → InvalidateStop</text>
+      <text class="xs mu" x="430" y="699" text-anchor="middle">Generation++、清私有 runtime、回放 Locomotion；舊回調靜默失效</text>
+
+      <text class="xs dn m" x="430" y="728" text-anchor="middle">⚠ Stop runtime 不進黑板、不寫 MoveSpeed 真實曲線速度，也不取得第二個 CharacterController 出口。</text>
+    </svg>
+
+    <figcaption>
+      Stop 是 <strong>LocomotionModel 私有的 committed-motion 生命週期</strong>：FSM 仍是 Move，
+      只是順序 6 暫時從 base movement 切到 baked curve。完成、逾時與中斷都以世代失效避免舊回調誤傷新播放。
+    </figcaption>
+    <div class="notes">
+      <div class="note why"><span class="lab">為什麼</span><p class="bd">
+        Stop 的選片、腳相等待與完成都只服務 locomotion presentation／motion；升成 Gameplay State 會把私有 dynamics 洩漏到全域仲裁。
+      </p></div>
+      <div class="note no"><span class="lab">否決了</span><p class="bd">
+        不新增 Stop 黑板欄位、不凍結 B9 smoother、不讓動畫回調直接改 FSM，也不把曲線速度冒充 <code>MoveSpeed</code>。
+      </p></div>
+      <div class="note test"><span class="lab">守衛</span><p class="bd">
+        <code>LocomotionStopTests</code> 守 tier／腳相／世代與中斷；<code>A12</code> 禁止黑板膨脹，<code>A14</code> 保持 Facade 無 locomotion 知識，<code>A15</code> 守 runtime 只有一個持有者。
+      </p></div>
+      <div class="note self"><span class="lab">自我檢核</span><p class="bd">
+        「Jump 在 Stop 中途接管時，為什麼沒有一幀雙重位移？」——FSM 已讓 JumpState 接手順序 6，model 下一幀只負責讓舊 Stop 失效。
+      </p></div>
+    </div>
+  </figure>
+
+  <!-- ---- 19 ---- -->
+  <figure id="f19">
+    <h3><span class="num">19</span>Traversal：從真實表面到單一主接觸，再到 Hand IK</h3>
+    <p class="src">TraversalProbe → Selection → Animation Fitting → TraversalPlan → Piecewise Root Warp → Contact → Hand IK · ADR-008 Trial · docs/22／24</p>
+
+    <svg viewBox="0 0 860 650" role="img" aria-label="Traversal 完整鏈路：Probe 擁有物理查詢，Selection 決定是否進入，Animation Fitting 決定播放速率，TraversalPlan 鎖存單一 primary root contact，Piecewise Root Warp 由 MotionDriver 執行，Contact 對 committed ledge surface 解 secondary hand，Hand IK 只修接觸殘差">
+      <rect class="boxg" x="18" y="24" width="246" height="104"></rect>
+      <text class="s m gd" x="34" y="49">1 · Probe</text>
+      <text class="xs mu" x="34" y="70">擁有全部 Physics query</text>
+      <text class="xs mu" x="34" y="88">commit ledge frame／interval／corridor</text>
+      <text class="xs gd" x="34" y="109">守衛：A39／Probe PlayMode corridor</text>
+
+      <line class="lnf" x1="266" y1="76" x2="296" y2="76" marker-end="url(#mk-f)"></line>
+      <rect class="box" x="300" y="24" width="246" height="104"></rect>
+      <text class="s m" x="316" y="49">2 · Selection</text>
+      <text class="xs mu" x="316" y="70">決定 Jump vs Traversal／kind enabled</text>
+      <text class="xs mu" x="316" y="88">只讀 candidate；拒絕時保留 reason</text>
+      <text class="xs gd" x="316" y="109">守衛：A45／J1–J5</text>
+
+      <line class="lnf" x1="548" y1="76" x2="578" y2="76" marker-end="url(#mk-f)"></line>
+      <rect class="boxf" x="582" y="24" width="260" height="104"></rect>
+      <text class="s m fl" x="598" y="49">3 · Animation Fitting</text>
+      <text class="xs mu" x="598" y="70">擁有 playback rate；不碰 Physics</text>
+      <text class="xs mu" x="598" y="88">先吸收時間域差，再交空間殘差</text>
+      <text class="xs gd" x="598" y="109">守衛：A50／TraversalAnimationFitTests</text>
+
+      <path class="lnf" d="M712,130 L712,160 L143,160 L143,190" marker-end="url(#mk-f)"></path>
+      <rect class="boxf" x="18" y="194" width="246" height="122"></rect>
+      <text class="s m fl" x="34" y="219">4 · TraversalPlan</text>
+      <text class="xs mu" x="34" y="240">CanEnter snapshot ＋ OnEnter 單次建立</text>
+      <text class="xs gd" x="34" y="258">root 只由 primary contact 決定</text>
+      <text class="xs mu" x="34" y="276">BothHands：Left 是 primary</text>
+      <text class="xs gd" x="34" y="297">守衛：HC4／M6</text>
+
+      <line class="lnf" x1="266" y1="255" x2="296" y2="255" marker-end="url(#mk-f)"></line>
+      <rect class="boxg" x="300" y="194" width="246" height="122"></rect>
+      <text class="s m gd" x="316" y="219">5 · Piecewise Root Warp</text>
+      <text class="xs mu" x="316" y="240">六 knot；root time ≡ animation time</text>
+      <text class="xs mu" x="316" y="258">contact→transfer correction 凍結</text>
+      <text class="xs gd" x="316" y="276">只有 MotionDriver 呼叫 Move</text>
+      <text class="xs gd" x="316" y="297">守衛：A46／B11</text>
+
+      <line class="lnf" x1="548" y1="255" x2="578" y2="255" marker-end="url(#mk-f)"></line>
+      <rect class="box" x="582" y="194" width="260" height="122"></rect>
+      <text class="s m" x="598" y="219">6 · Contact</text>
+      <text class="xs mu" x="598" y="240">primary：骨骼／grip fitting → root</text>
+      <text class="xs mu" x="598" y="258">secondary：查 committed ledge surface</text>
+      <text class="xs dn" x="598" y="276">無 surface 就 unavailable，不壓縮姿勢</text>
+      <text class="xs gd" x="598" y="297">守衛：HC6／M6／B14</text>
+
+      <path class="lnf" d="M712,318 L712,350 L430,350 L430,380" marker-end="url(#mk-f)"></path>
+      <rect class="boxf" x="220" y="384" width="420" height="118"></rect>
+      <text class="s m fl" x="430" y="410" text-anchor="middle">7 · Hand IK（Presentation residual only）</text>
+      <text class="xs mu" x="430" y="433" text-anchor="middle">只讀 committed wrist target ＋ bake-time weight window</text>
+      <text class="xs mu" x="430" y="453" text-anchor="middle">不查 Probe／Physics、不改 root／collision／blackboard</text>
+      <text class="xs gd" x="430" y="478" text-anchor="middle">守衛：A49／B15／PlayerPrefab_TraversalHandIK…</text>
+
+      <rect class="boxd" x="18" y="532" width="824" height="88"></rect>
+      <text class="xs dn m" x="34" y="557">⛔ 否決：雙手各解 absolute root 再平均；secondary 反向拉 root；IK 重查 Physics；authored offset 冒充 Probe geometry。</text>
+      <text class="xs mu" x="34" y="581">authored offset 的唯一語意：animation/contact fitting（例如 wrist↔grip、指尖 clearance）；真實表面仍由 Probe snapshot 定義。</text>
+      <text class="xs gd" x="34" y="605">失敗路徑：Entry／Selection reject → Jump fallback；plan 缺資料 → endpoint fallback；secondary 無 surface → 保留 authored pose。</text>
+    </svg>
+
+    <figcaption>
+      Traversal 的決策沿鏈路逐步收窄：<strong>Probe 決定世界裡有什麼，Selection 決定要不要進，
+      Fitting 決定動畫怎麼播，Plan 只用一個 primary contact 決定 root</strong>；secondary hand
+      只能查已提交的真實 ledge surface，再把公分級 residual 交給 Hand IK。
+    </figcaption>
+    <div class="notes">
+      <div class="note why"><span class="lab">為什麼</span><p class="bd">
+        Root 是單一剛體自由度；把兩隻手各當硬約束再平均，只會讓兩隻手都不準。單一 primary contact
+        對齊 Unity <code>MatchTarget</code> 與公開成熟實作，secondary contact 則保留真實表面證據與可觀測 residual。
+      </p></div>
+      <div class="note no"><span class="lab">否決了</span><p class="bd">
+        不再壓縮窄 ledge 上的 authored 雙手間距、不讓 PlanBuilder／Hand IK 發 Physics query，
+        也不把 <code>FingerContactClearance</code> 之類動畫 fitting 量寫成環境幾何。
+      </p></div>
+      <div class="note test"><span class="lab">守衛</span><p class="bd">
+        <code>A39／A45／A46／A49／A50</code> 守 owner 與禁止邊；<code>HC4</code> 守 primary-only root，
+        <code>HC6</code> 守 secondary surface query，<code>M6</code> 守窄 ledge 不偽造姿勢，<code>B11／B14／B15</code> 守 production bake 行為。
+      </p></div>
+      <div class="note self"><span class="lab">自我檢核</span><p class="bd">
+        「窄 ledge 只容得下一隻手時，誰可以改 root？」——只有 primary；secondary 沒有 surface contact 就停用 IK，不把動畫手距硬擠小。
+      </p></div>
+    </div>
+  </figure>
 </section>
 
 
@@ -1738,8 +2086,9 @@
       <tr><td class="m">敵人失地表現</td><td><span class="badge t">已接線</span></td><td>Y Bot 使用自己的精簡 JumpStateParams 與三個必要映射；W13 守所有 authored reachable state keys。</td></tr>
       <tr><td class="m">Foot IK 斜坡抽搐</td><td><span class="badge t">已修正</span></td><td>已證實為 GroundY 不連續並改由實際腳底平面導出；診斷 probe 已移除，連續性測試留存。</td></tr>
       <tr><td class="m">Persistent lock-on／正式 8-way</td><td><span class="badge w">未實作</span></td><td>現有 RunRing／FullRing 僅是量測 prototype。CombatContext 不等於 lock-on，也不等於進戰鬥就常駐 strafe。</td></tr>
-      <tr><td class="m">ADR-006 上半身層</td><td><span class="badge w">Proposed</span></td><td>Trial 名額仍由 ADR-007 佔用；在 ADR-007 Accepted 前不得開工。</td></tr>
+      <tr><td class="m">ADR-006 上半身層</td><td><span class="badge w">Trial</span></td><td>Spell＝Layer 1 upper-body mask；Layer 0 使用 Walk／Run 雙 8-way ring 並沿用 MoveX／MoveZ；Sprint directional presentation 延後。待 Play 驗收。</td></tr>
       <tr><td class="m">敵人 AI</td><td><span class="badge t">已實作</span></td><td>只有一顆 <code>AIMovementSource</code>（距離帶＋遲滯）。它證明的是介面可換，不是「有 AI 系統」。</td></tr>
+      <tr><td class="m">ADR-008 Traversal</td><td><span class="badge w">Trial</span></td><td>Probe→Selection→Animation Fitting→Plan→root warp→Contact→Hand IK 已接通；root 改為單一 primary contact，secondary 只吃 committed surface residual。自動測試已守，Climb2m 撐起自然度仍待人類 Play。</td></tr>
       <tr><td class="m">網路／存檔／UI 框架</td><td>—</td><td>不在 scope。被問到就直接這樣說。</td></tr>
     </tbody>
   </table>
@@ -1748,7 +2097,9 @@
     原始檔：<code>docs/artifacts/architecture-tour.html</code>　·　規格細節以對應的 <code>docs/NN-*.md</code> 為準<br>
     圖 01 §LayerRules　圖 02 dev-spec §2.1　圖 03 dev-spec §1.1　圖 04 dev-spec §3.3　圖 05 ADR-004／005 ＋ docs/08、docs/11<br>
     圖 06 ADR-003　圖 07 dev-spec §3.2　圖 08 dev-spec §3.4　圖 09 dev-spec §4<br>
-    圖 10 docs/05-foot-ik.md §3.5　圖 11 ADR-007 ＋ docs/14、docs/15　圖 12–15 CharacterPipelineRunner.cs ＋ 各子系統實作
+    圖 10 docs/05-foot-ik.md §3.5　圖 11 ADR-007 ＋ docs/14、docs/15　圖 12–15 CharacterPipelineRunner.cs ＋ 各子系統實作<br>
+    圖 16 ActionState.cs ＋ docs/08、docs/11　圖 17 PlayerCombatContextSource.cs ＋ docs/15　圖 18 LocomotionModel.cs ＋ docs/07<br>
+    圖 19 ADR-008 ＋ docs/22、docs/24 ＋ TraversalWarpPlanTests
   </p>
 </section>
 

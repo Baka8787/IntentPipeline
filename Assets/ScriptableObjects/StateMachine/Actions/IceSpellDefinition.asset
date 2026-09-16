@@ -13,6 +13,7 @@ MonoBehaviour:
   m_Name: IceSpellDefinition
   m_EditorClassIdentifier: Project.Runtime::Project.Core.StateMachine.Actions.ActionDefinitionSO
   Slot: 3
+  Targeting: 1
   Phases:
   - Phase: 1
     AnimationKey: Spell_Ice
@@ -22,6 +23,9 @@ MonoBehaviour:
     WaitForTrigger: 0
     EmitsRelease: 1
     ReleaseNormalizedTime: 0.35
+  ChainSegments: []
+  ChainInputOpenNormalized: 0.25
   Cooldown: 1.5
+  CooldownVariance: 0
   RequiresGrounded: 1
   CancelMoveIntentThreshold: 0.1

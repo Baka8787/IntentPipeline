@@ -12,7 +12,10 @@ using Project.Core.Movement;
 using Project.Core.Pipeline;
 using Project.Core.StateMachine;
 using Project.Core.StateMachine.Actions;
+using Project.Presentation.Actions;
 using Project.Presentation.Animation;
+using Project.Core.Survivability;
+using Project.Presentation.Equipment;
 using Project.Presentation.Motion;
 using Project.App;
 
@@ -265,6 +268,66 @@ namespace Project.Tests.EditMode
         }
 
         /// <summary>
+        /// 持續 combat-facing 是 actor policy：玩家維持預設 false，敵人才顯式啟用。
+        /// 玩家判別沿用本檔既有慣例——看 Runner Host 上是否有
+        /// <see cref="PlayerLocomotionPolicy"/>，不把 prefab 名稱變成 gameplay 身分。
+        ///
+        /// ⚠️ **編號註記（2026-09-11）**：本測項在 `docs/20` §4-B2 原被指名為 W12，
+        /// 但 W12 已被 <see cref="W12_PlayerCharacterRoots_HaveExactlyOnePlayerCombatContextSource"/> 佔用，
+        /// 故順延為 **W14**（W13 亦已佔用）。比照 `ArchitectureRegressionTests` 的 A24 撞號處置：
+        /// **編號是引用鍵，不是排名**——新來者順延，不動既有測項的編號。
+        ///
+        /// 📌 本測項在 Y Bot prefab 勾選 `usePersistentCombatFacing` **之前是紅的**，那是刻意的：
+        /// 它是 `docs/20` §3-B1 那條人工項的機器形式，紅燈就是那張 checklist 還沒做完。
+        /// </summary>
+        [Test]
+        public void W14_PersistentCombatFacing_MatchesActorPolicy()
+        {
+            var violations = new List<string>();
+
+            foreach (CharacterPrefab prefab in LoadCharacterPrefabs())
+            {
+                bool isPlayer = prefab.Host.GetComponent<PlayerLocomotionPolicy>() != null;
+                bool expected = !isPlayer;
+                CharacterFacingSource source = prefab.Host.GetComponent<CharacterFacingSource>();
+
+                if (source == null)
+                {
+                    violations.Add(
+                        $"{prefab.Path} → Runner Host '{prefab.Host.name}' 找不到 CharacterFacingSource\n" +
+                        "    contract : usePersistentCombatFacing 是每角色的 facing actor policy；玩家 false、敵人 true\n" +
+                        $"    expected : {(expected ? "true（敵人）" : "false（玩家）")}\n" +
+                        "    actual   : CharacterFacingSource 缺席，無法讀取");
+                    continue;
+                }
+
+                var serialized = new SerializedObject(source);
+                SerializedProperty property = serialized.FindProperty("usePersistentCombatFacing");
+                if (property == null)
+                {
+                    violations.Add(
+                        $"{prefab.Path} → Runner Host '{prefab.Host.name}' 的 CharacterFacingSource 找不到序列化欄位\n" +
+                        "    contract : usePersistentCombatFacing 是每角色的 facing actor policy；玩家 false、敵人 true\n" +
+                        $"    expected : {(expected ? "true（敵人）" : "false（玩家）")}\n" +
+                        "    actual   : SerializedObject.FindProperty 回傳 null");
+                    continue;
+                }
+
+                if (property.boolValue == expected) continue;
+
+                violations.Add(
+                    $"{prefab.Path} → Runner Host '{prefab.Host.name}' 的 CharacterFacingSource\n" +
+                    "    contract : usePersistentCombatFacing 是每角色的 facing actor policy；玩家 false、敵人 true\n" +
+                    $"    expected : {(expected ? "true（敵人）" : "false（玩家）")}\n" +
+                    $"    actual   : {(property.boolValue ? "true" : "false")}");
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "角色 persistent combat-facing actor policy 接線錯誤：\n\n" +
+                string.Join("\n\n", violations));
+        }
+
+        /// <summary>
         /// 玩家判別使用 Runner Host 上的 <see cref="PlayerLocomotionPolicy"/>：它是玩家 movement producer，
         /// 敵人沒有，因此不會把 AI 錯當成需要玩家 combat context 的角色。
         ///
@@ -308,6 +371,19 @@ namespace Project.Tests.EditMode
         /// ⚠️ enum 一律讀 <c>intValue</c> 而非 <c>enumValueIndex</c>——
         /// <see cref="ActionSlot"/> 的數值刻意不連續（1／2／3／100），
         /// <c>enumValueIndex</c> 取的是「第幾個成員」，用它會把 Reaction(100) 讀成 4。
+        ///
+        /// <para><b>🆕 2026-09-14：重複的定義變了（使用者裁決）</b></para>
+        /// 舊規則是「**同一個 slot 只能出現一次**」。現在一個 slot 可以有多顆 sink——
+        /// 一個 Action 本來就可能同時有命中判定、武器顯隱、刀光、VFX、音效等彼此獨立的副作用。
+        /// ⇒ 本測項改為只禁止「**同一顆 sink 在同一個 slot 註冊兩次**」。
+        ///
+        /// 為什麼那一條仍要禁：它必定是接線手滑（重複的列不會帶來任何新效果），
+        /// 而症狀是**該 sink 的效果在一次 Action 裡發生兩遍**——命中判定跑兩次、傷害變兩倍。
+        /// 沒有人會把「這隻敵人好像特別痛」聯想到 Inspector 上多出來的一列。
+        ///
+        /// 📌 同一顆 sink 綁到**不同** slot 是合法的（例如共用的音效 sink），因此比較的是
+        /// 「(slot, sink 實例)」這個組合，不是 slot、也不是 sink。
+        /// 執行期的對應守衛由 <c>ActionSinkResolutionTests</c> 守。
         /// </summary>
         [Test]
         public void W3_ActionSinkBindings_AreWellFormed()
@@ -317,7 +393,9 @@ namespace Project.Tests.EditMode
             foreach (CharacterPrefab prefab in LoadCharacterPrefabs())
             {
                 SerializedProperty bindings = Field(prefab, "actionSinkBindings");
-                var seen = new HashSet<int>();
+                // 比較的是「(slot, sink 實例)」這個組合——不是 slot（一個 slot 可以有多顆），
+                // 也不是 sink（同一顆綁到不同 slot 是合法的）。
+                var seen = new HashSet<(int Slot, Object Sink)>();
 
                 for (int i = 0; i < bindings.arraySize; i++)
                 {
@@ -334,13 +412,15 @@ namespace Project.Tests.EditMode
                             $"    actual   : None(0)");
                     }
 
-                    if (!seen.Add(slotValue))
+                    if (sink != null && !seen.Add((slotValue, sink)))
                     {
                         violations.Add(
-                            $"{prefab.Path} → Action Sink Bindings #{i}：Slot {(ActionSlot)slotValue} 重複綁定\n" +
-                            $"    contract : 每個 slot 至多一顆 sink（ResolveActionLifecycleSinks 會忽略後者並 LogError）\n" +
-                            $"    expected : 每個 slot 出現一次\n" +
-                            $"    actual   : 出現第二次");
+                            $"{prefab.Path} → Action Sink Bindings #{i}：" +
+                            $"Slot {(ActionSlot)slotValue} 重複註冊了同一顆 sink '{sink.name}' ({sink.GetType().Name})\n" +
+                            $"    contract : 一個 slot 可以有多顆**不同的** sink（命中判定／武器顯隱／刀光…），\n" +
+                            $"               但同一顆不得註冊兩次（ResolveActionLifecycleSinks 會忽略後者並 LogError）\n" +
+                            $"    expected : 移除重複的那一列，或改綁另一顆 sink\n" +
+                            $"    症狀     : 該 sink 的效果在一次 Action 裡發生兩遍——命中判定跑兩次、傷害變兩倍");
                     }
 
                     if (sink == null)
@@ -663,7 +743,7 @@ namespace Project.Tests.EditMode
         }
 
         // =====================================================================
-        // W10 — 攻擊圈必須落在接戰帶內
+        // W10 — 攻擊圈與接戰帶必須是同一個距離
         // =====================================================================
 
         /// <summary>
@@ -673,15 +753,38 @@ namespace Project.Tests.EditMode
         /// <list type="bullet">
         /// <item><c>attackRange &gt; maximumEngagementDistance</c> ⇒ 還在 Approach 就開始出拳，
         /// 一邊滑步一邊揮拳、動畫在 Move／Punch 之間反覆跳。**2026-09-05 的「敵人亂動」就是這個。**</item>
+        /// <item><c>attackRange &lt; maximumEngagementDistance</c> ⇒ 兩者之間是一段
+        /// **「站得住但打不到」的死區**：敵人判定「距離剛好」而停止前進並側移，
+        /// 但這個距離送不出攻擊 request ⇒ 它在原地繞圈，永遠不出手。
+        /// **2026-09-14 使用者 Play 回報的「敵人攻擊距離比迂迴距離短，玩家得自己往前靠」就是這個**
+        /// （當時 `attackRange 1.8 &lt; maximumEngagementDistance 2.0`）。</item>
         /// <item><c>attackRange &lt; minimumEngagementDistance</c> ⇒ 進到能打的距離前就先 Retreat，
-        /// **敵人永遠不會出手**，而且不會有任何錯誤訊息。</item>
+        /// **敵人永遠不會出手**（上一條的極端版本）。</item>
         /// </list>
         ///
-        /// 兩者都是靜默失敗，都只能靠人眼看出來——正是該寫成測試的形狀。
+        /// <para><b>⇒ 唯一同時避開前兩條的解是相等</b></para>
+        /// 這不是把標準訂得過嚴，而是兩個必要條件交集後的唯一解：
+        /// `maximumEngagementDistance` 是敵人**會停下來不再前進的最遠距離**
+        /// （由 <c>CombatContextTests.TC11</c> 以純函數證明它是緊上界），
+        /// 而 `attackRange` 是**願意出手的最遠距離**。「會停下來的地方就要願意出手」
+        /// 與「願意出手的地方都已經停下來」同時成立 ⇒ 兩者必須是同一個數字。
+        /// 第三條（≥ minimum）因此自動成立，仍保留為獨立訊息，因為它的症狀不同。
+        ///
+        /// <para><b>殘留重疊是 hysteresis 帶來的，無法消除</b></para>
+        /// 即使相等，敵人在最後 <c>distanceHysteresis</c> 那一段（<c>maximum − deadZone</c> 到
+        /// <c>maximum</c>）仍是 Approach 且已在攻擊圈內 ⇒ 會「邊走邊揮」一小段。
+        /// 要完全消除就得讓 `attackRange ≤ maximum − deadZone`，但那**又會製造死區**。
+        /// ⚠️ 兩害相權：死區是 gameplay 死局（敵人不打人），邊走邊揮只是表現瑕疵
+        /// ⇒ 本專案選擇容忍後者。
+        ///
+        /// <para><b>這條不管拳頭打不打得到</b></para>
+        /// 真正的物理觸及範圍在 <c>MeleeHitboxSink</c> 的 collider 幾何上，是另一個層次的問題。
+        /// 本條只保證**決策層不自相矛盾**。
+        ///
         /// ⚠️ 這條是**關聯式**的：不寫死任何數值，只斷言兩個元件的數值互相自洽。
         /// </summary>
         [Test]
-        public void W10_AttackRange_SitsInsideEngagementBand()
+        public void W10_AttackRange_MatchesTheHoldBandUpperBound()
         {
             var violations = new List<string>();
 
@@ -691,18 +794,24 @@ namespace Project.Tests.EditMode
                 var movementSource = prefab.Host.GetComponent<AIMovementSource>();
                 if (attackSource == null || movementSource == null) continue; // 玩家沒有這兩顆，跳過
 
-                var attackSerialized = new SerializedObject(attackSource);
-                var movementSerialized = new SerializedObject(movementSource);
-
-                float attackRange = attackSerialized.FindProperty("attackRange").floatValue;
-                float minimum = movementSerialized.FindProperty("minimumEngagementDistance").floatValue;
-                float maximum = movementSerialized.FindProperty("maximumEngagementDistance").floatValue;
+                float attackRange = SerializedFloat(attackSource, "attackRange");
+                float minimum = SerializedFloat(movementSource, "minimumEngagementDistance");
+                float maximum = SerializedFloat(movementSource, "maximumEngagementDistance");
 
                 if (attackRange > maximum)
                 {
                     violations.Add(
                         $"{prefab.Path} → attackRange {attackRange:0.##} > maximumEngagementDistance {maximum:0.##}\n" +
                         $"    症狀 : 還在 Approach 就出拳 ⇒ 一邊滑步一邊揮拳，動畫在 Move／Punch 之間反覆跳");
+                }
+
+                if (attackRange < maximum)
+                {
+                    violations.Add(
+                        $"{prefab.Path} → attackRange {attackRange:0.##} < maximumEngagementDistance {maximum:0.##}\n" +
+                        $"    死區 : {attackRange:0.##}–{maximum:0.##} m 之間站得住但打不到\n" +
+                        $"    症狀 : 敵人靠近後就在原地繞圈不出手，**沒有任何錯誤訊息**\n" +
+                        $"    修法 : 兩個欄位改成同一個數字（以實際 MeleeHitbox 的觸及範圍為準）");
                 }
 
                 if (attackRange < minimum)
@@ -715,6 +824,69 @@ namespace Project.Tests.EditMode
 
             CollectionAssert.IsEmpty(violations,
                 "AI 的攻擊圈與接戰帶不自洽（Verification Ladder L1）：\n\n" + string.Join("\n\n", violations));
+        }
+
+        /// <summary>
+        /// Enemy baseline 的三組距離各有單一語意：attack range 決定「想不想嘗試出手」、
+        /// engagement band 決定戰鬥中怎麼移動、aggro enter/leave 決定是否交戰。
+        /// 本測試只守關係，不把 8/12 first-pass tuning 鎖成正式平衡值。
+        /// </summary>
+        [Test]
+        public void W15_EnemyDecisionTargetsAndDistanceLayers_AreCoherent()
+        {
+            var violations = new List<string>();
+
+            foreach (CharacterPrefab prefab in LoadCharacterPrefabs())
+            {
+                var attackSource = prefab.Host.GetComponent<AIInputSource>();
+                var movementSource = prefab.Host.GetComponent<AIMovementSource>();
+                if (attackSource == null || movementSource == null) continue;
+
+                var attackSerialized = new SerializedObject(attackSource);
+                var movementSerialized = new SerializedObject(movementSource);
+
+                Object attackTarget = attackSerialized.FindProperty("target").objectReferenceValue;
+                Object movementTarget = movementSerialized.FindProperty("target").objectReferenceValue;
+                float attackRange = attackSerialized.FindProperty("attackRange").floatValue;
+                float engagementMaximum =
+                    movementSerialized.FindProperty("maximumEngagementDistance").floatValue;
+                float aggroEnter = movementSerialized.FindProperty("aggroEnterRadius").floatValue;
+                float aggroLeave = movementSerialized.FindProperty("aggroLeaveRadius").floatValue;
+
+                if (attackTarget != movementTarget)
+                {
+                    violations.Add(
+                        $"{prefab.Path} → AIInputSource 與 AIMovementSource 指向不同 target\n" +
+                        "    contract : awareness、movement、action decision 必須使用同一個已知目標\n" +
+                        $"    attack  : {(attackTarget != null ? attackTarget.name : "<none>")}\n" +
+                        $"    movement: {(movementTarget != null ? movementTarget.name : "<none>")}");
+                }
+
+                if (aggroEnter <= engagementMaximum)
+                {
+                    violations.Add(
+                        $"{prefab.Path} → aggroEnterRadius {aggroEnter:0.##} <= " +
+                        $"maximumEngagementDistance {engagementMaximum:0.##}\n" +
+                        "    contract : aggro range 決定是否交戰；engagement distance 只決定戰鬥內站位，兩者不得共用同一門檻");
+                }
+
+                if (attackRange > aggroEnter)
+                {
+                    violations.Add(
+                        $"{prefab.Path} → attackRange {attackRange:0.##} > aggroEnterRadius {aggroEnter:0.##}\n" +
+                        "    contract : Enemy 不得在尚未能進入 Combat 的距離送 Attack request");
+                }
+
+                if (aggroLeave < aggroEnter)
+                {
+                    violations.Add(
+                        $"{prefab.Path} → aggroLeaveRadius {aggroLeave:0.##} < aggroEnterRadius {aggroEnter:0.##}\n" +
+                        "    contract : leave 必須大於等於 enter，才能形成 engagement hysteresis");
+                }
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "Enemy Decision 的 target 或距離分層不自洽：\n\n" + string.Join("\n\n", violations));
         }
 
         // =====================================================================
@@ -958,6 +1130,461 @@ namespace Project.Tests.EditMode
                 $"    expected : 補一列 StateKey='{key}' 並指派 TransitionAsset，\n" +
                 $"               或改綁一份**這隻角色自己的** JumpStateParams（只 author 它真的需要的格子）\n" +
                 $"    症狀     : 空中／落地時動畫不換，Console 只有一行 AnimancerFacade 查表失敗警告");
+        }
+
+        // =====================================================================
+        // W18 / W19 / W20 — Hurt ／ Death 垂直切片的接線（docs/26 §K）
+        // =====================================================================
+
+        /// <summary>
+        /// **W18 — 每隻角色都要能受傷與死亡。**
+        ///
+        /// <para>這條守的是一個曾經真實存在、而且完全靜默的缺陷：</para>
+        /// 2026-09-14 盤點時發現 **玩家從來沒有過受擊反應**——`DamageDefinition` 只掛在敵人 config，
+        /// `X Bot` 的 37 筆 transition mapping 裡也沒有任何受擊動畫。
+        /// 而失敗模式是「什麼都沒發生」：沒有例外、沒有紅字，只有「被打好像沒反應」。
+        ///
+        /// 缺 <c>CharacterHealth</c> 的角色 <c>Survivability</c> 恆為 <c>default</c>
+        /// ⇒ 永遠不會進 Hurt／Death，而且同樣安靜。
+        /// </summary>
+        [Test]
+        public void W18_CharacterPrefabs_CanTakeDamageAndDie()
+        {
+            var violations = new List<string>();
+
+            foreach (CharacterPrefab prefab in LoadCharacterPrefabs())
+            {
+                if (prefab.Host.GetComponent<Project.Core.Survivability.CharacterHealth>() == null)
+                {
+                    violations.Add(
+                        $"{prefab.Path} 缺 CharacterHealth\n" +
+                        "    contract : 它是 Survivability 的唯一寫入者（ADR-009 D1）；缺席 ⇒ 該角色永遠不會受傷或死亡\n" +
+                        "    症狀     : 打得到、扣不了血，且**沒有任何錯誤訊息**");
+                }
+
+                if (prefab.Host.GetComponent<Project.Core.Arbitration.Sources.DeathArbiterSource>() == null)
+                {
+                    violations.Add(
+                        $"{prefab.Path} 缺 DeathArbiterSource\n" +
+                        "    contract : 死後停止產生 intent 只能走仲裁層——A27 禁止輸入層回讀 gameplay state\n" +
+                        "    症狀     : 屍體仍在產生移動／攻擊意圖");
+                }
+            }
+
+            CollectionAssert.IsEmpty(violations, string.Join("\n", violations));
+        }
+
+        /// <summary>
+        /// **W19 — Hurt ／ Death 的動畫鍵必須解析得出來。**
+        ///
+        /// 兩個鍵都是 <c>BaseState.AnimationKey</c> 的預設（<c>Type.ToString()</c>），
+        /// 不經任何 authored Definition ⇒ **沒有第二個地方會抱怨接線漏掉**。
+        /// <c>AnimancerFacade.Play</c> 查表失敗只 LogWarning 後 return：
+        /// 角色照樣進入 Hurt／Death（狀態權威與動畫播放是解耦的），但**維持上一個姿勢**。
+        /// 那正是「看起來像沒壞」的失敗模式。
+        /// </summary>
+        [Test]
+        public void W19_HurtAndDeathAnimationKeys_ResolveInTransitionMappings()
+        {
+            var violations = new List<string>();
+
+            foreach (CharacterPrefab prefab in LoadCharacterPrefabs())
+            {
+                var facade = prefab.Host.GetComponentInChildren<AnimancerFacade>(true);
+                if (facade == null) continue;
+
+                HashSet<string> mappedKeys = MappedStateKeys(facade);
+                foreach (string key in new[]
+                         {
+                             StateType.Hurt.ToString(),
+                             StateType.Death.ToString(),
+                         })
+                {
+                    if (mappedKeys.Contains(key)) continue;
+                    violations.Add(
+                        $"{prefab.Path} 沒有 StateKey='{key}' 的 transition mapping\n" +
+                        "    contract : Hurt／Death 的動畫鍵是 StateType 名稱，不經 Definition 資產\n" +
+                        "    症狀     : 角色確實進入該狀態（扣血、被鎖住），但維持上一個姿勢");
+                }
+            }
+
+            CollectionAssert.IsEmpty(violations, string.Join("\n", violations));
+        }
+
+        /// <summary>
+        /// **W20 — Hurt 的時長必須來自 bake，不是程式常數。**
+        ///
+        /// <c>HurtState</c> 的 <c>FallbackDuration</c> 只是斷鏈時的安全退化。
+        /// 正式資產若沒綁 Hurt 的 bakeMapping，硬直長度就悄悄變成程式裡的數字——
+        /// 使用者 2026-09-14 明確要求「不要在 runtime state 裡 hardcode 秒數」。
+        ///
+        /// ⚠️ **Death 刻意不要求 bake**：它是吸收態、沒有計時器，也不消費 baked 位移
+        /// （走 <c>ExecuteVerticalOnlyMovement</c>）⇒ 為它建一份 bake 只會多一個沒人讀的資產。
+        /// </summary>
+        [Test]
+        public void W20_HurtDuration_ComesFromBakeMapping_AndDeathNeedsNone()
+        {
+            var violations = new List<string>();
+
+            foreach (string guid in AssetDatabase.FindAssets("t:StateMachineConfigSO"))
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                var config = AssetDatabase.LoadAssetAtPath<StateMachineConfigSO>(path);
+                if (config == null) continue;
+                config.Initialize();
+
+                MotionBakeData hurtBake = config.GetBakeData(StateType.Hurt);
+                if (hurtBake == null)
+                {
+                    violations.Add($"{path} 的 bakeMappings 沒有 Hurt ⇒ 硬直長度會退化成 HurtState 的程式常數");
+                }
+                else if (!(hurtBake.Duration > 0f))
+                {
+                    violations.Add($"{path} 的 Hurt bake（{hurtBake.name}）Duration = {hurtBake.Duration}；請重跑烘焙");
+                }
+            }
+
+            CollectionAssert.IsEmpty(violations, string.Join("\n", violations));
+        }
+
+        // =====================================================================
+        // W25 — 世界空間血條接線必須完整（2026-09-15）
+        // =====================================================================
+
+        /// <summary>
+        /// **W25 — <c>WorldSpaceHealthBar</c> 必須解析得到 Runner、有血條、且 Canvas 是 World Space。**
+        ///
+        /// <para>三種失敗模式，其中兩種**方向相反地難猜**：</para>
+        /// <list type="bullet">
+        /// <item><b>解析不到 Runner</b> ⇒ `LateUpdate` 第一行就 return ⇒ 血條**維持 prefab 上的預設**
+        /// （編輯時是顯示的、滿血的）⇒ 畫面上是「每隻敵人頭上都掛著一條永遠滿的血條」。
+        /// 看起來像「可見性政策沒做」，而不是「沒接到角色」。</item>
+        /// <item><b>`healthFill` 沒指派</b> ⇒ 顯隱會動、長度不會動 ⇒ 看起來像血量沒在扣。</item>
+        /// <item><b>Canvas 不是 World Space</b>（例如誤設成 Overlay）⇒ 血條會**貼在螢幕上**而不是
+        /// 跟著敵人 ⇒ 多隻敵人時全部疊在同一個位置。</item>
+        /// </list>
+        ///
+        /// ⚠️ <c>visualRoot</c> 留空**不是**違規：那是刻意的退路（用本物件自己）。
+        /// 沒掛這顆元件的角色也不是違規——玩家的血條在螢幕 HUD 上。
+        /// </summary>
+        [Test]
+        public void W25_WorldSpaceHealthBars_AreFullyWired()
+        {
+            var violations = new List<string>();
+
+            foreach (CharacterPrefab prefab in LoadCharacterPrefabs())
+            {
+                WorldSpaceHealthBar[] bars = prefab.Root.GetComponentsInChildren<WorldSpaceHealthBar>(true);
+
+                foreach (WorldSpaceHealthBar bar in bars)
+                {
+                    var serialized = new SerializedObject(bar);
+
+                    bool resolvesRunner = serialized.FindProperty("runner").objectReferenceValue != null
+                        || bar.GetComponentInParent<CharacterPipelineRunner>(true) != null;
+                    if (!resolvesRunner)
+                    {
+                        violations.Add(
+                            $"{prefab.Path} → '{bar.gameObject.name}' 的 WorldSpaceHealthBar 解析不到 Runner\n" +
+                            $"    contract : 血量與 CombatContext 都從 Runner 的黑板讀\n" +
+                            $"    症狀     : 血條維持 prefab 預設（顯示、滿血）⇒ 看起來像可見性政策沒做");
+                    }
+
+                    if (serialized.FindProperty("healthFill").objectReferenceValue == null)
+                    {
+                        violations.Add(
+                            $"{prefab.Path} → '{bar.gameObject.name}' 的 healthFill 未指派\n" +
+                            $"    症狀     : 顯隱會動、長度不會動 ⇒ 看起來像血量沒在扣");
+                    }
+
+                    var canvas = bar.GetComponent<Canvas>();
+                    if (canvas == null || canvas.renderMode != RenderMode.WorldSpace)
+                    {
+                        violations.Add(
+                            $"{prefab.Path} → '{bar.gameObject.name}' 的 Canvas 不是 World Space" +
+                            $"（{(canvas == null ? "沒有 Canvas" : canvas.renderMode.ToString())}）\n" +
+                            $"    contract : 頭上血條必須跟著角色在世界裡，billboard 才有意義\n" +
+                            $"    症狀     : 血條貼在螢幕上 ⇒ 多隻敵人時全部疊在同一個位置");
+                    }
+                }
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "世界空間血條接線不完整：\n\n" + string.Join("\n\n", violations));
+        }
+
+        // =====================================================================
+        // W24 — HUD 接線必須完整（2026-09-15）
+        // =====================================================================
+
+        /// <summary>
+        /// **W24 — <c>PlayerHud</c> 必須解析得到 Runner、有血條、且每一列冷卻 binding 都是完整的。**
+        ///
+        /// <para>失敗模式全部靜默，而且**方向相反的兩種都很難猜**：</para>
+        /// <list type="bullet">
+        /// <item><b>解析不到 Runner</b> ⇒ `LateUpdate` 第一行就 return。HUD **畫得出來但永遠不更新**
+        /// ——血條停在編輯時的 `fillAmount`（通常是滿的）。看起來像「角色沒受傷」，
+        /// 而不是「HUD 沒接上」。</item>
+        /// <item><b>`healthFill` 沒指派</b> ⇒ 冷卻會動、血條不會動。最容易被當成血量系統壞了。</item>
+        /// <item><b>binding 的 Slot 是 <c>None</c></b> ⇒ 查詢恆回 0 ⇒ 那一格**永遠亮著**，
+        /// 看起來像「這個技能沒有冷卻」。</item>
+        /// <item><b>binding 的 Overlay 是空的</b> ⇒ 那一格永遠不畫冷卻，症狀同上。</item>
+        /// </list>
+        ///
+        /// ⚠️ 沒掛 <c>PlayerHud</c> 的角色**不是**違規——敵人沒有 HUD。本條只檢查已經掛上的那些。
+        /// ⚠️ 本條**不檢查** <c>Image.type</c> 是否為 <c>Filled</c>：那是視覺設定，
+        /// 錯了在 Play 的第一秒就看得出來（整塊蓋住不會動），不屬於「靜默」那一類。
+        /// </summary>
+        [Test]
+        public void W24_PlayerHuds_AreFullyWired()
+        {
+            var violations = new List<string>();
+
+            foreach (CharacterPrefab prefab in LoadCharacterPrefabs())
+            {
+                PlayerHud[] huds = prefab.Root.GetComponentsInChildren<PlayerHud>(true);
+
+                foreach (PlayerHud hud in huds)
+                {
+                    var serialized = new SerializedObject(hud);
+
+                    // 解析規則與 runtime 的 ResolveRunner 逐字對齊：欄位優先，留空則往父物件找。
+                    bool resolvesRunner = serialized.FindProperty("runner").objectReferenceValue != null
+                        || hud.GetComponentInParent<CharacterPipelineRunner>(true) != null;
+                    if (!resolvesRunner)
+                    {
+                        violations.Add(
+                            $"{prefab.Path} → '{hud.gameObject.name}' 的 PlayerHud 解析不到 CharacterPipelineRunner\n" +
+                            $"    contract : 血量讀黑板、冷卻讀 Runner 的唯讀查詢，兩條路都要先有 Runner\n" +
+                            $"    症狀     : HUD 畫得出來但**永遠不更新**，血條停在編輯時的值（通常是滿的）");
+                    }
+
+                    if (serialized.FindProperty("healthFill").objectReferenceValue == null)
+                    {
+                        violations.Add(
+                            $"{prefab.Path} → '{hud.gameObject.name}' 的 healthFill 未指派\n" +
+                            $"    症狀     : 冷卻會動、血條不會動 ⇒ 最容易被當成血量系統壞了");
+                    }
+
+                    SerializedProperty bindings = serialized.FindProperty("cooldownBindings");
+                    for (int i = 0; i < bindings.arraySize; i++)
+                    {
+                        SerializedProperty element = bindings.GetArrayElementAtIndex(i);
+                        int slotValue = element.FindPropertyRelative("Slot").intValue;
+                        Object overlay = element.FindPropertyRelative("CooldownOverlay").objectReferenceValue;
+
+                        if (slotValue == (int)ActionSlot.None)
+                        {
+                            violations.Add(
+                                $"{prefab.Path} → '{hud.gameObject.name}' 的 cooldownBindings #{i}：Slot 是 None\n" +
+                                $"    症狀     : 查詢恆回 0 ⇒ 那一格**永遠亮著**，看起來像這個技能沒有冷卻");
+                        }
+
+                        if (overlay == null)
+                        {
+                            violations.Add(
+                                $"{prefab.Path} → '{hud.gameObject.name}' 的 cooldownBindings #{i}" +
+                                $"（Slot {(ActionSlot)slotValue}）：CooldownOverlay 是空的\n" +
+                                $"    expected : 指派一張 Image（Type 設 Filled）\n" +
+                                $"    症狀     : 那一格永遠不畫冷卻，同樣看起來像沒有冷卻");
+                        }
+                    }
+                }
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "HUD 接線不完整：\n\n" + string.Join("\n\n", violations));
+        }
+
+        // =====================================================================
+        // W23 — 重生接線必須完整（2026-09-14）
+        // =====================================================================
+
+        /// <summary>
+        /// **W23 — <c>RespawnController</c> 必須解析得到 health／motionDriver，且 <c>RespawnAction</c> 要有綁定。**
+        ///
+        /// <para>三種失敗模式**全部靜默**，而且各自指向錯的懷疑對象：</para>
+        /// <list type="bullet">
+        /// <item><b>沒綁按鍵</b> ⇒ 按了沒反應。看起來像「重生功能沒做」或「鍵位不對」，
+        /// 但真正的原因是 <c>InputAction</c> 上一個 binding 都沒有。</item>
+        /// <item><b>解析不到 <c>CharacterHealth</c></b> ⇒ <c>Respawn()</c> 第一行就 return false。
+        /// 同樣是「按了沒反應」。</item>
+        /// <item><b>解析不到 <c>MotionDriver</c></b> ⇒ **人活了但沒被傳送**——在屍體原地站起來。
+        /// 這個最糟：功能看起來「有在動」，只是位置不對，最容易被當成重生點設錯。</item>
+        /// </list>
+        ///
+        /// ⚠️ <c>respawnPoint</c> 留空**不是**違規：那是刻意的退路（退回場景開場姿態，
+        /// 見 <c>docs/25</c> §8.6）。沒掛 <c>RespawnController</c> 的角色也不是違規——
+        /// 敵人本來就不重生。本條只檢查**已經掛上**的那些。
+        /// </summary>
+        [Test]
+        public void W23_RespawnControllers_AreFullyWired()
+        {
+            var violations = new List<string>();
+
+            foreach (CharacterPrefab prefab in LoadCharacterPrefabs())
+            {
+                RespawnController[] controllers =
+                    prefab.Root.GetComponentsInChildren<RespawnController>(true);
+
+                foreach (RespawnController controller in controllers)
+                {
+                    // 解析規則與 runtime 的 ResolveDependencies 逐字對齊：欄位優先，留空則往下找。
+                    var serialized = new SerializedObject(controller);
+                    bool hasHealth = serialized.FindProperty("health").objectReferenceValue != null
+                        || controller.GetComponentInChildren<CharacterHealth>(true) != null;
+                    bool hasDriver = serialized.FindProperty("motionDriver").objectReferenceValue != null
+                        || controller.GetComponentInChildren<MotionDriver>(true) != null;
+
+                    if (!hasHealth)
+                    {
+                        violations.Add(
+                            $"{prefab.Path} → '{controller.gameObject.name}' 的 RespawnController 解析不到 CharacterHealth\n" +
+                            $"    contract : Revive() 是 IsDead 的唯一寫入路徑，缺它就沒有任何東西能把角色救回來\n" +
+                            $"    症狀     : 按重生鍵完全沒反應，且**沒有任何錯誤訊息**");
+                    }
+
+                    if (!hasDriver)
+                    {
+                        violations.Add(
+                            $"{prefab.Path} → '{controller.gameObject.name}' 的 RespawnController 解析不到 MotionDriver\n" +
+                            $"    contract : 它是 position 的單一寫入者，傳送只能經過它\n" +
+                            $"    症狀     : **人活了但沒被傳送**——在屍體原地站起來，最容易被誤判成重生點設錯");
+                    }
+
+                    // ⚠️ 刻意用 SerializedObject 讀 binding 數，**不碰 `InputAction` 型別**——
+                    //    那會讓測試組件需要新增一條 Unity.InputSystem 的 asmdef 參考。
+                    //    為了數一個陣列長度而擴大測試組件的依賴面並不划算，且本檔本來就是
+                    //    「全程 SerializedObject 唯讀存取」的形狀。
+                    SerializedProperty bindings =
+                        serialized.FindProperty("RespawnAction.m_SingletonActionBindings");
+                    if (bindings == null || bindings.arraySize == 0)
+                    {
+                        violations.Add(
+                            $"{prefab.Path} → '{controller.gameObject.name}' 的 RespawnAction 沒有任何 binding\n" +
+                            $"    contract : 重生是 system-level 指令，自己持 InputAction（⛔ 不走 InputData，" +
+                            $"死亡時 BlockInput 會把整份輸入歸零）\n" +
+                            $"    expected : 例如 <Keyboard>/r\n" +
+                            $"    症狀     : 按了沒反應，看起來像功能沒做或鍵位不對");
+                    }
+                }
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "重生接線不完整：\n\n" + string.Join("\n\n", violations));
+        }
+
+        // =====================================================================
+        // W22 — 武器顯隱的 sink 必須真的接上（2026-09-14）
+        // =====================================================================
+
+        /// <summary>
+        /// **W22 — <c>WeaponVisibilitySink</c> 必須解析得到掛點，而且必須被綁到至少一個 slot。**
+        ///
+        /// <para>守的是這顆元件**兩種都完全靜默**的失敗模式</para>
+        /// <list type="bullet">
+        /// <item><b>沒綁 slot</b> ⇒ `Begin`／`Cleanup` 永遠不會被呼叫。但它的 `Awake` 仍會把武器藏起來
+        /// ⇒ 畫面上是「**武器從頭到尾都不見**」，看起來像模型或掛點壞了，
+        /// 而真正的原因在 Runner 的清單上少一列。</item>
+        /// <item><b>解析不到 <c>WeaponSocket</c></b> ⇒ 每個回呼都安靜 return
+        /// ⇒ 畫面上是「武器一直都在」，看起來像**功能沒做**。</item>
+        /// </list>
+        /// 兩個方向都不會有任何錯誤訊息，而且指向錯誤的懷疑對象——正是該寫成測試的形狀。
+        ///
+        /// <para>⚠️ 沒掛這顆元件**不是**違規</para>
+        /// 「武器一直握著」是合法的角色設定（Y Bot 根本沒有武器）。本條只檢查**已經掛上**的那些。
+        /// 行為本身由 <c>WeaponSocketTests</c> 驗；本條只驗接線。
+        /// </summary>
+        [Test]
+        public void W22_WeaponVisibilitySinks_AreResolvedAndBoundToASlot()
+        {
+            var violations = new List<string>();
+
+            foreach (CharacterPrefab prefab in LoadCharacterPrefabs())
+            {
+                WeaponVisibilitySink[] sinks = prefab.Root.GetComponentsInChildren<WeaponVisibilitySink>(true);
+                if (sinks.Length == 0) continue;
+
+                SerializedProperty bindings = Field(prefab, "actionSinkBindings");
+
+                foreach (WeaponVisibilitySink sink in sinks)
+                {
+                    // 解析規則與 runtime 的 Awake 逐字對齊：欄位優先，留空則同物件與子物件查找。
+                    var serialized = new SerializedObject(sink);
+                    Object authoredSocket = serialized.FindProperty("weaponSocket").objectReferenceValue;
+                    bool resolvesSocket = authoredSocket != null
+                        || sink.GetComponentInChildren<WeaponSocket>(true) != null;
+
+                    if (!resolvesSocket)
+                    {
+                        violations.Add(
+                            $"{prefab.Path} → '{sink.gameObject.name}' 上的 WeaponVisibilitySink 解析不到 WeaponSocket\n" +
+                            $"    contract : 它只負責「何時顯隱」，實際切換由 WeaponSocket 執行\n" +
+                            $"    expected : 指派 Weapon Socket 欄位，或把它掛在有 WeaponSocket 的物件上\n" +
+                            $"    症狀     : 每個回呼都安靜 return ⇒ 武器一直都在，看起來像功能沒做");
+                    }
+
+                    if (!IsBoundToAnySlot(bindings, sink))
+                    {
+                        violations.Add(
+                            $"{prefab.Path} → '{sink.gameObject.name}' 上的 WeaponVisibilitySink 沒有被綁到任何 slot\n" +
+                            $"    contract : 它是 IActionLifecycleSink，時點只能由 Action Sink Bindings 送達\n" +
+                            $"    expected : Action Sink Bindings 補一列指向這顆元件（近戰通常是 Slot1）\n" +
+                            $"    症狀     : Begin／Cleanup 永遠不會被呼叫，但 Awake 已經把武器藏起來\n" +
+                            $"               ⇒ **武器從頭到尾都不見**，看起來像模型或掛點壞了");
+                    }
+                }
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "武器顯隱接線不完整：\n\n" + string.Join("\n\n", violations));
+        }
+
+        private static bool IsBoundToAnySlot(SerializedProperty bindings, Object sink)
+        {
+            for (int i = 0; i < bindings.arraySize; i++)
+            {
+                SerializedProperty element = bindings.GetArrayElementAtIndex(i);
+                if (element.FindPropertyRelative("Sink").objectReferenceValue == sink) return true;
+            }
+
+            return false;
+        }
+
+        // 🔄 **2026-09-16：`ProjectileStepPerPhysicsTick_StaysWithinItsOwnRadius` 已移除。**
+        //
+        // 它斷言 `speed × fixedDeltaTime ≤ radius`，用意是擋 tunneling。但那**不是保證**：
+        // 位移發生在 `Update`（`Time.deltaTime`、可變）、取樣發生在物理步，兩者不同步
+        // ⇒ 真實取樣間距不等於那個算式，它只能**降低**略過的機率。
+        //
+        // `ThrownProjectile` 已於 2026-09-16 改為 `FixedUpdate` ＋ `SphereCast` 連續掃掠
+        // （使用者裁決，`docs/11` §17）⇒ 安全性改由**掃掠本身**保證，速度不再受這條啟發式限制
+        // （火球因此得以回到 20 m/s 的視覺速度）。
+        // ⇒ 新契約由 `ProjectileSweepPlayModeTests` 以**行為**驗證：高速不 tunneling、
+        //    命中在接觸點截斷、owner 排除、屍體透明。
+
+        /// <summary>唯讀取出序列化的 float；欄位改名時要大聲失敗，不要悄悄回傳 0。</summary>
+        private static float SerializedFloat(Component component, string propertyName)
+        {
+            var serialized = new SerializedObject(component);
+            SerializedProperty property = serialized.FindProperty(propertyName);
+            Assert.IsNotNull(property,
+                $"{component.GetType().Name} 找不到序列化欄位 '{propertyName}'（欄位可能已改名）");
+            return property.floatValue;
+        }
+
+        private static HashSet<string> MappedStateKeys(AnimancerFacade facade)
+        {
+            var keys = new HashSet<string>();
+            var so = new SerializedObject(facade);
+            SerializedProperty maps = so.FindProperty("transitionMappings");
+            for (int i = 0; i < maps.arraySize; i++)
+            {
+                SerializedProperty element = maps.GetArrayElementAtIndex(i);
+                if (element.FindPropertyRelative("Transition").objectReferenceValue == null) continue;
+                keys.Add(element.FindPropertyRelative("StateKey").stringValue);
+            }
+            return keys;
         }
     }
 }

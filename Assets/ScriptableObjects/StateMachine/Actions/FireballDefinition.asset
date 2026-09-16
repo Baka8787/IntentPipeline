@@ -13,6 +13,7 @@ MonoBehaviour:
   m_Name: FireballDefinition
   m_EditorClassIdentifier: Project.Runtime::Project.Core.StateMachine.Actions.ActionDefinitionSO
   Slot: 2
+  Targeting: 1
   Phases:
   - Phase: 1
     AnimationKey: Spell_Fireball_1
@@ -41,5 +42,6 @@ MonoBehaviour:
     ReleaseNormalizedTime: 0.35
   ChainInputOpenNormalized: 0.25
   Cooldown: 0.4
+  CooldownVariance: 0
   RequiresGrounded: 1
   CancelMoveIntentThreshold: 0.1

@@ -54,6 +54,20 @@ namespace Project.Presentation.Animation
         /// </summary>
         public virtual void SetApplyAnimatorIK(int layerIndex, bool value) { }
 
+        // === 播放速率（Animation Fitting） ===
+        /// <summary>
+        /// 🆕（docs/24 §8）設定指定狀態鍵的播放速率倍率。1 ＝ 資產原本的速度。
+        ///
+        /// 用途是 **Animation Fitting**：讓動畫先去配合現場尺寸，剩下的落差才交給 root warp。
+        /// ⚠️ 速率**不會改變動畫的位移量**，只改變走完那段位移所花的時間——
+        /// 它讓 warp 之後的世界速度維持動畫本來描繪的速度，不是拿來取代位置修正的。
+        ///
+        /// 預設 no-op：並非所有動畫後端都有「單一狀態的速率」概念；支援的實作自行覆寫。
+        /// ⚠️ 呼叫端負責**還原**（離開該狀態時設回 1）——後端通常會快取 state 物件，
+        /// 改過的速率會留到下一次播放。
+        /// </summary>
+        public virtual void SetPlaybackSpeed(string stateKey, float speed) { }
+
         // === 狀態查詢 ===
         /// <summary>
         /// 查詢指定狀態鍵對應的動畫是否正在播放。

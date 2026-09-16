@@ -711,3 +711,34 @@ internal static Quaternion ComputeThrowRotation(Vector3 spawn, Vector3 aimPoint,
 
 ⇒ 依 CLAUDE.md routing rule，**直接寫本 Living Doc 分卷，不開 ADR、不進 Trial**。
 **這個「不需要」本身就是本包的交付物之一**——若交付時發現任一格變成 ✅，代表架構命題失敗，**停下來提 ADR，不得偷偷加欄位**。
+
+---
+
+## 12. 貼身時的角色抑制（2026-09-15，缺陷修正）
+
+**症狀**：2026-09-15 錄影 63s／71s／90s——與敵人貼身纏鬥時，畫面被角色背部整片填滿。
+
+**這不是防穿牆失效。** `ResolveCollisionPosition` 正確地把相機拉近了；
+問題出在拉近到 `minDistance = 0.6` 之後——角色膠囊半徑 0.32、網格的肩與臂更外凸
+⇒ **相機落在角色網格內部**。沒有任何一層負責「拉到極限之後讓角色讓開」。
+
+**修正**：`ThirdPersonCamera` 新增貼身抑制。`_currentDist` 低於 `hideTargetBelowDistance`
+時把 target 底下的 `SkinnedMeshRenderer` 切成 `ShadowCastingMode.ShadowsOnly`。
+
+| 欄位 | 預設 | 意義 |
+|---|---|---|
+| `hideTargetBelowDistance` | 0.95 | 低於此距離隱藏角色本體。**0 ⇒ 停用** |
+| `hideDistanceHysteresis` | 0.15 | 解除隱藏所需的額外距離 |
+| `suppressedRenderers` | 空 | 留空 ⇒ 從 `target` 底下解析（比照本專案「欄位留空 ⇒ 補洞」慣例） |
+
+⚠️ **為什麼是 ShadowsOnly 而不是淡出**：淡出需要一份透明材質變體（資產＋shader 工作）；
+`shadowCastingMode` 是零配置、可逆、不動任何資產的最小手段，**影子仍在**
+⇒「角色還在那裡」的空間資訊不會丟失。若日後要做 dither fade，`SetSuppressedRenderersHidden` 就是替換點。
+
+⚠️ **遲滯是必要的，不是優化**：門檻是一個距離，而相機距離每帧都在阻尼變化
+⇒ 沒有遲滯就會在門檻附近逐帧顯示／隱藏，**角色閃爍比穿模更糟**。
+純函數 `ResolveTargetHidden` 由 `CameraAimTests.T13`／`T14` 守住
+（含「門檻 0 必須能退出已隱藏狀態」——否則關掉功能後角色會永遠消失）。
+
+📌 **數值未經人眼驗收**：0.95／0.15 是依 `minDistance = 0.6` ＋ 膠囊半徑 0.32 推得的起點，
+不是調過手感的值。若貼身時角色消失得太早或太晚，**調這兩個欄位即可，屬純呈現資料**。

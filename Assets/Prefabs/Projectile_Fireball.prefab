@@ -32,7 +32,7 @@ Transform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
-  - {fileID: 7840345147260084991}
+  - {fileID: 283804461427096651}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!135 &8239597827217405866
@@ -97,7 +97,16 @@ MonoBehaviour:
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Actions.ThrownProjectile
   appliesSlow: 0
   slowDuration: 7
---- !u!1001 &9035095806104523832
+  damage: 20
+  sweepMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  visualRoot: {fileID: 0}
+  detachedVisualLifetime: 4
+  impactEffectPrefab: {fileID: 0}
+  impactEffectLifetime: 2
+  drawHitDebug: 1
+--- !u!1001 &1323457117257337484
 PrefabInstance:
   m_ObjectHideFlags: 0
   serializedVersion: 2
@@ -155,20 +164,25 @@ PrefabInstance:
     m_AddedComponents:
     - targetCorrespondingSourceObject: {fileID: 8601286290826603398, guid: 5aa2236667d208e41a28e0f79695320a, type: 3}
       insertIndex: -1
-      addedObject: {fileID: 2637947266790685626}
+      addedObject: {fileID: 6346094537294727376}
   m_SourcePrefab: {fileID: 100100000, guid: 5aa2236667d208e41a28e0f79695320a, type: 3}
---- !u!1 &738295168776765374 stripped
+--- !u!4 &283804461427096651 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 1273845360050992839, guid: 5aa2236667d208e41a28e0f79695320a, type: 3}
+  m_PrefabInstance: {fileID: 1323457117257337484}
+  m_PrefabAsset: {fileID: 0}
+--- !u!1 &7277875766635667722 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 8601286290826603398, guid: 5aa2236667d208e41a28e0f79695320a, type: 3}
-  m_PrefabInstance: {fileID: 9035095806104523832}
+  m_PrefabInstance: {fileID: 1323457117257337484}
   m_PrefabAsset: {fileID: 0}
---- !u!114 &2637947266790685626
+--- !u!114 &6346094537294727376
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 738295168776765374}
+  m_GameObject: {fileID: 7277875766635667722}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 474bcb49853aa07438625e644c072ee6, type: 3}
@@ -191,8 +205,3 @@ MonoBehaviour:
   m_ShadowLayerMask: 1
   m_RenderingLayers: 1
   m_ShadowRenderingLayers: 1
---- !u!4 &7840345147260084991 stripped
-Transform:
-  m_CorrespondingSourceObject: {fileID: 1273845360050992839, guid: 5aa2236667d208e41a28e0f79695320a, type: 3}
-  m_PrefabInstance: {fileID: 9035095806104523832}
-  m_PrefabAsset: {fileID: 0}

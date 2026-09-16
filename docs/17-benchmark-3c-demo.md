@@ -2,7 +2,21 @@
 
 > **性質**：研究／對照筆記。**不是** ADR、**不是** roadmap 修訂、**不是**實作規格。
 > 它只做三件事：**盤點影片**、**對照 IntentPipeline 磁碟現況**、**把「攀爬翻越」拆成問題域**。
-> 建立日期：2026-09-10。對照的程式基準：當日工作樹（見 §7-F1，**大量變更尚未 commit**）。
+> 建立日期：2026-09-10。對照的程式基準：`71f5a5c`（同日 commit，見 §7-F1)。
+>
+> 🔄 **2026-09-10 修訂**：已套用 `docs/18-benchmark-convergence.md` §7 的 **S1–S7** 全部七條更正。
+> 其中兩條是**推理錯誤的主動更正**，不是文字潤飾——閱讀時請以修訂後版本為準：
+> - **S2**（§4.1-L5）：「traversal 是 jump 的特化」**已撤回**。入口回退鏈成立，執行模型從屬**不成立**。
+> - **S4**（§4.3-1）：「環境查詢會是第一份世界資料」**是事實錯誤**，`CombatContext.TargetPosition` 早已是先例。
+>
+> 逐條對照見 `docs/18` §7。修訂**未動 roadmap**（`docs/03` 不受本文影響）。
+>
+> 🎯 **2026-09-10 Observability 範圍收斂**：下方 §3 的保留為 benchmark 盤點，不代表實作清單。
+> 目前 world-space debug presentation **只保留 traversal 與 Foot IK 的實際世界幾何採樣**；
+> Direction Authority 只留 Editor-only snapshot／測試，不再畫四箭頭、history 或 HUD。
+> Game View 主通道必須使用 runtime-visible renderer，不依賴 Gizmos；Scene View 才以 Gizmos 詳查。
+> 目前 production code **連角色前方 obstacle query 本身都不存在**，不只是缺 candidate owner；
+> Foot IK runtime lines 已落地。完整盤點與契約見 `docs/18` §1.1～§1.2。
 
 ---
 
@@ -27,23 +41,32 @@
 
 ## 1. 影片能力盤點（依時間軸）
 
-時間為 5 秒取樣推得的**近似值**。
+時間為 5 秒取樣推得的**近似值**。全片 415 秒（6:55）。
+
+> ⚠️ **本表時間欄已於 2026-09-10 全面更正**（`docs/18` §7-S1）。舊版時間欄整體偏移，
+> 把 debug 預覽段寫成 10 秒的小節。更正後的比重才是這支影片真正的訊息：
+> **debug 預覽段（2:05–4:00，115s）約佔全片 28%；traversal 全段（1:40–4:15，155s）約 37%。**
+> ⇒ 作者把**超過三分之一**的展示時間投在「環境檢測 ＋ 讓它可被看見」上。這不是附帶功能，是主軸。
 
 | 時間（約） | 章節標題 | 展示內容 | 畫面字幕（**殘句**） |
 |---|---|---|---|
-| 0:00–1:00 | **基础LOCOMOTION** | Idle、360° 行走、奔跑、行走停步、奔跑停步 | 「为ACT/ARPG中角色**非入战状态**设计／轴向移动，快速响应／高角色性能」「IDLE与360°行走、奔跑…」「停步动作：行走停步、奔跑停…」 |
-| 1:00–1:45 | 跳躍／落地 | 站立跳、助跑跳；落地分 輕／重／翻滾緩衝 | 「空中姿态由**VERTICALVELOCITY**参数…／通过**2D BLEND TREE**…／通过**FEETTWEEN**参数随机…与调整站立跳/助跑…」 |
-| 1:45–2:35 | **脚步IK多地形适配** | 斜坡、樓梯／台階、起伏地形 | 「**脚跟、脚心**分别发出射线…／提前采样脚部落…／根据确定的脚部位置重…」「楼梯部分使用**分LAYER**…／分别解决平滑移动与…」 |
-| 2:35–4:10 | **环境检测与攀爬翻越系统**（TRAVERSAL动作） | 各種高度／厚度障礙的翻越與攀爬 | 「在翻越前控制角…／使用 **MATCHTARGET** 訂製…／在 **STATEMACHINEBEHAV**…／使动画精准…」 |
-| 4:10–4:20 | ↳ **障碍物检测系统 · 可开启调试预览模式** | ⭐ **本片 observability 的核心**（見 §2） | 「由下向上的 **WHIL**…／任一条件未满足…／**全部检测失败则返回跳跃**」 |
-| 4:20–4:35 | ↳ 失敗原因展示 | 距離、上方空間、底部形狀 | 「**距离过远✕**」「障碍物上方空…超出最大攀…」「障碍底部不规则…**单杠地形**…」 |
-| 4:35–4:50 | ↳ 厚度分流與側向避讓 | 厚度足夠→攀爬；薄→翻越；左右各自阻擋 | 「**厚度足够：攀爬 / 翻**…／通过**左右两侧射线检**…／自动避…」「左侧有阻挡」「右侧有阻挡」「两侧均有阻挡」 |
-| 4:50–5:00 | ↳ 移速影響 ＋ 碰撞體處理 | 不同移速走不同翻越 | 「不同移速影响…」「**运动碰撞体处理／减小穿模**」 |
-| 5:00–5:20 | **角色音效系统** | 腳步音效隨地面材質切換 | 「对不同地面…／不同脚步声、急停摩擦…／通过**动画事**…／并添加随机音…」 |
-| 5:20–5:55 | **战斗动画** | 普攻 4 段、戰鬥 IDLE、拔刀 | 「设计目的：在**非入战情况下**，保留攻击输入的动画反馈，同时**不把整个战斗系统开启**」「从简处理拔刀…通过**SHADER溶解**…／移动会打断非入战…／战斗IDLE保持3S…」 |
-| 5:55–6:20 | **BUFF响应** | 地面 trigger 區（`dance club`／`fear area`）觸發疊加動畫層 | 「与BUFF或角色设计相配合（环境、性格/能力）」「**TRIGGER**触发…／使用 **ADDITIVE LAYER**…」；畫面可見 Animator Layers：`Base Layer`／`Dance Buff L…`／`Fear Buff Lay…` |
-| 6:20–6:50 | **相机控制** | 遮擋拉近、相機切換系統（OTS／窄巷） | 「通过 **CINEMACHINE** 实…／受阻挡时拉…」「相机切换系统」 |
-| 6:50–6:55 | 二級動畫 | 布料／頭髮 | 「**物理模拟**实现的二级动画（布料、头发较多角色效果好）」 |
+| 0:00–0:35 | **基础LOCOMOTION** | Idle、360° 行走、奔跑、行走停步、奔跑停步 | 「为ACT/ARPG中角色**非入战状态**设计／轴向移动，快速响应／高角色性能」「IDLE与360°行走、奔跑…」「停步动作：行走停步、奔跑停…」 |
+| 0:35–0:50 | 跳躍／落地 | 站立跳、助跑跳；落地分 輕／重／翻滾緩衝 | 「空中姿态由**VERTICALVELOCITY**参数…／通过**2D BLEND TREE**…／通过**FEETTWEEN**参数随机…与调整站立跳/助跑…」 |
+| 0:50–1:35 | **脚步IK多地形适配** | 斜坡、樓梯／台階、起伏地形 | 「**脚跟、脚心**分别发出射线…／提前采样脚部落…／根据确定的脚部位置重…」「楼梯部分使用**分LAYER**…／分别解决平滑移动与…」 |
+| 1:40–2:00 | **TRAVERSAL 動作**（环境检测与攀爬翻越系统） | 各種高度／厚度障礙的翻越與攀爬**成品演出** | 「在翻越前控制角…／使用 **MATCHTARGET** 訂製…／在 **STATEMACHINEBEHAV**…／使动画精准…」 |
+| **2:05–4:00** | ⭐ **障碍物检测系统 · 可开启调试预览模式** | ⭐ **本片 observability 的核心，也是全片最長的一段（115s ≈ 28%）**（見 §2） | 「由下向上的 **WHIL**…／任一条件未满足…／**全部检测失败则返回跳跃**」 |
+| ↳ 同段內 | ↳ 失敗原因展示 | 距離、上方空間、底部形狀 | 「**距离过远✕**」「障碍物上方空…超出最大攀…」「障碍底部不规则…**单杠地形**…」 |
+| ↳ 同段內 | ↳ 厚度分流與側向避讓 | 厚度足夠→攀爬；薄→翻越；左右各自阻擋 | 「**厚度足够：攀爬 / 翻**…／通过**左右两侧射线检**…／自动避…」「左侧有阻挡」「右侧有阻挡」「两侧均有阻挡」 |
+| ↳ 同段內 | ↳ 移速影響 | 不同移速走不同翻越 | 「不同移速影响…」 |
+| 4:00–4:15 | **运动碰撞体处理** | 翻越過程的碰撞體調整 | 「**运动碰撞体处理／减小穿模**」 |
+| 4:15–4:55 | **角色音效系统** | 腳步音效隨地面材質切換 | 「对不同地面…／不同脚步声、急停摩擦…／通过**动画事**…／并添加随机音…」 |
+| 5:00–5:30 | **战斗动画** | 普攻 4 段、戰鬥 IDLE、拔刀 | 「设计目的：在**非入战情况下**，保留攻击输入的动画反馈，同时**不把整个战斗系统开启**」「从简处理拔刀…通过**SHADER溶解**…／移动会打断非入战…／战斗IDLE保持3S…」 |
+| 5:30–5:55 | **BUFF响应** | 地面 trigger 區（`dance club`／`fear area`）觸發疊加動畫層 | 「与BUFF或角色设计相配合（环境、性格/能力）」「**TRIGGER**触发…／使用 **ADDITIVE LAYER**…」；畫面可見 Animator Layers：`Base Layer`／`Dance Buff L…`／`Fear Buff Lay…` |
+| 5:55–6:35 | **相机控制** | 遮擋拉近、相機切換系統（OTS／窄巷） | 「通过 **CINEMACHINE** 实…／受阻挡时拉…」「相机切换系统」 |
+| 6:40–6:55 | 二級動畫 | 布料／頭髮 | 「**物理模拟**实现的二级动画（布料、头发较多角色效果好）」 |
+
+> ⛔ **「↳ 同段內」是誠實標記，不是遺漏**：5 秒取樣的解析度不足以把 2:05–4:00 這段內部再細分，
+> 這三個子項確定發生在該段內，但**不推測各自的起訖秒數**（§0 證據等級）。
 
 **場景本身也是說明書**：地面貼著 world-space 文字標籤標示測試區——
 `Ramp - foot IK`／`Stairs - foot IK`／`Terrain - foot IK`／`Falling feedback`／`ground SFX switch`／
@@ -107,7 +130,7 @@
 
 | 位置 | 通道 | 畫／顯示什麼 | 限制 |
 |---|---|---|---|
-| `Editor/Pipeline/CharacterPipelineRunnerEditor.cs` | **Inspector**（`Project.Editor` asmdef） | 「黑板數據流即時監視 v0.4」：`CurrentState`／原始輸入快照（Move/Look/各按鍵）／`MovementIntent`（DesiredSpeed、DesiredDirection、WalkModeActive）／Movement Output（MoveDirection／MoveSpeed／UpperBodyWeight）／`IsGrounded`／`CurrentWeapon`／`Arbitration` 四個 block 旗標 | 只在**選中角色**時可見；**只有數字沒有幾何**（方向是 `Vector3.ToString()`）；**沒有時間軸** |
+| `Editor/Pipeline/CharacterPipelineRunnerEditor.cs` | **Inspector**（`Project.Editor` asmdef） | 「黑板數據流即時監視 v0.4」：`CurrentState`／原始輸入快照（Move/Look/各按鍵）／`MovementIntent`（DesiredSpeed、DesiredDirection、WalkModeActive）／Movement Output（MoveDirection／MoveSpeed）／`IsGrounded`／`CurrentWeapon`／`Arbitration` 四個 block 旗標 | 只在**選中角色**時可見；**只有數字沒有幾何**（方向是 `Vector3.ToString()`）；**沒有時間軸** |
 | `Core/Movement/AIMovementSource.cs` | **Scene gizmo**（`OnDrawGizmosSelected`，`#if UNITY_EDITOR`） | 接戰內／外圈、到目標的方向線、strafe 方向線、模式文字標籤、`target = <none>` 的紅字警告 | **僅選中時**；**Scene view**（Play 時通常看的是 Game view） |
 | `Core/Pipeline/AIInputSource.cs` | 同上 | 攻擊距離圈、是否想出手、`target = <none>` 警告 | 同上 |
 | `Presentation/Actions/GroundEffectSink.cs` | 同上 | AoE 效果半徑線框球 | 同上 |
@@ -136,8 +159,26 @@
    ✅ **正解已經存在**：`CharacterPipelineRunner.InputDebugSnapshot`——
    **debug 快照是「元件的公開唯讀屬性」，不是黑板成員**。要擴充就擴充這個 pattern。
 
+   > 🆕 **2026-09-15：這條紅線第一次被真實需求測試，而且守住了。**
+   > 玩家 HUD 要畫技能冷卻，而冷卻住在 `ActionState` 內部（ADR-004 D2）、**不在黑板上**。
+   > 最順手的做法就是加一個 `PlayerRuntimeData.Cooldowns[]`——正是本條禁止的東西。
+   > ✅ 實際採用：`CharacterPipelineRunner.GetActionCooldownNormalized(slot)`
+   > ——**本條所說 pattern 的第二個使用者**（Runner → FSM → `ActionState` 的唯讀轉送，不快取、不判斷）。
+   > 📌 **換算也留在擁有者那一側**：`CooldownVariance` 讓每次冷卻長度不同，
+   > HUD 若拿 authored 的 `Cooldown` 當分母，進度條會在變異非零時失準
+   > ⇒ 由 `ActionState` 回答 0–1，HUD 只消費結果（`ActionStateTests.T27` 釘住）。
+   > ⚠️ 對照第 1 條：這個查詢**只回答「畫多滿」**，⛔ 不得用來決定要不要出手。
+
 3. **runtime HUD 若要顯示 `StateType`，它不能住在 `Presentation/`。**
    `LayerRules` 明禁 `Presentation` → `Project.Core.StateMachine`／`StateType`。詳見 §3.5。
+
+   > 🆕 **2026-09-15 實證**：`PlayerHud` 需要 `CharacterPipelineRunner` 才問得到冷卻，
+   > 而 `LayerRules` 同樣禁 `Presentation` → `Project.Core.Pipeline`
+   > ⇒ HUD 結構上就住進了 **`App/`**（與 `GamePauseController`／`CursorModeController`／`RespawnController` 同層）。
+   > **這條紅線的預測是對的，只是觸發它的不是 `StateType` 而是 `Pipeline`。**
+   > 📌 同一輪順手把 `UnityEngine.UI` 加進 `Core` 與 `Presentation` 的 `Forbidden`：
+   > `Project.Runtime.asmdef` 為了 HUD 新增的 UI 參考是**組件層級**的，
+   > 不關門的話整個 Runtime 從此都編得過 `Image`／`Canvas`。**加參考的同一刻就要關門。**
 
 ### 3.4 逐項資訊清單
 
@@ -157,12 +198,12 @@
 | 7 | **Action slot / phase / cooldown** | 連段為什麼沒接上？冷卻是不是連坐了？ | `ActionState`（`Core.StateMachine.States`）＋ `ActionSlot`（`Core.Actions`） | HUD 文字 ＋ **trace** | 同 #6 |
 | 8 | **MoveX / MoveZ** | 2D mixer 的取樣點對不對（8 向 strafe 的前提） | `LocomotionModel` 算出後 `SetFloat` 給 Facade，**沒有留在黑板** | **Gizmo 2D 十字／點**＋ HUD 數值 | ⚠️ 目前只在 `LocomotionModel` 內部。⛔ **不要為了顯示把它加進黑板**（紅線 2）——用 debug 快照屬性 |
 | 9 | **Ground Probe / IsGrounded** | 落地判定抖動？走出高台的 grace 有沒有誤觸發？ | 黑板 `IsGrounded`（`MotionDriver` 唯一寫入，源頭是 `CharacterController.isGrounded`） | **Gizmo 腳下色塊**＋ trace（狀態變化的**時間點**才是關鍵） | ✅ 無 |
-| 10 | 🔴 **Ground Normal** | 斜坡上的行為（速度、朝向、可否站立）**目前完全不可見** | **不存在於任何契約層**。Foot IK 內部算了 `sample.Normal`／`SoleNormal`，但**只用於 IK、沒有發布** | **Gizmo 法線箭頭** | ⚠️ 見 §7-F3。這是「環境資訊缺席」的第一個具體證據 |
+| 10 | 🟢 **Ground Normal** | 斜坡採樣與踝角 clamp 是否一致 | 不存在於契約層；Foot IK 內部 `sample.Normal`／`SoleNormal`，只供 IK 與 debug snapshot | ✅ Game View runtime lines：黃色 raw normal／綠色 clamped normal；Scene View 另有 Gizmo，仍不發布 | 只有 IK 一個 gameplay consumer，維持局部 implementation detail；⛔ 不進黑板 |
 | 11 | **Jump / Falling / Landing phase** | 落地分類（normal／hard）為什麼選這個？stage 推進到哪？ | `JumpState` ＋ `JumpStateParams`；`VerticalVelocity` 在黑板 | HUD 文字 ＋ **trace**（`VerticalVelocity` 曲線用 gizmo 沒意義） | 同 #6 |
-| 12 | **Toe / Heel probe** | 腳為什麼戳穿／浮空？是 ankle ray 還是端點殘差？ | `FootIKController` 內部（`worldHeel`／`worldToe`／`heelHit`／`toeHit`） **完全私有** | **Gizmo：射線起點、命中點、clamp 前後的 normal** | ✅ 無（`Presentation` 內部自畫） |
-| 13 | **Foot IK goal** | Rig 實際被要求擺到哪、權重多少、骨盆沉多少 | `FootIKTargetData`（Controller→Rig 單向管道，`public` 欄位） | **Gizmo：目標位置 ＋ 旋轉軸 ＋ 權重（以顏色/透明度）** | ✅ 無 |
+| 12 | 🟢 **Toe / Heel probe** | 腳為什麼戳穿／浮空？是 ankle ray 還是端點殘差？ | `FootIKController` 內部真實 query 結果 → Editor／Development-only private snapshot | ✅ Game View runtime lines ＋ Scene View Gizmo：rays、hit／miss、residual lift；兩者皆不重發 query（A34） | 零 public API、零黑板欄位 |
+| 13 | 🟢 **Foot IK goal** | Rig 實際被要求擺到哪、修正方向與權重是多少 | `FootIKTargetData`＋Controller 內部 snapshot | ✅ pre-IK goal → target、sole pose；透明度編碼 position weight | 零跨層 |
 | 14 | **Animation state / transition** | 播了哪支 clip？`TryGetTransition` 查表失敗了嗎？ | `AnimancerFacade`（查表失敗目前只有 `Debug.LogWarning`） | ⭐ **trace 最有價值**——W13 那輪的整個診斷都是在補這件事 | ⚠️ Facade 在 `Presentation.Animation`；Editor-only 讀取無成本 |
-| 15 | 🔴 **Environment query** | — | **完全不存在**（全專案零 traversal／ledge／vault 符號；physics query 只有相機遮擋 SphereCast、Foot IK 射線、`GroundEffectSink` 探地、`PlayerCombatContextSource` OverlapSphere） | — | **標為缺口**。見 §4 |
+| 15 | 🔴 **角色前方 Environment query** | — | **完全不存在**（既有 physics query 只服務相機遮擋、鏡頭瞄準、Foot IK、`GroundEffectSink` 探地／附近碰撞、`PlayerCombatContextSource` 戰鬥目標 overlap） | — | **缺的是前方 obstacle query 本身，不只是 candidate owner**。見 `docs/18` §1.1、本文 §4 |
 | 16 | **Arbitration blocks** | 輸入為什麼沒反應？IK 為什麼關了？ | 黑板 `Arbitration`（`ArbiterPipeline` 唯一寫入） | HUD 布林燈號（已有 Inspector） | ✅ 無 |
 | 17 | **Combat Context**（`InCombat`／`HasTarget`／`TargetPosition`） | facing 來源切換的前提條件成不成立（ADR-007 S3） | 黑板 `CombatContext`（`PlayerCombatContextSource` 唯一寫入） | **Gizmo：到 target 的線 ＋ 進出戰鬥語境的半徑** | ✅ 無 |
 | 18 | **Temporary effects（Slow）** | 速度變慢是 buff 還是 bug | `Core/Effects/TemporaryGameplayEffectState` | HUD 文字 | ⚠️ 目前 `AIMovementSource` 回讀它＝**已登記的架構債**（`LayerRules` 註解＋dev-spec §7.3）。**debug 顯示不得成為留著這條債的理由** |
@@ -194,9 +235,10 @@ runtime 檔案內的 `OnDrawGizmos*` 只要包在 `#if UNITY_EDITOR` 內就由 A
 **Editor-only 通道就夠**。依 CLAUDE.md「第二個使用者出現前不得建立 production abstraction」，
 `Debug/` asmdef 現在不該開。等到真的有「build 裡才復現的問題」再說。
 
-### 3.6 建議的最小起手（三項，都不需要新架構、不需要 ADR）
+### 3.6 當時的最小起手建議（⚠️ 已由 `docs/18` §1 的最新裁決取代）
 
-依 CLAUDE.md 的 routing rule，以下三項都是**非架構性加法**，走 Living Docs 即可，**不開 ADR**：
+以下保留當時的研究推論；**不是目前實作清單**。最新範圍只保留 traversal／Foot IK 世界幾何，
+Direction Authority presentation 與 Stop trace 均已撤回／暫緩：
 
 1. ⭐ **Direction Authority 三箭頭**（`OnDrawGizmos`，**非** `Selected`）
    **理由最強**：ADR-007 §8 的驗收條件 **A／B／C／D 四條，全部是「兩個方向是否一致」**。
@@ -255,7 +297,7 @@ Traversal 的差別在於：**目標來自環境**，而且**採不採用是一�
 | **輸入** | 角色位置、朝向／移動方向、capsule 尺寸、LayerMask、速度 |
 | **輸出** | 命中點、法線、高度、深度／厚度、頂面位置、側向淨空 |
 | **Unity 概念** | `Physics.Raycast`／`SphereCast`／`CapsuleCast`／`BoxCast`／`OverlapCapsule`；`QueryTriggerInteraction`；`*NonAlloc`（零 GC 必要）；LayerMask 分層設計 |
-| **IntentPipeline 承接位置** | ⚠️ **沒有這一層**。既有 physics query 全部是**點狀、單一用途**：相機遮擋 SphereCast、Foot IK 腳下射線、`GroundEffectSink` 探地、`PlayerCombatContextSource` OverlapSphere。**沒有任何「描述前方世界」的元件** |
+| **IntentPipeline 承接位置** | ⚠️ **沒有這一層**。既有 physics query 全部是**點狀、單一用途**：相機遮擋 SphereCast、鏡頭瞄準 Raycast、Foot IK 腳下射線、`GroundEffectSink` 探地／附近碰撞、`PlayerCombatContextSource` 戰鬥目標 overlap。**沒有任何「描述角色前方世界」的元件** |
 | **缺什麼** | 一個 query 元件、一份查詢結果的資料形狀、以及**「這份資料屬於誰」的決定** |
 | **要先懂** | 各種 cast 的**幾何差異與成本**；為什麼 traversal 通常用**由下而上的階梯掃描**而不是單發射線（影片字幕「由下向上的 WHIL…」正是這個）；`*NonAlloc` 與預配置緩衝 |
 
@@ -289,7 +331,7 @@ Traversal 的差別在於：**目標來自環境**，而且**採不採用是一�
 | **輸出** | 選中的一個，**或明確的 fallback** |
 | **Unity 概念** | 優先序 vs 評分；**fallback 鏈** |
 | **IntentPipeline 承接位置** | ✅ **FSM 的 `CanEnter` / `EvaluateInterrupts` 就是這一層**，而且**已經有過完全同構的先例**：<br>`JumpState.CanEnter` 現在有**兩條入口**（主動 Jump／非主動失地），各自帶不同的起始 phase 與 launch 注入規則。<br>traversal 只是**第三條入口**——結構上不是新東西 |
-| **缺什麼** | ⭐ **影片給了最關鍵的一句**：「**全部检测失败则返回跳跃**」。<br>⇒ 對方的 traversal 是**跳躍的特化**，不是平行系統。**失敗回退到既有動作**，玩家永遠得到反饋。<br>這對 IntentPipeline 是好消息：`JumpRequested` 已經在了，traversal 可以掛在它前面當**優先候選**，而不是新開一條輸入 |
+| **缺什麼** | ⭐ **影片給了最關鍵的一句**：「**全部检测失败则返回跳跃**」。<br>⇒ 這是一條**入口回退鏈**：traversal 查詢失敗 → 回退到 jump，**失敗回退到既有動作**，玩家永遠得到反饋。<br>這對 IntentPipeline 是好消息：`JumpRequested` 已經在了，traversal 可以掛在它前面當**優先候選**，而不是新開一條輸入。<br>⚠️ **2026-09-10 更正**（`docs/18` §7-S2）：舊版此欄寫「traversal 是**跳躍的特化**，不是平行系統」——**這是把 UX fallback 當成架構從屬，推理錯誤**。<br>「入口共用回退鏈」**不足以推論執行模型從屬**。理由見 `docs/18` §2.2：①`JumpState` 水平軸是 continuous、traversal 是 committed；②jump 沒有 world target、traversal 有；③traversal 的落點是**准入條件**（查得到才進得去），jump 不是；④`JumpState` 已 603 行，塞進去會撞複雜度上限。<br>⇒ **入口成立、執行模型不成立**，兩者要分開講 |
 | **要先懂** | fallback 鏈的設計；「查詢失敗」與「查詢成功但不合格」為什麼要分開（前者可能是效能/時機問題，後者是設計問題） |
 
 #### L6 — Character Alignment（角色對齊）
@@ -338,11 +380,18 @@ Traversal 的差別在於：**目標來自環境**，而且**採不採用是一�
 
 ### 4.3 對 IntentPipeline 架構的三個真正衝擊
 
-1. **黑板現在沒有「世界」。**
-   `PlayerRuntimeData` 的每一個欄位都是**角色自身的狀態**（intent／output／grounded／combat context／arbitration）。
-   環境查詢結果會是**第一份「角色以外的世界」資料**。它該不該進黑板？Owner 是誰？每幀更新還是按需？
-   ⇒ 這正中 CLAUDE.md 的 **ADR 判準 ①（黑板 schema／ownership 變更）**，**一定要開 ADR**。
-   （對照：`CombatContextData.TargetPosition` 已經是一個「外部世界的座標」進黑板的先例，**但它是被 producer 收斂過的單點，不是一份查詢結果**。）
+1. **黑板現在沒有「可被多方消費的世界查詢結果」。**
+   ⚠️ **2026-09-10 更正**（`docs/18` §7-S4）：舊版此條寫「環境查詢結果會是**第一份**『角色以外的世界』資料」——**這是事實錯誤**。
+   `CombatContextData.TargetPosition` 已經是黑板裡的 world-derived 資料，**先例早就存在**。
+
+   正確的說法是：環境查詢結果會是**第一份需要跨幀存活、參與 selection、且被多方消費的**世界資料。
+   `PlayerRuntimeData` 目前的每個欄位不是角色自身狀態（intent／output／grounded／arbitration），
+   就是**已被 producer 收斂成單點**的世界衍生值（`CombatContext` — 一個 target 位置，`PlayerCombatContextSource` 唯一寫入）。
+   traversal 查詢的產物不同：它是**一組候選 ＋ 各自的合格判定**，而且要活過「查詢幀 → selection → alignment → 執行」多幀。
+
+   ⇒ **判準不是「資料是否來自世界」，而是「有沒有第二個消費者、要不要跨幀存活」**（`docs/18` §5.1）。
+   ⇒ 因此**「一定要開 ADR」也是過度推論**——真正的 ADR 觸發條件見 `docs/18` §5.2 的 T1–T6；
+   在 T1–T6 全不成立的前提下，spike 是做得出翻越的。
 
 2. **`IMovementModel` 的契約是「每幀推進 dynamics」，不是「執行一段有始有終的位移」。**
    ⇒ 這是 `docs/03` §6.4 的 **G1 承載問題**（`LocomotionModel` 內部 phase／獨立 Presentation FSM／Gameplay State）
@@ -375,7 +424,7 @@ Traversal 的差別在於：**目標來自環境**，而且**採不採用是一�
 | 落地：輕／重 | `JumpIdleLand`／`JumpIdleLandHard`，門檻 `hardLandingSpeed` | 對方多一個「翻滾緩衝」；我們的 `RollState` 存在但**未接為落地緩衝** |
 | 空中姿態由 vertical velocity 驅動 | 黑板 `VerticalVelocity`（`MotionDriver` 唯一寫入）＋ `FallingLoop` | 對方用 2D blend tree 混合，我們目前是單一 `FallingLoop`（**presentation 差距，非能力差距**） |
 | 走出高台自動進入下墜 | `JumpState.CanEnter` 的第二條入口（連續離地 ≥ `fallEntryGrace`，不注入 launch、拒絕空中跳） | 2026-09-10 落地 |
-| **腳步 IK 多地形適配** | `FootIKController` L1 v3：ankle ray 為高度／法線權威 ＋ **heel／toe 雙點**端點殘差 ＋ `ClampGroundNormal` ＋ `PelvisOffsetY` | **概念完全對上**（影片字幕「脚跟、脚心分别发出射线」） |
+| **腳步 IK 多地形適配** | `FootIKController` L1 v3：ankle ray 為高度／法線權威 ＋ **heel／toe 雙點**端點殘差 ＋ `ClampGroundNormal` ＋ `PelvisOffsetY` | **雙點採樣對上**（影片字幕「脚跟、脚心分别发出射线」）。<br>⚠️ **2026-09-10 更正**（`docs/18` §7-S3）：舊版寫「概念完全對上」**過度樂觀**——字幕另一句「**提前采样脚部落**…」**沒有對上**：IntentPipeline 採的是**當幀 pre-IK pose**（`FootIKController.SampleGround` 讀 `FootIKPoseData`），**不做預測性採樣**。<br>殘句不足以判斷對方指的是預測落點、預先計算、還是別的東西 ⇒ **列為未定**（§8） |
 | 腳步音效事件 | `FootstepDetector`（讀 Foot IK pre-IK pose）→ 黑板 `PresentationEvents` → `AudioController` | 事件層已有 |
 | 相機遮擋處理 | `ThirdPersonCamera` 的 `SphereCast` ＋ `AdvanceOccludedDistance` | 對方用 Cinemachine，我們手寫；**能力對等** |
 | 多技能／連段／各自冷卻 | ADR-005（**Accepted**）：三份 `ActionDefinitionSO`、共用一顆 `ActionState`、per-slot 冷卻 | **這一項我們比影片展示的更明確**（影片的戰鬥動畫刻意「不把整个战斗系统开启」） |
@@ -399,7 +448,7 @@ Traversal 的差別在於：**目標來自環境**，而且**採不採用是一�
 | **8 向 strafe / 2D locomotion** | 資產在（8 支 clip）、prototype mixer 在（`Locomotion_2D_Proto_FullRing`／`RunRing`），但 **`Locomotion.asset` 仍是 1D 4-tier**；`docs/13` §9.5 已判定「單環 2D mixer 是**結構性**錯誤」，假說 H1（依戰鬥語境切換兩個 mixer）**待驗** |
 | **Combat Context / facing 來源** | `docs/15` 已採納為 ADR-007 的 S3；`CombatContextData` 與 `PlayerCombatContextSource` 已存在 |
 | **Lock-on** | `docs/10` 規劃中，`LockOnController` **不存在** |
-| **上半身分層（移動中出手）** | ADR-006 **Proposed**，🔴 明文不得開工（Trial 名額被 ADR-007 佔用） |
+| **上半身分層（移動中施法）** | ADR-006 **Trial**；X Bot Spell 已接 Layer 1 upper-body mask＋Layer 0 Walk／Run 雙 8-way ring；Sprint directional presentation 延後，待 Play 驗收 |
 | **Motion Warping** | roadmap 步驟 6，未開始；但 `MotionDriver.ApplyBakedCompensation(…, actualTarget, …)` 的 seam 已存在 |
 
 ### ④ 尚未具備，但與 IntentPipeline 很自然地相容
@@ -419,7 +468,7 @@ Traversal 的差別在於：**目標來自環境**，而且**採不採用是一�
 | **環境查詢層（L2）** | **黑板第一次要容納「角色以外的世界」** ⇒ ADR 判準 ①，必開 ADR。見 §4.3-1 |
 | **攀爬 / 翻越（L2–L8 全鏈）** | 除了 L2，還撞上 **G1 承載問題**（§4.3-2）與 **Motion Warping**（§4.3-3）。**這是三個未決問題的交集，不是一個功能** |
 | **執行期改變碰撞體** | 目前 `CharacterController` 尺寸是靜態的；動態改它會牽動 `isGrounded`、卡牆、`Move` 解算——而 `IsGrounded` 是黑板欄位、有單一寫入者契約 |
-| **Additive 動畫層（BUFF 疊加）** | 需要 `AnimationFacadeBase` 契約擴張到「層」的概念，且與 **ADR-006（Proposed，不得開工）** 直接重疊 ⇒ **現在不能碰** |
+| **Additive 動畫層（BUFF 疊加）** | ADR-006 Trial 只批准 masked upper-body Spell，不包含 additive BUFF framework；仍屬 scope expansion |
 | **物理二級動畫（布料／頭髮）** | 純第三方套件與美術資產問題，與本專案的架構命題**幾乎無關**。⚠️ 作品集角度也不加分（外行看得到，但它不是「架構」） |
 
 ### ⑥ 僅憑影片無法判斷
@@ -432,9 +481,9 @@ Traversal 的差別在於：**目標來自環境**，而且**採不採用是一�
 
 | # | 主題 | 為什麼是這個順序 | 與既有排程的關係 |
 |---|---|---|---|
-| **0** | **Observability 三個最小起手**（§3.6） | **它讓後面每一輪都變便宜**。特別是 #1（方向三箭頭）直接降低 ADR-007 的驗收成本 | 不衝突。屬非架構性加法，走 Living Docs |
+| **0** | **Observability 範圍收斂**（`docs/18` §1） | world-space 只保留 traversal／Foot IK 的世界幾何採樣；Direction snapshot／測試保留但不做四箭頭／HUD。Foot IK Game View runtime lines 已落地；前方 obstacle query 本身尚不存在 | 不衝突。屬 owner 內部 Editor／Development 診斷；零新契約 |
 | **1** | **把 ADR-007 從 Trial 驗到 Accepted** | **方向權威是後面所有東西的前提**：strafe 要問「移動方向 vs 朝向」、lock-on 要問「facing 來源」、traversal 的 alignment 要問「誰有權改 transform」。**在它未驗證前談 traversal，等於在未定的地基上疊樓** | `docs/03` §6.3 步驟 5「Combat 最小垂直切片」的前置 |
-| **2** | **Unity query 工具箱**（§4.4-A） | 純學習，**不寫 production code**。用 spike／probe 探針（CLAUDE.md 已授權用完即丟，不受 Editor Tool 兩道閘門限制） | 不佔用任何輪次 |
+| **2** | **Unity query 工具箱**（§4.4-A） | 純學習，**不寫 production code**。用 spike／probe 探針（CLAUDE.md 已授權用完即丟，不受 Editor Tool 兩道閘門限制）。<br>⭐ **補充**（`docs/18` §7-S7）：`CharacterController.stepOffset`／`slopeLimit` 的**實際行為是一個真缺口**——本專案目前**完全倚賴**這兩個值，卻**沒有人量過它們的邊界**（多高的階梯會被吃掉、多陡會滑下來）。這是 spike 的第一個題目 | 不佔用任何輪次 |
 | **3** | **G1 承載問題**（`docs/03` §6.4） | 「一段有始有終的 authoritative 位移該由誰承載」——Stop／Pivot 是它的簡單案例，**traversal 是它的困難案例**。先在簡單案例上得到答案 | `docs/03` §6.3 步驟 3 已排 |
 | **4** | **Motion Warping / MatchTarget 語意**（§4.4-B） | L6 對齊的技術基礎 | `docs/03` §6.3 步驟 6 已排，且原文已指名 traversal 對齊 |
 | **5** | **才有資格談 traversal 的 ADR** | 到這裡，L2（查詢）／L5（fallback 掛在 `JumpRequested`）／L6（warping）／L8（交還）都有答案或先例，剩下的才是真正要決策的部分 | — |
@@ -448,14 +497,15 @@ Traversal 的差別在於：**目標來自環境**，而且**採不採用是一�
 
 > 依 `docs/16-review-protocol.md` 的精神列出。**只讀不改**，且**不為了批評而發明新原則**。
 
-### F1 — 🔴 大量工作尚未 commit，`docs/` 的「repo ＝ source of truth」目前只在磁碟上成立
-`git status --porcelain` 共 **211 筆**：**61 個 tracked 檔案已修改**（`+6767 / −808`），
-外加約 150 筆 untracked（多為 `Assets/ScriptableObjects/Animation/Jump*.asset` 與 `Projectile_Fireball.prefab`）。
+### F1 — 🟢 **已解決**（2026-09-10 當日）：大量未 commit 工作已入版控
+**原始紀錄**：`git status --porcelain` 曾達 **211 筆**（61 個 tracked 已修改，`+6767 / −808`，
+外加約 150 筆 untracked，多為 `Assets/ScriptableObjects/Animation/Jump*.asset` 與 `Projectile_Fireball.prefab`），
 其中包含 `CLAUDE.md`、`WORKLOG.md`、`docs/00`／`01`／`02`／`05`／`09`／`10`／`11`、`docs/ADR/005`、
 `docs/artifacts/architecture-tour.html`、`docs/changelog.md`。
-而 HEAD 前五個 commit 全是 docs／test／chore。
-⇒ **這不是矛盾，是風險**：CLAUDE.md 明文「只存在於 session 的東西等於不存在」，
-目前這批東西存在於**工作樹**——`git log` 追不到、下一個 clone 讀不到。
+⇒ 風險陳述為：CLAUDE.md 明文「只存在於 session 的東西等於不存在」，那批東西當時只在**工作樹**。
+
+**解決**：使用者已於同日 commit `71f5a5c feat: integrate action, direction authority, jump and presentation progress`，
+工作樹清空，分支回到 `main`。⇒ 本條**風險已消除**，保留紀錄僅為說明本文對照的程式基準已入版控。
 **Git 全由使用者執行，本文只回報。**
 
 ### F2 — 🟡 本專案的 observability 原則只寫在一個 `.cs` 的 XML 註解裡，沒有任何 Living Doc 索引到它
@@ -466,15 +516,34 @@ Traversal 的差別在於：**目標來自環境**，而且**採不採用是一�
 **這條原則目前處於「在 repo 裡但找不到」的狀態**。本文 §3.1 已把它引出來，
 但正式的歸屬（dev-spec 還是子系統分卷）**由使用者裁決，本文不自行決定**。
 
-### F3 — 🟡 Foot IK 已算出 ground normal，但沒有任何消費者、也沒有發布
+> ✅ **2026-09-10 落地**：這條原則已有兩個可執行形式——A33 讓 Direction Authority snapshot
+> 保持被動且禁止 world-space presentation；A34 禁止 Foot IK runtime renderer／Scene Gizmo 重發
+> physics query，並守住 Game View 必須使用 `LineRenderer`、不能依賴 Gizmos 開關的可見性契約。
+> 依 CLAUDE.md **Test-as-Spec**「加不變量時優先寫成測試而非散文」，**執行力的部分已到位**。
+> 散文規格已收進 Foot IK Living Spec `docs/05` §3.5.5；跨子系統判準留在 `docs/18` §1.0～§1.1。
+
+### F3 — 🟢 Foot IK 已算出 ground normal，但刻意未發布（**不是缺陷**）
 `FootIKController` 的 `sample.Normal`（原始命中法線）與 `sample.SoleNormal`（clamp 後）
 只用於 IK 目標旋轉，**不進黑板、不對外可見**。
 ⇒ 目前 `IsGrounded`（單一 bool）是 gameplay 層**唯一**的地面資訊，
 **坡度對移動決策完全不可見**。
-這不是 bug（現在沒有消費者），但它是「環境資訊缺席」的第一個具體證據，
-也是 §4 那一整層的**最小前哨**。⚠️ **⛔ 不要因為這條就去把 normal 加進黑板**（§3.3 紅線 2）。
 
-### F4 — 🟡 ADR-007 是 Trial，§8 的七條驗收**一條都沒打勾**，而多個切片已「程式落地」
+⚠️ **2026-09-10 語氣校準**（`docs/18` §7-S6）：舊版此條語氣偏向「缺陷／缺口」，**這是錯的**。
+**今天只有一個消費者（IK 自己）⇒ 它就該是局部 query 的 implementation detail，未發布是正確的設計。**
+判準見 `docs/18` §5.1：**「有沒有第二個消費者」才是發布與否的分界，不是「這個值是否來自世界」。**
+
+**仍然成立的部分**（保留）：它是「環境資訊缺席」的**最小前哨**，也是 §4 那一整層的預告。
+⛔ **不得因為這條、或因為「想在 gizmo 裡看見它」，就把 normal 加進黑板**（§3.3 紅線 2）——
+要看它，就在 `FootIKController` **內部**畫（§3.4 #10）。
+
+### F4 — 🟡 ADR-007 是 Trial，~~§8 的七條驗收**一條都沒打勾**~~，而多個切片已「程式落地」
+
+> ⚠️ **2026-09-12 更新**：「一條都沒打勾」**已不再屬實**，但成因是**文件落後**而非驗收缺席——
+> A1／B 的 Play 證據當時已存在於 `WORKLOG.md`，只是沒回填 ADR 勾選框；C／D 可由程式與 A29／A30 直接證明。
+> 已於 2026-09-12 fold back（見 ADR-007 §8）。**現況：4 條通過、F 部分、A2／E／G 未驗 ⇒ 仍是 Trial。**
+> 📌 本 finding 的真正教訓因此改寫為：**「Trial 期 code-first 是允許的，但證據散落在 `WORKLOG.md` 而不回填 ADR，
+> 會讓下一個會話低估實際進度並做出過度保守的規劃」**——本輪的 traversal 規劃正是這樣被誤導的。
+
 `docs/14` §4 記載 S1／S2／S3b／F6 皆於 2026-09-08 落地，程式面也已核實
 （`MotionDriver.ExecuteBaseMovement` 已改用世界方向 `data.MoveDirection`，不再是 `transform.forward`）。
 這**符合** CLAUDE.md 允許的 Trial 期 code-first，**不是違規**——
@@ -501,6 +570,10 @@ Traversal 的差別在於：**目標來自環境**，而且**採不採用是一�
 - 對方的**效能特性**：是否零 GC、每幀 query 成本
 - traversal 的**承載**：是 FSM 狀態、`StateMachineBehaviour`、還是獨立元件
 - 「由下向上的 while 迴圈」是**每幀跑**還是**只在按鍵時跑**——這兩者的效能與手感特性完全不同
+- ⭐ **Foot IK 的「提前采样脚部落…」到底指什麼**（2026-09-10 新增，`docs/18` §7-S3）：
+  可能是「預測下一步的落點」、「在 IK 解算前先採樣」、或別的意思。
+  對照組是明確的——IntentPipeline 採的是**當幀 pre-IK pose**（`FootIKController.SampleGround` 讀 `FootIKPoseData`），**不做預測性採樣**——
+  但**殘句不足以判斷對方是不是在講同一件事** ⇒ **列為未定，不推測**
 - 腳步音效是**動畫事件**還是**偵測器**（字幕出現「通过动画事…」但被裁切，不足以斷言）
 - 相機用了 Cinemachine 的**哪些**元件（字幕只看得到「通过 CINEMACHINE 实…」）
 - 二級動畫是哪一套（Magica Cloth／Dynamic Bone／Unity Cloth／自製）

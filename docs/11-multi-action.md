@@ -290,14 +290,38 @@ Definition 不再於 `Initialize` 綁死，因此 `OnEnter` 必須**重新解析
 > legacy `actionReleaseSinkComponent` 就完全不參與；清單為空時才把既有單顆 sink 套給所有 slot，維持舊 prefab 行為。
 > 舊欄位名稱刻意保留，避免清空已序列化的 `ThrowProjectileEmitter` 引用。開始接第二／第三招時，必須一次填完整三格。
 
+> 🆕 **2026-09-14（使用者裁決）：一個 slot 可以有多顆 sink。**
+>
+> 上面那段寫的是「Slot → sink」一對一。**那條限制不是設計，只是還沒遇到第二個使用者。**
+> 一個 Action 本來就可能同時有**彼此獨立**的副作用——命中判定、武器顯隱、刀光、VFX、音效——
+> 它們共用同一組 `Begin` → `Release` → `Cleanup` 時點，卻沒有理由互相認識。
+> 觸發事件：`WeaponVisibilitySink`（武器只在出手期間顯現）要跟 `MeleeHitboxSink` 同時掛在 Slot1。
+>
+> | | 內容 |
+> |---|---|
+> | **資料結構** | 稀疏陣列 → **jagged**：`IActionLifecycleSink[][]`，外層索引＝slot、內層＝該 slot 的 sink 清單 |
+> | **通知順序** | ＝ Inspector 上的 binding 順序，且**穩定**。sink 之間**不應該**互相依賴順序，但順序必須可預期，否則除錯時無從對照 |
+> | **仍然禁止** | **同一顆 sink 在同一個 slot 註冊兩次**——必定是接線手滑，症狀是該 sink 的效果在一次 Action 裡發生兩遍（命中判定跑兩次、傷害變兩倍） |
+> | **合法** | 同一顆 sink 綁到**不同** slot（例如共用的音效 sink）⇒ 比較的是「(slot, sink 實例)」組合 |
+> | **相容性** | 既有單顆 binding 一字不必改，結果就是長度 1 的陣列；legacy 單顆欄位的 all-or-nothing 規則不變 |
+> | **零 GC** | 全部配置在組裝期；執行期是對具體陣列的索引迴圈，不配置、不搜尋元件 |
+>
+> **`IActionLifecycleSink` 介面本身一字未改**——變的只有「一個 slot 有幾個接收者」。
+> ⛔ **不採 composite sink**（只是把多接收者問題藏到另一層），
+> ⛔ **不讓 `MeleeHitboxSink` 兼管 `WeaponSocket`**（會把 gameplay 的命中判定與 presentation 的武器顯示綁死）。
+>
+> 測試：`ActionStateTests.T26`（派送與順序）／`ActionSinkResolutionTests`（組裝期解析、重複拒絕、legacy 相容）／
+> `PrefabWiringTests.W3`（資產層的重複定義已同步改寫）。
+
 > ⚠️ **紅線**：VFX **不得**決定命中判定時機。命中窗由 `ActionPhase` ＋ `ReleaseNormalizedTime` 決定，
 > particle collision **不得**成為命中來源。這是 `CLAUDE.md`「Do NOT put gameplay logic inside Animation」的同構延伸。
 
 ### 4.2 敵人近戰站位（2026-09-03 落地）
 
 `AIMovementSource` 在 producer 內以 `minimumEngagementDistance`／`maximumEngagementDistance` 判斷站位：
-太近輸出背離目標的 `MovementIntent`、太遠沿 NavMesh steering direction 前進、距離帶內則沿水平 `toTarget`
-的切線持續側移。`distanceHysteresis` 讓正在前進／後退的角色必須跨過帶內的第二道門檻才切入側移，
+太近輸出背離目標的 `Retreat` intent、太遠沿 NavMesh steering direction `Approach`、距離帶內則進入
+`Strafe`，沿水平 `toTarget` 的切線持續側移。`Hold` 保留給未交戰／無 target／NavMesh 無效的零移動 fallback。
+`distanceHysteresis` 讓正在前進／後退的角色必須跨過帶內的第二道門檻才切入側移，
 避免距離誤差在邊界逐幀抖動。
 
 距離帶三個值與 `holdStrafeSpeedNormalized`／`strafeDirectionFlipInterval` 都是 producer 的
@@ -305,6 +329,18 @@ Definition 不再於 `Initialize` 綁死，因此 `OnEnter` 必須**重新解析
 避免多隻敵人長時間同向或同步繞圈；側移與既有速度輸出共用 Slow 倍率解析。
 **不回讀 FSM、不新增黑板欄位、不讓 NavMeshAgent 取得 Transform authority**。後退也只輸出方向，
 實際位移仍走 `LocomotionModel → MotionDriver`。
+
+#### 4.2.1 敵人攻擊 request pulse（2026-09-11）
+
+`AIInputSource.WantsToAttack` 保持「目標是否在 attack range 內」的**持續條件**，但
+`Slot1ButtonDown` 與玩家的 `WasPressedThisFrame()` 同為 edge semantic，不能把持續條件逐幀直寫。
+producer 內以最小跨幀狀態把 desire 轉成單幀 pulse：第一次進入射程立即送一次；持續留在射程內時，
+每隔 `attackRequestRetryInterval`（第一版預設 0.5 秒）重新嘗試送一次；離開射程即重新武裝，下次進入立即送。
+
+這個 interval 的定義只有「**多久重新嘗試送一次 attack request**」，是 tuning value，**不是 attack cooldown**。
+AI 不知道 request 是否被接受，也不讀 FSM／`ActionState`；`Cooldown`、`CooldownVariance`、grounded requirement
+與 action lifecycle 仍由 `ActionState` 唯一裁決。pulse 間的 false 幀讓 external `Reaction` 能進入既有仲裁；
+本改動沒有把 Reaction 提升成全域優先，也沒有裁決 Action 是否可被受擊打斷。
 
 > **現階段的視覺邊界**：這裡只有模型無關的移動方向，沒有新增面向權威；`MotionDriver` 目前仍朝移動方向旋轉，
 > 所以結果是「面朝切線繞行」，不是「身體持續面向玩家的專用 strafe 動畫」。後者需要獨立 combat-facing seam，
@@ -616,37 +652,44 @@ apply/remove callback。`ThrownProjectile` 直接投遞 `Effect.Slow` 的 0.3 �
 | 適用範圍 | 所有 Action slot；**`Reaction` 不適用**（受擊不是出手，維持原裁決） |
 | ⛔ 不做 | 不新增第四種 policy；不做 per-Action 的角度上限／吸敵強度旋鈕；**不為 `SelfCentered` 硬做技能** |
 
-#### ✅ 那個開放問題的實作期答案（2026-09-08 落地）
+#### ✅ Soft-target candidate 與 commitment（2026-09-11 使用者裁決並落地）
 
-> 原問題：`CameraConeSoftTarget` 的目標，要用**當下的相機錐查詢**，還是 **Combat Context 的黏性目標**？
+`PlayerCombatContextSource` 仍是唯一 target producer，但同一 producer 現在發布兩種**不同語意**的值：
 
-**採第三種形狀：以 Combat Context 為目標的唯一供應商，但每個段落邊界重跑一次角錐閘門。**
+- `HasTarget／TargetPosition`：原本的黏性 combat target，服務 combat context／head look。
+- `HasSoftTarget／SoftTargetPosition`：每幀無記憶的 action 候選，只供下一個 commitment boundary 消費。
 
-| 為什麼不是「另外查一次相機錐」 | `docs/10` §3-D3 明文禁止新建 targeting service／目標列表／註冊表。combat context producer **已經是**目標的唯一供應商；再開一條查詢就是第二份真相，而它要回答的問題（「誰是敵人」）跟既有那條**一模一樣** |
+這不是第二套 target authority：兩者共用 `ActionRequestTarget`、`targetMask` 與同一個 producer／buffer；
+差別只是輸出語意。若把 soft target 硬綁黏性目標，畫面中央的敵人可能永遠輸給先前黏住的側面敵人；
+若讓 ActionState 自己查 Physics，又會讓 FSM 變成第二個 target selector。現在兩種失敗都不存在。
+
+| 項目 | 第一版規則 |
 |---|---|
-| **為什麼不是「直接用黏性目標」** | 那就是 2026-09-08 之前的行為——無條件讓 target 壓過 aim point ⇒ **所有 Action 都等同 soft-target**，正是這次裁決要推翻的東西 |
-| **實際形狀** | 目標**來源**是黏性的（Combat Context），但**方向修正的判定不是**：每次取得承諾時重測一次「target 在不在瞄準方向的角錐內」。⇒ 連段中甩相機把敵人甩出角錐，下一段就不再修正 |
-| **角錐** | 水平半角 **30°**，`ActionState.SoftTargetConeHalfAngleDegrees`，⛔ **全專案一顆常數**（見上方「不做」欄）。垂直方向刻意不算進去——它由相機俯仰主導，與「敵人在不在正前方」無關，算進去只會讓低頭時吸不到人 |
+| 候選 | 12m 內、持有 active `ActionRequestTarget`、不是自己、位於 camera forward 的**水平半角 25°** 內 |
+| 排序 | **與 camera forward 的 alignment 優先**，距離只作次要 tie-break；不採 nearest-only |
+| commitment | 每個 Action／連段段落開始時，`ActionState` 只讀一次 `SoftTargetPosition`；無候選才使用同次 camera aim |
+| 段落內 | 不重選、不因候選離開 cone 而改回 camera forward；facing 與 projectile release 共享同一份 commitment |
+| target 中途失效 | 第一版保留該段已承諾的位置／方向；下一段才重新取當下 candidate |
+| tuning | 12m／25° 是 playtest tuning，不是正式設計常數；欄位住在 producer，不做 per-Action 旋鈕 |
 
-**⇒ Combat Context 的黏性仍然有存在必要**，但理由換了：它現在服務的是 **facing／HeadLook 的穩定性**
-（不要因為目標瞬間出視野就左右搖擺），**不再**是 action targeting 的決定者。
+角度只算水平面；垂直瞄準仍由 `AimResolver` 的 camera ray 幾何點提供。沒有另做 screen-space score，因為
+目前 production seam 沒有 screen-space candidate 資料，而水平 alignment 已直接表達「離 aim center 多近」。
 
-#### 🔩 落地紀錄（2026-09-08）
+#### 🔩 落地紀錄（2026-09-08；2026-09-11 擴充）
 
 | 改動 | 檔案 |
 |---|---|
 | 新增 `ActionTargetingPolicy` enum（三個成員，`CameraForward = 0`） | `Core/StateMachine/Actions/ActionDefinitionSO.cs`（與 `ActionPhaseEntry` 同檔，**未新增檔案** ⇒ 不需要新的 `.meta`） |
 | 新增 authored 欄位 `Targeting`，預設 `CameraForward` | 同上 |
 | `CaptureReleaseContext` 依 policy 分支 | `Core/StateMachine/States/ActionState.cs` |
-| `TrySelectAimPoint` → **`TrySoftTarget`**（無條件壓過 → 角錐閘門） | 同上 |
+| `TrySelectAimPoint` → **`TrySoftTarget`**；2026-09-11 收斂為只消費 dedicated candidate snapshot | 同上 |
 | `ShouldFaceTargetOnEnter` 的職責收斂為 **slot 層級閘門**（「會不會取得承諾」），policy 回答「朝哪取得」 | 同上 |
-| 測試：`TC7` 改寫為角錐語意；新增 `TC7B` 釘住預設值 | `CombatContextTests.cs` |
+| 同一 producer 發布無記憶 soft candidate，12m／25°、alignment→distance | `Core/Combat/PlayerCombatContextSource.cs`／`CombatContextData.cs` |
+| 測試：dedicated snapshot、side/back/range、aim-center 優先、無黏性重算、段內 commitment 穩定 | `CombatContextTests.cs`／`ActionStateTests.cs` |
 
-⚠️ **既有 Definition 資產不需要重新接線**：`Targeting` 是**新增欄位** ⇒ 既有 `.asset` 吃程式預設
-`CameraForward`。這也正是「忘了填得到正確行為」的實際兌現——三份既有 Definition
-（Melee／Fireball／Ice）**自動從「全部吸敵」變成「全部朝鏡頭」**。
-📌 ⇒ **要哪一招吸敵，是 Play 之後的手感決定**，在 Inspector 把該份 Definition 改成
-`CameraConeSoftTarget` 即可，不需要改程式。
+`Targeting` 的預設仍是 `CameraForward`，所以未設定的新 Action 不會意外吸敵。2026-09-11 combined slice
+明確把 `FireballDefinition` 與 `IceSpellDefinition` author 為 `CameraConeSoftTarget`；Melee 與其他既有 Action
+維持預設，不受影響。
 
 #### 🔄 目標來源已改（2026-09-02 使用者裁決）
 
@@ -654,9 +697,9 @@ apply/remove callback。`ThrownProjectile` 直接投遞 `Effect.Slow` 的 0.3 �
 距離與角度自動選最佳目標，**僅供 facing／targeting 使用**，不改 locomotion、不進入持續鎖定狀態。
 ⇒ 上文的「鎖定中的目標」應讀作「**本次出手當下自動選中的目標**」。
 
-這與既有機制對得上：`AimResolver` 已經在做「沿相機射線 cast → 過濾 `ActionRequestTarget` → 排除自己 →
-取角度偏差最小者」。⇒ **auto-target ＝ 在出手瞬間取一次那個結果**，不是新的 targeting 系統。
-⛔ 不得新建 `ITargetable`／目標列表／註冊表／targeting service（`docs/10` §3-D3 既有禁令，仍然適用）。
+2026-09-11 的 production 形狀是：既有 `PlayerCombatContextSource` 以 `ActionRequestTarget` 過濾候選並發布
+無記憶 soft candidate，`ActionState` 在出手／段落邊界取一次。`AimResolver` 只保留 camera ray 幾何解算，
+不再選 target。⛔ 不得新建 `ITargetable`／目標列表／註冊表／targeting service（`docs/10` §3-D3 既有禁令）。
 
 ~~⚠️ **本輪不實作**（2026-09-02 批次範圍外）——先讓三招打得順。若 Play 顯示 facing 明顯難看再補。~~
 `docs/10-lock-on.md` 整體延後，狀態已同步更新。
@@ -852,3 +895,320 @@ Slot1／Slot3 的 Begin／Release／Cleanup 全為零；架構測試新增 **A26
 |---|---|---|
 | **FU-11-1** | `PlayerRuntimeData.AimTarget` 為無 writer 的死欄位（WP1 落地後仍成立） | ✅ 2026-09-03 直接移除；未新增 writer／schema |
 | **FU-09-2** | `ThrownProjectile` 與法術投射物是否重複 | ✅ 2026-09-03 判定無第二種行為：法術直接重用 `ThrowProjectileEmitter`／`ThrownProjectile`，只換 prefab 與速度；未新增 abstraction 或複製類別 |
+
+---
+
+## 13. 🔄 Invariant change：Spell 8-way 的方向速度（2026-09-15，使用者明確裁決）
+
+**正本在 `docs/21` §1.5.1**（該處有完整公式、落地數值與被取代的測試清單）。這裡只記與 spell 相關的部分。
+
+`Locomotion_2D_Spell_WalkRun` 是 `Spell_Fireball_1/2/3` 與 `Spell_Ice` 的 `BaseLayerTransition`
+——**它只在施法時播放**，X Bot 的一般 locomotion 仍走 1D `Locomotion.asset`。
+
+- **廢除**：「8-way 的每個方向都與 gait anchor 等速」。
+- **改為**：`threshold = min(gaitAnchor, bake × maxPlaybackStretch)`，`maxPlaybackStretch = 1.35`。
+- **結果**：施法中側移／後退的 playback 從 **2.07–2.17× 降到 1.35×**；Forward 與 Forward Diagonal **完全不變**。
+  側移落在前跑的 62–65%、後退 63.6%。
+- ⛔ **不得**手填方向倍率或最低速度比例。太慢的話另開 tuning 決策，不在本輪補償。
+
+⚠️ **超出 spell 範圍的副作用（已知並接受）**：速度上限由 `LocomotionModel.ApplyCombatDirectionalSpeedLimit`
+施加，它只看 `InCombat`、不看當前 mixer ⇒ **X Bot 在所有戰鬥中側移都會變慢**，不只施法時。
+`L6` 原本明文禁止 X Bot 啟用這個 policy（`Assert.IsNull`），該禁令已於本次一併廢除。
+
+---
+
+## 14. 🔄 Invariant change：承諾拆成 facing 與 effect 兩份（2026-09-15，使用者明確裁決）
+
+### 症狀
+
+使用者 Play 回報：「投射物撞到敵人就應該立刻銷毀，但它是**穿過去了才**銷毀並受傷」。
+
+### 已量測排除的假說（都不是）
+
+| 假說 | 實測 | 與影片約 1 m 過衝的差距 |
+|---|---|---|
+| 敵人 capsule offset 位移 | 上限 0.18 m | 差 5 倍 |
+| 取樣太稀（tunneling） | 每物理步 0.1 m vs 膠囊 0.64 m | 連續覆蓋，穿不過去 |
+| VFX／collider／root Transform 脫鉤 | collider vs root **0.000000 m** | 不存在 |
+| PhysX 同步延遲（`m_AutoSyncTransforms = 0`） | 鋸齒 0.015–0.120 m，每步歸零 | 差 8 倍 |
+
+📌 投射物本身對**靜止**的真 Y Bot prefab 命中誤差 **1.1 cm**——元件沒有問題。
+
+### 根因
+
+`ActionState.CaptureReleaseContext` 在**段落邊界**取得一次承諾，`facing` 與**世界效果共用同一份**
+（ADR-007 D4／D5，並由 `ActionStateTests.TD5`／`TD5B` 明文守住）。
+而 Fireball 的 release 在 `FallbackDuration 1.2 × ReleaseNormalizedTime 0.35` = **抬手 0.42 秒後**。
+
+Y Bot 側移實速 = `min(holdStrafe 0.35, StrafeLeftLoop 1.6443 / SprintFwdLoop 6.2614 = 0.2626) × 6.2614`
+= **1.644 m/s**：
+
+| 階段 | 時間 | 相對鎖死座標的位移 |
+|---|---:|---:|
+| 抬手 | 0.42 s | 0.69 m |
+| 飛行（約 3 m ÷ 5 m/s） | 0.60 s | 0.99 m |
+| **合計** | | **≈ 1.7 m** |
+
+**敵人膠囊直徑 0.64 m ⇒ 側移中的敵人打不中是預期行為。**
+過肩鏡頭下，飛向舊座標的火球投影起來就是「穿過身體」。
+
+### 新契約
+
+| | 何時取 | 用途 | 變動 |
+|---|---|---|---|
+| `_releaseContext` | 段落邊界 | **facing 承諾** | **不變**，ADR-007 這一半完整保留 |
+| `_effectContext` 🆕 | **每帧刷新，release 當下定案** | 投遞給 `IActionLifecycleSink` | 新增 |
+
+⚠️ **代價（已知並接受）**：身體朝向與彈道相差「目標在抬手期間移動的角度」，3 m 距離下約 **13°**。
+⛔ **facing 不得也跟著每帧重取**——那會讓角色抬手時持續扭向目標，正是 ADR-007 要消除的抽搐。
+📌 解不出瞄準時**保留上一次可用落點**，不得退化成 `default`（那會讓效果生在世界原點）。
+
+**被取代的舊 baseline**：`ActionStateTests.TD5`／`TD5B`（同一工作包內更新，非暫停）。
+**新增守門**：`AC1`（effect 跟上 ＋ facing 不動，兩個斷言必須同時成立）／`AC2`（瞄準失效時保留上一次落點）。
+
+---
+
+## 15. 🔄 冰刺判定形狀對齊視覺形狀（2026-09-15）
+
+**症狀**：「冰刺中了但沒生效」。debug gizmo 顯示 `OverlapSphere` 查到 **0 個 collider**。
+
+**根因**：`Human_Spell_Ice` 的六排冰刺沿 local +Z 排在 **0.58／1.15／1.87／2.66／3.42／4.42 m**，
+橫向只有 **±0.17 m**——**它是一條線**。而判定是以身前 `castDistance 0.4` 為心、`effectRadius 3` 的**球**：
+
+```
+判定球前緣 = 0.4 + 3.0 = 3.4 m
+Ice(5) = 3.82 m  → 超出 0.42 m
+Ice(6) = 4.82 m  → 超出 1.42 m
+```
+
+⇒ **最後兩排冰刺完全在判定外**；同時**背後 3 m** 內卻打得到，與「前方一列冰刺」的語意完全相反。
+
+**修法**：`Physics.OverlapSphereNonAlloc` → `OverlapCapsuleNonAlloc`，膠囊沿施法方向由
+`effectNearReach 0.58` 到 `effectFarReach 4.42`，橫向 `effectRadius 0.7`（±0.17 排列偏移 ＋ 冰刺 mesh 寬度）。
+端點自地面**抬高一個 radius**，讓膠囊向上撐開涵蓋站立角色，而不是只掃到腳踝。
+
+⛔ **不可以只把 `effectRadius` 加大到 4.42**——那會讓背後與側面一起變成 4.42 m。**形狀錯了要換形狀，不是放大錯的形狀。**
+⛔ 退化方向（零向量）時塌成零長度膠囊，**不得自行解算朝向**——方向權威屬 `ActionState` 交付的承諾（`A29` 守）。
+
+📌 三個數值的來源是 **VFX 自己的 emitter 佈局**，不是手感猜測；換掉 ice VFX 時要重新量。
+**資產**：X Bot 的 `effectRadius` 已由 3 改為 0.7（Editor API）。
+**測試**：`SlowEffectTests.IceHitVolume_*` 三條。
+
+---
+
+## 16. 🔴 投射物的視覺 core 必須與 collider 同步（2026-09-16，使用者裁決）
+
+### 這是「火球穿過敵人卻沒受傷」的**主要**成因
+
+`Human_Spell_Fireball` 是為**靜止發射器**設計的 VFX——**位移由粒子自己承擔**
+（`main.startSpeed = 15`，Local space）。而 `ThrownProjectile` **同時也在搬 GameObject**（5 m/s）。
+
+```
+視覺 core = 發射器 5 m/s ＋ 粒子自身 15 m/s
+判定      = 發射器 5 m/s
+⇒ 相對速度 10 m/s，差距隨時間線性拉開
+```
+
+實測：飛行 0.22 s 差 **2.22 m**、0.67 s 差 **6.68 m**。玩家看到的火球跑在判定前方好幾公尺。
+
+### 六項排查（2026-09-16，逐項量測）
+
+| # | 項目 | 結果 |
+|---|---|---|
+| 1 | core 粒子 local Z | **+2.22（AHEAD）** |
+| 2 | `main.startSpeed` | **15.00** ← 唯一推力源 |
+| 3 | `velocityOverLifetime` | False |
+| 4 | `inheritVelocity` | False |
+| 5 | `forceOverLifetime` | False |
+| 6 | `subEmitters` | True, **4 個** |
+
+⑥ 不是推力源，但它解釋了為什麼**整條視覺鏈**都在錯的路徑上：四個尾巴 emitter 都是從 core 粒子生出來的
+⇒ **把 core 釘回發射器，整條一起回正。**
+
+### 修法
+
+`Assets/Prefabs/Projectile_Fireball.prefab` 的 nested instance override：
+`Human_Spell_Fireball.startSpeed` **15 → 0**。
+
+⛔ **第三方來源 prefab（`Assets/Kevin Iglesias/…`）一行未動**——腳本先以
+`AssetDatabase.GetAssetPath(core)` 確認解析到的元件屬於我們的 prefab，不符即中止；
+執行後以 `git status --porcelain "Assets/Kevin Iglesias/"` 複查為空。
+
+**驗收**：core 與 collider 距離 **2.22 m → 0.02 m**（殘差是發射器形狀散佈，`localXY = -0.02, 0.00`）。
+
+### 不變量與守門
+
+> **視覺 core ≈ collider。** 這是投射物唯一該守的視覺／判定不變量。
+
+📌 **trail／sparks 不在約束內**：`FireSparks` 維持 World space、smoke／trail 可以自帶速度，
+只要它們明確是尾巴、**不是玩家認知裡的「火球本體」**。
+
+`ProjectileVisualAlignmentPlayModeTests.PV1` 守這條。它斷言的是**可觀察結果**（core 粒子與 collider 的距離
+≤ 1 m），⛔ **不是 `startSpeed == 0`**——後者是實作細節，換素材或改用
+`velocityOverLifetime`／`inheritVelocity`／`forceOverLifetime`／SubEmitter 推進都會讓它失效卻仍破壞不變量。
+
+core 的身分用**結構判準**（帶 SubEmitter 的那一個），不用名字（名字不保證語意）也不用粒子大小
+（0.55 vs 0.49 太接近，不足以當判準）。
+
+⚠️ **已知視覺副作用**：core 不再自走後，尾巴的相對速度由 15 降到 5 m/s ⇒ **拖尾會明顯變短**。
+那是必然的——原本的長尾巴正是「視覺比判定快 3 倍」的副產品。
+要加長就調 trail 的 lifetime／startSpeed，⛔ **不是把 core 的速度加回去**。
+
+⚠️ **仍未收斂的殘差**：core 是單顆 billboard，`avgSize ≈ 0.55`（半徑約 0.28 m），而 collider 半徑 0.15
+⇒ 視覺球比判定球**大一圈**。那是**尺寸差**不是位置差，屬「看起來擦到但判定沒中」的次要來源，未處理。
+
+---
+
+## 17. 🔄 投射物改為連續掃掠；火球恢復 20 m/s（2026-09-16，使用者明確裁決）
+
+### 起點：使用者要回原本的視覺
+
+§16 把 core 的 `startSpeed` 由 15 歸零之後，core 與 collider 對齊了，但**視覺速度由 20 掉到 5 m/s**、拖尾變短。
+使用者裁決：**視覺上還是原本的好** ⇒ 把 collider 速度拉到與特效原速一致。
+
+```
+原本視覺 = 發射器 5 ＋ 粒子自身 15 = 20 m/s
+新做法   = 發射器 20 ＋ 粒子自身 0  = 20 m/s      ← core 仍釘在 collider 上
+```
+
+### 但提速會把取樣問題從隱患變成必然
+
+```
+每物理步位移 = 20 × 0.02 = 0.40 m      （原本 0.10 m）
+正面貫穿的命中窗 = 2 × (0.32 + 0.15) = 0.94 m   → 0.40 塞得進去，不會漏
+擦邊（偏軸 0.45 m）的命中窗 = 0.27 m            → 0.40 > 0.27 ⇒ **必漏**
+```
+
+⇒ **提速與掃掠是同一件事，不能只做一半。**
+
+### 新契約
+
+| 項目 | 內容 |
+|---|---|
+| 位移與判定 | `FixedUpdate` 內以 `Physics.SphereCastNonAlloc` 由 `start` 掃到 `desiredEnd` |
+| 掃掠半徑 | 取自實際 `SphereCollider`（含 `lossyScale`），不另開參數 |
+| **hit authority** | **掃掠是唯一來源。`OnTriggerEnter` 已整段移除**，不再有第二條結算路徑 |
+| 合法命中 | ①非自己 ②非 owner 或其子物件 ③**非屍體**（屍體透明，同 tick 內繼續往後找） |
+| LayerMask | `sweepMask = ~0` ＋ `QueryTriggerInteraction.Collide` —— **第一版維持現行廣義行為**；⛔ 本輪不重構 physics layers |
+
+**命中時的順序（不可調換）**：
+
+```csharp
+transform.position = start + direction * hit.distance;  // ① 先截斷本 tick 位移
+SpawnImpactEffect(hit.point);                           // ② impact 用真正的接觸點
+ResolveImpact(hit.collider);                            // ③ 最後才結算並完成
+```
+
+⛔ **不得先移到 `desiredEnd` 再回頭處理命中**——那會讓投射物視覺與 impact 位置穿進目標內部。
+
+📌 `impactEffectPrefab` 為**選填**（留空 ＝ 現況不生成）。加它是為了讓「impact VFX 使用 `hit.point`」
+在程式裡真的成立，而不是一句願望。
+
+### 測試契約的更替
+
+⛔ **移除** `PrefabWiringTests.ProjectileStepPerPhysicsTick_StaysWithinItsOwnRadius`。
+它斷言 `speed × fixedDeltaTime ≤ radius`，但那**不是保證**：位移在 `Update`（可變 `deltaTime`）、
+取樣在物理步，兩者不同步 ⇒ 真實取樣間距不等於該算式，只能**降低**略過機率。
+原處留下說明與新契約指標。
+
+✅ **新增** `ProjectileSweepPlayModeTests`（全部用真實 `Projectile_Fireball.prefab`）：
+
+| 測項 | 守什麼 |
+|---|---|
+| `PS1` | **60 m/s（每步 1.2 m，遠大於膠囊 0.64 m）不得 tunneling** —— 離散必漏、掃掠必中，這個差距就是鑑別力 |
+| `PS2` | 命中在接觸點截斷，不得越過目標中心 |
+| `PS3` | owner 與其子物件排除（自體內發射），且仍打得到後方敵人 |
+| `PS4` | 屍體透明，後方活目標仍被命中（沿用 2026-09-15 的「屍體不擋子彈」） |
+
+### 資產
+
+| 資產 | 改動 |
+|---|---|
+| `X Bot.prefab` → `FireballEmitter.projectileSpeed` | 5 → **20** |
+| `X Bot.prefab` → 另一顆 Throw emitter | **不動**（維持 5） |
+| `Projectile_Fireball.prefab` → `Human_Spell_Fireball.startSpeed` | 15 → **0**（§16） |
+
+📌 投射物 prefab 上的 kinematic `Rigidbody` 與 `isTrigger` 已非命中所需（掃掠不依賴它們），
+但**刻意保留不動**——移除是零收益的資產變更，且可能影響其他尚未盤點的互動。
+
+---
+
+## 18. 🔄 VFX 回到原生模型：生成時脫離投射物（2026-09-16，使用者裁決 B）
+
+### §16 的修法解決了對齊，卻殺掉了拖尾
+
+§16 把 core 的 `startSpeed` 由 15 歸零，core 與 collider 對齊了——但**拖尾幾乎消失**（使用者回報）。
+
+**實測組成**（`Projectile_Fireball` 的五個 emitter）：
+
+```
+Human_Spell_Fireball  Local  startSpeed=15  life=1.0  max=1  rateTime=30  duration=5  stopAction=Destroy
+  └ SUB[Birth] ×4
+FireTrail       Local  spd=0.25  life=0.05  rateTime=0   rateDist=6
+FireRingTrail   Local  spd=0.00  life=2.00  rateTime=0   rateDist=1
+FireSmokeTrail  Local  spd=0.25  life=0.50  rateTime=0   rateDist=2
+FireSparks      World  spd=1.00  life=0.10  rateTime=20  rateDist=15
+```
+
+**兩個原因疊加，把尾巴一起帶走**：
+
+1. **空間展開來自 core 粒子的「本地位移」**。三個尾巴是掛在 core 粒子上的 `[Birth]` 子發射器，
+   粒子被灑在 core 走過的本地路徑上；它們是 Local space，因此固定在那些本地位置、跟著 root 飛
+   ⇒ 看起來就是拖在火球後面的一串。**core 不動 ⇒ 全部生在同一點 ⇒ 縮成一團。**
+2. **三個尾巴用 `rateOverDistance` 出粒**（6／1／2 每公尺），出粒數綁在移動距離上。
+
+⇒ **這個 VFX 的設計前提是「發射器不動、火球是一顆會飛的粒子」**，而我們的投射物是
+「GameObject 在飛」。**兩種模型互相衝突**，不是調一兩個數字能解決的。
+
+### 裁決 B：讓 VFX 回到它原本的模型
+
+`ThrownProjectile.Initialize` 時把視覺 **`SetParent(null, worldPositionStays: true)`**，
+留在發射當下的世界位姿；core 粒子照原設定自走 **15 m/s**；gameplay 投射物也以 **15 m/s** 平行飛。
+
+✅ **視覺零妥協**（不必猜任何 lifetime 換算值）
+✅ 不變量 **變強**：兩套互不相干的模擬靠「同源、同速、同向」持續對齊
+
+📌 `visualRoot` 留空 ⇒ 自動解析為第一個帶 ParticleSystem 的子物件（比照本專案「欄位留空 ⇒ 補洞」慣例）。
+📌 順序關鍵：`ThrowProjectileEmitter` 先 `Instantiate(prefab, position, rotation)` 再 `Initialize`，
+   因此 detach 時讀到的已是正確的發射位姿。
+
+### ⚠️ 只改 startSpeed 會踩到的兩個隱藏地雷
+
+讀 `duration`／`loop`／`stopAction` 才發現的：
+
+| 欄位 | 原值 | 改為 | 不改會怎樣 |
+|---|---|---|---|
+| core `duration` | 5.0 | **0.1** | `max=1` ＋ `life=1.0` ⇒ 舊粒子死掉會**補生新的**。發射器跟著飛時看不出來；**detach 後會變成「每秒從槍口再射一發」**，5 秒共 5 發 |
+| core `stopAction` | Destroy | **None** | 它掛在 core 上 ⇒ core 結束時會把**還活著的尾巴一起殺掉**。回收改由 `detachedVisualLifetime`（4 s）負責 |
+
+`duration 0.1 < startLifetime 1.0` ⇒ 發射窗口在粒子死亡前就關閉 ⇒ **只出一顆 core**。
+
+### 命中時的視覺收尾
+
+```csharp
+// ExtinguishVisual()
+if (system.subEmitters.subEmittersCount > 0) system.Clear(false);   // core 立即消失於接觸點
+system.Stop(false, ParticleSystemStopBehavior.StopEmitting);        // 不再生新粒子
+```
+
+⛔ **不整個 `Destroy`**——那會把尾巴一刀切掉，比穿模還醜。已生出來的尾巴自然淡出。
+core 的身分同樣用**結構判準**（帶 SubEmitter 的那一個），與 `PV1` 一致。
+
+### 資產彙總
+
+| 資產 | 值 |
+|---|---|
+| `Projectile_Fireball` → core `startSpeed` | **15**（§16 曾改為 0，本節還原） |
+| `Projectile_Fireball` → core `duration` | 5.0 → **0.1** |
+| `Projectile_Fireball` → core `stopAction` | Destroy → **None** |
+| `X Bot` → `FireballEmitter.projectileSpeed` | 20 → **15** |
+
+⛔ 第三方來源 `Assets/Kevin Iglesias/…` 全程未動（腳本以 `AssetDatabase.GetAssetPath` 驗證後才寫入）。
+
+### ⚠️ 需要人眼確認的兩項
+
+1. 火球會不會**重複發射**（`duration 0.1` 應已擋掉，但那是推導不是實測）
+2. 命中時尾巴是**自然淡出**還是被切斷
+
+📌 **`projectileSpeed` 與 core 的 `startSpeed` 必須永遠一致。** 改動任一方都要同步另一方，
+否則 `PV1` 會失敗——它的失敗訊息直接指向這兩個欄位。

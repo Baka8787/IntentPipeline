@@ -1,6 +1,7 @@
 using UnityEngine;
 using Project.Core.Blackboard;
 using Project.Presentation.Animation;
+using Project.Presentation.Motion;
 
 namespace Project.Presentation.IK
 {
@@ -55,6 +56,22 @@ namespace Project.Presentation.IK
             public Vector3 TargetPosition;
             public Quaternion TargetRotation;
             public float GroundY;
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            // O-2 只快取「本幀真正採樣過」的幾何。Drawer 不得重發 physics query。
+            public bool DebugWasSampled;
+            public Vector3 DebugAnkleOrigin;
+            public bool DebugTwoPointAttempted;
+            public Vector3 DebugTwoPointBase;
+            public Vector3 DebugHeelOrigin;
+            public Vector3 DebugToeOrigin;
+            public Vector3 DebugFootForward;
+            public bool DebugHeelHasHit;
+            public bool DebugToeHasHit;
+            public Vector3 DebugHeelHitPoint;
+            public Vector3 DebugToeHitPoint;
+            public float DebugResidualLift;
+#endif
         }
 
         private void Awake()
@@ -103,7 +120,15 @@ namespace Project.Presentation.IK
         public void Tick(PlayerRuntimeData data)
         {
             // IsWarm：快照尚未被 Rig 寫過（IK pass 未開／Animator 未評估）前不消費全零數據。
-            if (_targetData == null || _poseData == null || !_poseData.IsWarm) return;
+            if (_targetData == null || _poseData == null || !_poseData.IsWarm)
+            {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                _debugLeftFoot = default;
+                _debugRightFoot = default;
+                UpdateRuntimeDebugLines();
+#endif
+                return;
+            }
 
             // Root 原點＝腳底＝膠囊底（ADR-001＋CapsuleFitter §0.3 規則 6），可直接作為「地面平面」基準。
             float rootY = transform.position.y;
@@ -136,6 +161,26 @@ namespace Project.Presentation.IK
                 rootY, ikAllowed,
                 ref _targetData.RightFootPosition, ref _targetData.RightFootRotation,
                 ref _targetData.RightFootPositionWeight, ref _targetData.RightFootRotationWeight);
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            RecordFootDebug(
+                in left,
+                _poseData.LeftFootPosition,
+                _targetData.LeftFootPosition,
+                _targetData.LeftFootRotation,
+                _targetData.LeftFootPositionWeight,
+                _poseData.LeftFootBottomHeight,
+                ref _debugLeftFoot);
+            RecordFootDebug(
+                in right,
+                _poseData.RightFootPosition,
+                _targetData.RightFootPosition,
+                _targetData.RightFootRotation,
+                _targetData.RightFootPositionWeight,
+                _poseData.RightFootBottomHeight,
+                ref _debugRightFoot);
+            UpdateRuntimeDebugLines();
+#endif
         }
 
         /// <summary>
@@ -150,6 +195,10 @@ namespace Project.Presentation.IK
             if (!ikAllowed) return sample;
 
             sample = SampleSingleGround(posePosition, poseRotation, footBottomHeight);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            sample.DebugWasSampled = true;
+            sample.DebugAnkleOrigin = posePosition + Vector3.up * settings.RaycastUpOffset;
+#endif
             if (!sample.HasHit || !settings.UseTwoPointSampling) return sample;
 
             float heelOffset = Mathf.Max(0f, settings.HeelOffset);
@@ -159,10 +208,26 @@ namespace Project.Presentation.IK
             Vector3 worldHeel = sample.TargetPosition + sample.TargetRotation * localHeel;
             Vector3 worldToe = sample.TargetPosition + sample.TargetRotation * localToe;
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            sample.DebugTwoPointAttempted = true;
+            sample.DebugTwoPointBase = sample.TargetPosition;
+            sample.DebugHeelOrigin = worldHeel + Vector3.up * settings.RaycastUpOffset;
+            sample.DebugToeOrigin = worldToe + Vector3.up * settings.RaycastUpOffset;
+            // Heel／Toe offset 實際使用的是 corrected foot basis 的 local +Z；直接記錄該次計算值供顯示。
+            sample.DebugFootForward = sample.TargetRotation * Vector3.forward;
+#endif
+
             bool heelHasHit = RaycastGround(
                 worldHeel + Vector3.up * settings.RaycastUpOffset, out RaycastHit heelHit);
             bool toeHasHit = RaycastGround(
                 worldToe + Vector3.up * settings.RaycastUpOffset, out RaycastHit toeHit);
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            sample.DebugHeelHasHit = heelHasHit;
+            sample.DebugToeHasHit = toeHasHit;
+            sample.DebugHeelHitPoint = heelHit.point;
+            sample.DebugToeHitPoint = toeHit.point;
+#endif
 
             // 落空代表額外資訊不足，不是關 IK 的理由：保留已算好的 ankle-only 結果。
             if (!heelHasHit || !toeHasHit) return sample;
@@ -177,6 +242,9 @@ namespace Project.Presentation.IK
                 toeHit.point,
                 out float lift);
             sample.TargetPosition.y += lift;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            sample.DebugResidualLift = lift;
+#endif
 
             // 🔴 2026-09-08 probe 實測定位：舊版以「誰穿得深就取誰的地面 Y」作 GroundY。
             // lift 的 max() 本身連續，但 argmax 切換後再取另一個屬性（heel/toe ground Y）不連續；
@@ -335,5 +403,406 @@ namespace Project.Presentation.IK
             float lowest = Mathf.Min(leftGroundY, rightGroundY) - rootY;
             return Mathf.Clamp(lowest, -Mathf.Abs(maxOffset), 0f);
         }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        // O-2 Foot IK world-space observability（docs/18 §1.2）。
+        // Game View 主通道＝runtime LineRenderer（不依賴 Gizmos 開關）；Scene View 詳查＝OnDrawGizmos。
+        // 兩條通道都只讀 Tick 已完成的同一份快照，不發 Raycast、不重算 IK 結果。
+        private struct FootDebugSnapshot
+        {
+            public FootSample Sample;
+            public Vector3 PosePosition;
+            public Vector3 TargetPosition;
+            public Quaternion TargetRotation;
+            public float PositionWeight;
+            public float FootBottomHeight;
+        }
+
+        [SerializeField] private bool drawFootIKRuntimeLines = true;
+#if UNITY_EDITOR
+        [SerializeField] private bool drawFootIKSceneGizmos = true;
+#endif
+
+        /// <summary>
+        /// 🆕（2026-09-15）供 <c>RuntimeDebugPanel</c> 遠端切換 Foot IK 的可視化。
+        ///
+        /// ⚠️ **旗標的真相仍住在本元件**——Panel 只是遙控器，不持有狀態。
+        /// Runtime lines（Game View）與 Scene gizmos（Scene View）**一起切**：
+        /// 它們回答的是同一個問題（「腳為什麼擺成這樣」），只是畫在不同視窗。
+        /// ⛔ 本屬性不計算任何東西，只是轉發 <c>bool</c>。
+        /// </summary>
+        internal bool DebugDrawFootIK
+        {
+            get => drawFootIKRuntimeLines;
+            set
+            {
+                drawFootIKRuntimeLines = value;
+#if UNITY_EDITOR
+                drawFootIKSceneGizmos = value;
+#endif
+            }
+        }
+
+        private FootDebugSnapshot _debugLeftFoot;
+        private FootDebugSnapshot _debugRightFoot;
+        private readonly LineRenderer[] _debugRuntimeLines = new LineRenderer[48];
+        private Transform _debugRuntimeRoot;
+        private Material _debugRuntimeMaterial;
+
+        private static readonly Color DebugAnkleRayColor = new Color(0.3f, 0.9f, 1f, 0.95f);
+        private static readonly Color DebugHeelRayColor = new Color(1f, 0.65f, 0.2f, 0.95f);
+        private static readonly Color DebugToeRayColor = new Color(0.45f, 0.65f, 1f, 0.95f);
+        private static readonly Color DebugRawNormalColor = new Color(1f, 0.9f, 0.15f, 0.95f);
+        private static readonly Color DebugSoleNormalColor = new Color(0.25f, 1f, 0.45f, 0.95f);
+        private static readonly Color DebugTargetColor = new Color(1f, 0.3f, 0.9f, 0.95f);
+        private static readonly Color DebugMissColor = new Color(1f, 0.2f, 0.15f, 0.95f);
+        private static readonly Color DebugHeelToeAxisColor = new Color(0.12f, 0.12f, 0.12f, 0.95f);
+        private static readonly Color DebugFootForwardColor = new Color(0.1f, 1f, 0.75f, 0.95f);
+        private static readonly Color DebugBasePointColor = new Color(1f, 1f, 1f, 0.95f);
+
+        private const float DebugPointRadius = 0.025f;
+        private const float DebugNormalLength = 0.22f;
+        private const float DebugPoseAxisLength = 0.12f;
+        private const float DebugFootForwardLength = 0.25f;
+        private const float DebugArrowHeadLength = 0.055f;
+        private const float DebugArrowHeadWidth = 0.035f;
+        private const float DebugLabelHeight = 0.04f;
+        private const float DebugRuntimeLineWidth = 0.018f;
+
+        private static void RecordFootDebug(
+            in FootSample sample,
+            Vector3 posePosition,
+            Vector3 targetPosition,
+            Quaternion targetRotation,
+            float positionWeight,
+            float footBottomHeight,
+            ref FootDebugSnapshot snapshot)
+        {
+            snapshot.Sample = sample;
+            snapshot.PosePosition = posePosition;
+            snapshot.TargetPosition = targetPosition;
+            snapshot.TargetRotation = targetRotation;
+            snapshot.PositionWeight = positionWeight;
+            snapshot.FootBottomHeight = footBottomHeight;
+        }
+
+        /// <summary>
+        /// Game View 主通道：建立真正的 Renderer 幾何，因此正常 Play 時不依賴 Gizmos 開關。
+        /// LineRenderer 與 Material 只在首次需要時建立，之後逐幀覆寫兩個端點，沒有持續配置。
+        /// </summary>
+        private void UpdateRuntimeDebugLines()
+        {
+            int lineCount = 0;
+            if (drawFootIKRuntimeLines)
+            {
+                AppendFootRuntimeLines(in _debugLeftFoot, ref lineCount);
+                AppendFootRuntimeLines(in _debugRightFoot, ref lineCount);
+            }
+
+            for (int i = lineCount; i < _debugRuntimeLines.Length; i++)
+            {
+                if (_debugRuntimeLines[i] != null) _debugRuntimeLines[i].enabled = false;
+            }
+        }
+
+        private void AppendFootRuntimeLines(in FootDebugSnapshot snapshot, ref int lineCount)
+        {
+            FootSample sample = snapshot.Sample;
+            if (!sample.DebugWasSampled) return;
+
+            AppendRuntimeProbe(sample.DebugAnkleOrigin, sample.HasHit, sample.HitPoint,
+                DebugAnkleRayColor, ref lineCount);
+            if (sample.HasHit)
+            {
+                AppendRuntimeVector(sample.HitPoint, sample.Normal, DebugRawNormalColor, ref lineCount);
+                AppendRuntimeVector(sample.HitPoint, sample.SoleNormal, DebugSoleNormalColor, ref lineCount);
+            }
+
+            if (sample.DebugTwoPointAttempted)
+            {
+                AppendRuntimeLine(sample.DebugHeelOrigin, sample.DebugToeOrigin,
+                    DebugHeelToeAxisColor, ref lineCount);
+                AppendRuntimeArrow(sample.DebugTwoPointBase, sample.DebugFootForward,
+                    DebugFootForwardColor, ref lineCount);
+
+                AppendRuntimeProbe(sample.DebugHeelOrigin, sample.DebugHeelHasHit,
+                    sample.DebugHeelHitPoint, DebugHeelRayColor, ref lineCount);
+                AppendRuntimeProbe(sample.DebugToeOrigin, sample.DebugToeHasHit,
+                    sample.DebugToeHitPoint, DebugToeRayColor, ref lineCount);
+            }
+
+            // Ankle miss 時沒有本幀 target；不可把上一幀正在淡出的 TargetData 畫成新決策。
+            if (!sample.HasHit) return;
+
+            Color targetColor = DebugTargetColor;
+            targetColor.a = Mathf.Lerp(0.2f, DebugTargetColor.a, snapshot.PositionWeight);
+            AppendRuntimeLine(snapshot.PosePosition, snapshot.TargetPosition, targetColor, ref lineCount);
+
+            Vector3 soleCenter = snapshot.TargetPosition -
+                                 snapshot.TargetRotation * Vector3.up * snapshot.FootBottomHeight;
+            Vector3 targetRight = snapshot.TargetRotation * Vector3.right * DebugPoseAxisLength;
+            Vector3 targetForward = snapshot.TargetRotation * Vector3.forward * DebugPoseAxisLength;
+            AppendRuntimeLine(soleCenter - targetRight, soleCenter + targetRight, targetColor, ref lineCount);
+            AppendRuntimeLine(soleCenter - targetForward, soleCenter + targetForward, targetColor, ref lineCount);
+
+            if (sample.DebugResidualLift > 0f)
+            {
+                AppendRuntimeLine(
+                    snapshot.TargetPosition - Vector3.up * sample.DebugResidualLift,
+                    snapshot.TargetPosition,
+                    targetColor,
+                    ref lineCount);
+            }
+        }
+
+        private void AppendRuntimeProbe(
+            Vector3 origin,
+            bool hasHit,
+            Vector3 hitPoint,
+            Color rayColor,
+            ref int lineCount)
+        {
+            Vector3 end = hasHit ? hitPoint : origin + Vector3.down * settings.RaycastDistance;
+            Color pointColor = hasHit ? rayColor : DebugMissColor;
+            AppendRuntimeLine(origin, end, pointColor, ref lineCount);
+
+            // Runtime 通道沒有 Gizmos sphere，以十字明確標出實際 hit point；miss 則標在完整 query 終點。
+            Vector3 horizontal = Vector3.right * DebugPointRadius;
+            Vector3 vertical = Vector3.up * DebugPointRadius;
+            AppendRuntimeLine(end - horizontal, end + horizontal, pointColor, ref lineCount);
+            AppendRuntimeLine(end - vertical, end + vertical, pointColor, ref lineCount);
+        }
+
+        private void AppendRuntimeVector(
+            Vector3 origin,
+            Vector3 direction,
+            Color color,
+            ref int lineCount)
+        {
+            if (direction.sqrMagnitude <= Mathf.Epsilon) return;
+            AppendRuntimeLine(origin, origin + direction.normalized * DebugNormalLength, color, ref lineCount);
+        }
+
+        private void AppendRuntimeArrow(
+            Vector3 origin,
+            Vector3 direction,
+            Color color,
+            ref int lineCount)
+        {
+            if (direction.sqrMagnitude <= Mathf.Epsilon) return;
+
+            Vector3 normalized = direction.normalized;
+            Vector3 end = origin + normalized * DebugFootForwardLength;
+            Vector3 side = Vector3.Cross(normalized, Vector3.up);
+            if (side.sqrMagnitude <= Mathf.Epsilon) side = Vector3.Cross(normalized, Vector3.right);
+            side = side.normalized * DebugArrowHeadWidth;
+            Vector3 back = -normalized * DebugArrowHeadLength;
+
+            AppendRuntimeLine(origin, end, color, ref lineCount);
+            AppendRuntimeLine(end, end + back + side, color, ref lineCount);
+            AppendRuntimeLine(end, end + back - side, color, ref lineCount);
+        }
+
+        private void AppendRuntimeLine(Vector3 start, Vector3 end, Color color, ref int lineCount)
+        {
+            if (lineCount >= _debugRuntimeLines.Length) return;
+
+            LineRenderer line = GetOrCreateRuntimeLine(lineCount);
+            if (line == null) return;
+            lineCount++;
+
+            line.enabled = true;
+            line.startColor = color;
+            line.endColor = color;
+            line.SetPosition(0, start);
+            line.SetPosition(1, end);
+        }
+
+        private LineRenderer GetOrCreateRuntimeLine(int index)
+        {
+            LineRenderer existing = _debugRuntimeLines[index];
+            if (existing != null) return existing;
+
+            if (_debugRuntimeMaterial == null)
+            {
+                Shader shader = Shader.Find("Sprites/Default");
+                if (shader == null) return null;
+
+                _debugRuntimeMaterial = new Material(shader)
+                {
+                    name = "Foot IK Debug Lines (Runtime)",
+                    hideFlags = HideFlags.HideAndDontSave,
+                };
+            }
+
+            if (_debugRuntimeRoot == null)
+            {
+                var root = new GameObject("Foot IK Debug Lines")
+                {
+                    hideFlags = HideFlags.HideAndDontSave,
+                };
+                _debugRuntimeRoot = root.transform;
+                _debugRuntimeRoot.SetParent(transform, false);
+            }
+
+            var lineObject = new GameObject($"Line {index}")
+            {
+                hideFlags = HideFlags.HideAndDontSave,
+                layer = gameObject.layer,
+            };
+            lineObject.transform.SetParent(_debugRuntimeRoot, false);
+
+            var line = lineObject.AddComponent<LineRenderer>();
+            line.sharedMaterial = _debugRuntimeMaterial;
+            line.useWorldSpace = true;
+            line.positionCount = 2;
+            line.startWidth = DebugRuntimeLineWidth;
+            line.endWidth = DebugRuntimeLineWidth;
+            line.numCapVertices = 0;
+            line.numCornerVertices = 0;
+            line.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            line.receiveShadows = false;
+            line.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+            line.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+
+            _debugRuntimeLines[index] = line;
+            return line;
+        }
+
+        private void OnDestroy()
+        {
+            if (_debugRuntimeMaterial == null) return;
+
+            if (Application.isPlaying) Destroy(_debugRuntimeMaterial);
+            else DestroyImmediate(_debugRuntimeMaterial);
+        }
+
+#if UNITY_EDITOR
+        private void OnDrawGizmos()
+        {
+            if (!drawFootIKSceneGizmos || !Application.isPlaying) return;
+
+            DrawFootGizmos(in _debugLeftFoot, "L BASE", "L HEEL", "L TOE");
+            DrawFootGizmos(in _debugRightFoot, "R BASE", "R HEEL", "R TOE");
+        }
+
+        private void DrawFootGizmos(
+            in FootDebugSnapshot snapshot,
+            string baseLabel,
+            string heelLabel,
+            string toeLabel)
+        {
+            FootSample sample = snapshot.Sample;
+            if (!sample.DebugWasSampled) return;
+
+            DrawProbeGizmo(sample.DebugAnkleOrigin, sample.HasHit, sample.HitPoint, DebugAnkleRayColor);
+            if (sample.HasHit)
+            {
+                DrawVectorGizmo(sample.HitPoint, sample.Normal, DebugRawNormalColor);
+                DrawVectorGizmo(sample.HitPoint, sample.SoleNormal, DebugSoleNormalColor);
+            }
+
+            if (sample.DebugTwoPointAttempted)
+            {
+                DrawHeelToeOriginsGizmo(in sample, baseLabel, heelLabel, toeLabel);
+
+                DrawProbeGizmo(sample.DebugHeelOrigin, sample.DebugHeelHasHit,
+                    sample.DebugHeelHitPoint, DebugHeelRayColor);
+                DrawProbeGizmo(sample.DebugToeOrigin, sample.DebugToeHasHit,
+                    sample.DebugToeHitPoint, DebugToeRayColor);
+            }
+
+            // Ankle miss 時沒有本幀 target；不可把上一幀正在淡出的 TargetData 畫成新決策。
+            if (!sample.HasHit) return;
+
+            // 從動畫的 pre-IK goal 連到實際交給 Rig 的 target；權重越低，顯示越透明。
+            Color targetColor = DebugTargetColor;
+            targetColor.a = Mathf.Lerp(0.2f, DebugTargetColor.a, snapshot.PositionWeight);
+            Gizmos.color = targetColor;
+            Gizmos.DrawLine(snapshot.PosePosition, snapshot.TargetPosition);
+            Gizmos.DrawWireSphere(snapshot.TargetPosition, DebugPointRadius * 1.35f);
+
+            Vector3 soleCenter = snapshot.TargetPosition -
+                                 snapshot.TargetRotation * Vector3.up * snapshot.FootBottomHeight;
+            Vector3 targetRight = snapshot.TargetRotation * Vector3.right * DebugPoseAxisLength;
+            Vector3 targetForward = snapshot.TargetRotation * Vector3.forward * DebugPoseAxisLength;
+            Gizmos.DrawLine(soleCenter - targetRight, soleCenter + targetRight);
+            Gizmos.DrawLine(soleCenter - targetForward, soleCenter + targetForward);
+
+            if (sample.DebugResidualLift > 0f)
+            {
+                Gizmos.DrawLine(
+                    snapshot.TargetPosition - Vector3.up * sample.DebugResidualLift,
+                    snapshot.TargetPosition);
+            }
+        }
+
+        private static void DrawHeelToeOriginsGizmo(
+            in FootSample sample,
+            string baseLabel,
+            string heelLabel,
+            string toeLabel)
+        {
+            // 實心點＝production 計算真正使用的 base／ray origins；既有 wire sphere 則是 hit／miss end。
+            Gizmos.color = DebugBasePointColor;
+            Gizmos.DrawSphere(sample.DebugTwoPointBase, DebugPointRadius * 0.8f);
+            Gizmos.color = DebugHeelRayColor;
+            Gizmos.DrawSphere(sample.DebugHeelOrigin, DebugPointRadius * 0.65f);
+            Gizmos.DrawLine(sample.DebugTwoPointBase, sample.DebugHeelOrigin);
+            Gizmos.color = DebugToeRayColor;
+            Gizmos.DrawSphere(sample.DebugToeOrigin, DebugPointRadius * 0.65f);
+            Gizmos.DrawLine(sample.DebugTwoPointBase, sample.DebugToeOrigin);
+
+            Gizmos.color = DebugHeelToeAxisColor;
+            Gizmos.DrawLine(sample.DebugHeelOrigin, sample.DebugToeOrigin);
+            DrawArrowGizmo(sample.DebugTwoPointBase, sample.DebugFootForward, DebugFootForwardColor);
+
+            Vector3 labelOffset = Vector3.up * DebugLabelHeight;
+            UnityEditor.Handles.Label(sample.DebugTwoPointBase + labelOffset, baseLabel);
+            UnityEditor.Handles.Label(sample.DebugHeelOrigin + labelOffset, heelLabel);
+            UnityEditor.Handles.Label(sample.DebugToeOrigin + labelOffset, toeLabel);
+        }
+
+        private void DrawProbeGizmo(Vector3 origin, bool hasHit, Vector3 hitPoint, Color rayColor)
+        {
+            Vector3 end = hasHit ? hitPoint : origin + Vector3.down * settings.RaycastDistance;
+            Gizmos.color = hasHit ? rayColor : DebugMissColor;
+            Gizmos.DrawLine(origin, end);
+            Gizmos.DrawWireSphere(end, DebugPointRadius);
+
+            if (!hasHit)
+            {
+                Vector3 cross = Vector3.one * DebugPointRadius;
+                Gizmos.DrawLine(end - cross, end + cross);
+                cross.x = -cross.x;
+                Gizmos.DrawLine(end - cross, end + cross);
+            }
+        }
+
+        private static void DrawVectorGizmo(Vector3 origin, Vector3 direction, Color color)
+        {
+            if (direction.sqrMagnitude <= Mathf.Epsilon) return;
+            Gizmos.color = color;
+            Gizmos.DrawLine(origin, origin + direction.normalized * DebugNormalLength);
+        }
+
+        private static void DrawArrowGizmo(Vector3 origin, Vector3 direction, Color color)
+        {
+            if (direction.sqrMagnitude <= Mathf.Epsilon) return;
+
+            Vector3 normalized = direction.normalized;
+            Vector3 end = origin + normalized * DebugFootForwardLength;
+            Vector3 side = Vector3.Cross(normalized, Vector3.up);
+            if (side.sqrMagnitude <= Mathf.Epsilon) side = Vector3.Cross(normalized, Vector3.right);
+            side = side.normalized * DebugArrowHeadWidth;
+            Vector3 back = -normalized * DebugArrowHeadLength;
+
+            Gizmos.color = color;
+            Gizmos.DrawLine(origin, end);
+            Gizmos.DrawLine(end, end + back + side);
+            Gizmos.DrawLine(end, end + back - side);
+        }
+#endif
+#endif
     }
 }

@@ -45,6 +45,22 @@ namespace Project.Presentation.CameraControl
         [SerializeField, Min(0f)] private float minDistance = 0.6f;
         [SerializeField, Min(0f)] private float returnSpeed = 6f;
 
+        // 🆕（2026-09-15）**貼身時的角色抑制。**
+        // 2026-09-15 錄影（63s／71s／90s）：與敵人貼身纏鬥時相機被 minDistance 壓到 0.6 m，
+        // 而角色膠囊半徑 0.32、網格的肩與臂更外凸 ⇒ **相機落在角色網格內部，整個畫面被肉色填滿**。
+        // 這不是防穿牆失效（它正確地把相機拉近了），而是「拉近到極限之後角色自己擋住畫面」。
+        //
+        // ⚠️ **選擇 ShadowsOnly 而不是淡出**：淡出需要一份透明材質變體（資產＋shader 工作），
+        //    而 `shadowCastingMode` 是零配置、可逆、不動任何資產的最小手段——影子仍在，
+        //    所以「角色還在那裡」的空間資訊不會丟失。若日後要做 dither fade，這裡是替換點。
+        [Header("Character Proximity Suppression")]
+        [Tooltip("相機拉近到這個距離以內就隱藏角色本體（仍投影子）。0 ⇒ 停用本功能。")]
+        [SerializeField, Min(0f)] private float hideTargetBelowDistance = 0.95f;
+        [Tooltip("解除隱藏所需的額外距離，避免剛好卡在門檻時逐幀閃爍。")]
+        [SerializeField, Min(0f)] private float hideDistanceHysteresis = 0.15f;
+        [Tooltip("要抑制的 Renderer。留空 ⇒ 從 target 底下抓所有 SkinnedMeshRenderer。")]
+        [SerializeField] private Renderer[] suppressedRenderers;
+
         [Header("Rotation Setup")]
         [SerializeField] private float mouseSensitivity = 0.1f; // 💡 新版滑鼠數值基數較大，靈敏度建議調小（如 0.05 ~ 0.15）
         [SerializeField] private float minPitch = -20f;
@@ -63,6 +79,11 @@ namespace Project.Presentation.CameraControl
         private float _currentDist;
         private float _exploreFieldOfView;
         private UnityEngine.Camera _camera;
+
+        // 貼身抑制的跨帧狀態。`_resolvedSuppressedRenderers` 只解析一次（null ＝ 尚未解析），
+        // 不在 LateUpdate 裡重複 GetComponentsInChildren。
+        private Renderer[] _resolvedSuppressedRenderers;
+        private bool _targetHidden;
 
         private void Start()
         {
@@ -154,6 +175,71 @@ namespace Project.Presentation.CameraControl
                 followSpeed * Time.deltaTime);
             transform.position = ResolveCollisionPosition(pivotPosition, dampedPosition, Time.deltaTime);
             transform.rotation = rotation;
+
+            ApplyTargetProximitySuppression();
+        }
+
+        /// <summary>
+        /// 依 <see cref="_currentDist"/> 切換角色網格可見性。
+        /// **只在狀態真的翻轉時才寫入 Renderer**——逐帧寫 <c>shadowCastingMode</c> 沒有必要，
+        /// 而且會讓 Profiler 上多出一排無意義的 SetPass 變更。
+        /// </summary>
+        private void ApplyTargetProximitySuppression()
+        {
+            if (hideTargetBelowDistance <= 0f)
+            {
+                if (_targetHidden) SetSuppressedRenderersHidden(false);
+                return;
+            }
+
+            bool shouldHide = ResolveTargetHidden(
+                _targetHidden, _currentDist, hideTargetBelowDistance, hideDistanceHysteresis);
+
+            if (shouldHide != _targetHidden) SetSuppressedRenderersHidden(shouldHide);
+        }
+
+        /// <summary>
+        /// （純函數）貼身抑制的遲滯判定。與 <see cref="ResolveCameraDistance"/> 同樣刻意抽成靜態：
+        /// 「距離變成多少時要切換」可以在沒有場景、沒有相機的情況下完整驗證。
+        /// </summary>
+        internal static bool ResolveTargetHidden(
+            bool wasHidden, float distance, float threshold, float hysteresis)
+        {
+            if (threshold <= 0f) return false;
+            float effectiveThreshold = wasHidden ? threshold + Mathf.Max(0f, hysteresis) : threshold;
+            return distance < effectiveThreshold;
+        }
+
+        private void SetSuppressedRenderersHidden(bool hidden)
+        {
+            EnsureSuppressedRenderers();
+            for (int i = 0; i < _resolvedSuppressedRenderers.Length; i++)
+            {
+                Renderer renderer = _resolvedSuppressedRenderers[i];
+                if (renderer == null) continue;
+                renderer.shadowCastingMode = hidden
+                    ? UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly
+                    : UnityEngine.Rendering.ShadowCastingMode.On;
+            }
+
+            _targetHidden = hidden;
+        }
+
+        private void EnsureSuppressedRenderers()
+        {
+            if (_resolvedSuppressedRenderers != null) return;
+
+            // 欄位有填就用欄位；留空則從 target 底下解析——與本專案其他 seam 的「欄位留空 ⇒ 補洞」
+            // 慣例一致（見 PrefabWiringTests 的設計原則：契約是「解析得出來」，不是「欄位非空」）。
+            if (suppressedRenderers != null && suppressedRenderers.Length > 0)
+            {
+                _resolvedSuppressedRenderers = suppressedRenderers;
+                return;
+            }
+
+            _resolvedSuppressedRenderers = target != null
+                ? target.GetComponentsInChildren<SkinnedMeshRenderer>(true)
+                : System.Array.Empty<Renderer>();
         }
 
         private Vector3 ResolveCollisionPosition(Vector3 pivot, Vector3 dampedPosition, float deltaTime)

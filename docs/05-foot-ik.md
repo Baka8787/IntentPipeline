@@ -212,12 +212,46 @@ heel 淨空 = `span × (tanθ − tan c)`，`span = HeelOffset + ToeOffset`。
 | **Level 2** | 完整 foot footprint：Heel／Toe／**Medial／Lateral**（比照 UE 的 Foot/Floor Constraint 尺寸描述） | ⏸ 延後 |
 | **Level 3** | **Ball／Toe bone secondary plant**——不再把整隻腳當單一剛體（比照 UE 的 `BallBone`） | ⏸ 延後 |
 
+**PlayMode／Game View 探測可視化（✅ 2026-09-10）**
+
+`FootIKController` 在 `#if UNITY_EDITOR || DEVELOPMENT_BUILD` 內記錄每幀實際採樣結果，顯示
+ankle／heel／toe rays、命中／落空、ground hit point、原始 `Normal`、夾限後 `SoleNormal`、
+pre-IK goal 到最終 target 的修正、target sole pose／residual lift，以及 heel sample origin →
+toe sample origin 的直接連線與 corrected foot-space `+Z` forward 箭頭。
+
+* **Game View／PlayMode 主通道**：真正的 runtime `LineRenderer` 幾何。正常按 Play 即可直接看到，
+  **不依賴 Game View 的 Gizmos 開關，也不需要選取角色**。
+* **Scene View 詳查通道**：保留 `OnDrawGizmos`；它只負責 Editor 的近距離檢查，不是 Game View 前提。
+
+顯示遵守「記錄，不重算」：兩條 presentation 只讀 `Tick` 內已完成的 Editor／Development-only private snapshot，
+不重新發出 `Raycast`，也不把資料發布到黑板或新增 public API。A34 架構測試守住這條信任鏈。
+`drawFootIKRuntimeLines` 與 `drawFootIKSceneGizmos` 分開控制，預設開啟。Release build 兩者皆不存在；
+Development Build 可保留 runtime lines，不建立正式 HUD。
+
+**Heel／Toe offset 使用的 basis（2026-09-10 明文化）**：`poseRotation` 來自
+`Animator.GetIKRotation(AvatarIKGoal.LeftFoot/RightFoot)` 的 pre-IK goal rotation，**不是**直接讀
+foot Transform／ankle bone Transform，也不是 character root rotation。Ankle ground query 命中後先算：
+
+`sample.TargetRotation = FromToRotation(worldUp, SoleNormal) × poseRotation`
+
+再以這個 corrected foot basis 建立 `localHeel = -Z × HeelOffset - Y × FootBottomHeight` 與
+`localToe = +Z × ToeOffset - Y × FootBottomHeight`，轉到 world space。換言之，offset 的前後軸是
+`sample.TargetRotation × Vector3.forward`；只有 sample origin 的向上偏移與 Raycast 方向使用 world
+`+Y／-Y`。Debug 直接快取這次計算使用的 forward，不在 drawer 重新推導。
+
+Heel／Toe 真正的 **BASE** 是 `sample.TargetPosition`（ankle query 命中後的 corrected ankle target），
+不是原始 `Animator.GetIKPosition(Foot)`，也不是 foot bone Transform。它的 XZ 保留 Animator foot goal
+的 XZ，但 Y 已由 ankle hit、`SoleNormal` 與 `FootBottomHeight` 修正。Scene View 以實心點和
+`L/R BASE`、`L/R HEEL`、`L/R TOE` 標籤顯示三個 production 值；BASE→HEEL 用橘線、
+BASE→TOE 用藍線、HEEL→TOE 用深灰線。既有無標籤 wire sphere 仍表示 hit／miss query end，
+不要誤認為 origin。
+
 **Follow-up（不現在實作）**
 
 | # | 項目 | 說明 |
 | --- | --- | --- |
 | **FU-IK-1** | **`HeelOffset`／`ToeOffset` 幾何量測** | 現值（0.1／0.15）**不是正式量測值**。v4 後它們是**腳底幾何常數，不是手感旋鈕**——定義接觸候選集合，填錯即約束集合不完整，任何調參都救不了。⚠️ Heel 量到**腳跟後緣**、Toe 量到**蹠球**（不是腳尖尖端，該處上翹會導致 residual 過度抬升） |
-| **FU-IK-2** | **Foot contact debug visualization** | 繼續調 Foot IK **之前**必須先補：heel／toe 取樣點、兩條 ray、ground hit point 與 normal、最終 sole／contact plane、residual lift 量。**Gizmo ／ `Debug.DrawRay` 即可，⛔ 不建立 Debug Framework**（比照 Spike/Probe Exception） |
+| **FU-IK-2** | **Foot contact debug visualization** | ✅ **已完成（2026-09-10）**：Game View 用 runtime `LineRenderer`（不依賴 Gizmos），Scene View 用 `OnDrawGizmos`；顯示 heel／toe／ankle probes、hit／miss、raw／clamped normal、target sole pose、residual lift、heel→toe sample-origin span 與實際 corrected foot forward；無 Debug Framework |
 | **FU-IK-3** | 有可視化後**重新量** `HeelOffset`／`ToeOffset` | 確認實際取樣點與鞋底幾何一致；量完後**只准再調一次** `MaxFootAlignAngle` |
 
 **⚠️ 重開 Foot IK 的條件（任一成立才重開，否則不動）**

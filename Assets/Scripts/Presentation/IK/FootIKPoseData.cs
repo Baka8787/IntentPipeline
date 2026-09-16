@@ -43,4 +43,14 @@ namespace Project.Presentation.IK
         /// </summary>
         public bool IsWarm;
     }
+
+    /// <summary>Unmodified Animator hand goals captured before Traversal Hand IK is applied.</summary>
+    public sealed class TraversalHandIKPoseData
+    {
+        public Vector3 LeftHandPosition;
+        public Quaternion LeftHandRotation = Quaternion.identity;
+        public Vector3 RightHandPosition;
+        public Quaternion RightHandRotation = Quaternion.identity;
+        public bool IsWarm;
+    }
 }

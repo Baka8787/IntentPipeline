@@ -81,7 +81,7 @@ S1／S2 落地後，`MotionDriver.RequestFacing` 的方向只可能來自三條�
 | 條件 | 為什麼夠 minimal | 資料哪裡來 |
 |---|---|---|
 | **玩家發動攻擊／施法** | 最強、最不可能誤判的訊號 | `data.Intent.RequestedActionSlot != None`（管線順序 2 已寫好，**零新機制**） |
-| **受到敵對 Action** | 被打當然算交戰 | `ActionRequestTarget.PendingSlot`（既有 seam） |
+| **受到傷害** | 被打當然算交戰 | 🔄 **2026-09-14 seam migration**：`data.Survivability.JustTookDamage`（`CharacterHealth` 於管線順序 0.5 發布）。<br>原本讀 `ActionRequestTarget.PendingSlot`——因為當時受擊是一個 Action。受擊改為 `StateType.Hurt`（`docs/26` Model B）後那個 mailbox 不再承載受擊，**若不遷移，「被打」會安靜地停止刷新交戰計時 ⇒ 被圍毆時反而提早脫離戰鬥語境，而且沒有任何錯誤訊息**。<br>新來源涵蓋面更廣：**任何來源的傷害**都算互動，不再限於「記得戳 mailbox」的那些。<br>⚠️ 這只是 seam 遷移，**不等於**完成 §16-7 的 target validity 工作（見 §4.2）。 |
 | **敵對目標進入威脅半徑** | 讓「走近敵人就進入備戰」成立 | 一次 `OverlapSphereNonAlloc` ＋ 既有的 `ActionRequestTarget` 標記 |
 | ~~lock-on~~ | 未來才有 | — |
 
@@ -98,6 +98,21 @@ S1／S2 落地後，`MotionDriver.RequestFacing` 的方向只可能來自三條�
   🔄 **2026-09-06 fold-back**：目前**沒有 Health／Death 契約** ⇒ 「死亡」只能以
   **被摧毀／GameObject 停用／`ActionRequestTarget` 被 disable** 表示。若死亡物件仍 active，本層判斷不出來。
   ⛔ **不為此提前發明 Health 系統**；等真的有死亡流程再回來接（§16-7）。
+  🔓 **2026-09-14 狀態更新**：該契約**現在存在了**（ADR-009：`Survivability.IsDead`），
+  ⇒ §16-7 的前置條件已解除。但**使用者 2026-09-14 明確裁決本輪不做**——
+  受擊 seam 的遷移（§4.1）是 Hurt／Death migration 的必要工作，
+  target validity 改讀 `IsDead` **不是**，不得把 targeting scope 拉進那一輪。
+
+  ✅ **2026-09-15 已落地，§16-7 結案。** 新增單一判準
+  `PlayerCombatContextSource.IsHostileCandidateLegal(candidate, selfRoot)`，
+  由**三處共用**：combat target 掃描、soft target 掃描、保留目標檢查
+  （原本三處各自重複 `null / isActiveAndEnabled / root` 三行，正是「只修一半」的溫床）。
+  - 查證結果：`DeathState`／`CharacterHealth` **都不會**停用 collider 或 `ActionRequestTarget`
+    ⇒ 屍體通過舊版全部檢查、仍是合法目標。錄影可見玩家朝屍體轉、戰鬥語境不脫離。
+  - ⚠️ **缺少 `CharacterHealth` 視為合法**——訓練樁、可互動物件「沒有生命值」不等於「死了」。
+    **不得把缺席當成死亡**（`TC_D3` 守這一條）。
+  - 測試：`CombatContextTests.TC_D1`（不得被選中）／`TC_D2`（已保留的目標必須被放掉）／`TC_D3`（反向守門）。
+  **§16-7 維持開啟，等單獨排程。**
 
 ⚠️ **遲滯必須是時間感知的，不能只有距離**——這是本輪剛踩過的坑：
 `AIMovementSource` 的 `distanceHysteresis 0.15 m` 在 5.66 m/s 下只有 **1.6 帧**（`docs/14` §7-5）。
@@ -122,6 +137,16 @@ S1／S2 落地後，`MotionDriver.RequestFacing` 的方向只可能來自三條�
 📌 **相機在這裡的角色**：只當**消歧的次要鍵**（同時打過兩個人時，看誰在畫面中央），
 **不改變**已鎖定的目標。相機因此影響「選誰」，但**永遠不影響「朝哪」**——ADR-007 §2 的界線不破。
 
+### 4.4 Action soft-target candidate（2026-09-11）
+
+同一個 `PlayerCombatContextSource` 額外發布一份**每幀無記憶**的 candidate，專供下一個 Action／連段段落
+commitment boundary 使用。它不是黏性 combat target，也不改 `InCombat`：12m 內、camera forward 水平半角
+25° 內才合格，先比 alignment、再比距離。這兩個數值是第一版 playtest tuning。
+
+只有 producer 做 query／selection；`ActionState` 不碰 Physics，只讀快照。段落開始後 candidate 是否消失
+不再影響該段：facing 與 projectile 共用已承諾的位置／方向，下一段才重取。這不是 hard lock-on，亦不修改
+WASD、MoveX／MoveZ、一般 idle facing 或 camera mode。
+
 ---
 
 ## 5. 最小資料形狀
@@ -133,6 +158,8 @@ public struct CombatContextData
     public bool InCombat;          // mode state：ADR-003 D5「mode/toggle 必須進黑板」
     public bool HasTarget;
     public Vector3 TargetPosition; // 世界座標，每帧由 producer 快照
+    public bool HasSoftTarget;
+    public Vector3 SoftTargetPosition; // 無記憶 action candidate；下一個 commitment boundary 消費
 }
 ```
 
@@ -175,7 +202,7 @@ public struct CombatContextData
 |---|---|---|---|
 | 1 | **輸入 gating**（`aimAction`／`IsAiming`／`OnEnable` 註冊） | `AimResolver` | ❌ **刪除**（右鍵交還給 Guard；不新增替代 Aim 鍵） |
 | 2 | **world aim point 解算**（相機射線 → 幾何命中點） | `AimResolver` | ✅ **留下**——這仍是合法的 Presentation 查詢（法術打牆壁、無目標時的落點） |
-| 3 | **目標選擇**（SphereCast ＋ `ActionRequestTarget` ＋ 角錐 ＋ 取角度最小） | `AimResolver` | ➡️ **移到 combat context producer**，並**加上黏性**（§4.3）。目前這份是**當帧無記憶**的，不能直接沿用 |
+| 3 | **目標選擇**（`ActionRequestTarget` ＋ 角錐 ＋ 取角度最小） | `AimResolver` | ✅ **移到 combat context producer**。黏性 combat target（§4.3）與無記憶 Action candidate（§4.4）由同一 producer 分別發布；ActionState 不再 query 世界 |
 | 4 | **facing 送出**（`Update` 的 aim-hold ＋ S2 的 `SubmitFacing` 轉送） | `AimResolver` | ➡️ **移到 §6 的 facing source**；`AimResolver` 自此**完全不碰朝向** |
 
 ⇒ **「輸入觸發 Aim」與「解析 Aim／Target」確實不該綁在同一個類別**（使用者的判斷正確）。
@@ -286,8 +313,8 @@ public struct CombatContextData
 
 | # | 檔案 | 內容 |
 |---|---|---|
-| N1 | `Core/Blackboard/CombatContextData.cs` | §5 的 struct：`InCombat`／`HasTarget`／`TargetPosition`。**純值型別，⛔ 不放 `Transform`** |
-| N2 | `Core/Combat/PlayerCombatContextSource.cs` | 進入／離開／黏性目標（§4）。`[SerializeField]`：`enterRadius`／`leaveRadius`／`disengageSeconds`／`targetMask`／`selectionConeAngle`。**寫黑板的唯一者**。零 GC：`OverlapSphereNonAlloc` ＋ 預配置緩衝（比照 `GroundEffectSink`） |
+| N1 | `Core/Blackboard/CombatContextData.cs` | §5 的 struct：黏性 combat context＋無記憶 soft candidate。**純值型別，⛔ 不放 `Transform`** |
+| N2 | `Core/Combat/PlayerCombatContextSource.cs` | 進入／離開／黏性目標（§4.3）＋ Action soft candidate（§4.4）。**寫黑板的唯一者**。零 GC：`OverlapSphereNonAlloc` ＋ 預配置緩衝 |
 | N3 | `Core/Facing/CharacterFacingSource.cs` | §6 的 pull 式解算：① FSM 承諾 → ② `CombatContext` → ③ `MoveDirection`。**全專案唯一 `MotionDriver.RequestFacing` 呼叫者** |
 | N4 | `_Project/Tests/EditMode/CombatContextTests.cs` | §14 的測項 |
 
@@ -302,7 +329,7 @@ public struct CombatContextData
 | M1 | `Core/Blackboard/PlayerRuntimeData.cs` | 加一個 region 欄位 `public CombatContextData CombatContext;`。⚠️ **不參與 `ResetTransientState()`**——它是**連續型 mode state**（同 `MovementIntent`／`WalkModeActive` 的理由，ADR-003 D5） |
 | M2 | `Core/Pipeline/CharacterPipelineRunner.cs` | 新增**順序 2.6**（combat context，在 2.5 之後）與**順序 4.6**（facing source，在狀態機 4／仲裁 4.5 之後、LateUpdate 之前）。Runner 只呼方法、不認識戰鬥語意（比照 6.5 的 `PresentationPipeline`） |
 | M3 | `Core/StateMachine/FullBodyStateMachine.cs` | 新增唯讀查詢 `bool TryGetActiveFacingCommitment(out Vector3 worldDirection)`，轉呼當前 `ActionState`。**FSM 不新增權威，只是把既有承諾讀出來** |
-| M4 | `Core/StateMachine/States/ActionState.cs` | ①暴露承諾的水平投影供 M3 讀取；②**刪除** `SubmitCommittedFacing()` 與對 `AimResolver.SubmitFacing` 的呼叫（改由 N3 統一送出）；③`CaptureReleaseContext` **優先取 `data.CombatContext.TargetPosition`，無目標才回落 aim point**（供應商替換，`ActionReleaseContext` 契約不動）。⇒ 需要把 `data` 傳進 `CaptureReleaseContext`／`TryAdvanceChain` |
+| M4 | `Core/StateMachine/States/ActionState.cs` | 暴露 commitment 水平投影；`CaptureReleaseContext` 依 authored targeting policy，在段落邊界一次選 dedicated `SoftTargetPosition` 或 camera aim。段內不重選，facing 與 release 共用同一份 `ActionReleaseContext` |
 | M5 | `Presentation/Camera/AimResolver.cs` | **刪除**：`aimAction` 欄位、`IsAiming`、`OnEnable`／`OnDisable` 的 action 註冊、`Update()`、`SubmitFacing`、`_motionDriver` 快取、soft target 三個欄位與相關的 SphereCast 選擇邏輯（搬到 N2）。**只留** `TryGetAimPoint` 的相機射線幾何解算 ＋ 其純函數。⚠️ 類別自此不碰輸入、不碰朝向、不選目標 |
 | M6 | `Presentation/Camera/ThirdPersonCamera.cs` | `IsAiming` 消失 ⇒ **見 §13.4 的取捨，本切片先把 `targetBlend` 固定為 0**（探索取景），並在該處留 TODO 指向 §13.4 |
 | M7 | `Core/Pipeline/CharacterPipelineRunner.cs`／`FullBodyStateMachine.cs`／`ActionState.cs` | `AimResolver` 的注入鏈保留（`ActionState` 仍需要 aim point 當 fallback），但**不再用於 facing** |

@@ -35,7 +35,15 @@
 | Crouch（含 `_new`） | `Crouch_*`, `Crouch_Walk*_new` | ~30 | 混 | 位移 | ⏸ 延後（蹲伏系統） |
 | Jump / Fall | `Jump_*`, `JumpWalk/Run*`, `FallingLoop*` | ~25 | 混 | Y 特徵 | ⏸ 延後（專案已有自研 Jump，見下方 §2 註） |
 | Fighting | `Fists_*`, `*Punch/Kick/Hit/Knockdown`, `Death_*` | ~19 | 混 | — | ⏸ roadmap 輪 6 Combat |
-| 互動/翻越/其他 | `ButtonPush/PickUp/PullLever/Throw*`, `Vault1m/Climb2m/Slide`, `SitChair*`, `Patrol*` | ~35 | 混 | 混 | ⏸ 各自後續輪 |
+| 互動/翻越/其他 | `ButtonPush/PickUp/PullLever/Throw*`, **`Vault1m`／`Climb1m`／`Climb2m`／`Slide`**, `SitChair*`, `Patrol*` | ~35 | 混 | 混 | ⏸ 各自後續輪 |
+
+> ⚠️ **2026-09-12 更正**：本列原本漏了 **`Climb1m`**。
+> 三支 traversal clip **不在同一個 FBX**——`Vault1m`／`Climb2m`／`Slide` 在 `MovementAnimsetPro_SlideClimb.fbx`，
+> 而 **`Climb1m` 在 `MovementAnimsetPro_RunStrafeUpdate.fbx`**（該檔是 Kubold 的「更新包」，
+> 內容是雜集：Crouch 全套、Run strafe、互動、Patrol、Throw、SitChair、GetUp **＋ Climb1m**）。
+> 📌 **教訓（給後續會話）**：**Kubold 的 FBX 檔名不預測其內容**。
+> 找某支 clip 必須**窮舉所有 `.meta` 的 sub-clip 名稱**，⛔ 不得只用檔名比對：
+> `for f in $(find Assets -iname "*.fbx.meta"); do grep -H "^      name:" "$f"; done`
 
 > 完整 clip 逐條清單見各 FBX `.meta` 的 `clipAnimations`（本表已窮舉分類，未省略類別）。
 

@@ -32,4 +32,29 @@ namespace Project.Presentation.IK
         /// <summary>骨盆垂直補償（公尺，恆 ≤0：雙腳地面高差時向下沉），由 Rig 疊加到 Animator.bodyPosition。</summary>
         public float PelvisOffsetY;
     }
+
+    /// <summary>
+    /// Traversal Hand IK target pipe. TraversalHandIKController is the sole writer and
+    /// TraversalHandIKRig is the sole reader. It intentionally stays out of PlayerRuntimeData.
+    /// </summary>
+    public sealed class TraversalHandIKTargetData
+    {
+        public Vector3 LeftHandPosition;
+        public Quaternion LeftHandRotation = Quaternion.identity;
+        public float LeftHandPositionWeight;
+        public float LeftHandRotationWeight;
+
+        public Vector3 RightHandPosition;
+        public Quaternion RightHandRotation = Quaternion.identity;
+        public float RightHandPositionWeight;
+        public float RightHandRotationWeight;
+
+        public void ResetWeights()
+        {
+            LeftHandPositionWeight = 0f;
+            LeftHandRotationWeight = 0f;
+            RightHandPositionWeight = 0f;
+            RightHandRotationWeight = 0f;
+        }
+    }
 }

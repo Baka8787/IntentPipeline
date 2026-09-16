@@ -622,7 +622,15 @@ namespace Project.Editor
                 MotionFeatureContext featureContext = new MotionFeatureContext(
                     featureSamples, duration, takeoffFootLiftThreshold, leftFootBaselineY, rightFootBaselineY);
 
-                SaveAsset(speedCurve, rotationCurve, rotationFinishedTime, endPhase, targetLocalDirection, featureContext, showResultDialog);
+                SaveAsset(
+                    speedCurve,
+                    rotationCurve,
+                    rotationFinishedTime,
+                    endPhase,
+                    targetLocalDirection,
+                    featureContext,
+                    animator,
+                    showResultDialog);
             }
             finally
             {
@@ -746,7 +754,15 @@ namespace Project.Editor
         /// 建立／更新 <see cref="MotionBakeData"/> 資產：先寫入既有的 Root Motion 曲線與進階特徵，
         /// 接著執行 Feature Analysis Stage 自動提取跳躍物理特徵，最後存檔並彈出結果對話框。
         /// </summary>
-        private void SaveAsset(AnimationCurve speedCurve, AnimationCurve rotationCurve, float rotationFinishedTime, FootPhase endPhase, Vector3 targetLocalDirection, MotionFeatureContext featureContext, bool showResultDialog)
+        private void SaveAsset(
+            AnimationCurve speedCurve,
+            AnimationCurve rotationCurve,
+            float rotationFinishedTime,
+            FootPhase endPhase,
+            Vector3 targetLocalDirection,
+            MotionFeatureContext featureContext,
+            Animator animator,
+            bool showResultDialog)
         {
             string dirPath = OutputFolderPath + "/";
             if (!Directory.Exists(dirPath)) Directory.CreateDirectory(dirPath);
@@ -788,6 +804,11 @@ namespace Project.Editor
             // 內部自帶安全退化（非跳躍動畫重力回退 9.81），不會拋例外中斷存檔。
             new MotionFeatureAnalysisStage().Run(featureContext, asset);
 
+            // Traversal marker roles/times/bones are authored on MotionBakeData. Spatial values
+            // are always overwritten from exact clip sampling so no world/local hand positions
+            // are hand-entered and FBX content remains immutable.
+            asset.Traversal = BakeTraversalAnchors(asset.Traversal, animator, sourceClip);
+
             if (isNewAsset) AssetDatabase.CreateAsset(asset, path);
 
             EditorUtility.SetDirty(asset);
@@ -809,6 +830,87 @@ namespace Project.Editor
                     $"逆推重力 (Gravity)：{asset.AutoCalculatedGravity:F3} m/s²",
                     "確定");
             }
+        }
+
+        private static TraversalMotionBakeBlock BakeTraversalAnchors(
+            TraversalMotionBakeBlock authored,
+            Animator animator,
+            AnimationClip clip)
+        {
+            if (!authored.HasValidAuthoredMarkers || animator == null || clip == null)
+                return authored;
+
+            TraversalBakedAnchor entry = SampleTraversalAnchor(
+                animator, clip, 0f, authored.LeftHandBone, authored.RightHandBone,
+                out Vector3 originPosition, out Quaternion originRotation);
+            TraversalBakedAnchor left = SampleTraversalAnchor(
+                animator, clip, authored.LeftHandContactNormalizedTime,
+                authored.LeftHandBone, authored.RightHandBone, originPosition, originRotation);
+            TraversalBakedAnchor right = SampleTraversalAnchor(
+                animator, clip, authored.RightHandContactNormalizedTime,
+                authored.LeftHandBone, authored.RightHandBone, originPosition, originRotation);
+            TraversalBakedAnchor transfer = SampleTraversalAnchor(
+                animator, clip, authored.TransferNormalizedTime,
+                authored.LeftHandBone, authored.RightHandBone, originPosition, originRotation);
+            TraversalBakedAnchor exit = SampleTraversalAnchor(
+                animator, clip, authored.ExitNormalizedTime,
+                authored.LeftHandBone, authored.RightHandBone, originPosition, originRotation);
+            TraversalBakedAnchor recovery = SampleTraversalAnchor(
+                animator, clip, authored.RecoveryNormalizedTime,
+                authored.LeftHandBone, authored.RightHandBone, originPosition, originRotation);
+            return authored.WithBakedAnchors(entry, left, right, transfer, exit, recovery);
+        }
+
+        private static TraversalBakedAnchor SampleTraversalAnchor(
+            Animator animator,
+            AnimationClip clip,
+            float normalizedTime,
+            HumanBodyBones leftBone,
+            HumanBodyBones rightBone,
+            out Vector3 originPosition,
+            out Quaternion originRotation)
+        {
+            animator.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            clip.SampleAnimation(animator.gameObject, 0f);
+            originPosition = animator.transform.position;
+            originRotation = animator.transform.rotation;
+            return SampleTraversalAnchor(
+                animator, clip, normalizedTime, leftBone, rightBone, originPosition, originRotation);
+        }
+
+        private static TraversalBakedAnchor SampleTraversalAnchor(
+            Animator animator,
+            AnimationClip clip,
+            float normalizedTime,
+            HumanBodyBones leftBone,
+            HumanBodyBones rightBone,
+            Vector3 originPosition,
+            Quaternion originRotation)
+        {
+            float normalized = Mathf.Clamp01(normalizedTime);
+            animator.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            clip.SampleAnimation(animator.gameObject, normalized * clip.length);
+
+            Transform root = animator.transform;
+            Transform left = animator.GetBoneTransform(leftBone);
+            Transform right = animator.GetBoneTransform(rightBone);
+            Vector3 rootLocalPosition = Quaternion.Inverse(originRotation) *
+                                        (root.position - originPosition);
+            Vector3 originForward = originRotation * Vector3.forward;
+            Vector3 currentForward = root.rotation * Vector3.forward;
+            float rootLocalYaw = Vector3.SignedAngle(
+                Vector3.ProjectOnPlane(originForward, Vector3.up),
+                Vector3.ProjectOnPlane(currentForward, Vector3.up),
+                Vector3.up);
+
+            return new TraversalBakedAnchor(
+                normalized,
+                rootLocalPosition,
+                rootLocalYaw,
+                left != null ? root.InverseTransformPoint(left.position) : Vector3.zero,
+                right != null ? root.InverseTransformPoint(right.position) : Vector3.zero,
+                left != null,
+                right != null);
         }
     }
 }

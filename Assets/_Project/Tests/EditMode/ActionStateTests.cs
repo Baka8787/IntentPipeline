@@ -6,8 +6,10 @@ using UnityEngine.TestTools;
 using Project.Core.Actions;
 using Project.Core.Blackboard;
 using Project.Core.Movement;
+using Project.Core.Pipeline;
 using Project.Core.StateMachine;
 using Project.Core.StateMachine.Actions;
+using Project.Core.Survivability;
 using Project.Presentation.Actions;
 using Project.Presentation.Animation;
 using Project.Presentation.CameraControl;
@@ -83,32 +85,12 @@ namespace Project.Tests.EditMode
             Destroy(definition, config, targetObject);
         }
 
-        [Test]
-        public void T14_ProjectileHit_RequestsEnemyStartOnlyDamageAction()
-        {
-            var targetObject = new GameObject("Enemy-ActionTarget-Test");
-            ActionRequestTarget target = targetObject.AddComponent<ActionRequestTarget>();
-            var projectileObject = new GameObject("Projectile-Test");
-            ThrownProjectile projectile = projectileObject.AddComponent<ThrownProjectile>();
-
-            ActionDefinitionSO definition = CreateDefinition("Damage", false, 0.1f, slot: ActionSlot.Reaction);
-            StateMachineConfigSO config = BuildConfig(definition);
-            var data = new PlayerRuntimeData();
-            var machine = new FullBodyStateMachine();
-            machine.Initialize(config, data, new FakeMovementModel(), target);
-
-            Assert.IsTrue(projectile.TryRequestHit(target));
-            Assert.IsFalse(projectile.TryRequestHit(target), "同一 projectile 不得重複提交 hit request");
-            machine.Tick(data, 0.016f);
-            Assert.AreEqual(StateType.Action, machine.CurrentState.Type);
-            Assert.AreEqual("Damage", machine.CurrentState.AnimationKey);
-
-            machine.Tick(data, 0.1f);
-            Assert.AreEqual(StateType.Idle, machine.CurrentState.Type, "Start-only Damage 到時應自然完成");
-
-            Destroy(definition, config, targetObject, projectileObject);
-        }
-
+        /// <remarks>
+        /// ⚰️ 原 `T14_ProjectileHit_RequestsEnemyStartOnlyDamageAction` 已隨 `ActionSlot.Reaction`
+        /// 退役而移除（`docs/26` Model B）。投射物 → 受擊的完整鏈路改由
+        /// `SurvivabilityTests.H10`（傷害 → `JustTookDamage`）與 `HurtStateTests`（→ `StateType.Hurt`）
+        /// 覆蓋——那才是它現在真正經過的地方。
+        /// </remarks>
         [Test]
         public void T15_ReleasePhase_EmitsExactlyOncePerExecution()
         {
@@ -363,11 +345,13 @@ namespace Project.Tests.EditMode
         }
 
         [Test]
-        public void T22_LegacySlot1Definition_DoesNotResolveReactionRequest()
+        public void T22_LegacySlot1Definition_DoesNotResolveAnotherSlotRequest()
         {
-            // 2026-09-02 真實回歸：舊 DamageDefinition 沒有序列化 Slot，因此吃到初始值 Slot1；
-            // projectile 提交 Reaction 後若仍讓它解析，反而會掩蓋身分填錯。相容退路保留資產結構，
+            // 2026-09-02 真實回歸：舊 Definition 沒有序列化 Slot，因此吃到初始值 Slot1；
+            // 外部提交**別的** slot 後若仍讓它解析，反而會掩蓋身分填錯。相容退路保留資產結構，
             // 不保證錯誤身分也能工作——這裡的正確期望就是拒絕，並在 Editor 大聲指出接線問題。
+            // 🔄（docs/26）原本用已退役的 `ActionSlot.Reaction` 當「另一個 slot」，改用 `Slot2`；
+            //    斷言的行為一字未改。
             ActionDefinitionSO legacyDamage = CreateDefinition("Damage", false, 0.1f);
             StateMachineConfigSO config = BuildConfig(legacyDamage);
             var targetObject = new GameObject("Legacy-Damage-Target-Test");
@@ -377,37 +361,20 @@ namespace Project.Tests.EditMode
             machine.Initialize(config, data, new FakeMovementModel(), target);
 
             LogAssert.Expect(LogType.Warning,
-                "[ActionState] ActionSlot.Reaction 沒有對應的 ActionDefinitionSO；" +
+                "[ActionState] ActionSlot.Slot2 沒有對應的 ActionDefinitionSO；" +
                 "請檢查 StateMachineConfig 的 actionDefinitions 與該 Definition 的 Slot 欄位。");
-            target.RequestAction(ActionSlot.Reaction);
+            target.RequestAction(ActionSlot.Slot2);
             machine.Tick(data, 0.016f);
 
             Assert.AreEqual(StateType.Idle, machine.CurrentState.Type,
-                "Slot1 Definition 不得冒充 Reaction；應要求資產明確宣告正確身分");
+                "Slot1 Definition 不得冒充 Slot2；應要求資產明確宣告正確身分");
             Destroy(legacyDamage, config, targetObject);
         }
 
-        [Test]
-        public void T23_LegacyReactionDefinition_ResolvesReactionRequest()
-        {
-            // 同樣不填 actionDefinitions，但把舊 Definition 的單一遷移欄位設對，即可沿用原資產與相容退路。
-            ActionDefinitionSO legacyDamage = CreateDefinition(
-                "Damage", false, 0.1f, slot: ActionSlot.Reaction);
-            StateMachineConfigSO config = BuildConfig(legacyDamage);
-            var targetObject = new GameObject("Legacy-Reaction-Target-Test");
-            ActionRequestTarget target = targetObject.AddComponent<ActionRequestTarget>();
-            var data = new PlayerRuntimeData { IsGrounded = true };
-            var machine = new FullBodyStateMachine();
-            machine.Initialize(config, data, new FakeMovementModel(), target);
-
-            target.RequestAction(ActionSlot.Reaction);
-            machine.Tick(data, 0.016f);
-
-            Assert.AreEqual(StateType.Action, machine.CurrentState.Type);
-            Assert.AreEqual("Damage", machine.CurrentState.AnimationKey,
-                "舊資產不必重建，但 Slot 必須明確遷移成 Reaction");
-            Destroy(legacyDamage, config, targetObject);
-        }
+        // ⚰️ 原 `T23_LegacyReactionDefinition_ResolvesReactionRequest` 已移除（`docs/26` Model B）。
+        //    它驗的是「舊 Definition 把 Slot 改成 Reaction 就能沿用」——那條遷移路徑本身已退役。
+        //    現在由 `A37_RetiredReactionSlot_HasNoRuntimeCallerOrAsset` 反向守住：
+        //    **不得有任何資產使用 Reaction**。
 
         [Test]
         public void T24_MeleeHitbox_OpensOnReleaseAndRequestsEachTargetOnce()
@@ -418,18 +385,20 @@ namespace Project.Tests.EditMode
             // ⚠️ 同上：EditMode 不呼叫 Awake ⇒ hitbox 快取為空、命中窗永遠開不了。
             sink.ResolveHitbox();
             var targetObject = new GameObject("Melee-Target-Test");
-            ActionRequestTarget target = targetObject.AddComponent<ActionRequestTarget>();
+            targetObject.AddComponent<ActionRequestTarget>();
+            // 🔄（ADR-009 D2）去重鍵改為 CharacterHealth——近戰送的是傷害，不是 Reaction。
+            CharacterHealth health = targetObject.AddComponent<CharacterHealth>();
 
             sink.Begin();
-            Assert.IsFalse(sink.TryRequestHit(target), "Release 前命中窗必須保持關閉");
+            Assert.IsFalse(sink.TryRequestHit(health), "Release 前命中窗必須保持關閉");
             ActionReleaseContext context = default;
             sink.Release(in context);
             Assert.IsTrue(collider.enabled);
-            Assert.IsTrue(sink.TryRequestHit(target));
-            Assert.IsFalse(sink.TryRequestHit(target), "同一次揮擊對同一目標只能提交一次 Reaction");
+            Assert.IsTrue(sink.TryRequestHit(health));
+            Assert.IsFalse(sink.TryRequestHit(health), "同一次揮擊對同一目標只能結算一次傷害");
             sink.Cleanup();
             Assert.IsFalse(collider.enabled);
-            Assert.IsFalse(sink.TryRequestHit(target), "Cleanup 後命中窗不得繼續提交");
+            Assert.IsFalse(sink.TryRequestHit(health), "Cleanup 後命中窗不得繼續提交");
 
             Destroy(hitboxObject, targetObject);
         }
@@ -440,10 +409,10 @@ namespace Project.Tests.EditMode
             var slot1Sink = new CountingLifecycleSink();
             var slot2Sink = new CountingLifecycleSink();
             var slot3Sink = new CountingLifecycleSink();
-            var sinks = new IActionLifecycleSink[ActionState.SlotCount];
-            sinks[(int)ActionSlot.Slot1] = slot1Sink;
-            sinks[(int)ActionSlot.Slot2] = slot2Sink;
-            sinks[(int)ActionSlot.Slot3] = slot3Sink;
+            IActionLifecycleSink[][] sinks = CreateEmptySinkMap();
+            sinks[(int)ActionSlot.Slot1] = new IActionLifecycleSink[] { slot1Sink };
+            sinks[(int)ActionSlot.Slot2] = new IActionLifecycleSink[] { slot2Sink };
+            sinks[(int)ActionSlot.Slot3] = new IActionLifecycleSink[] { slot3Sink };
 
             ActionDefinitionSO quickSpell = CreateDefinition(
                 "Fireball", true, 0.05f, slot: ActionSlot.Slot2);
@@ -469,6 +438,156 @@ namespace Project.Tests.EditMode
                 "Slot2 出手不得誤觸 Slot3 projectile sink");
 
             Destroy(quickSpell, config);
+        }
+
+        /// <summary>
+        /// 🆕 **T26 —— 同一個 slot 的多顆 sink 全部收到通知，順序 ＝ 清單順序。**
+        ///
+        /// <para>2026-09-14 使用者裁決：`IActionLifecycleSink` 由 per-slot 單顆改為 per-slot 多顆。</para>
+        /// 理由是一個 Action 天生可以有好幾個彼此獨立的副作用——命中判定、武器顯隱、刀光、VFX、音效
+        /// ——它們共用同一組 `Begin` → `Release` → `Cleanup` 時點，卻沒有理由互相認識。
+        ///
+        /// <para><b>為什麼順序也要釘</b></para>
+        /// sink 之間**不應該**互相依賴順序，但順序必須**可預期**：除錯時人會對照 Inspector 上的
+        /// 清單順序去讀 log，順序若不穩定（例如某天改用字典）那份對照就失效，而且不會有任何測試變紅。
+        ///
+        /// <para><b>⚠️ 這條測的是派送，不是「幾顆 sink 才對」</b></para>
+        /// 該掛幾顆是每個角色的接線決定，由 `PrefabWiringTests.W3` 在資產層檢查。
+        /// </summary>
+        [Test]
+        public void T26_MultipleSinksOnOneSlot_AllReceiveLifecycleInBindingOrder()
+        {
+            var order = new List<string>();
+            var first = new OrderRecordingLifecycleSink("first", order);
+            var second = new OrderRecordingLifecycleSink("second", order);
+
+            ActionDefinitionSO definition = CreateDefinition("Throw_Start", true, 0.05f);
+            StateMachineConfigSO config = BuildConfig(definition);
+            var data = new PlayerRuntimeData { IsGrounded = true };
+            var machine = new FullBodyStateMachine();
+            machine.Initialize(
+                config, data, new FakeMovementModel(),
+                actionLifecycleSinks: CreateSinkMap(ActionSlot.Slot1, first, second));
+
+            data.Intent.RequestedActionSlot = ActionSlot.Slot1;
+            machine.Tick(data, 0.016f);
+            machine.Tick(data, 0.05f);   // 推完整段 ⇒ Release 與 Cleanup 都會走到（比照 T25）
+
+            Assert.AreEqual(1, first.BeginCount, "第一顆 sink 必須收到 Begin");
+            Assert.AreEqual(1, second.BeginCount,
+                "第二顆 sink 也必須收到 Begin——舊版的『一 slot 一 sink』會讓它靜默地什麼都收不到");
+            Assert.AreEqual(1, first.ReleaseCount);
+            Assert.AreEqual(1, second.ReleaseCount);
+            Assert.AreEqual(1, first.CleanupCount);
+            Assert.AreEqual(1, second.CleanupCount,
+                "Cleanup 必須送到每一顆——漏掉任何一顆都會留下沒收回去的狀態（例如武器卡在手上）");
+
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "first.Begin", "second.Begin",
+                    "first.Release", "second.Release",
+                    "first.Cleanup", "second.Cleanup",
+                },
+                order,
+                "每個時點都必須走完所有 sink 才進入下一個時點，且順序恆為清單順序");
+
+            Destroy(definition, config);
+        }
+
+        /// <summary>
+        /// 🆕 **T27 —— 冷卻進度的分母是「這一次實際用掉的長度」，不是 authored 的 `Cooldown`。**
+        ///
+        /// <para><b>為什麼這條非寫不可</b></para>
+        /// `CooldownVariance` 讓每一次冷卻的實際長度都不同。HUD 若自己拿
+        /// `Definition.Cooldown` 當分母，進度條會在**變異非零時**失準——
+        /// 而那是一種只在特定資產設定下才發作、看起來只是「進度條有點怪」的靜默錯誤。
+        /// ⇒ 由**擁有冷卻的人**（`ActionState`，ADR-004 D2）回答進度，HUD 只消費結果。
+        ///
+        /// <para>本測項用 `CooldownVariance` 明顯大於 0 的設定，讓「拿 authored 值當分母」
+        /// 這個寫法無法通過：實際長度落在 [2, 4]，只有真的記下用掉的長度才算得出 1.0。</para>
+        /// </summary>
+        [Test]
+        public void T27_CooldownNormalized_UsesTheActualDurationOfThisCooldown()
+        {
+            ActionDefinitionSO definition = CreateDefinition(
+                "Throw_Start", false, 0.05f, cooldown: 2f);
+            definition.CooldownVariance = 2f;   // 實際長度 ∈ [2, 4]
+
+            StateMachineConfigSO config = BuildConfig(definition);
+            var data = new PlayerRuntimeData { IsGrounded = true };
+            var machine = new FullBodyStateMachine();
+            machine.Initialize(config, data, new FakeMovementModel());
+
+            var actionState = (ActionState)GetRegisteredState(machine, StateType.Action);
+            Assert.AreEqual(0f, actionState.GetCooldownNormalized(ActionSlot.Slot1), 0.0001f,
+                "還沒進過冷卻 ⇒ 進度 0（可用），且不得除以零");
+
+            data.Intent.RequestedActionSlot = ActionSlot.Slot1;
+            machine.Tick(data, 0.016f);
+            machine.Tick(data, 0.05f);   // 播完 ⇒ Complete ⇒ CommitCooldown
+
+            // 剛 commit 完、還沒經過任何時間 ⇒ 剩餘 ≈ 總長 ⇒ 進度 ≈ 1。
+            // 若分母寫成 authored 的 2f 而實際長度是 3.5f，這裡會得到 1.75 被 clamp 成 1——
+            // 所以**額外**檢查剩餘秒數確實落在 [2, 4]，讓「分母取錯」無處可藏。
+            Assert.AreEqual(1f, actionState.GetCooldownNormalized(ActionSlot.Slot1), 0.02f,
+                "剛進冷卻 ⇒ 進度 ≈ 1");
+
+            float remaining = actionState.GetCooldownRemaining(ActionSlot.Slot1);
+            Assert.GreaterOrEqual(remaining, 2f - 0.02f, "實際長度下限是 authored 的 Cooldown");
+            Assert.LessOrEqual(remaining, 4f + 0.02f, "上限是 Cooldown + Variance");
+
+            Assert.AreEqual(0f, actionState.GetCooldownNormalized(ActionSlot.Slot2), 0.0001f,
+                "冷卻是 per-slot 的：Slot1 進冷卻不得讓 Slot2 也變暗");
+
+            Destroy(definition, config);
+        }
+
+        /// <summary>從 FSM 的私有 registry 取出一顆 state，供直接驗證它的唯讀查詢。</summary>
+        private static BaseState GetRegisteredState(FullBodyStateMachine machine, StateType type)
+        {
+            System.Reflection.FieldInfo field = typeof(FullBodyStateMachine).GetField(
+                "_stateRegistry",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Assert.IsNotNull(field, "找不到 FullBodyStateMachine._stateRegistry（欄位名稱可能已變更）");
+            var registry = (Dictionary<StateType, BaseState>)field.GetValue(machine);
+            Assert.IsTrue(registry.TryGetValue(type, out BaseState state), $"registry 裡沒有 {type}");
+            return state;
+        }
+
+        /// <summary>把每次回呼記進共用序列，用來驗證派送順序而不只是次數。</summary>
+        private sealed class OrderRecordingLifecycleSink : IActionLifecycleSink
+        {
+            private readonly string _name;
+            private readonly List<string> _log;
+
+            public OrderRecordingLifecycleSink(string name, List<string> log)
+            {
+                _name = name;
+                _log = log;
+            }
+
+            public int BeginCount { get; private set; }
+            public int ReleaseCount { get; private set; }
+            public int CleanupCount { get; private set; }
+
+            public void Begin()
+            {
+                BeginCount++;
+                _log.Add($"{_name}.Begin");
+            }
+
+            public void Release(in ActionReleaseContext context)
+            {
+                ReleaseCount++;
+                _log.Add($"{_name}.Release");
+            }
+
+            public void Cleanup()
+            {
+                CleanupCount++;
+                _log.Add($"{_name}.Cleanup");
+            }
         }
 
         // =====================================================================
@@ -513,99 +632,75 @@ namespace Project.Tests.EditMode
                 "random01 夾進 [0,1]");
         }
 
-        // =====================================================================
-        // 同 slot 重入：Reaction 特例（2026-09-06）
-        // =====================================================================
-
         /// <summary>
-        /// 硬直中再被打一次要能再踉蹌一次。**這是 Reaction 專屬的例外**，
-        /// 因為「受擊」沒有「被自己打斷」的問題——觸發者本來就是別人。
-        /// </summary>
-        [Test]
-        public void T32_Reaction_AllowsSameSlotReentry_WhenInterruptible()
-        {
-            var targetObject = new GameObject("Reaction-Reentry-Test");
-            ActionRequestTarget target = targetObject.AddComponent<ActionRequestTarget>();
-
-            ActionDefinitionSO damage = ScriptableObject.CreateInstance<ActionDefinitionSO>();
-            damage.Slot = ActionSlot.Reaction;
-            damage.Cooldown = 0f;
-            damage.RequiresGrounded = false;
-            damage.Phases = new[] { Entry(ActionPhase.Start, "Damage", 1f) }; // Entry 的 Interruptible 是 true
-            StateMachineConfigSO config = BuildMultiActionConfig(damage);
-            config.Initialize();
-
-            var state = new ActionState(target);
-            state.Initialize(config, new FakeMovementModel());
-            var data = new PlayerRuntimeData();
-
-            target.RequestAction(ActionSlot.Reaction);
-            state.OnEnter(data);
-            Assert.AreEqual("Damage", state.AnimationKey, "第一次受擊應進入 Reaction");
-
-            target.RequestAction(ActionSlot.Reaction);
-            Assert.IsTrue(state.CanReenter(data), "硬直中再被打一次應該可以重新觸發受擊");
-
-            Destroy(damage, config, targetObject);
-        }
-
-        /// <summary>Reaction 仍然要看 `Interruptible`——無敵的倒地不該被輕拳打斷。</summary>
-        [Test]
-        public void T32b_Reaction_RejectsSameSlotReentry_WhenNotInterruptible()
-        {
-            var targetObject = new GameObject("Reaction-NoReentry-Test");
-            ActionRequestTarget target = targetObject.AddComponent<ActionRequestTarget>();
-
-            ActionDefinitionSO damage = ScriptableObject.CreateInstance<ActionDefinitionSO>();
-            damage.Slot = ActionSlot.Reaction;
-            damage.Cooldown = 0f;
-            damage.RequiresGrounded = false;
-            damage.Phases = new[]
-            {
-                new ActionPhaseEntry
-                {
-                    Phase = ActionPhase.Start,
-                    AnimationKey = "Damage",
-                    FallbackDuration = 1f,
-                    Interruptible = false
-                }
-            };
-            StateMachineConfigSO config = BuildMultiActionConfig(damage);
-            config.Initialize();
-
-            var state = new ActionState(target);
-            state.Initialize(config, new FakeMovementModel());
-            var data = new PlayerRuntimeData();
-
-            target.RequestAction(ActionSlot.Reaction);
-            state.OnEnter(data);
-
-            target.RequestAction(ActionSlot.Reaction);
-            Assert.IsFalse(state.CanReenter(data), "Interruptible 為 false 時不得重入，即使是 Reaction");
-
-            Destroy(damage, config, targetObject);
-        }
-
-        /// <summary>
-        /// 🔴 **這條是本次改動的護欄**：普通 Action 的同 slot 重入**仍然禁止**。
+        /// Enemy 的 Slot1 只在 request pulse 幀存在；下一幀為 false 時，**external request
+        /// 必須能走進既有仲裁**（`docs/20` §2.6 的 starvation 回歸）。
+        /// 這裡不改優先序——若兩者真的同幀，仍維持 intent 優先。
         ///
-        /// ADR-005 給 `CanReenter` 的原始語意是「只多了『身分不同』這個條件」。
-        /// 2026-09-06 加入的是 **Reaction 特例**，不是把限制整條放寬——
-        /// 若哪天有人為了別的需求把 `AllowsSameSlotReentry` 改成「Interruptible 就好」，
-        /// 這條會紅，並提醒代價是連段第 2 段會被第 3 段的請求吃掉。
+        /// 🔄（`docs/26` Model B）原本用 `ActionSlot.Reaction` 當那個 external request。
+        /// 受擊已不再走 mailbox，但**「level 型 producer 會餓死 external request」這條風險沒有消失**
+        /// （`docs/20` §2.7 明文登記為未解），所以這條測試改用 `Slot2` 繼續守住它。
         /// </summary>
         [Test]
-        public void T33_NonReactionSlots_StillForbidSameSlotReentry()
+        public void T35_EnemyAttackPulse_LeavesNextFrameForExternalRequest()
         {
-            Assert.IsTrue(ActionState.AllowsSameSlotReentry(ActionSlot.Reaction),
-                "Reaction 是唯一的同 slot 重入例外");
+            var enemy = new GameObject("Enemy-Attack-Reaction-Arbitration-Test");
+            var attackTargetObject = new GameObject("Enemy-Attack-Target-Test");
+            attackTargetObject.transform.position = Vector3.forward;
 
-            Assert.IsFalse(ActionState.AllowsSameSlotReentry(ActionSlot.Slot1));
-            Assert.IsFalse(ActionState.AllowsSameSlotReentry(ActionSlot.Slot2));
-            Assert.IsFalse(ActionState.AllowsSameSlotReentry(ActionSlot.Slot3));
-            Assert.IsFalse(ActionState.AllowsSameSlotReentry(ActionSlot.None));
+            AIInputSource inputSource = enemy.AddComponent<AIInputSource>();
+            inputSource.ConfigureForTests(attackTargetObject.transform, 2f, 0.5f);
+            ActionRequestTarget externalRequest = enemy.AddComponent<ActionRequestTarget>();
+
+            ActionDefinitionSO punch = CreateDefinition(
+                "Enemy_Punch_R", false, 1f, slot: ActionSlot.Slot1);
+            ActionDefinitionSO external = CreateDefinition(
+                "Fireball", false, 1f, slot: ActionSlot.Slot2);
+            StateMachineConfigSO config = BuildMultiActionConfig(punch, external);
+            var data = new PlayerRuntimeData { IsGrounded = true };
+            var machine = new FullBodyStateMachine();
+            machine.Initialize(config, data, new FakeMovementModel(), externalRequest);
+
+            InputData firstFrame = default;
+            inputSource.FetchRawInputAtTimeForTests(ref firstFrame, 10f);
+            data.Intent.RequestedActionSlot = firstFrame.Slot1ButtonDown
+                ? ActionSlot.Slot1
+                : ActionSlot.None;
+            machine.Tick(data, 0.016f);
+            Assert.AreEqual("Enemy_Punch_R", machine.CurrentState.AnimationKey,
+                "測試前提：第一次 pulse 應先讓敵人出拳");
+
+            data.ResetTransientState();
+            externalRequest.RequestAction(ActionSlot.Slot2);
+            InputData nextFrame = default;
+            inputSource.FetchRawInputAtTimeForTests(ref nextFrame, 10.016f);
+            data.Intent.RequestedActionSlot = nextFrame.Slot1ButtonDown
+                ? ActionSlot.Slot1
+                : ActionSlot.None;
+            machine.Tick(data, 0.016f);
+
+            Assert.IsFalse(nextFrame.Slot1ButtonDown,
+                "retry interval 內的下一幀必須沒有 Slot1，否則 external request 仍會 starvation");
+            Assert.AreEqual("Fireball", machine.CurrentState.AnimationKey,
+                "沒有 Slot1 的幀必須讓 external request 被既有 ActionState 仲裁消費");
+
+            Destroy(punch, external, config, enemy, attackTargetObject);
         }
 
+        // =====================================================================
+        // 同 slot 重入：**一律禁止**（docs/26 Model B 移除了 Reaction 特例）
+        // =====================================================================
+
+        /// <summary>
+        /// 🔴 **`CanReenter` 的護欄**：同一個 Action 身分**永遠**不得自我重入。
+        ///
+        /// ADR-005 給 `CanReenter` 的語意是「只多了『身分不同』這個條件」；
+        /// 2026-09-06 曾為 `Reaction` 開一個特例（硬直中再被打要再踉蹌），
+        /// 該特例已於 `docs/26`（Model B）**連同 Reaction 一起移除**——
+        /// 「再次受擊」現在由 `HurtState.CanReenter` 回答，不再是 Action 的事。
+        ///
+        /// 若哪天有人把這條放寬成「Interruptible 就好」，代價是**連段第 2 段會被第 3 段的請求吃掉**。
+        /// </summary>
         /// <summary>行為層面的同一條：可中斷的 Slot2 被自己再請求一次,仍然不得重入。</summary>
         [Test]
         public void T33b_InterruptibleAction_IsNotReenteredByItsOwnSlot()
@@ -643,46 +738,23 @@ namespace Project.Tests.EditMode
         /// `Reaction` 例外的理由是語意的：**受擊不是出手**，被打的人不該自己轉去面對攻擊者。
         /// </summary>
         [Test]
-        public void T30_FacingRule_AppliesToEveryActionExceptReaction()
+        public void T30_FacingRule_AppliesToEveryAction_WithoutException()
         {
             Assert.IsTrue(ActionState.ShouldFaceTargetOnEnter(ActionSlot.Slot1), "近戰要轉向");
             Assert.IsTrue(ActionState.ShouldFaceTargetOnEnter(ActionSlot.Slot2), "Fireball 要轉向");
             Assert.IsTrue(ActionState.ShouldFaceTargetOnEnter(ActionSlot.Slot3), "Ice 要轉向");
 
-            Assert.IsFalse(ActionState.ShouldFaceTargetOnEnter(ActionSlot.Reaction),
-                "受擊不是出手——被打的人不該自己轉去面對攻擊者");
-            Assert.IsFalse(ActionState.ShouldFaceTargetOnEnter(ActionSlot.None));
+            // 🔄（docs/26 Model B）唯一的例外 `Reaction` 已隨「受擊不是 Action」一起移除
+            // ⇒ 這條規則現在**沒有例外**。`None` 不是一個身分，不算例外。
+            Assert.IsFalse(ActionState.ShouldFaceTargetOnEnter(ActionSlot.None),
+                "None 代表沒有請求，不是一個 Action 身分");
         }
 
-        [Test]
-        public void TD7_Reaction_DoesNotAcquireDirectionCommitment()
-        {
-            AimResolver resolver = CreateAimResolverRig(out GameObject root, out MotionDriver motionDriver);
-            CacheAim(resolver, root.transform.position + new Vector3(3f, 2f, 5f));
-
-            var sink = new CountingLifecycleSink();
-            ActionDefinitionSO definition = CreateDefinition(
-                "Reaction", true, 0.1f, slot: ActionSlot.Reaction);
-            StateMachineConfigSO config = BuildMultiActionConfig(definition);
-            config.Initialize();
-
-            var state = new ActionState(null, CreateSinkMap(ActionSlot.Reaction, sink), resolver);
-            state.Initialize(config, new FakeMovementModel());
-            var data = new PlayerRuntimeData { IsGrounded = true };
-            data.Intent.RequestedActionSlot = ActionSlot.Reaction;
-
-            state.OnEnter(data);
-            state.OnUpdateMotion(motionDriver, null, data);
-            state.OnTick(data, 0.2f);
-
-            Assert.AreEqual(1, sink.ReleaseCount);
-            Assert.IsFalse(sink.LastReleaseContext.HasAim,
-                "Reaction 是受擊而非出手；即使角色有可用 AimResolver，也不得取得方向承諾");
-            Assert.AreEqual(-1, GetPrivateInstanceField<int>(motionDriver, "_facingRequestFrame"),
-                "Reaction 不得透過方向承諾送出 facing request");
-
-            Destroy(definition, config, root);
-        }
+        // ⚰️ 原 `TD7_Reaction_DoesNotAcquireDirectionCommitment` 已移除（`docs/26` Model B）。
+        //    它驗的是「受擊不得取得方向承諾」——那個保證現在是**結構性的**，不再需要斷言：
+        //    `HurtState` 根本不認識 `IAimSource`／`ActionReleaseContext`／facing commitment，
+        //    也沒有任何路徑能讓它送出 facing request。
+        //    「被打的人不該自己轉去面對攻擊者」從一條 slot 例外變成了型別邊界。
 
         /// <summary>
         /// 沒有 `AimResolver` 的角色（例如敵人）走完整條 Action 不得爆掉。
@@ -743,8 +815,9 @@ namespace Project.Tests.EditMode
             AdvanceSegment(state, data, "Chain_2");
             Assert.AreEqual(1, sink.ReleaseCount, "切入第 2 段時只有第 1 段完成 release");
 
-            // 模擬敵人在第 2 段承諾後移動；release 不得重新讀這個新位置。
-            CacheAim(resolver, root.transform.position + new Vector3(-5f, 4f, 7f));
+            // 模擬敵人在第 2 段承諾後移動——release 必須跟上這個新位置。
+            Vector3 movedAimPoint = root.transform.position + new Vector3(-5f, 4f, 7f);
+            CacheAim(resolver, movedAimPoint);
             Assert.IsTrue(state.TryGetFacingCommitment(out Vector3 submittedFacing),
                 "第 2 段承諾應由 facing source 可讀取");
 
@@ -752,14 +825,75 @@ namespace Project.Tests.EditMode
 
             Assert.AreEqual(2, sink.ReleaseCount);
             Assert.IsTrue(sink.LastReleaseContext.HasAim);
-            Assert.AreEqual(secondAimPoint, sink.LastReleaseContext.AimPoint,
-                "第 2 段 release 必須使用該段邊界取得的 AimPoint，不得在 release 時重解");
+            // 🔄 **2026-09-15 invariant change（使用者明確裁決）。**
+            // 舊 baseline：「release 必須使用該段邊界的 AimPoint，不得重解」。
+            // 那條是缺陷本體——Fireball 的 release 在抬手 0.42 秒後，用舊座標發射
+            // ＋約 0.6 秒飛行、敵人側移 1.644 m/s ⇒ 累積 ≈1.7 m，而膠囊只有 0.64 m 寬
+            // ⇒ 側移中的敵人必定打不到（2026-09-15 使用者 Play 回報 ＋ 逐帧錄影確認）。
+            // ⇒ **效果落點改為 release 當下解算**；facing 承諾維持段落快照（見下一段斷言）。
+            Assert.AreEqual(movedAimPoint, sink.LastReleaseContext.AimPoint,
+                "效果落點必須是 release 當下的目標位置——用段落邊界的舊座標就是那 1.7m 落差的來源");
+
+            // ⚠️ **反向的一半必須同時成立**：facing 承諾**不得**跟著每帧重取，
+            //    否則角色在抬手期間會持續扭向目標——那正是 ADR-007 一次承諾要消除的抽搐。
+            Assert.IsTrue(state.TryGetFacingCommitment(out Vector3 facingAfterMove));
+            Assert.Less((facingAfterMove - submittedFacing).sqrMagnitude, 1e-6f,
+                "facing 仍必須是該段邊界的快照（ADR-007 的這一半未變）");
+
+            Destroy(definition, config, root);
+        }
+
+        /// <summary>
+        /// Soft target 的**facing 承諾**只在 commitment boundary 取一次快照；
+        /// 段落開始後即使候選被清掉、camera aim 改變，**facing 仍維持該段承諾**。
+        /// 🔄 2026-09-15：**效果落點不再受此限**（見 TD5）——它改為 release 當下解算，
+        /// 因為打移動目標時舊座標必定落空。本測項因此只守 facing 那一半。
+        /// </summary>
+        [Test]
+        public void TD5B_SoftTargetSnapshot_IsStableForTheCommittedSegment()
+        {
+            AimResolver resolver = CreateAimResolverRig(out GameObject root, out _);
+            root.transform.position = new Vector3(1f, 0f, -2f);
+
+            var sink = new CountingLifecycleSink();
+            ActionDefinitionSO definition = CreateDefinition(
+                "Spell_Ice", true, 0.1f, slot: ActionSlot.Slot3);
+            definition.Targeting = ActionTargetingPolicy.CameraConeSoftTarget;
+            StateMachineConfigSO config = BuildMultiActionConfig(definition);
+            config.Initialize();
+
+            var state = new ActionState(null, CreateSinkMap(ActionSlot.Slot3, sink), resolver);
+            state.Initialize(config, new FakeMovementModel());
+            var data = new PlayerRuntimeData { IsGrounded = true };
+
+            Vector3 cameraAim = root.transform.position + new Vector3(0f, 2f, 10f);
+            Vector3 committedTarget = root.transform.position + new Vector3(5f, 1f, 7f);
+            CacheAim(resolver, cameraAim);
+            data.CombatContext = new CombatContextData
+            {
+                HasSoftTarget = true,
+                SoftTargetPosition = committedTarget
+            };
+            data.Intent.RequestedActionSlot = ActionSlot.Slot3;
+
+            state.OnEnter(data);
+            Assert.IsTrue(state.TryGetFacingCommitment(out Vector3 committedFacing));
+
+            // 模擬下一幀 target 已失效且 camera aim 已轉向；本段承諾不得被這些 live 資料改寫。
+            data.CombatContext = default;
+            CacheAim(resolver, root.transform.position + new Vector3(-8f, 4f, 1f));
+            state.OnTick(data, 0.2f);
+
+            Assert.AreEqual(1, sink.ReleaseCount);
+            Assert.IsTrue(sink.LastReleaseContext.HasAim);
+            Assert.AreEqual(committedTarget, sink.LastReleaseContext.AimPoint,
+                "失效後仍須保留段落開始時承諾的 soft-target point");
 
             Vector3 releaseFacing = sink.LastReleaseContext.Direction;
             releaseFacing.y = 0f;
             releaseFacing.Normalize();
-            Assert.Less((releaseFacing - submittedFacing).sqrMagnitude, 1e-6f,
-                "同一段的身體 facing 與世界效果必須是同一份承諾的水平／完整投影");
+            Assert.Less((releaseFacing - committedFacing).sqrMagnitude, 1e-6f,
+                "facing 與 projectile release 必須共享同一次 commitment");
 
             Destroy(definition, config, root);
         }
@@ -1003,12 +1137,23 @@ namespace Project.Tests.EditMode
             return config;
         }
 
-        private static IActionLifecycleSink[] CreateSinkMap(
-            ActionSlot slot, IActionLifecycleSink sink)
+        /// <summary>
+        /// 建一份「只有指定 slot 有 sink」的派送表。
+        /// 🆕 2026-09-14：外層索引＝slot、內層＝該 slot 的 sink 清單（一個 slot 可以有多顆）。
+        /// </summary>
+        private static IActionLifecycleSink[][] CreateSinkMap(
+            ActionSlot slot, params IActionLifecycleSink[] sinks)
         {
-            var sinks = new IActionLifecycleSink[ActionState.SlotCount];
-            sinks[(int)slot] = sink;
-            return sinks;
+            IActionLifecycleSink[][] map = CreateEmptySinkMap();
+            map[(int)slot] = sinks;
+            return map;
+        }
+
+        private static IActionLifecycleSink[][] CreateEmptySinkMap()
+        {
+            var map = new IActionLifecycleSink[ActionState.SlotCount][];
+            for (int i = 0; i < map.Length; i++) map[i] = System.Array.Empty<IActionLifecycleSink>();
+            return map;
         }
 
         private static AimResolver CreateAimResolverRig(
@@ -1059,5 +1204,116 @@ namespace Project.Tests.EditMode
                 if (objects[i] != null) Object.DestroyImmediate(objects[i]);
             }
         }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // 🆕 2026-09-15：facing 承諾（段落邊界快照）vs 效果落點（release 當下）
+        // ═══════════════════════════════════════════════════════════════════
+
+        private sealed class MovingAimSource : IAimSource
+        {
+            public Vector3 Origin = Vector3.zero;
+            public Vector3 Point = new Vector3(0f, 0f, 5f);
+            public Vector3 CommitmentOrigin => Origin;
+            public bool TryGetAimPoint(out Vector3 worldPoint)
+            {
+                worldPoint = Point;
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// 🔴 **效果落點必須跟上目標；facing 承諾必須不動。**
+        ///
+        /// <para><b>這條守的是一個實測過的缺陷</b></para>
+        /// Fireball 的 release 在抬手 <c>1.2 × 0.35 = 0.42 秒</c>後。舊實作用段落邊界的舊座標發射，
+        /// 等於打「敵人 0.42 秒前的位置」；加上約 0.6 秒飛行、敵人側移 1.644 m/s
+        /// ⇒ 累積 <b>≈1.7 m</b>，而敵人膠囊直徑只有 <b>0.64 m</b>
+        /// ⇒ **側移中的敵人打不中是預期行為**（2026-09-15 使用者 Play 回報 ＋ 逐帧錄影確認）。
+        ///
+        /// ⚠️ 反向的一半同樣重要：**facing 不得跟著每帧重取**，否則角色在抬手期間會持續扭向目標，
+        /// 那正是 ADR-007 一次承諾當初要消除的抽搐。兩個斷言必須同時成立。
+        /// </summary>
+        [Test]
+        public void AC1_EffectContextTracksTarget_WhileFacingCommitmentStaysAtEntry()
+        {
+            var aim = new MovingAimSource { Point = new Vector3(0f, 0f, 5f) };
+            var sink = new CountingLifecycleSink();
+
+            ActionDefinitionSO definition = ScriptableObject.CreateInstance<ActionDefinitionSO>();
+            definition.Slot = ActionSlot.Slot1;
+            definition.Phases = new[]
+            {
+                Entry(ActionPhase.Start, "Spell", 1f, emitsRelease: true, releaseNormalizedTime: 0.5f)
+            };
+            StateMachineConfigSO config = BuildMultiActionConfig(definition);
+            config.Initialize();
+
+            var data = new PlayerRuntimeData { IsGrounded = true };
+            var state = new ActionState(null, CreateSinkMap(ActionSlot.Slot1, sink), aim);
+            state.Initialize(config, new FakeMovementModel());
+
+            data.Intent.RequestedActionSlot = ActionSlot.Slot1;
+            state.OnEnter(data);
+
+            Assert.IsTrue(state.TryGetFacingCommitment(out Vector3 facingAtEntry),
+                "前提：進入時必須取得 facing 承諾");
+
+            // 目標在抬手期間橫向移開——這正是實機上敵人側移的情形。
+            aim.Point = new Vector3(4f, 0f, 5f);
+
+            for (int i = 0; i < 40 && sink.ReleaseCount == 0; i++) state.OnTick(data, 0.02f);
+
+            Assert.AreEqual(1, sink.ReleaseCount, "前提：必須真的 release 過一次");
+
+            Assert.AreEqual(aim.Point, sink.LastReleaseContext.AimPoint,
+                "效果落點必須是 release 當下的目標位置，不是段落邊界的舊座標——"
+                + "用舊座標發射就是那 1.7m 落差的來源");
+
+            Assert.IsTrue(state.TryGetFacingCommitment(out Vector3 facingAtRelease));
+            Assert.AreEqual(facingAtEntry, facingAtRelease,
+                "facing 承諾必須維持段落邊界的快照（ADR-007）——跟著每帧重取會讓角色抬手時抽搐");
+
+            Destroy(definition, config);
+        }
+
+        /// <summary>
+        /// 反向守門：瞄準中途失效（目標消失／aim source 解不出）時，
+        /// 效果落點必須**保留上一次可用的值**，不得退化成 <c>default</c>——那會讓法術朝世界原點飛。
+        /// </summary>
+        [Test]
+        public void AC2_EffectContext_KeepsLastUsablePoint_WhenAimBecomesUnavailable()
+        {
+            var aim = new MovingAimSource { Point = new Vector3(0f, 0f, 5f) };
+            var sink = new CountingLifecycleSink();
+
+            ActionDefinitionSO definition = ScriptableObject.CreateInstance<ActionDefinitionSO>();
+            definition.Slot = ActionSlot.Slot1;
+            definition.Phases = new[]
+            {
+                Entry(ActionPhase.Start, "Spell", 1f, emitsRelease: true, releaseNormalizedTime: 0.5f)
+            };
+            StateMachineConfigSO config = BuildMultiActionConfig(definition);
+            config.Initialize();
+
+            var data = new PlayerRuntimeData { IsGrounded = true };
+            var state = new ActionState(null, CreateSinkMap(ActionSlot.Slot1, sink), aim);
+            state.Initialize(config, new FakeMovementModel());
+
+            data.Intent.RequestedActionSlot = ActionSlot.Slot1;
+            state.OnEnter(data);
+
+            Vector3 lastGood = new Vector3(2f, 0f, 5f);
+            aim.Point = lastGood;
+            state.OnTick(data, 0.02f);
+
+            for (int i = 0; i < 40 && sink.ReleaseCount == 0; i++) state.OnTick(data, 0.02f);
+
+            Assert.AreEqual(1, sink.ReleaseCount);
+            Assert.IsTrue(sink.LastReleaseContext.HasAim,
+                "release 必須帶著可用的落點，不得是 default——default 會讓效果生在世界原點");
+
+            Destroy(definition, config);
+        }
+
     }
 }

@@ -3,8 +3,10 @@ using System.Reflection;
 using NUnit.Framework;
 using UnityEngine;
 using Project.Core.Actions;
+using Project.Core.Blackboard;
 using Project.Core.Effects;
 using Project.Core.Movement;
+using Project.Core.Survivability;
 using Project.Presentation.Actions;
 
 namespace Project.Tests.EditMode
@@ -43,7 +45,7 @@ namespace Project.Tests.EditMode
         }
 
         [Test]
-        public void MeleeDistanceBand_TooCloseRetreats_InsideBandHolds_TooFarApproaches()
+        public void MeleeDistanceBand_TooCloseRetreats_InsideBandStrafes_TooFarApproaches()
         {
             const float minimum = 1.25f;
             const float maximum = 2f;
@@ -52,7 +54,7 @@ namespace Project.Tests.EditMode
             Assert.AreEqual(AIMovementSource.EngagementMovement.Retreat,
                 AIMovementSource.ResolveEngagementMovement(
                     AIMovementSource.EngagementMovement.Hold, 1f, minimum, maximum, hysteresis));
-            Assert.AreEqual(AIMovementSource.EngagementMovement.Hold,
+            Assert.AreEqual(AIMovementSource.EngagementMovement.Strafe,
                 AIMovementSource.ResolveEngagementMovement(
                     AIMovementSource.EngagementMovement.Hold, 1.5f, minimum, maximum, hysteresis));
             Assert.AreEqual(AIMovementSource.EngagementMovement.Approach,
@@ -75,43 +77,52 @@ namespace Project.Tests.EditMode
                 AIMovementSource.ResolveEngagementMovement(
                     AIMovementSource.EngagementMovement.Approach, 1.9f, minimum, maximum, hysteresis),
                 "前進進入距離帶後，必須再跨過內側 dead zone 才停住");
+
+            Assert.AreEqual(AIMovementSource.EngagementMovement.Strafe,
+                AIMovementSource.ResolveEngagementMovement(
+                    AIMovementSource.EngagementMovement.Retreat, 1.41f, minimum, maximum, hysteresis),
+                "跨過內側 dead zone 後應進入 Strafe，不得讓 Retreat 黏住");
+            Assert.AreEqual(AIMovementSource.EngagementMovement.Strafe,
+                AIMovementSource.ResolveEngagementMovement(
+                    AIMovementSource.EngagementMovement.Approach, 1.84f, minimum, maximum, hysteresis),
+                "跨過外側 dead zone 後應進入 Strafe，不得讓 Approach 黏住");
         }
 
         [Test]
-        public void HoldStrafeDirection_IsPerpendicularToTargetDirection()
+        public void StrafeDirection_IsPerpendicularToTargetDirection()
         {
             var toTarget = new Vector3(3f, 4f, -2f);
 
-            Vector3 tangent = AIMovementSource.ResolveHoldStrafeDirection(toTarget, 1);
+            Vector3 tangent = AIMovementSource.ResolveStrafeDirection(toTarget, 1);
             toTarget.y = 0f;
 
             Assert.AreEqual(0f, Vector3.Dot(toTarget.normalized, tangent), Tolerance);
         }
 
         [Test]
-        public void HoldStrafeDirection_WhenSignFlips_ReturnsOppositeDirection()
+        public void StrafeDirection_WhenSignFlips_ReturnsOppositeDirection()
         {
             var toTarget = new Vector3(1f, 0f, 2f);
 
-            Vector3 clockwise = AIMovementSource.ResolveHoldStrafeDirection(toTarget, 1);
-            Vector3 counterClockwise = AIMovementSource.ResolveHoldStrafeDirection(toTarget, -1);
+            Vector3 clockwise = AIMovementSource.ResolveStrafeDirection(toTarget, 1);
+            Vector3 counterClockwise = AIMovementSource.ResolveStrafeDirection(toTarget, -1);
 
             Assert.Less((counterClockwise + clockwise).sqrMagnitude, Tolerance * Tolerance);
         }
 
         [Test]
-        public void HoldStrafeDirection_IsHorizontalAndNormalized()
+        public void StrafeDirection_IsHorizontalAndNormalized()
         {
-            Vector3 tangent = AIMovementSource.ResolveHoldStrafeDirection(new Vector3(-4f, 8f, 3f), 1);
+            Vector3 tangent = AIMovementSource.ResolveStrafeDirection(new Vector3(-4f, 8f, 3f), 1);
 
             Assert.AreEqual(0f, tangent.y, Tolerance);
             Assert.AreEqual(1f, tangent.magnitude, Tolerance);
         }
 
         [Test]
-        public void HoldStrafeDirection_WhenTargetDirectionIsZero_ReturnsFiniteZero()
+        public void StrafeDirection_WhenTargetDirectionIsZero_ReturnsFiniteZero()
         {
-            Vector3 tangent = AIMovementSource.ResolveHoldStrafeDirection(Vector3.zero, 1);
+            Vector3 tangent = AIMovementSource.ResolveStrafeDirection(Vector3.zero, 1);
 
             Assert.AreEqual(Vector3.zero, tangent);
             Assert.IsFalse(float.IsNaN(tangent.x));
@@ -173,6 +184,60 @@ namespace Project.Tests.EditMode
             Assert.AreEqual(1f, effectState.GetMovementSpeedMultiplier(), Tolerance);
         }
 
+        /// <summary>
+        /// 🆕（2026-09-15）**屍體不擋子彈。**
+        ///
+        /// 舊版 <c>TryRequestHit</c> 對已死目標照樣 <c>_completed = true</c> ＋ <c>Destroy</c>，
+        /// 即使 <c>ApplyDamage</c> 回 false ⇒ 投射物被屍體吃掉、站在屍體後面的活敵人打不到。
+        /// ⚠️ 這個缺陷**不會**表現成錯誤訊息或例外——只會表現成「這一發好像沒打到」。
+        /// </summary>
+        [Test]
+        public void ProjectileHit_PassesThroughDeadTarget_WithoutConsumingItself()
+        {
+            var corpseObject = new GameObject("DeadTarget-Test");
+            _created.Add(corpseObject);
+            CharacterHealth corpse = corpseObject.AddComponent<CharacterHealth>();
+            corpse.ApplyDamage(corpse.MaxHealth);
+            Assert.IsTrue(corpse.IsDead, "前提：目標必須真的已死");
+
+            var projectileObject = new GameObject("PassThroughProjectile-Test");
+            _created.Add(projectileObject);
+            ThrownProjectile projectile = projectileObject.AddComponent<ThrownProjectile>();
+
+            Assert.IsFalse(projectile.TryRequestHit(corpse),
+                "命中屍體不得算成一次命中");
+
+            // 決定性的一半：投射物**沒有被消耗**，後面的活目標仍打得到。
+            var liveObject = new GameObject("LiveTarget-Test");
+            _created.Add(liveObject);
+            CharacterHealth live = liveObject.AddComponent<CharacterHealth>();
+
+            Assert.IsTrue(projectile.TryRequestHit(live),
+                "穿過屍體之後必須仍能結算下一個合法目標——否則屍體等於一面永久的盾");
+            Assert.Less(live.CurrentHealth, live.MaxHealth);
+        }
+
+        /// <summary>
+        /// 反向守門：穿過屍體時**不得**順手施加 Slow。
+        /// 減速一具屍體沒有意義，而且那會讓「命中」語意分岔成「傷害沒中但效果中了」兩半。
+        /// </summary>
+        [Test]
+        public void ProjectileHit_DoesNotApplySlowToDeadTarget()
+        {
+            CreateMovementSource(out TemporaryGameplayEffectState effectState);
+            CharacterHealth corpse = effectState.gameObject.AddComponent<CharacterHealth>();
+            corpse.ApplyDamage(corpse.MaxHealth);
+
+            var projectileObject = new GameObject("IceOnCorpse-Test");
+            _created.Add(projectileObject);
+            ThrownProjectile projectile = projectileObject.AddComponent<ThrownProjectile>();
+            SetAppliesSlow(projectile, true);
+
+            Assert.IsFalse(projectile.TryRequestHit(corpse, effectState));
+            Assert.AreEqual(Effect.None, effectState.GetTagAt(Time.time),
+                "屍體不得被減速——命中判定要嘛整個成立，要嘛整個不成立");
+        }
+
         // =====================================================================
         // 地面 AoE（docs/11 §4.4）——Ice 的 execution shape
         // =====================================================================
@@ -183,17 +248,22 @@ namespace Project.Tests.EditMode
         /// `TemporaryGameplayEffectState`——sink 只是換了決定「打到誰」的方式。
         /// </summary>
         [Test]
-        public void GroundEffect_DeliversSameReactionAndSlowSeamsAsProjectile()
+        public void GroundEffect_DeliversSameDamageAndSlowSeamsAsProjectile()
         {
             AIMovementSource source = CreateMovementSource(out TemporaryGameplayEffectState effectState);
-            ActionRequestTarget target = source.gameObject.AddComponent<ActionRequestTarget>();
+            // 🔄（ADR-009 D2 ＋ docs/26）三個 sink 送的都是**傷害**；受擊由 CharacterHealth 發布。
+            // 這條測試的價值反而更大了：它證明「換 execution shape 不必換投遞機制」。
+            CharacterHealth health = source.gameObject.AddComponent<CharacterHealth>();
             Collider targetCollider = source.gameObject.AddComponent<SphereCollider>();
 
             GroundEffectSink sink = CreateGroundEffectSink();
             sink.ApplyToRoot(targetCollider);
 
-            Assert.AreEqual(ActionSlot.Reaction, target.PendingSlot,
-                "地面爆發應與投射物、近戰走同一條受擊鏈（Reaction）");
+            var data = new PlayerRuntimeData();
+            health.PublishTo(data);
+            Assert.IsTrue(data.Survivability.JustTookDamage,
+                "地面爆發應與投射物、近戰走同一條傷害 seam（CharacterHealth.ApplyDamage）");
+            Assert.Less(data.Survivability.CurrentHealth, data.Survivability.MaxHealth);
             Assert.AreEqual(Effect.Slow, effectState.GetTagAt(Time.time));
             Assert.AreEqual(0.3f, effectState.GetMovementSpeedMultiplier(), Tolerance,
                 "倍率必須來自 TemporaryGameplayEffectState 的單一常數，不得由 sink 自己寫死");
@@ -291,6 +361,69 @@ namespace Project.Tests.EditMode
             Assert.AreEqual(1f, source.ResolveDesiredSpeedNormalized(15f), Tolerance,
                 "到達 expiresAt 時應自動恢復，不需要 projectile 或移動系統呼叫 remove");
             Assert.AreEqual(Effect.None, effectState.GetTagAt(15f), "到期 slot 的 tag 也必須清空");
+        }
+        /// <summary>
+        /// 🔴 **冰刺的判定形狀必須對齊視覺形狀**（2026-09-15 使用者 Play 回報：「冰刺中了但沒生效」）。
+        ///
+        /// <para><b>舊形狀錯在哪</b></para>
+        /// `Human_Spell_Ice` 的六排冰刺沿 local +Z 排在 0.58／1.15／1.87／2.66／3.42／4.42 m，
+        /// 左右只有 ±0.17 m——**它是一條線**。舊判定卻是以身前 0.4 m 為心、半徑 3 m 的**球**：
+        /// 前緣只到 3.4 m ⇒ 最後兩排冰刺（3.82／4.82 m）**完全在判定外**；
+        /// 同時背後 3 m 內卻會被打到，與「前方一列冰刺」的語意完全相反。
+        /// ⛔ 把半徑加大到 4.42 是**錯的修法**——那會讓背後也變成 4.42 m。
+        /// </summary>
+        [Test]
+        public void IceHitVolume_CoversTheFullSpikeRow_AndDoesNotExtendBehindTheCaster()
+        {
+            GroundEffectSink sink = CreateGroundEffectSink();
+            Vector3 center = Vector3.zero;
+
+            sink.ResolveHitCapsule(center, Vector3.forward, out Vector3 start, out Vector3 end);
+
+            const float FirstSpikeZ = 0.58f;
+            const float LastSpikeZ = 4.42f;
+
+            Assert.That(start.z, Is.EqualTo(FirstSpikeZ).Within(0.001f),
+                "膠囊起點必須對齊第一排冰刺");
+            Assert.That(end.z, Is.EqualTo(LastSpikeZ).Within(0.001f),
+                "膠囊終點必須對齊最後一排冰刺——這正是舊球形判定構不到的那兩排");
+
+            Assert.Greater(start.y, 0f,
+                "端點必須自地面抬高一個 radius，讓膠囊向上撐開涵蓋站立角色，而不是只掃到腳踝");
+            Assert.AreEqual(start.y, end.y, 0.001f, "兩端等高：判定體是水平躺著的膠囊");
+
+            Assert.GreaterOrEqual(start.z, 0f,
+                "判定不得延伸到落點後方——背後不該有冰刺，也不該有傷害");
+        }
+
+        /// <summary>判定體必須跟著施法方向轉，而不是永遠指著世界 +Z。</summary>
+        [Test]
+        public void IceHitVolume_FollowsCastDirection()
+        {
+            GroundEffectSink sink = CreateGroundEffectSink();
+
+            sink.ResolveHitCapsule(Vector3.zero, Vector3.right, out Vector3 start, out Vector3 end);
+
+            Assert.That(end.x, Is.GreaterThan(start.x), "朝 +X 施法時膠囊必須沿 +X 延伸");
+            Assert.That(Mathf.Abs(end.z), Is.LessThan(0.001f), "不得殘留世界 +Z 的成分");
+        }
+
+        /// <summary>
+        /// 退化守門：施法方向為零向量時不得產生 NaN。
+        /// ⛔ 也**不得就地發明一個朝向**——方向權威屬於 ActionState 交付的承諾（A29）。
+        /// 正確的退化是塌成一顆球（零長度膠囊），而不是自己讀 transform.root.forward。
+        /// </summary>
+        [Test]
+        public void IceHitVolume_DegenerateDirection_CollapsesToSphereWithoutNaN()
+        {
+            GroundEffectSink sink = CreateGroundEffectSink();
+
+            sink.ResolveHitCapsule(Vector3.zero, Vector3.zero, out Vector3 start, out Vector3 end);
+
+            Assert.IsFalse(float.IsNaN(start.x) || float.IsNaN(end.x),
+                "退化方向不得產生 NaN——NaN 會讓 OverlapCapsule 靜默查不到任何東西");
+            Assert.AreEqual(0f, Vector3.Distance(start, end), 0.001f,
+                "退化方向必須塌成零長度膠囊（＝球），不得自行解算出一個朝向");
         }
     }
 }

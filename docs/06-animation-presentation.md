@@ -17,15 +17,18 @@ public class AnimancerFacade : AnimationFacadeBase
     {
         public string StateKey;                // 慣例＝StateType.ToString()；BaseState.AnimationKey 可覆寫
         public TransitionAssetBase Transition; // 抽象基底：ClipTransition / LinearMixerTransition… 皆可承載
+        public int LayerIndex;                 // 0＝base；1+＝authored overlay
+        public AvatarMask AvatarMask;          // overlay 的 authored mask；base 留空
+        public TransitionAssetBase BaseLayerTransition; // overlay 期間 Layer 0 companion
     }
 
     [SerializeField] private AnimancerComponent animancer; // 序列化欄位依 §0.1 豁免條款採 camelCase
     [SerializeField] private List<TransitionMapping> transitionMappings = new();
 
-    private readonly Dictionary<string, TransitionAssetBase> _transitionMap = new();
+    private readonly Dictionary<string, TransitionMapping> _transitionMap = new();
     private readonly Dictionary<string, AnimancerState> _stateCache = new(); // IsPlaying / child time 查詢依據
 
-    public override void Play(string stateKey) { /* TryGetTransition → animancer.Play(transition) → 快取 state */ }
+    public override void Play(string stateKey) { /* TryGetTransition → PlayMapping → 快取 state */ }
 
     public override bool TryGetDominantChildNormalizedTime(string stateKey, out float normalizedTime)
     { /* ParentState 直接子狀態中取最高 Weight；同權重固定取前者；無有效 child 時 false */ }
@@ -50,7 +53,24 @@ public class AnimancerFacade : AnimationFacadeBase
 4. **查表防線**：映射缺失或資產無效（內部 transition／clip 未指定）時警告並安全返回（不拋例外），與 v0.15 前的 clip 查表防線行為一致；`RollState` 的 `IsPlaying` 防呆鏈不受影響。
 5. **SetFloat／SetBool＝通用參數通道**：寫入 Animancer v8 `Parameters`（`ParameterDictionary`，型別化容器無裝箱；string→StringReference 隱轉走 intern 快取，穩態零 GC）。**Facade 不持有任何 Mixer 引用**——「哪個 Mixer 訂閱哪個參數」由 Transition 資產內序列化的 `ParameterName`（StringAsset）決定，資料流：黑板 → 參數字典 → 資產綁定。
 6. **子狀態時間＝通用唯讀查詢**：`TryGetDominantChildNormalizedTime` 只依 `stateKey` 查其最高權重直接子狀態；索引迴圈、零配置、同權重固定取前者。Facade 不暴露 Mixer／Clip／child index，沒有動畫圖子狀態概念的後端安全回 false。Mixer root 的 `NormalizedTime` 是子狀態時間的加權聚合，不得拿來代替某支 Bake Data 的實際播放頭。
-7. `SetLayerWeight` 的 Lite 警報已移除（Pro 解除限制）；多層混合落地屬 F4（Upper Body Layer）。
+7. **ADR-006 Trial authored layering（2026-09-11）**：`LayerIndex == 0` 維持原本 Layer 0 行為，並淡出目前 overlay；
+   overlay mapping 會先在 Layer 0 播 `BaseLayerTransition`，再於指定 layer 套 `AvatarMask`、播放 Action transition
+   並淡入。`Play`／`PlayWithCallback` 共用 `PlayMapping`，State／ActionDefinition 不認識 Animancer layer。
+   X Bot 的四個 Spell key 指向 Layer 1＋`Human Body Upper Mask`，Layer 0 companion 指向
+   `Locomotion_2D_Spell_WalkRun`；其 MoveX／MoveZ 仍由 `LocomotionModel` 的既有參數通道更新。
+8. **初始化預熱**：每列 mapping 於 `Awake` 在 authored layer `GetOrCreateState`；有 base companion 時也預熱
+   Layer 0 state。播放熱路徑不建 selector、mask 或第二套 direction data。
+
+**Spell Walk／Run 8-way gait calibration（2026-09-11）**：
+
+- `Locomotion_2D_Spell_WalkRun` 是中心 Idle＋Walk 八方向（radius `0.35`）＋Run 八方向（radius `0.75`）
+  的 Cartesian 2D mixer；兩個 radius 直接沿用 1D `Locomotion.asset` 的現行 gait anchors。
+- 每個 child 的 playback 皆由 `playback = gaitRadius × Bake_SprintFwdLoop speed / child AutoAverageSpeed`
+  推導。因此 Walk clip 只校正到 Walk anchor、Run clip 只校正到 Run anchor，不再像舊 FullRing 一樣全部追到
+  Sprint 6.2614 m/s。
+- Sprint gameplay gait、`Gait_ActionRPG.sprintIntensity = 1`、MotionDriver 的 `Bake_SprintFwdLoop` 最大速度來源
+  全部保留。因現行 Sprint 操作尚未啟用，本資產刻意沒有 Sprint directional ring；真正啟用時再 author。
+- 四支 Walk diagonal 皆有自己的 MotionBakeData；方向素材仍直接引用 FBX sub-clips，不複製 AnimationClip。
 
 #### Locomotion 1D Mixer 規格（F2，v0.16；門檻推導 v0.16.2）
 

@@ -240,7 +240,7 @@ Prefab 的 `MotionDriver.moveSpeedSource` 已由錯誤的 `Bake_RunFwdLoop` 改�
 
 ### 4.3 為什麼「不是 Gameplay State」在程式上也成立
 
-`LocomotionModel` 已經是 `MoveSpeed`／`MoveDirection`／`UpperBodyWeight` 的唯一寫入者，
+`LocomotionModel` 已經是 `MoveSpeed`／`MoveDirection` 的唯一寫入者（舊 `UpperBodyWeight` 已於 ADR-006 Trial 移除），
 已經在順序 3 驅動自己的動畫參數（D4），也已經在順序 6 透過 `UpdateMotion` 決定位移路徑（D3）。
 Stop 用到的三件事——**讀 intent 的邊沿**、**選一份 Bake 資料**、**改走另一條 MotionDriver 方法**——
 沒有一件超出這顆 model 既有的權責。因此：

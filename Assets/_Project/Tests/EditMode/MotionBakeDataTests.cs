@@ -147,5 +147,26 @@ namespace Project.Tests.EditMode
             bake.EndPhase = FootPhase.RightFootDown;
             Assert.AreEqual(FootPhase.RightFootDown, bake.GetFootPhaseAt(0.5f), "曲線缺 → 退回單點 EndPhase");
         }
+
+        [Test]
+        public void GetVerticalAt_NoCurve_ReturnsZeroForLegacyAssets()
+        {
+            var bake = NewBake();
+            Assert.AreEqual(0f, bake.GetVerticalAt(0.5f));
+
+            bake.VerticalCurve = new AnimationCurve();
+            Assert.AreEqual(0f, bake.GetVerticalAt(0.5f));
+        }
+
+        [Test]
+        public void GetVerticalAt_ValidCurve_ReturnsRelativeDisplacement()
+        {
+            var bake = NewBake();
+            bake.VerticalCurve = new AnimationCurve(
+                new Keyframe(0f, 0f),
+                new Keyframe(1f, 1.5f));
+
+            Assert.AreEqual(0.75f, bake.GetVerticalAt(0.5f), 1e-4f);
+        }
     }
 }

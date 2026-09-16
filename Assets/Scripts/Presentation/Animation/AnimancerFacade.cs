@@ -15,6 +15,16 @@ namespace Project.Presentation.Animation
             // LinearMixerTransition / 2D Mixer 等任意過渡型態（TransitionAsset 以 [SerializeReference]
             // 多型持有內部 transition），未來新增混合型態零 Facade 改動。
             public TransitionAssetBase Transition;
+
+            [Min(0)]
+            [Tooltip("0＝既有全身／base layer 行為。1+＝overlay layer；由 Facade 套用 AvatarMask，State 不認識 layer。")]
+            public int LayerIndex;
+
+            [Tooltip("LayerIndex > 0 時套用的 authored AvatarMask；base layer mapping 留空。")]
+            public AvatarMask AvatarMask;
+
+            [Tooltip("LayerIndex > 0 時，該 Action 期間 Layer 0 應播放的 locomotion transition。留空不改 Layer 0。")]
+            public TransitionAssetBase BaseLayerTransition;
         }
 
         [Header("Setup")]
@@ -24,8 +34,9 @@ namespace Project.Presentation.Animation
         // 過渡時長/播放速度/循環/事件全數由資產承載（單一真相），程式碼簽名不再提供 duration。
         [SerializeField] private List<TransitionMapping> transitionMappings = new();
 
-        private readonly Dictionary<string, TransitionAssetBase> _transitionMap = new();
+        private readonly Dictionary<string, TransitionMapping> _transitionMap = new();
         private readonly Dictionary<string, AnimancerState> _stateCache = new();
+        private int _activeOverlayLayerIndex = -1;
 
         private void Awake()
         {
@@ -43,11 +54,24 @@ namespace Project.Presentation.Animation
             {
                 if (string.IsNullOrEmpty(mapping.StateKey) || mapping.Transition == null) continue;
 
-                _transitionMap[mapping.StateKey] = mapping.Transition;
+                _transitionMap[mapping.StateKey] = mapping;
 
                 if (mapping.Transition.IsValid)
                 {
-                    _stateCache[mapping.StateKey] = animancer.States.GetOrCreate(mapping.Transition);
+                    int layerIndex = Mathf.Max(0, mapping.LayerIndex);
+                    AnimancerLayer layer = animancer.Layers[layerIndex];
+                    if (layerIndex > 0)
+                    {
+                        layer.Mask = mapping.AvatarMask;
+                        layer.SetWeight(0f);
+                    }
+
+                    _stateCache[mapping.StateKey] = layer.GetOrCreateState(mapping.Transition);
+
+                    if (mapping.BaseLayerTransition != null && mapping.BaseLayerTransition.IsValid)
+                    {
+                        animancer.Layers[0].GetOrCreateState(mapping.BaseLayerTransition);
+                    }
                 }
             }
         }
@@ -159,12 +183,12 @@ namespace Project.Presentation.Animation
 
         public override void Play(string stateKey)
         {
-            if (!TryGetTransition(stateKey, out var transition)) return;
+            if (!TryGetTransition(stateKey, out TransitionMapping mapping)) return;
 
             // 過渡時長/FadeMode/起始時間全部由資產決定。對「已在播放中」的同一資產重播為冪等
             //（Animancer 依 transition.Key 對應同一個 state，不會從頭重播），
             // Idle/Move 共用 Locomotion 資產時的狀態切換因此無縫。
-            var state = animancer.Play(transition);
+            AnimancerState state = PlayMapping(in mapping);
             _stateCache[stateKey] = state;
         }
 
@@ -173,16 +197,16 @@ namespace Project.Presentation.Animation
         /// 呼叫端直接 return——行為與 v0.15 前的 clip 查表防線一致，RollState 的
         /// IsPlaying 防呆（查表失敗時退回 Procedural 結算）依然成立。
         /// </summary>
-        private bool TryGetTransition(string stateKey, out TransitionAssetBase transition)
+        private bool TryGetTransition(string stateKey, out TransitionMapping mapping)
         {
-            if (!_transitionMap.TryGetValue(stateKey, out transition))
+            if (!_transitionMap.TryGetValue(stateKey, out mapping))
             {
                 // 💡 升級防禦線：如果是這裡噴出警告，代表狀態機有叫它播，但 Inspector 的連線斷了！
                 Debug.LogWarning($"<color=red>[AnimancerFacade] 警告：狀態機請求播放 '{stateKey}'，但 Transition Mappings 查表失敗！請檢查 Inspector 是否殘留 Missing 欄位！</color>", this);
                 return false;
             }
 
-            if (transition == null || !transition.IsValid)
+            if (mapping.Transition == null || !mapping.Transition.IsValid)
             {
                 Debug.LogWarning($"<color=red>[AnimancerFacade] 警告：狀態機請求播放 '{stateKey}'，但對應的 Transition 資產為 null 或內容無效（內部 transition／clip 未指定）！</color>", this);
                 return false;
@@ -191,11 +215,52 @@ namespace Project.Presentation.Animation
             return true;
         }
 
+        /// <summary>
+        /// ADR-006：mapping 自己決定 base layer 或 masked overlay；State 仍只送 state key。
+        /// Layered mapping 可同時把 Layer 0 切到 authored locomotion companion，所有 Mixer 參數仍由
+        /// 既有 LocomotionModel 發布，Facade 不建立第二套 movement direction。
+        /// </summary>
+        private AnimancerState PlayMapping(in TransitionMapping mapping)
+        {
+            int layerIndex = Mathf.Max(0, mapping.LayerIndex);
+            if (layerIndex == 0)
+            {
+                FadeOutActiveOverlay(mapping.Transition.FadeDuration);
+                return animancer.Layers[0].Play(mapping.Transition);
+            }
+
+            if (_activeOverlayLayerIndex >= 0 && _activeOverlayLayerIndex != layerIndex)
+            {
+                animancer.Layers[_activeOverlayLayerIndex]
+                    .StartFade(0f, mapping.Transition.FadeDuration);
+            }
+
+            if (mapping.BaseLayerTransition != null && mapping.BaseLayerTransition.IsValid)
+            {
+                animancer.Layers[0].Play(mapping.BaseLayerTransition);
+            }
+
+            AnimancerLayer overlay = animancer.Layers[layerIndex];
+            overlay.Mask = mapping.AvatarMask;
+            AnimancerState state = overlay.Play(mapping.Transition);
+            overlay.StartFade(1f, mapping.Transition.FadeDuration);
+            _activeOverlayLayerIndex = layerIndex;
+            return state;
+        }
+
+        private void FadeOutActiveOverlay(float duration)
+        {
+            if (_activeOverlayLayerIndex < 0) return;
+
+            animancer.Layers[_activeOverlayLayerIndex].StartFade(0f, duration);
+            _activeOverlayLayerIndex = -1;
+        }
+
         public override void PlayWithCallback(string stateKey, Action onComplete)
         {
-            if (!TryGetTransition(stateKey, out var transition)) return;
+            if (!TryGetTransition(stateKey, out TransitionMapping mapping)) return;
 
-            var state = animancer.Play(transition);
+            AnimancerState state = PlayMapping(in mapping);
             _stateCache[stateKey] = state;
 
             // 💡 利用 Animancer 原生事件系統，並在結束後自動移除，防止事件掛載殘留污染下一次播放。
@@ -293,6 +358,22 @@ namespace Project.Presentation.Animation
 
             normalizedTime = value;
             return true;
+        }
+
+        /// <summary>
+        /// 🆕（docs/24 §8 Animation Fitting）設定該狀態鍵對應 AnimancerState 的播放速率。
+        ///
+        /// 只作用在**已經播過、已進快取**的 state：Fitting 是在動畫開始之後才套用的，
+        /// 此時該 state 一定在快取裡；查不到就安靜跳過，不在這裡觸發播放。
+        /// ⚠️ Animancer 依 transition key 重用同一個 state 物件，**速率會留存**，
+        /// 因此呼叫端離開狀態時必須設回 1（`TraversalState.OnExit`）。
+        /// </summary>
+        public override void SetPlaybackSpeed(string stateKey, float speed)
+        {
+            if (string.IsNullOrEmpty(stateKey)) return;
+            if (float.IsNaN(speed) || float.IsInfinity(speed) || speed <= 0f) return;
+            if (!_stateCache.TryGetValue(stateKey, out AnimancerState state) || state == null) return;
+            state.Speed = speed;
         }
 
         public override float GetNormalizedTime()

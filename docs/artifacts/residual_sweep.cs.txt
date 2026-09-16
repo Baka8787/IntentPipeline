@@ -1,0 +1,58 @@
+var sb = new System.Text.StringBuilder();
+var BF = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+var probeType = typeof(Project.Core.Environment.TraversalProbe);
+Project.Core.Environment.TraversalProbe scenePlayer = null;
+foreach (var p in UnityEngine.Object.FindObjectsByType<Project.Core.Environment.TraversalProbe>(UnityEngine.FindObjectsInactive.Include))
+    if (p.GetComponent<Project.Core.Pipeline.PlayerInputSource>() != null) scenePlayer = p;
+if (scenePlayer == null) return "no player probe";
+var settingsField = probeType.GetField("settings", BF);
+object realSettings = settingsField.GetValue(scenePlayer);
+var sceneCC = scenePlayer.GetComponent<UnityEngine.CharacterController>();
+var go = new UnityEngine.GameObject("__probe_rig");
+go.hideFlags = UnityEngine.HideFlags.HideAndDontSave;
+var cc = go.AddComponent<UnityEngine.CharacterController>();
+cc.center = sceneCC.center; cc.height = sceneCC.height; cc.radius = sceneCC.radius;
+cc.skinWidth = sceneCC.skinWidth; cc.slopeLimit = sceneCC.slopeLimit; cc.stepOffset = sceneCC.stepOffset;
+var probe = go.AddComponent<Project.Core.Environment.TraversalProbe>();
+settingsField.SetValue(probe, realSettings);
+probeType.GetMethod("Awake", BF).Invoke(probe, null);
+var data = new Project.Core.Blackboard.PlayerRuntimeData();
+data.IsGrounded = true;
+
+var prms = UnityEditor.AssetDatabase.LoadAssetAtPath<Project.Core.StateMachine.TraversalStateParamsSO>(
+    "Assets/ScriptableObjects/StateMachine/TraversalStateParams.asset");
+probe.SetDerivedRangeRequirements(prms.GetRequiredSensingReach(), prms.GetRequiredLandingDepth());
+var entrySettings = prms.EntryPolicy;
+var binding = prms.GetBinding(Project.Core.Environment.TraversalKind.Climb2m);
+var bake = binding.Bake;
+bake.TryGetDesiredEntryDistance(out float ideal);
+sb.AppendLine($"ideal entry = {ideal:F3} m   合法帶 = [{ideal - entrySettings.MaximumCloseError:F2}, {ideal + entrySettings.MaximumFarError:F2}]");
+
+go.transform.position = new UnityEngine.Vector3(-8.39f, 0f, 13.78f - 0.6f);
+go.transform.rotation = UnityEngine.Quaternion.LookRotation(UnityEngine.Vector3.forward, UnityEngine.Vector3.up);
+probe.Tick(data);
+var wallN = probe.Candidate.LedgeFrame.WallNormal;
+var edge = probe.Candidate.LedgeFrame.EdgeOrigin;
+
+sb.AppendLine();
+sb.AppendLine("  站位   entry      primary L 殘差   secondary R 殘差   root correction");
+for (float d = 0.15f; d <= 0.81f; d += 0.05f)
+{
+    go.transform.position = new UnityEngine.Vector3(edge.x + wallN.x * d, 0f, edge.z + wallN.z * d);
+    go.transform.rotation = UnityEngine.Quaternion.LookRotation(-wallN, UnityEngine.Vector3.up);
+    probe.Tick(data);
+    var cand = probe.Candidate;
+    var entry = Project.Core.Environment.TraversalEntryPolicy.Evaluate(in cand, in entrySettings, ideal);
+    if (!entry.Executable) { sb.AppendLine($"  {d:F2}   拒絕 {entry.RejectReason}"); continue; }
+    Project.Presentation.Motion.TraversalWarpPlan plan;
+    Project.Presentation.Motion.TraversalWarpPlanRejection rej;
+    if (!Project.Core.StateMachine.TraversalPlanBuilder.TryBuild(
+            bake, in cand, in entry, entrySettings.LedgeEndMargin,
+            binding.MaxHorizontalCorrection, binding.MaxVerticalCorrection, out plan, out rej))
+    { sb.AppendLine($"  {d:F2}   plan 失敗 {rej}"); continue; }
+    var c = plan.ContactTargets;
+    sb.AppendLine($"  {d:F2}   OK        {c.LeftHandResidualError * 100f,7:F1} cm     {c.RightHandResidualError * 100f,7:F1} cm     " +
+                  $"{plan.LeftContactKnot.PositionCorrection.magnitude * 100f,6:F1} cm  (primary={c.PrimaryHand})");
+}
+UnityEngine.Object.DestroyImmediate(go);
+return sb.ToString();

@@ -255,6 +255,33 @@ namespace Project.Editor
     }
 
     /// <summary>
+    /// 將既有採樣迴圈記錄的 root world Y 轉成「相對第一幀」垂直位移曲線。
+    /// 不重新取樣 AnimationClip，也不依賴跳躍事件偵測結果。
+    /// </summary>
+    public sealed class VerticalCurveAnalyzer : IMotionFeatureAnalyzer
+    {
+        public string FeatureName => "Vertical Curve (root Y relative to first frame)";
+
+        public void Analyze(MotionFeatureContext context, MotionBakeData target)
+        {
+            target.VerticalCurve = null;
+
+            IReadOnlyList<MotionFeatureSample> samples = context.Samples;
+            if (samples == null || samples.Count == 0) return;
+
+            float originY = samples[0].RootWorldY;
+            var curve = new AnimationCurve();
+            for (int i = 0; i < samples.Count; i++)
+            {
+                MotionFeatureSample sample = samples[i];
+                curve.AddKey(sample.Time, sample.RootWorldY - originY);
+            }
+
+            target.VerticalCurve = curve;
+        }
+    }
+
+    /// <summary>
     /// 連續腳相曲線分析器（🆕）：逐影格以「左腳世界 Y − 右腳世界 Y」建立腳相曲線——
     /// 值 &lt; 0 表左腳較低（LeftFootDown）、&gt; 0 表右腳較低（RightFootDown），與烘焙末尾腳相
     /// （<see cref="MotionBakeData.EndPhase"/>，LeftFoot 較低判 LeftFootDown）**符號一致**。差值抵消共模
@@ -299,6 +326,7 @@ namespace Project.Editor
             _analyzers = new List<IMotionFeatureAnalyzer>
             {
                 new JumpFeatureAnalyzer(),
+                new VerticalCurveAnalyzer(),
                 new FootPhaseCurveAnalyzer(), // 🆕 連續腳相曲線（Foot Phase Curve）
             };
         }

@@ -524,6 +524,109 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
+  VerticalCurve:
+    serializedVersion: 2
+    m_Curve: []
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  Traversal:
+    enabled: 0
+    contactMode: 0
+    leftHandBone: 0
+    rightHandBone: 0
+    leftHandContactNormalizedTime: 0
+    rightHandContactNormalizedTime: 0
+    transferNormalizedTime: 0
+    exitNormalizedTime: 0
+    recoveryNormalizedTime: 0
+    requiredVerticalClearance: 0
+    handIKEnabled: 0
+    leftHandIKWindow:
+      enabled: 0
+      startNormalizedTime: 0
+      fullNormalizedTime: 0
+      releaseNormalizedTime: 0
+    rightHandIKWindow:
+      enabled: 0
+      startNormalizedTime: 0
+      fullNormalizedTime: 0
+      releaseNormalizedTime: 0
+    handIKRotationWeight: 0
+    rootReachConstraint:
+      enabled: 0
+      maximumReachRatio: 0
+      anchorReleaseNormalizedTime: 0
+      correctionEndNormalizedTime: 0
+      localX:
+        serializedVersion: 2
+        m_Curve: []
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      localY:
+        serializedVersion: 2
+        m_Curve: []
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      localZ:
+        serializedVersion: 2
+        m_Curve: []
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+    leftGripEdgeInRoot: {x: 0, y: 0, z: 0}
+    rightGripEdgeInRoot: {x: 0, y: 0, z: 0}
+    hasGripEdges: 0
+    entryAnchor:
+      normalizedTime: 0
+      rootLocalPosition: {x: 0, y: 0, z: 0}
+      rootLocalYaw: 0
+      leftHandInRoot: {x: 0, y: 0, z: 0}
+      rightHandInRoot: {x: 0, y: 0, z: 0}
+      hasLeftHand: 0
+      hasRightHand: 0
+    leftContactAnchor:
+      normalizedTime: 0
+      rootLocalPosition: {x: 0, y: 0, z: 0}
+      rootLocalYaw: 0
+      leftHandInRoot: {x: 0, y: 0, z: 0}
+      rightHandInRoot: {x: 0, y: 0, z: 0}
+      hasLeftHand: 0
+      hasRightHand: 0
+    rightContactAnchor:
+      normalizedTime: 0
+      rootLocalPosition: {x: 0, y: 0, z: 0}
+      rootLocalYaw: 0
+      leftHandInRoot: {x: 0, y: 0, z: 0}
+      rightHandInRoot: {x: 0, y: 0, z: 0}
+      hasLeftHand: 0
+      hasRightHand: 0
+    transferAnchor:
+      normalizedTime: 0
+      rootLocalPosition: {x: 0, y: 0, z: 0}
+      rootLocalYaw: 0
+      leftHandInRoot: {x: 0, y: 0, z: 0}
+      rightHandInRoot: {x: 0, y: 0, z: 0}
+      hasLeftHand: 0
+      hasRightHand: 0
+    exitAnchor:
+      normalizedTime: 0
+      rootLocalPosition: {x: 0, y: 0, z: 0}
+      rootLocalYaw: 0
+      leftHandInRoot: {x: 0, y: 0, z: 0}
+      rightHandInRoot: {x: 0, y: 0, z: 0}
+      hasLeftHand: 0
+      hasRightHand: 0
+    recoveryAnchor:
+      normalizedTime: 0
+      rootLocalPosition: {x: 0, y: 0, z: 0}
+      rootLocalYaw: 0
+      leftHandInRoot: {x: 0, y: 0, z: 0}
+      rightHandInRoot: {x: 0, y: 0, z: 0}
+      hasLeftHand: 0
+      hasRightHand: 0
   RotationCurve:
     serializedVersion: 2
     m_Curve:

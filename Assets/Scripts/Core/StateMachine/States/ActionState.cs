@@ -37,16 +37,6 @@ namespace Project.Core.StateMachine
 
         private const float DirectionSqrEpsilon = 0.000001f;
 
-        /// <summary>
-        /// <see cref="ActionTargetingPolicy.CameraConeSoftTarget"/> 的角錐半角（度）。
-        ///
-        /// ⛔ **刻意是一顆全專案常數，不是 per-Action 旋鈕**（`docs/11` §8.3 明文禁止）——
-        /// 「吸不吸敵」是 Definition 的選擇，「吸多寬」不是；後者一旦下放，
-        /// 每把武器的吸敵範圍就會各自漂移，玩家再也無法用一句話描述規則。
-        /// 30° ＝ 敵人大致在畫面中央三分之一時才修正；要調就調這一個數字。
-        /// </summary>
-        private const float SoftTargetConeHalfAngleDegrees = 30f;
-
         private static int ComputeSlotCount()
         {
             var values = (ActionSlot[])System.Enum.GetValues(typeof(ActionSlot));
@@ -60,11 +50,33 @@ namespace Project.Core.StateMachine
         }
 
         private readonly ActionRequestTarget _externalRequestTarget;
-        private readonly IActionLifecycleSink[] _lifecycleSinks;
+
+        /// <summary>
+        /// **每個 slot 的 sink 清單**（jagged，外層索引＝slot）。
+        ///
+        /// 🆕 2026-09-14（使用者裁決）：由 per-slot **單顆**改為 per-slot **多顆**。
+        /// 理由是 seam 的真實語意本來就是「這個 Action 的副作用」，而一個 Action 天生可以
+        /// 同時有好幾個彼此獨立的副作用——命中判定、武器顯隱、刀光、VFX、音效——
+        /// 它們共用同一組 `Begin` → `Release` → `Cleanup` 時點，卻沒有理由互相認識。
+        /// ⛔ 舊的「一 slot 一 sink」限制不是設計，只是還沒遇到第二個使用者。
+        ///
+        /// **不變的部分**：時點仍由 ActionState 單一持有；sink 只管自己的本地 Unity 物件。
+        /// **通知順序** ＝ Runner 組裝時的 binding 順序，且**穩定**（見 `ResolveActionLifecycleSinks`）。
+        /// 空 slot 恆為 <see cref="Array.Empty{T}"/>，因此派送端不需要 null 判定。
+        ///
+        /// ⚠️ 零 GC：全部在組裝期配置完成；派送是對具體陣列的索引迴圈，執行期不配置、不搜尋元件。
+        /// </summary>
+        private readonly IActionLifecycleSink[][] _lifecycleSinks;
 
         // 🆕（ADR-005）冷卻改為 per-slot。**仍住在 ActionState 內部**（ADR-004 D2）——
         // 搬到 Runner／Config／HUD 都會讓「能不能出手」有第二個回答者。
         private readonly float[] _cooldownEndTime = new float[SlotCount];
+
+        // 🆕（2026-09-15，HUD）**本次**冷卻的總長度，供 HUD 換算 0–1 進度。
+        // ⚠️ 不能讓 HUD 自己拿 `Definition.Cooldown` 去除——`CooldownVariance` 會讓每一次的
+        //    實際長度不同，那樣算出來的進度條會在有變異時失準（而且只有在變異非零時才發作）。
+        //    ⇒ 由**擁有冷卻的人**在 commit 的當下記下真正用掉的長度。
+        private readonly float[] _cooldownDuration = new float[SlotCount];
 #if UNITY_EDITOR
         // 缺 Definition 是資產接線錯誤，不改變 gate 的嚴格行為；每個 slot 只警告一次，避免 CanEnter
         // 每幀輪詢時持續配置訊息字串並淹沒 Console。
@@ -90,6 +102,11 @@ namespace Project.Core.StateMachine
         // ActionState 是承諾與 release 時點的共同擁有者；facing 與世界效果只讀這一份快照。
         private ActionReleaseContext _releaseContext;
 
+        // 🆕（2026-09-15）**效果落點**，與上面的 facing 承諾刻意分開。
+        // 每帧刷新、release 當下才定案 ⇒ 法術打的是「現在」的目標，不是抬手那一刻的舊座標。
+        // 為什麼非分開不可：見 CaptureReleaseContext 的說明（抬手 0.42s ＋ 飛行 ⇒ 約 1.7m 落差）。
+        private ActionReleaseContext _effectContext;
+
         // Action-time soft auto-target 的無狀態查詢／facing 轉送 seam。
         // ⚠️ 可以是 null——敵人身上沒有相機式 aim source，
         //    承諾因此安靜退化為 HasAim=false，lifecycle 仍照常完成。
@@ -97,11 +114,11 @@ namespace Project.Core.StateMachine
 
         public ActionState(
             ActionRequestTarget externalRequestTarget = null,
-            IActionLifecycleSink[] lifecycleSinks = null,
+            IActionLifecycleSink[][] lifecycleSinks = null,
             IAimSource aimSource = null)
         {
             _externalRequestTarget = externalRequestTarget;
-            _lifecycleSinks = lifecycleSinks ?? Array.Empty<IActionLifecycleSink>();
+            _lifecycleSinks = lifecycleSinks ?? Array.Empty<IActionLifecycleSink[]>();
             _aimSource = aimSource;
         }
 
@@ -110,14 +127,15 @@ namespace Project.Core.StateMachine
         ///
         /// ⚠️ 這裡回答的是**會不會取得**，不是**朝哪取得**。後者自 2026-09-08 起由
         /// <see cref="ActionTargetingPolicy"/> 這個 authored 欄位回答（該裁決同時修訂了 ADR-007 D3，見其 §11）。
-        /// 兩者刻意分開：**「受擊不轉向」是 slot 的性質，不該讓每份 Definition 各自宣告一次**——
-        /// 那才會回到「一致性交給填表的人」的老問題。
         ///
-        /// <see cref="ActionSlot.Reaction"/> 例外：受擊不是出手，被打的人不該自己轉去面對攻擊者。
-        /// （此例外**優先於** policy：Reaction 的 Definition 就算標了 soft-target 也不取得承諾。）
+        /// 🔄 **2026-09-14（`docs/26` Model B）：移除了 `&amp;&amp; slot != ActionSlot.Reaction`。**
+        /// 那個例外的理由是「受擊不是出手，被打的人不該自己轉去面對攻擊者」——
+        /// 正確的結論不是在 Action 裡加例外，而是**受擊根本不該是 Action**。
+        /// 受擊已遷出為 <see cref="StateType.Hurt"/>，本方法因此回到單純的規則：
+        /// **每一個 Action 都取得方向承諾**，沒有例外。
         /// </summary>
         internal static bool ShouldFaceTargetOnEnter(ActionSlot slot)
-            => slot != ActionSlot.None && slot != ActionSlot.Reaction;
+            => slot != ActionSlot.None;
 
         public override StateType Type => StateType.Action;
         public override string AnimationKey => _currentAnimationKey;
@@ -164,13 +182,16 @@ namespace Project.Core.StateMachine
             // 第 1 段邊界取得一次承諾；Reaction 是受擊而非出手，明確不取得。
             CaptureReleaseContext(data);
 
-            ActiveLifecycleSink()?.Begin();
-            if (!EnterPhase(ActionPhase.Start)) ActiveLifecycleSink()?.Cleanup();
+            NotifyBegin();
+            if (!EnterPhase(ActionPhase.Start)) NotifyCleanup();
         }
 
         public override void OnTick(PlayerRuntimeData data, float deltaTime)
         {
             if (_phase == ActionPhase.None || deltaTime <= 0f) return;
+
+            // 效果落點每帧跟上目標；facing 承諾**不動**（見 CaptureReleaseContext）。
+            RefreshEffectContext(data);
             _phaseElapsed += deltaTime;
             TryEmitRelease();
 
@@ -209,9 +230,29 @@ namespace Project.Core.StateMachine
             }
         }
 
+        /// <summary>
+        /// 🆕（ADR-009 D4）**兩層中斷授權。**
+        ///
+        /// <para><b>Problem</b></para>
+        /// <c>Interruptible</c> 原本是單一層級的否決權。把它設成 <c>false</c>（＝Super Armor，
+        /// 現況的 <c>EnemyPunchDefinition</c> 就是）會連**死亡**一起擋掉——「霸體」不該等於「打不死」。
+        /// 這個缺口在導入死亡之前不存在，因為當時沒有比受擊更高的中斷來源。
+        ///
+        /// <para><b>語意（收窄，不是推翻）</b></para>
+        /// 資產的 <c>Interruptible</c> 只管**普通**中斷；config 的 <c>CanBeInterruptedBy</c>
+        /// 才是狀態層授權。<see cref="StateType.Death"/> 屬 lethal 層，**只受 config 管**。
+        /// ⇒ 中斷權限仍然 100% authored：想讓某個狀態連死亡都擋掉，就把 Death 從該狀態的
+        /// <c>CanBeInterruptedBy</c> 清單裡拿掉——那是資產的決定，不是這裡的。
+        ///
+        /// <para><b>為什麼不引入通用的 InterruptAuthority 分級</b></para>
+        /// 目前只有兩級（normal／lethal）。為兩級建通用分級制＝在沒有第二個非致死高權中斷的情況下
+        /// 把介面定死（CLAUDE.md：第二個使用者出現前不建 abstraction）。
+        /// 真的出現第三級時，擴充的是 config 清單與這一段的判斷，不是每份 Definition。
+        /// </summary>
         public override bool CanBeInterruptedBy(BaseState other)
         {
             if (!base.CanBeInterruptedBy(other)) return false;
+            if (other != null && other.Type == StateType.Death) return true;
             return _phase == ActionPhase.None || _currentEntry.Interruptible;
         }
 
@@ -225,40 +266,21 @@ namespace Project.Core.StateMachine
         /// <c>Interruptible</c>（資產）＋ 目標 slot 自己的冷卻（本 state 唯一持有）。
         /// 新增的只有「身分不同」這個條件，沒有引入任何新的決策來源。
         /// </summary>
+        /// <remarks>
+        /// 🔄 **2026-09-14（`docs/26` Model B）：刪除了 `AllowsSameSlotReentry` 的 Reaction 特例。**
+        /// 那條特例存在的唯一理由是「硬直中再被打要再踉蹌一次」，而它的註解自己寫著
+        /// 「**受擊不是出手**」——受擊已遷出為 <see cref="StateType.Hurt"/>，
+        /// 「再次受擊」現在由 <c>HurtState.CanReenter</c> 回答。
+        /// 本方法因此回到 ADR-005 FU-1 的原始語意：**同一個 Action 身分不得自我重入**
+        /// （防連段第 2 段被第 3 段的請求吃掉、防蓄力被自己的再按打斷）。
+        /// </remarks>
         public override bool CanReenter(PlayerRuntimeData data)
         {
             if (_phase == ActionPhase.None) return false;
             if (!_currentEntry.Interruptible) return false;
             if (!TryResolveRequest(data, out ActionSlot slot, out _)) return false;
-            if (slot != _activeSlot) return true;
-
-            return AllowsSameSlotReentry(slot);
+            return slot != _activeSlot;
         }
-
-        /// <summary>
-        /// 🆕（2026-09-06 使用者裁決）**同 slot 重入的唯一例外：`Reaction`。**
-        ///
-        /// <para><b>Problem</b></para>
-        /// 硬直期間再被打一次，畫面上什麼都不會發生——`CanReenter` 要求「身分不同」，
-        /// 而 Reaction 被 Reaction 打斷是同一個身分。
-        ///
-        /// <para><b>為什麼 Reaction 該是例外</b></para>
-        /// 一般 Action 的「同身分不得重入」是在防**自己打斷自己**：連段第 2 段會被第 3 段的請求吃掉、
-        /// 蓄力會被自己的再按打斷。那條限制對出手是對的。
-        /// 但**受擊不是出手**——「再被打一次就該再踉蹌一次」正是硬直的定義，
-        /// 它沒有「被自己打斷」的問題，因為觸發者本來就是別人。
-        /// 📌 這與 `docs/11` §8.3 把 `Reaction` 排除在轉向規則外是**同一個判斷**：
-        /// Reaction 套用的是受擊語意，不是出手語意。
-        ///
-        /// <para><b>Trade-off</b></para>
-        /// 代價是多一條 slot 特例。替代方案「`Interruptible` 為真就允許任何同 slot 重入」更通用，
-        /// 但會讓法術連段被自己的後續按鍵吃掉——**放寬的範圍遠大於要解決的問題**，因此不採用。
-        ///
-        /// <para><b>Impact</b></para>
-        /// 普通 Action 的語意**一字未改**（`T20`／`T33` 守）。仍然需要 `Interruptible`：
-        /// 「無敵的重擊倒地不該被輕拳打斷」依然由資產決定。
-        /// </summary>
-        internal static bool AllowsSameSlotReentry(ActionSlot slot) => slot == ActionSlot.Reaction;
 
         public override void OnUpdateMotion(
             MotionDriver motionDriver,
@@ -284,16 +306,38 @@ namespace Project.Core.StateMachine
 
         public override void OnExit(PlayerRuntimeData data)
         {
-            ActiveLifecycleSink()?.Cleanup();
+            NotifyCleanup();
             CommitCooldown();
             ResetExecutionState();
         }
 
-        /// <summary>指定 slot 的冷卻剩餘秒數；0 ＝ 可用。供測試與（未來）HUD 讀取。</summary>
+        /// <summary>指定 slot 的冷卻剩餘秒數；0 ＝ 可用。供測試與 HUD 讀取。</summary>
         public float GetCooldownRemaining(ActionSlot slot)
         {
             if (slot == ActionSlot.None) return 0f;
             return Mathf.Max(0f, _cooldownEndTime[(int)slot] - Time.time);
+        }
+
+        /// <summary>
+        /// 🆕（2026-09-15，HUD）指定 slot 的冷卻進度：**1 ＝ 剛進冷卻、0 ＝ 已可用**。
+        ///
+        /// <para><b>⭐ 為什麼這個換算住在這裡，而不是 HUD 自己算</b></para>
+        /// 分母是「**這一次**冷卻的實際長度」，而 `CooldownVariance` 讓它每次都不同。
+        /// HUD 若拿 `Definition.Cooldown` 當分母，進度條會在變異非零時失準——
+        /// 而那是一種只在特定資產設定下才發作、看起來像「進度條有點怪」的靜默錯誤。
+        /// ⇒ 讓**擁有冷卻的人**回答進度，HUD 只消費結果（與 `SurvivabilityData.IsDead`
+        /// 「不讓下游重新推導已 commit 的狀態」同一條原則）。
+        ///
+        /// 從未進過冷卻、或長度為 0 ⇒ 回 0（可用），不會除以零。
+        /// </summary>
+        public float GetCooldownNormalized(ActionSlot slot)
+        {
+            if (slot == ActionSlot.None) return 0f;
+
+            float duration = _cooldownDuration[(int)slot];
+            if (!(duration > 0f)) return 0f;
+
+            return Mathf.Clamp01(GetCooldownRemaining(slot) / duration);
         }
 
         /// <summary>
@@ -416,7 +460,7 @@ namespace Project.Core.StateMachine
 
             if (phase == ActionPhase.Cancel)
             {
-                ActiveLifecycleSink()?.Cleanup();
+                NotifyCleanup();
             }
             else
             {
@@ -426,24 +470,65 @@ namespace Project.Core.StateMachine
             return true;
         }
 
-        /// <summary>在當前段落邊界取得一次方向承諾；後續相機／目標變化不再改寫本段快照。</summary>
+        /// <summary>
+        /// 在當前段落邊界取得一次方向承諾；後續相機／目標變化不再改寫本段快照。
+        ///
+        /// 🔄 **2026-09-15：承諾拆成兩個，因為它們回答的是不同的問題。**
+        /// <list type="bullet">
+        /// <item><b><see cref="_releaseContext"/>（facing 承諾）</b>——段落邊界快照，**行為不變**。
+        ///   身體要在抬手期間**朝著出手方向轉過去**，那必須早早定下來，否則角色會跟著目標抽搐。
+        ///   ADR-007「facing 一次承諾」在這一半完整保留。</item>
+        /// <item><b><see cref="_effectContext"/>（效果落點）</b>——**每帧刷新、release 當下才定案**。</item>
+        /// </list>
+        ///
+        /// <para><b>🐞 為什麼非拆不可（2026-09-15 使用者 Play 回報 ＋ 實測）</b></para>
+        /// Fireball 的 release 在 <c>FallbackDuration 1.2 × ReleaseNormalizedTime 0.35</c> ＝ **抬手 0.42 秒後**。
+        /// 用段落邊界的舊座標發射，等於打「敵人 0.42 秒前的位置」，再加上約 0.6 秒飛行：
+        /// Y Bot 側移 1.644 m/s（<c>min(holdStrafe 0.35, StrafeLeftLoop 1.6443/SprintFwdLoop 6.2614)</c> × 6.2614）
+        /// ⇒ 累積 **≈1.7 m**，而敵人膠囊直徑只有 **0.64 m**
+        /// ⇒ **側移中的敵人打不中是預期行為，不是偶發。**
+        /// 過肩鏡頭下，飛向舊座標的火球投影起來就是「穿過身體」——這正是回報的症狀。
+        ///
+        /// ⚠️ **代價（已知並接受）**：身體朝向與彈道會相差「目標在抬手期間移動的角度」。
+        /// 3 m 距離下約 13°。**用 13° 的視覺落差換掉一次必定落空**，是划算的。
+        /// ⛔ 反過來讓 facing 也跟著每帧重取則**不可**——那會讓角色在抬手期間持續扭向目標，
+        ///    正是 ADR-007 當初要消除的抽搐。
+        /// </summary>
         private void CaptureReleaseContext(PlayerRuntimeData data)
         {
-            _releaseContext = default;
-            if (!ShouldFaceTargetOnEnter(_activeSlot)) return;
+            _releaseContext = ResolveAimContext(data);
+            _effectContext = _releaseContext;
+        }
+
+        /// <summary>
+        /// 效果落點的每帧刷新。只動 <see cref="_effectContext"/>，**不碰 facing 承諾**。
+        /// 解不出瞄準（目標消失、`IAimSource` 為 null）時**保留上一次可用的落點**，
+        /// 不要退化成 <c>default</c>——那會讓法術朝世界原點飛。
+        /// </summary>
+        private void RefreshEffectContext(PlayerRuntimeData data)
+        {
+            if (_phase == ActionPhase.None) return;
+
+            ActionReleaseContext live = ResolveAimContext(data);
+            if (live.HasAim) _effectContext = live;
+        }
+
+        private ActionReleaseContext ResolveAimContext(PlayerRuntimeData data)
+        {
+            if (!ShouldFaceTargetOnEnter(_activeSlot)) return default;
 
             // Definition 缺席時採預設 policy，與「忘了填」得到同一個結果——
             // 可預測性不依賴資產是否完整。
             ActionTargetingPolicy policy = _definition != null
                 ? _definition.Targeting
                 : ActionTargetingPolicy.CameraForward;
-            if (policy == ActionTargetingPolicy.SelfCentered) return;
+            if (policy == ActionTargetingPolicy.SelfCentered) return default;
 
             // S3a 的玩家 Root 保留 IAimSource 注入鏈；現行實作同時提供「鏡頭方向」與角色世界位置。
             // 敵人版 combat producer／facing source 屬 S3b，尚不在本切片建立第二套 origin seam。
             // ⚠️ 可以是 null（敵人）⇒ 承諾安靜退化為 HasAim=false，lifecycle 仍照常完成。
-            if (_aimSource == null) return;
-            if (!_aimSource.TryGetAimPoint(out Vector3 aimPoint)) return;
+            if (_aimSource == null) return default;
+            if (!_aimSource.TryGetAimPoint(out Vector3 aimPoint)) return default;
 
             Vector3 origin = _aimSource.CommitmentOrigin;
 
@@ -453,13 +538,12 @@ namespace Project.Core.StateMachine
                 TrySoftTarget(
                     data != null ? data.CombatContext : default,
                     origin,
-                    aimPoint,
                     out Vector3 softTargetPoint))
             {
                 aimPoint = softTargetPoint;
             }
 
-            _releaseContext = new ActionReleaseContext(aimPoint, aimPoint - origin);
+            return new ActionReleaseContext(aimPoint, aimPoint - origin);
         }
 
         /// <summary>
@@ -483,43 +567,22 @@ namespace Project.Core.StateMachine
         }
 
         /// <summary>
-        /// <see cref="ActionTargetingPolicy.CameraConeSoftTarget"/> 的修正判定：**只有**當 combat target
-        /// 落在瞄準方向前方的角錐內才改用它，否則維持 camera forward。
-        ///
-        /// 🔄 取代 2026-09-08 之前的 `TrySelectAimPoint`（那版無條件讓 combat target 壓過 aim point，
-        /// 等於所有 Action 都是 soft-target ⇒ 與 `docs/11` §8.3 的裁決相反）。
-        ///
-        /// **為什麼是水平角錐**：承諾同時餵給 facing（水平投影）與世界效果（3D）。垂直方向由相機俯仰
-        /// 主導、與「敵人在不在我正前方」無關，把它算進角錐只會讓低頭時吸不到人。
-        ///
-        /// **為什麼不另外查一次相機錐**：`docs/10` §3-D3 禁止新建 targeting service／目標列表。
-        /// combat context producer 已經是目標的唯一供應商，這裡只對它的結果加一道方向閘門。
+        /// <see cref="ActionTargetingPolicy.CameraConeSoftTarget"/> 只在 commitment boundary 消費
+        /// combat context producer 當幀算好的無記憶候選。range／cone／scoring 只存在於 producer；
+        /// ActionState 不重算選擇，也不在段落內追蹤。
         /// </summary>
         internal static bool TrySoftTarget(
             CombatContextData combatContext,
             Vector3 origin,
-            Vector3 aimPoint,
             out Vector3 targetPoint)
         {
             targetPoint = default;
-            if (!combatContext.HasTarget) return false;
+            if (!combatContext.HasSoftTarget) return false;
 
-            Vector3 aimDirection = aimPoint - origin;
-            Vector3 targetDirection = combatContext.TargetPosition - origin;
-            aimDirection.y = 0f;
-            targetDirection.y = 0f;
-            if (aimDirection.sqrMagnitude <= DirectionSqrEpsilon ||
-                targetDirection.sqrMagnitude <= DirectionSqrEpsilon)
-            {
-                return false;
-            }
+            Vector3 targetDirection = combatContext.SoftTargetPosition - origin;
+            if (targetDirection.sqrMagnitude <= DirectionSqrEpsilon) return false;
 
-            if (Vector3.Angle(aimDirection, targetDirection) > SoftTargetConeHalfAngleDegrees)
-            {
-                return false;
-            }
-
-            targetPoint = combatContext.TargetPosition;
+            targetPoint = combatContext.SoftTargetPosition;
             return true;
         }
 
@@ -531,7 +594,7 @@ namespace Project.Core.StateMachine
             if (_phaseElapsed < CurrentDuration() * normalizedTime) return;
 
             _releaseEmittedThisExecution = true;
-            ActiveLifecycleSink()?.Release(in _releaseContext);
+            NotifyRelease();
         }
 
         private float CurrentDuration()
@@ -566,15 +629,51 @@ namespace Project.Core.StateMachine
         {
             // 必須在 CommitCooldown／ResetExecutionState 清掉 _activeSlot 前查表；
             // 否則自然完成時會把 Cleanup 送到 None，重演冷卻曾踩過的同一個順序 bug。
-            ActiveLifecycleSink()?.Cleanup();
+            NotifyCleanup();
             CommitCooldown();
             ResetExecutionState();
         }
 
-        private IActionLifecycleSink ActiveLifecycleSink()
+        // =====================================================================
+        // Lifecycle 派送（🆕 2026-09-14：一個 slot 可以有多顆 sink）
+        //
+        // 三個方法刻意長得一模一樣，也刻意**不**抽成共用的 delegate 派送：
+        // `Release` 帶 `in` 參數，抽象化會讓它退化成裝箱或閉包配置，違反零 GC。
+        // 重複三個短迴圈比重複一次配置便宜。
+        //
+        // ⚠️ 每個方法都**先取本地變數再迴圈**：sink 在被通知期間不得改變自己的註冊，
+        //    而本地引用讓「即使清單被換掉，本次派送仍走完同一份快照」成為結構性保證。
+        // ⚠️ 用索引迴圈而非 foreach：CLAUDE.md 的熱路徑鐵律（介面型集合的 foreach 會裝箱）。
+        //    這裡靜態型別已是具體陣列、foreach 本可零配置，但統一寫法避免日後改型別時回歸。
+        // =====================================================================
+
+        private void NotifyBegin()
+        {
+            IActionLifecycleSink[] sinks = ActiveLifecycleSinks();
+            for (int i = 0; i < sinks.Length; i++) sinks[i]?.Begin();
+        }
+
+        private void NotifyRelease()
+        {
+            IActionLifecycleSink[] sinks = ActiveLifecycleSinks();
+            for (int i = 0; i < sinks.Length; i++) sinks[i]?.Release(in _effectContext);
+        }
+
+        private void NotifyCleanup()
+        {
+            IActionLifecycleSink[] sinks = ActiveLifecycleSinks();
+            for (int i = 0; i < sinks.Length; i++) sinks[i]?.Cleanup();
+        }
+
+        /// <summary>
+        /// 目前 slot 的 sink 清單。**恆不為 null**——空 slot 回 <see cref="Array.Empty{T}"/>，
+        /// 讓三個派送方法都不需要 null 判定（少一條每次都要記得寫對的分支）。
+        /// </summary>
+        private IActionLifecycleSink[] ActiveLifecycleSinks()
         {
             int index = (int)_activeSlot;
-            return index > 0 && index < _lifecycleSinks.Length ? _lifecycleSinks[index] : null;
+            if (index <= 0 || index >= _lifecycleSinks.Length) return Array.Empty<IActionLifecycleSink>();
+            return _lifecycleSinks[index] ?? Array.Empty<IActionLifecycleSink>();
         }
 
         /// <summary>
@@ -591,8 +690,13 @@ namespace Project.Core.StateMachine
         {
             if (_definition == null || _activeSlot == ActionSlot.None) return;
 
-            _cooldownEndTime[(int)_activeSlot] = ComputeCooldownEndTime(
-                Time.time, _definition.Cooldown, _definition.CooldownVariance, UnityEngine.Random.value);
+            float now = Time.time;
+            float endTime = ComputeCooldownEndTime(
+                now, _definition.Cooldown, _definition.CooldownVariance, UnityEngine.Random.value);
+
+            _cooldownEndTime[(int)_activeSlot] = endTime;
+            // 記下**這一次**實際用掉的長度，而不是 authored 的 `Cooldown`——見欄位註解。
+            _cooldownDuration[(int)_activeSlot] = Mathf.Max(0f, endTime - now);
         }
 
         /// <summary>
@@ -630,6 +734,7 @@ namespace Project.Core.StateMachine
             _chainIndex = 0;
             _chainQueued = false;
             _releaseContext = default;
+            _effectContext = default;
             _activeSlot = ActionSlot.None;
             _definition = null;
         }

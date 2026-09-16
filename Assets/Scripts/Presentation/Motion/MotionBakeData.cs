@@ -11,6 +11,523 @@ namespace Project.Presentation.Motion
         RightFootDown
     }
 
+    public enum TraversalHandContactMode
+    {
+        None = 0,
+        LeftHand,
+        RightHand,
+        BothHands,
+    }
+
+    /// <summary>
+    /// Per-animation collision mapping. V3 activates the center channel only; height/radius
+    /// remain explicit evidence-gated seams and are disabled by default.
+    /// </summary>
+    [System.Serializable]
+    public struct TraversalCollisionProfile
+    {
+        [SerializeField] private bool enableCenterShift;
+        [SerializeField] private AnimationCurve centerX;
+        [SerializeField] private AnimationCurve centerY;
+        [SerializeField] private AnimationCurve centerZ;
+
+        [Header("Reserved — enable only after C1 evidence")]
+        [SerializeField] private bool enableHeightAdjustment;
+        [SerializeField] private AnimationCurve heightScale;
+        [SerializeField] private bool enableRadiusAdjustment;
+        [SerializeField] private AnimationCurve radiusScale;
+
+        public bool EnableCenterShift => enableCenterShift;
+        public bool HeightAdjustmentReserved => enableHeightAdjustment;
+        public bool RadiusAdjustmentReserved => enableRadiusAdjustment;
+        public AnimationCurve HeightScaleCurve => heightScale;
+        public AnimationCurve RadiusScaleCurve => radiusScale;
+
+        public TraversalCollisionProfile(
+            bool enableCenterShift,
+            AnimationCurve centerX,
+            AnimationCurve centerY,
+            AnimationCurve centerZ)
+        {
+            this.enableCenterShift = enableCenterShift;
+            this.centerX = centerX;
+            this.centerY = centerY;
+            this.centerZ = centerZ;
+            enableHeightAdjustment = false;
+            heightScale = null;
+            enableRadiusAdjustment = false;
+            radiusScale = null;
+        }
+
+        public Vector3 EvaluateCenterOffset(float normalizedTime)
+        {
+            if (!enableCenterShift || !IsFinite(normalizedTime)) return Vector3.zero;
+            float time = Mathf.Clamp01(normalizedTime);
+            Vector3 value = new Vector3(
+                EvaluateFinite(centerX, time),
+                EvaluateFinite(centerY, time),
+                EvaluateFinite(centerZ, time));
+            return IsFinite(value) ? value : Vector3.zero;
+        }
+
+        private static float EvaluateFinite(AnimationCurve curve, float time)
+        {
+            if (curve == null || curve.length == 0) return 0f;
+            float value = curve.Evaluate(time);
+            return IsFinite(value) ? value : 0f;
+        }
+
+        private static bool IsFinite(Vector3 value) =>
+            IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
+
+        private static bool IsFinite(float value) =>
+            !float.IsNaN(value) && !float.IsInfinity(value);
+    }
+
+    [System.Serializable]
+    public struct TraversalBakedAnchor
+    {
+        [SerializeField] private float normalizedTime;
+        [SerializeField] private Vector3 rootLocalPosition;
+        [SerializeField] private float rootLocalYaw;
+        [SerializeField] private Vector3 leftHandInRoot;
+        [SerializeField] private Vector3 rightHandInRoot;
+        [SerializeField] private bool hasLeftHand;
+        [SerializeField] private bool hasRightHand;
+
+        public float NormalizedTime => normalizedTime;
+        public Vector3 RootLocalPosition => rootLocalPosition;
+        public float RootLocalYaw => rootLocalYaw;
+        public Vector3 LeftHandInRoot => leftHandInRoot;
+        public Vector3 RightHandInRoot => rightHandInRoot;
+        public bool HasLeftHand => hasLeftHand;
+        public bool HasRightHand => hasRightHand;
+        public bool IsFinite =>
+            IsFiniteValue(normalizedTime) && IsFiniteValue(rootLocalPosition) &&
+            IsFiniteValue(rootLocalYaw) && IsFiniteValue(leftHandInRoot) &&
+            IsFiniteValue(rightHandInRoot);
+
+        public TraversalBakedAnchor(
+            float normalizedTime,
+            Vector3 rootLocalPosition,
+            float rootLocalYaw,
+            Vector3 leftHandInRoot,
+            Vector3 rightHandInRoot,
+            bool hasLeftHand,
+            bool hasRightHand)
+        {
+            this.normalizedTime = normalizedTime;
+            this.rootLocalPosition = rootLocalPosition;
+            this.rootLocalYaw = rootLocalYaw;
+            this.leftHandInRoot = leftHandInRoot;
+            this.rightHandInRoot = rightHandInRoot;
+            this.hasLeftHand = hasLeftHand;
+            this.hasRightHand = hasRightHand;
+        }
+
+        private static bool IsFiniteValue(Vector3 value) =>
+            IsFiniteValue(value.x) && IsFiniteValue(value.y) && IsFiniteValue(value.z);
+
+        private static bool IsFiniteValue(float value) =>
+            !float.IsNaN(value) && !float.IsInfinity(value);
+    }
+
+    /// <summary>
+    /// Optional traversal authoring plus automatically sampled spatial data. Marker time/role
+    /// and humanoid bone choice are authored; root/hand transforms are bake outputs.
+    /// </summary>
+    [System.Serializable]
+    public struct TraversalHandIKWindow
+    {
+        [SerializeField] private bool enabled;
+        [SerializeField, Range(0f, 1f)] private float startNormalizedTime;
+        [SerializeField, Range(0f, 1f)] private float fullNormalizedTime;
+        [SerializeField, Range(0f, 1f)] private float releaseNormalizedTime;
+
+        public bool Enabled => enabled;
+        public float StartNormalizedTime => startNormalizedTime;
+        public float FullNormalizedTime => fullNormalizedTime;
+        public float ReleaseNormalizedTime => releaseNormalizedTime;
+        public bool IsValid =>
+            enabled && IsNormalized(startNormalizedTime) && IsNormalized(fullNormalizedTime) &&
+            IsNormalized(releaseNormalizedTime) && startNormalizedTime <= fullNormalizedTime &&
+            fullNormalizedTime <= releaseNormalizedTime;
+
+        public TraversalHandIKWindow(
+            bool enabled,
+            float startNormalizedTime,
+            float fullNormalizedTime,
+            float releaseNormalizedTime)
+        {
+            this.enabled = enabled;
+            this.startNormalizedTime = startNormalizedTime;
+            this.fullNormalizedTime = fullNormalizedTime;
+            this.releaseNormalizedTime = releaseNormalizedTime;
+        }
+
+        /// <summary>
+        /// Pure deterministic 0→1→hold→0 envelope. Release starts the fade; the authored Exit
+        /// marker is its zero endpoint so IK cannot survive into Recovery.
+        /// </summary>
+        public float Evaluate(float normalizedTime, float exitNormalizedTime)
+        {
+            if (!IsValid || !IsNormalized(normalizedTime) || !IsNormalized(exitNormalizedTime) ||
+                exitNormalizedTime < releaseNormalizedTime)
+            {
+                return 0f;
+            }
+
+            // ⭐ 2026-09-13：淡出終點原本**直接用 Exit marker**。那對 `Climb2m` 是災難——
+            //    即使最晚到 transfer(0.269) 才放開，exit 卻在 0.833 ⇒ 淡出長達整支 clip 的
+            //    56%（約 2 秒），
+            //    手會被黏在邊緣上跟著身體往上拖。
+            //    改為**淡出與淡入等長**（對稱，不引入新的 authored 數字），再用 Exit 夾住上限
+            //    ——「IK 不得存活到 Recovery」這個保證原樣成立。
+            float fadeSpan = Mathf.Max(0f, fullNormalizedTime - startNormalizedTime);
+            float fadeEnd = Mathf.Min(exitNormalizedTime, releaseNormalizedTime + fadeSpan);
+
+            if (normalizedTime <= startNormalizedTime || normalizedTime >= exitNormalizedTime)
+                return 0f;
+            if (normalizedTime < fullNormalizedTime)
+                return Smooth01(Mathf.InverseLerp(startNormalizedTime, fullNormalizedTime, normalizedTime));
+            if (normalizedTime <= releaseNormalizedTime) return 1f;
+            if (normalizedTime >= fadeEnd) return 0f;
+            return 1f - Smooth01(Mathf.InverseLerp(
+                releaseNormalizedTime, fadeEnd, normalizedTime));
+        }
+
+        private static float Smooth01(float value)
+        {
+            value = Mathf.Clamp01(value);
+            return value * value * (3f - 2f * value);
+        }
+
+        private static bool IsNormalized(float value) =>
+            !float.IsNaN(value) && !float.IsInfinity(value) && value >= 0f && value <= 1f;
+    }
+
+    /// <summary>
+    /// Bake-time humanoid geometry converted into a root-local support correction curve.
+    /// The runtime plan only evaluates this data; it never reads Animator bones or performs Physics queries.
+    /// </summary>
+    [System.Serializable]
+    public struct TraversalRootReachConstraint
+    {
+        [SerializeField] private bool enabled;
+        [SerializeField, Range(0f, 1f)] private float maximumReachRatio;
+        [SerializeField, Range(0f, 1f)] private float anchorReleaseNormalizedTime;
+        [SerializeField, Range(0f, 1f)] private float correctionEndNormalizedTime;
+        [SerializeField] private AnimationCurve localX;
+        [SerializeField] private AnimationCurve localY;
+        [SerializeField] private AnimationCurve localZ;
+
+        public bool Enabled => enabled;
+        public float MaximumReachRatio => maximumReachRatio;
+        public float AnchorReleaseNormalizedTime => anchorReleaseNormalizedTime;
+        public float CorrectionEndNormalizedTime => correctionEndNormalizedTime;
+        public bool IsValid =>
+            enabled && IsFinite(maximumReachRatio) && maximumReachRatio > 0f &&
+            maximumReachRatio < 1f && IsNormalized(anchorReleaseNormalizedTime) &&
+            IsNormalized(correctionEndNormalizedTime) &&
+            correctionEndNormalizedTime >= anchorReleaseNormalizedTime &&
+            HasFiniteKeys(localX) && HasFiniteKeys(localY) && HasFiniteKeys(localZ);
+
+        public TraversalRootReachConstraint(
+            float maximumReachRatio,
+            float anchorReleaseNormalizedTime,
+            float correctionEndNormalizedTime,
+            AnimationCurve localX,
+            AnimationCurve localY,
+            AnimationCurve localZ)
+        {
+            enabled = true;
+            this.maximumReachRatio = maximumReachRatio;
+            this.anchorReleaseNormalizedTime = anchorReleaseNormalizedTime;
+            this.correctionEndNormalizedTime = correctionEndNormalizedTime;
+            this.localX = localX;
+            this.localY = localY;
+            this.localZ = localZ;
+        }
+
+        public Vector3 Evaluate(float normalizedTime)
+        {
+            if (!IsValid || !IsNormalized(normalizedTime)) return Vector3.zero;
+            float n = Mathf.Clamp01(normalizedTime);
+            return new Vector3(localX.Evaluate(n), localY.Evaluate(n), localZ.Evaluate(n));
+        }
+
+        private static bool HasFiniteKeys(AnimationCurve curve)
+        {
+            if (curve == null || curve.length == 0) return false;
+            for (int i = 0; i < curve.length; i++)
+            {
+                Keyframe key = curve[i];
+                if (!IsFinite(key.time) || !IsFinite(key.value) ||
+                    !IsFinite(key.inTangent) || !IsFinite(key.outTangent))
+                    return false;
+            }
+            return true;
+        }
+
+        private static bool IsNormalized(float value) =>
+            IsFinite(value) && value >= 0f && value <= 1f;
+
+        private static bool IsFinite(float value) =>
+            !float.IsNaN(value) && !float.IsInfinity(value);
+    }
+
+    [System.Serializable]
+    public struct TraversalMotionBakeBlock
+    {
+        [SerializeField] private bool enabled;
+        [SerializeField] private TraversalHandContactMode contactMode;
+        [SerializeField] private HumanBodyBones leftHandBone;
+        [SerializeField] private HumanBodyBones rightHandBone;
+        [SerializeField, Range(0f, 1f)] private float leftHandContactNormalizedTime;
+        [SerializeField, Range(0f, 1f)] private float rightHandContactNormalizedTime;
+        [SerializeField, Range(0f, 1f)] private float transferNormalizedTime;
+        [SerializeField, Range(0f, 1f)] private float exitNormalizedTime;
+        [SerializeField, Range(0f, 1f)] private float recoveryNormalizedTime;
+        [SerializeField, Min(0f)] private float requiredVerticalClearance;
+
+        [Header("Hand IK quality pass — authored; optional")]
+        [SerializeField] private bool handIKEnabled;
+        [SerializeField] private TraversalHandIKWindow leftHandIKWindow;
+        [SerializeField] private TraversalHandIKWindow rightHandIKWindow;
+        [SerializeField, Range(0f, 1f)] private float handIKRotationWeight;
+        [SerializeField] private TraversalRootReachConstraint rootReachConstraint;
+
+        [Header("Automatically sampled — do not hand author")]
+        [Header("Grip edge — 動畫自身的邊緣在 root 空間的位置（自動測出）")]
+        [SerializeField] private Vector3 leftGripEdgeInRoot;
+        [SerializeField] private Vector3 rightGripEdgeInRoot;
+        [SerializeField] private bool hasGripEdges;
+
+        [SerializeField] private TraversalBakedAnchor entryAnchor;
+        [SerializeField] private TraversalBakedAnchor leftContactAnchor;
+        [SerializeField] private TraversalBakedAnchor rightContactAnchor;
+        [SerializeField] private TraversalBakedAnchor transferAnchor;
+        [SerializeField] private TraversalBakedAnchor exitAnchor;
+        [SerializeField] private TraversalBakedAnchor recoveryAnchor;
+
+        public bool Enabled => enabled;
+        public TraversalHandContactMode ContactMode => contactMode;
+        public HumanBodyBones LeftHandBone => leftHandBone;
+        public HumanBodyBones RightHandBone => rightHandBone;
+        public float LeftHandContactNormalizedTime => leftHandContactNormalizedTime;
+        public float RightHandContactNormalizedTime => rightHandContactNormalizedTime;
+        public float TransferNormalizedTime => transferNormalizedTime;
+        public float ExitNormalizedTime => exitNormalizedTime;
+        public float RecoveryNormalizedTime => recoveryNormalizedTime;
+        public float RequiredVerticalClearance => requiredVerticalClearance;
+        public bool HandIKEnabled => handIKEnabled;
+        public TraversalHandIKWindow LeftHandIKWindow => leftHandIKWindow;
+        public TraversalHandIKWindow RightHandIKWindow => rightHandIKWindow;
+        public float HandIKRotationWeight => IsFinite(handIKRotationWeight)
+            ? Mathf.Clamp01(handIKRotationWeight)
+            : 0f;
+        public bool HasValidHandIK =>
+            handIKEnabled && (!UsesLeftHand || leftHandIKWindow.IsValid) &&
+            (!UsesRightHand || rightHandIKWindow.IsValid);
+        public TraversalRootReachConstraint RootReachConstraint => rootReachConstraint;
+        public bool HasValidRootReachConstraint => rootReachConstraint.IsValid;
+        public TraversalBakedAnchor EntryAnchor => entryAnchor;
+        public TraversalBakedAnchor LeftContactAnchor => leftContactAnchor;
+        public TraversalBakedAnchor RightContactAnchor => rightContactAnchor;
+        public TraversalBakedAnchor TransferAnchor => transferAnchor;
+        public TraversalBakedAnchor ExitAnchor => exitAnchor;
+        public TraversalBakedAnchor RecoveryAnchor => recoveryAnchor;
+
+        public bool UsesLeftHand =>
+            contactMode == TraversalHandContactMode.LeftHand ||
+            contactMode == TraversalHandContactMode.BothHands;
+        public bool UsesRightHand =>
+            contactMode == TraversalHandContactMode.RightHand ||
+            contactMode == TraversalHandContactMode.BothHands;
+
+        public bool HasValidAuthoredMarkers
+        {
+            get
+            {
+                if (!enabled || contactMode == TraversalHandContactMode.None ||
+                    !IsNormalized(transferNormalizedTime) || !IsNormalized(exitNormalizedTime) ||
+                    !IsNormalized(recoveryNormalizedTime) || transferNormalizedTime >= exitNormalizedTime ||
+                    exitNormalizedTime > recoveryNormalizedTime || !IsFinite(requiredVerticalClearance) ||
+                    requiredVerticalClearance < 0f)
+                {
+                    return false;
+                }
+
+                float latestContact = 0f;
+                if (UsesLeftHand)
+                {
+                    if (!IsNormalized(leftHandContactNormalizedTime)) return false;
+                    latestContact = leftHandContactNormalizedTime;
+                }
+                if (UsesRightHand)
+                {
+                    if (!IsNormalized(rightHandContactNormalizedTime)) return false;
+                    if (contactMode == TraversalHandContactMode.BothHands &&
+                        rightHandContactNormalizedTime < leftHandContactNormalizedTime)
+                    {
+                        return false;
+                    }
+                    latestContact = Mathf.Max(latestContact, rightHandContactNormalizedTime);
+                }
+                return latestContact < transferNormalizedTime;
+            }
+        }
+
+        public bool HasValidBakedData =>
+            HasValidAuthoredMarkers && entryAnchor.IsFinite && leftContactAnchor.IsFinite &&
+            rightContactAnchor.IsFinite && transferAnchor.IsFinite && exitAnchor.IsFinite &&
+            recoveryAnchor.IsFinite && (!UsesLeftHand || leftContactAnchor.HasLeftHand) &&
+            (!UsesRightHand || rightContactAnchor.HasRightHand);
+
+        public TraversalMotionBakeBlock(
+            bool enabled,
+            TraversalHandContactMode contactMode,
+            HumanBodyBones leftHandBone,
+            HumanBodyBones rightHandBone,
+            float leftHandContactNormalizedTime,
+            float rightHandContactNormalizedTime,
+            float transferNormalizedTime,
+            float exitNormalizedTime,
+            float recoveryNormalizedTime,
+            float requiredVerticalClearance)
+        {
+            this.enabled = enabled;
+            this.contactMode = contactMode;
+            this.leftHandBone = leftHandBone;
+            this.rightHandBone = rightHandBone;
+            this.leftHandContactNormalizedTime = leftHandContactNormalizedTime;
+            this.rightHandContactNormalizedTime = rightHandContactNormalizedTime;
+            this.transferNormalizedTime = transferNormalizedTime;
+            this.exitNormalizedTime = exitNormalizedTime;
+            this.recoveryNormalizedTime = recoveryNormalizedTime;
+            this.requiredVerticalClearance = requiredVerticalClearance;
+            handIKEnabled = false;
+            leftHandIKWindow = default;
+            rightHandIKWindow = default;
+            handIKRotationWeight = 0f;
+            rootReachConstraint = default;
+            leftGripEdgeInRoot = Vector3.zero;
+            rightGripEdgeInRoot = Vector3.zero;
+            hasGripEdges = false;
+            entryAnchor = default;
+            leftContactAnchor = default;
+            rightContactAnchor = default;
+            transferAnchor = default;
+            exitAnchor = default;
+            recoveryAnchor = default;
+        }
+
+        public TraversalMotionBakeBlock(
+            bool enabled,
+            TraversalHandContactMode contactMode,
+            HumanBodyBones leftHandBone,
+            HumanBodyBones rightHandBone,
+            float leftHandContactNormalizedTime,
+            float rightHandContactNormalizedTime,
+            float transferNormalizedTime,
+            float exitNormalizedTime,
+            float recoveryNormalizedTime,
+            float requiredVerticalClearance,
+            bool handIKEnabled,
+            TraversalHandIKWindow leftHandIKWindow,
+            TraversalHandIKWindow rightHandIKWindow,
+            float handIKRotationWeight)
+            : this(
+                enabled,
+                contactMode,
+                leftHandBone,
+                rightHandBone,
+                leftHandContactNormalizedTime,
+                rightHandContactNormalizedTime,
+                transferNormalizedTime,
+                exitNormalizedTime,
+                recoveryNormalizedTime,
+                requiredVerticalClearance)
+        {
+            this.handIKEnabled = handIKEnabled;
+            this.leftHandIKWindow = leftHandIKWindow;
+            this.rightHandIKWindow = rightHandIKWindow;
+            this.handIKRotationWeight = handIKRotationWeight;
+        }
+
+        /// <summary>
+        /// 🆕（docs/22 §17）**動畫自己那個「邊緣」在 root 空間的位置**（接觸瞬間，yaw-only）。
+        ///
+        /// 為什麼需要它：對齊**手腕**是錯的。實測 `Climb2m` 的抓握格，手腕在動畫自身平台頂面
+        /// **下方 16.3 cm、後方 10.3 cm**——因為抓握時四指扣在頂面、拇指按在牆面，手腕自然垂在下面。
+        /// 把手腕釘到真實邊緣上，等於把整個角色抬高 16 cm 並往前推 10 cm（＝穿模 ＋ 手的高度不準）。
+        ///
+        /// 改成對齊這個點之後，**整隻手的 authored 姿勢（五指與拇指）會原樣落位**，
+        /// 不需要逐指調整。X 取手腕自身的橫向座標，因此左右手分佈仍由 ledge interval 決定。
+        /// </summary>
+        public Vector3 LeftGripEdgeInRoot => leftGripEdgeInRoot;
+        public Vector3 RightGripEdgeInRoot => rightGripEdgeInRoot;
+        public bool HasGripEdges => hasGripEdges;
+
+        public TraversalMotionBakeBlock WithHandGripEdges(Vector3 left, Vector3 right)
+        {
+            leftGripEdgeInRoot = left;
+            rightGripEdgeInRoot = right;
+            hasGripEdges = IsFiniteVector(left) && IsFiniteVector(right);
+            return this;
+        }
+
+        /// <summary>
+        /// 🆕（docs/24 §14）把 Hand IK 的接觸窗寫進 block。
+        ///
+        /// 窗的語意 ＝「**動畫說手黏在上面的期間**」，因此由 <c>TraversalContactDerivation</c>
+        /// 測出來的 plant 直接換算，不是人填的。Root warp 只在接觸那**一格**把身體對齊，
+        /// 其餘每一格的手是由這個窗釘住的——沒有它，手就只能跟著動畫在真實牆面上穿進穿出。
+        /// </summary>
+        public TraversalMotionBakeBlock WithHandIK(
+            TraversalHandIKWindow left, TraversalHandIKWindow right, float rotationWeight)
+        {
+            leftHandIKWindow = left;
+            rightHandIKWindow = right;
+            handIKRotationWeight = rotationWeight;
+            handIKEnabled = (!UsesLeftHand || left.IsValid) && (!UsesRightHand || right.IsValid);
+            return this;
+        }
+
+        public TraversalMotionBakeBlock WithRootReachConstraint(
+            in TraversalRootReachConstraint constraint)
+        {
+            rootReachConstraint = constraint;
+            return this;
+        }
+
+        private static bool IsFiniteVector(Vector3 value) =>
+            IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
+
+        public TraversalMotionBakeBlock WithBakedAnchors(
+            TraversalBakedAnchor entry,
+            TraversalBakedAnchor leftContact,
+            TraversalBakedAnchor rightContact,
+            TraversalBakedAnchor transfer,
+            TraversalBakedAnchor exit,
+            TraversalBakedAnchor recovery)
+        {
+            entryAnchor = entry;
+            leftContactAnchor = leftContact;
+            rightContactAnchor = rightContact;
+            transferAnchor = transfer;
+            exitAnchor = exit;
+            recoveryAnchor = recovery;
+            return this;
+        }
+
+        private static bool IsNormalized(float value) =>
+            IsFinite(value) && value >= 0f && value <= 1f;
+
+        private static bool IsFinite(float value) =>
+            !float.IsNaN(value) && !float.IsInfinity(value);
+    }
+
     [CreateAssetMenu(fileName = "MotionBakeData", menuName = "Project/Motion/BakeData")]
     public class MotionBakeData : ScriptableObject
     {
@@ -25,6 +542,12 @@ namespace Project.Presentation.Motion
         [Header("物理特徵曲線 (X軸為實際時間/秒)")]
         [Tooltip("瞬時速度曲線 (m/s)")]
         public AnimationCurve SpeedCurve;
+
+        [Tooltip("相對動畫第一幀的垂直位移曲線 (m)")]
+        public AnimationCurve VerticalCurve;
+
+        [Header("Traversal V3 — optional authored markers + baked spatial samples")]
+        public TraversalMotionBakeBlock Traversal;
 
         [Tooltip("連續累計偏航角曲線 (Degrees)")]
         public AnimationCurve RotationCurve;
@@ -113,6 +636,224 @@ namespace Project.Presentation.Motion
         {
             if (SpeedCurve == null || SpeedCurve.length == 0) return 0f;
             return SpeedCurve.Evaluate(time);
+        }
+
+        /// <summary>取得相對動畫第一幀的垂直位移；舊資產沒有曲線時安全退化為 0。</summary>
+        public float GetVerticalAt(float time)
+        {
+            if (VerticalCurve == null || VerticalCurve.length == 0) return 0f;
+            return VerticalCurve.Evaluate(time);
+        }
+
+        /// <summary>
+        /// 垂直位移「不再變化」的容差（公尺）。這是**數值定義**而非可調參數：
+        /// 三支 traversal bake 的尾段 <see cref="VerticalCurve"/> 是精確的常數平台
+        /// （Climb1m ＝ 1.0134075 重複、Climb2m ＝ 1.978 重複、Vault1m ＝ 0 重複），
+        /// 因此只需要一個浮點雜訊等級的 epsilon，不需要百分比門檻。
+        /// </summary>
+        private const float VerticalSettleEpsilon = 1e-4f;
+
+        /// <summary>
+        /// 🆕（docs/23 §R1／§E-2 缺陷③）**由資料推導的垂直動作結束時刻**（normalized 0–1）。
+        ///
+        /// 回傳 <see cref="VerticalCurve"/> 最後一次實際改變之後的第一個取樣點——亦即動畫自己
+        /// 「爬完了」的時刻。三支正式 bake 實測：Vault1m ≈ 0.48、Climb1m ≈ 0.585、Climb2m ≈ 0.45，
+        /// 其後分別有 52%／41.5%／55% 的 clip 是站定或跑出。
+        ///
+        /// 用途：traversal 的 correction 窗預設收斂到這個時刻，而不是 author 一個涵蓋整支 clip 的
+        /// 常數（舊預設 0.8）。**這不是 tuning 值，是從 bake 讀出來的事實。**
+        /// 曲線缺失／全程都在變化時回傳 1（＝退化為「整段都是動作」，行為與舊版一致）。
+        /// </summary>
+        public float GetVerticalSettleNormalizedTime()
+        {
+            float duration = Duration;
+            if (VerticalCurve == null || VerticalCurve.length < 2 ||
+                float.IsNaN(duration) || float.IsInfinity(duration) || duration <= 0f)
+            {
+                return 1f;
+            }
+
+            int lastIndex = VerticalCurve.length - 1;
+            float finalValue = VerticalCurve[lastIndex].value;
+            if (float.IsNaN(finalValue) || float.IsInfinity(finalValue)) return 1f;
+
+            // 由後往前找最後一個「值仍與終值不同」的樣本；它的下一個樣本就是平台起點。
+            for (int i = lastIndex; i >= 0; i--)
+            {
+                float value = VerticalCurve[i].value;
+                if (float.IsNaN(value) || float.IsInfinity(value)) return 1f;
+                if (Mathf.Abs(value - finalValue) <= VerticalSettleEpsilon) continue;
+
+                if (i >= lastIndex) return 1f;
+                float settleTime = VerticalCurve[i + 1].time;
+                if (float.IsNaN(settleTime) || float.IsInfinity(settleTime)) return 1f;
+                return Mathf.Clamp01(settleTime / duration);
+            }
+
+            // 整條曲線都等於終值（例如完全沒有垂直位移）：沒有垂直動作可等。
+            return 0f;
+        }
+
+        /// <summary>
+        /// 🆕（docs/22 §14.5／Phase 2）**這支動畫希望角色從離邊緣多遠的地方進場**（公尺）。
+        ///
+        /// 推導自動畫自己的兩個量，沒有任何手填常數：
+        /// <code>
+        /// 進場距離 = 接觸瞬間「手相對 root 的前伸距離」 + 「root 到該瞬間已走的水平位移」
+        /// </code>
+        /// 理由：手要落在邊緣上，接觸當下 root 就必須退在邊緣後方剛好一個手臂前伸距離；
+        /// 而 root 在接觸前已經自己往前走了一段，所以進場點要再往後推那一段。
+        ///
+        /// 實測：`Climb2m` ≈ 0.36 m（原地起攀，root 在接觸前不前進）、
+        /// `Vault1m` ≈ 1.29 m（跑動翻越，接觸前已跑 0.57 m）。
+        /// **同一個全域常數服務不了兩者**——這正是把它下放到 bake 的原因。
+        /// </summary>
+        public bool TryGetDesiredEntryDistance(out float distance)
+        {
+            distance = float.NaN;
+            float duration = Duration;
+            if (!Traversal.HasValidBakedData ||
+                float.IsNaN(duration) || float.IsInfinity(duration) || duration <= 0f)
+            {
+                return false;
+            }
+
+            // ⚠️ **必須與 TraversalPlanBuilder 的 root solve 用同一個基準點。**
+            //    2026-09-13 的實測 bug：solve 改用 grip edge（抓握邊緣）之後，這裡仍用手腕前伸距離，
+            //    兩者相差 10.2 cm（Climb2m 手腕 0.359 / grip edge 0.461）
+            //    ⇒ **玩家就算站在「理想距離」也會在接觸瞬間被硬拉 10.7 cm**，
+            //    站偏一點就變成 30 cm 的猛拉。基準不一致比基準不準更糟。
+            float total = 0f;
+            int count = 0;
+            if (Traversal.UsesLeftHand &&
+                TryAccumulateEntryDistance(
+                    Traversal.LeftHandContactNormalizedTime,
+                    Traversal.HasGripEdges
+                        ? Traversal.LeftGripEdgeInRoot.z
+                        : Traversal.LeftContactAnchor.LeftHandInRoot.z,
+                    duration, ref total))
+            {
+                count++;
+            }
+            if (Traversal.UsesRightHand &&
+                TryAccumulateEntryDistance(
+                    Traversal.RightHandContactNormalizedTime,
+                    Traversal.HasGripEdges
+                        ? Traversal.RightGripEdgeInRoot.z
+                        : Traversal.RightContactAnchor.RightHandInRoot.z,
+                    duration, ref total))
+            {
+                count++;
+            }
+            if (count == 0) return false;
+
+            float value = total / count;
+            if (float.IsNaN(value) || float.IsInfinity(value) || value <= 0f) return false;
+            distance = value;
+            return true;
+        }
+
+        /// <summary>
+        /// 🆕（docs/22 §18）**這支動畫自然會停在邊緣內側多遠**（公尺）。
+        ///
+        /// <code>自然落點深度 = 動畫在 Exit marker 當下的水平位移 − 理想進場距離</code>
+        ///
+        /// 為什麼需要：Probe 的 <c>Vault1mMaxDepth</c>（0.6 m）是**探測用的距離**——
+        /// 拿來找落腳面在哪。把它直接當成 committed 終點，等於要求角色比動畫自然落點多走一段：
+        /// `Climb2m` 自然停在 0.213 m，卻被要求走到 0.600 m ⇒ **放手之後還要被往前推 0.39 m**，
+        /// 那段位移動畫裡沒有，看起來就是腳在滑。
+        ///
+        /// ⚠️ **必須量在 Exit marker，不是量在 clip 結尾**（2026-09-13 修正，docs/24 §11）。
+        /// 這個值唯一的消費者是 warp plan 的 **Exit knot**，而那個 knot 在
+        /// <c>Traversal.ExitNormalizedTime</c> 觸發。量在結尾等於拿「動畫最後會走到哪」
+        /// 去要求「動畫在 exit 當下就要到那裡」：
+        /// `Vault1m` 結尾 3.259 m ⇒ 舊值 1.857 m，但 exit(0.460) 當下只走到 2.519 m ⇒ 實際只有 1.116 m，
+        /// 差的 0.74 m 全部變成 exit correction 把角色往前扯。
+        /// （`Climb2m` 的 exit 之後是靜止站姿，兩種量法同值 0.213，因此舊 bug 只在 Vault 顯現——
+        /// 又一次「兩處用了不同基準」，與 §18.2 同型。）
+        /// </summary>
+        public bool TryGetNaturalExitDepth(out float depth)
+        {
+            depth = float.NaN;
+            if (!TryGetDesiredEntryDistance(out float entryDistance)) return false;
+
+            float duration = Duration;
+            if (float.IsNaN(duration) || float.IsInfinity(duration) || duration <= 0f) return false;
+
+            float exitNormalized = Traversal.ExitNormalizedTime;
+            float exitTime = float.IsNaN(exitNormalized) || float.IsInfinity(exitNormalized) ||
+                             exitNormalized <= 0f
+                ? duration
+                : Mathf.Clamp01(exitNormalized) * duration;
+
+            float travelled = GetHorizontalDisplacementAt(exitTime);
+            if (float.IsNaN(travelled) || float.IsInfinity(travelled)) return false;
+            float value = travelled - entryDistance;
+            if (float.IsNaN(value) || float.IsInfinity(value)) return false;
+            depth = value;
+            return true;
+        }
+
+        private bool TryAccumulateEntryDistance(
+            float contactNormalizedTime, float handForwardReach, float duration, ref float total)
+        {
+            if (float.IsNaN(contactNormalizedTime) || float.IsInfinity(contactNormalizedTime) ||
+                float.IsNaN(handForwardReach) || float.IsInfinity(handForwardReach))
+            {
+                return false;
+            }
+            float travelled = GetHorizontalDisplacementAt(
+                Mathf.Clamp01(contactNormalizedTime) * duration);
+            if (float.IsNaN(travelled) || float.IsInfinity(travelled)) return false;
+            total += handForwardReach + travelled;
+            return true;
+        }
+
+        /// <summary>
+        /// 將 SpeedCurve 以相鄰烘焙樣本的梯形積分轉成累計水平位移。
+        /// Traversal V2 用同一個絕對取樣函式計算前後 warped pose，避免逐幀補償累積誤差。
+        /// </summary>
+        public float GetHorizontalDisplacementAt(float time)
+        {
+            if (SpeedCurve == null || SpeedCurve.length == 0 ||
+                float.IsNaN(time) || float.IsInfinity(time) || time <= 0f)
+            {
+                return 0f;
+            }
+
+            float endTime = Mathf.Min(time, Duration);
+            if (endTime <= 0f) return 0f;
+
+            Keyframe previous = SpeedCurve[0];
+            float distance = 0f;
+            if (SpeedCurve.length == 1)
+                return Mathf.Max(0f, previous.value) * endTime;
+
+            for (int i = 1; i < SpeedCurve.length; i++)
+            {
+                Keyframe current = SpeedCurve[i];
+                if (current.time <= previous.time)
+                {
+                    previous = current;
+                    continue;
+                }
+
+                float segmentEnd = Mathf.Min(endTime, current.time);
+                if (segmentEnd > previous.time)
+                {
+                    float t = (segmentEnd - previous.time) / (current.time - previous.time);
+                    float endSpeed = Mathf.Lerp(previous.value, current.value, t);
+                    distance += 0.5f * (Mathf.Max(0f, previous.value) + Mathf.Max(0f, endSpeed)) *
+                                (segmentEnd - previous.time);
+                }
+
+                if (endTime <= current.time) return distance;
+                previous = current;
+            }
+
+            if (endTime > previous.time)
+                distance += Mathf.Max(0f, previous.value) * (endTime - previous.time);
+            return distance;
         }
 
         /// <summary>
