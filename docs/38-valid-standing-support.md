@@ -630,3 +630,322 @@ if (bMustJump || CanWalkOffLedges())
 
 **若要連浮空一起解，得讓 Foot IK 的閘門不要直接用 `IsGrounded`**，
 而那會動到 Foot IK 鐵律，屬另一個獨立裁決。
+
+---
+
+## 12. ⛔ 方案⑤ Temporary Collision Release —— **實測後判定不值得採用**（2026-09-17）
+
+> **狀態：REJECTED。** 這一節不是「還要再調一下」，是**這條路的形狀本身有問題**。
+> 全部數據來自 throwaway PlayMode spike `TemporaryCollisionReleaseSpike.cs`（10 條，已刪）。
+> ⛔ **沒有實作任何 release 邏輯**；`requireValidStandingSupport` 仍為 `false`，程式與資產零改動。
+
+**構想**：support 已失效但大膠囊仍卡在 ledge corner 時，**短暫縮小** CharacterController 的
+collision radius，讓重力自然把角色帶離邊角；真正離開後再安全恢復。
+比 §10.5 的方案③好在「不主動推角色」——位移由重力產生，不是新的移動權威。
+
+### 12.1 先查成熟參考實作
+
+#### Unreal：`Crouch` / `UnCrouch` 的實際 source chain
+
+原碼（`CharacterMovementComponent.cpp`）。**重點不是 crouch gameplay，是 resize 的協定：**
+
+```cpp
+// UnCrouch()
+bool bUpdateOverlaps = false;                          // ① 先用「不觸發 overlap 事件」的方式長回去
+CapsuleComponent->SetCapsuleSize(DefaultRadius, DefaultHalfHeight, bUpdateOverlaps);
+CapsuleComponent->UpdateBounds();                      //    強制更新 bounds 才能測
+
+const float SweepInflation = KINDA_SMALL_NUMBER * 10.f;
+const FCollisionShape StandingCapsuleShape =
+    GetPawnCapsuleCollisionShape(SHRINK_HeightCustom, -SweepInflation);  // ② 刻意**再放大一點**才測
+
+bEncroached = GetWorld()->OverlapTest(StandingLocation, ..., StandingCapsuleShape, ...);
+if (bEncroached)
+{
+    if (IsMovingOnGround() && CurrentFloor.bBlockingHit && CurrentFloor.FloorDist > MinFloorDist)
+    {
+        StandingLocation.Z -= CurrentFloor.FloorDist - MinFloorDist;   // ③ 先試著往地板靠一點再測
+        bEncroached = GetWorld()->OverlapTest(StandingLocation, ...);
+    }
+}
+if (bEncroached)                                        // ④ 還是不行 ⇒ **整個放棄，尺寸退回去**
+{
+    CapsuleComponent->SetCapsuleSize(Radius, OldUnscaledHalfHeight, false);
+    CapsuleComponent->UpdateBounds();
+    return;                                             //    ⑤ 沒有任何 depenetration、沒有強制擠出
+}
+```
+
+七個問題的答案：
+
+| 問題 | UE 的答案 |
+|---|---|
+| runtime capsule resize | `SetCapsuleSize(radius, halfHeight, bUpdateOverlaps)` ＋ `UpdateBounds()` |
+| 恢復前怎麼測 clearance | **投機性先長大 → `OverlapTest` → 不行就退回**。測的形狀**再 inflate 一點**（`-SweepInflation`）以免剛好停在貼面 |
+| center / half-height 怎麼處理 | `bCrouchMaintainsBaseLocation` ⇒ 位置補 `±ScaledHalfHeightAdjust`，讓**膠囊底部**不動。⭐ **radius 改變完全不需要補位置** |
+| 空間不足怎麼辦 | **什麼都不做，直接 `return`** |
+| 允許延後恢復嗎 | ✅ **是，而且延後就是唯一機制**：`PerformMovement` 每個 tick 都跑 `if ((!bAllowedToCrouch or !bWantsToCrouch) && IsCrouching()) UnCrouch(false);` ⇒ 這一帧失敗，下一帧再試 |
+| depenetration 是不是主要手段 | ⛔ **不是，連保底都不是。** UnCrouch 路徑上沒有任何 depenetration 呼叫；`ResolvePenetration` 只在 `SafeMoveUpdatedComponent` 的 `bStartPenetrating` 時出現 |
+| 有沒有「先掃到地板再站起來」 | 有：`SweepSingle(ShortCapsuleShape)` 往下掃找底，再 `OverlapTest(NewLoc)` —— 但那是 `!bCrouchMaintainsBaseLocation` 分支 |
+
+#### Unity `OpenCharacterController`（Standard Assets，已停更）
+
+`SetHeight(height, preserveFootPosition, ...)` 前面擋一道 `CanSetHeight()`；
+`ValidateHeight()` 把高度夾到 **≥ 2 × radius**；resize 後走自己的 `Depenetrate()` 補救。
+⇒ 形狀與 UE 一致（**先問能不能，再改**），但它的 depenetration 角色比 UE 重——
+因為它是自己重寫的 solver，有權直接搬位置。**我們沒有那個權力**（`CharacterController.Move()` 是黑箱）。
+
+#### 本專案現有的 collider authority（第 2、8 題）
+
+| | 位置 | 現況 |
+|---|---|---|
+| **`radius` / `height` 的執行期寫入者** | `MotionDriver.RestoreTraversalCollisionProfile()`（`MotionDriver.cs:885-886`） | ⭐ **執行期目前沒有任何東西真的改過它們**——那兩行只是把 `BeginTraversalCollisionProfile` 擷取的 authored 值寫回。`TraversalCollisionProfile` 目前**只驅動 `center`**（原碼註解：「C1 is the first active channel. C2/C3 remain explicit serialized seams」） |
+| **`center` 的執行期寫入者** | 全部在 `MotionDriver` 內，共三個：authored 基準 `_capsuleBaseCenter`／Capsule Offset V2（`UpdateCapsuleOffset`）／traversal profile（`ApplyTraversalCollisionProfile`） | 兩道 guard 保證不同時作用 |
+| **編輯期 authority** | `Assets/Scripts/Editor/Tools/CharacterCapsuleFitter.cs:148-150` | 唯一寫 authored 三件套的地方 |
+| **snapshot / authored baseline** | `MotionDriver.CaptureCapsuleBaseCenter()` → `_capsuleBaseCenter` / `_capsuleBaseRadius` / `_capsuleBaseHeight` | ✅ **已經存在**，不需要新建 |
+| **既有 clearance utility** | `MotionDriver.ClampCapsuleOffsetAgainstGeometry()`（`CapsuleCast`，零配置，排除自身 layer） | ⚠️ 它刻意**縮掉 `skinWidth`** 再掃——那正是 §12.3 說明它不能當恢復閘門的原因 |
+| **第二個假設 authored radius 的消費者** | `TraversalProbe.AuthoredRadius` / `AuthoredCenter` / `AuthoredHeight` | 縮小期間這些值會與實際不符 |
+
+⇒ **若真要做，正確的接法是 `TraversalCollisionProfile` 尚未啟用的 C2/C3 radius/height 通道
+＋ MotionDriver 內的 release override 層，⛔ 絕不是另一個 MonoBehaviour 在 `LateUpdate` 偷改 `radius`。**
+`Authored Capsule Pose + Temporary Release Override → Final Capsule Geometry` 的形狀是對的，
+owner 仍是 `MotionDriver`。**但下面的實測顯示不需要走到這一步。**
+
+### 12.2 ✅ 乾淨的部分（先講好消息）
+
+#### A. 最小脫離半徑：**規律極乾淨，但那正是壞消息**
+
+`overhang` ＝ root 超出平台邊緣的水平距離；cell ＝ instant shrink 後 40 個 physics step 的 Δy。
+
+| overhang \ r | 0.30 | 0.26 | 0.24 | 0.22 | 0.20 | 0.18 | 0.16 | 0.14 | 0.12 | 0.10 | 0.08 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| **0.10** | 卡 | 卡 | 卡 | 卡 | 卡 | 卡 | 卡 | −0.03 | −0.04 | **✅** | ✅ |
+| **0.14** | 卡 | 卡 | 卡 | 卡 | −0.02 | −0.03 | −0.05 | **✅** | ✅ | ✅ | ✅ |
+| **0.18** | 卡 | 卡 | −0.03 | −0.04 | −0.06 | **✅** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **0.22** | 卡 | −0.03 | −0.06 | **✅** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **0.26** | 卡 | **✅** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **0.30** | **✅** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+⭐ **規律只有一條：`releaseRadius ≤ overhang` 才脫得掉。**
+中間值（−0.02～−0.06）不是「慢慢掉」，是**往下沉一點點就在新半徑上重新卡住**。
+有明顯 threshold，但門檻**不是一個常數，是 overhang 本身**。
+
+🔴 **這就是致命處**：否決線（`supportRadius 0.14` ⇒ 幾何上 `0.14/√2 ≈ 0.099`，§5.1 實測 0.090）
+**就是最壞情況的 overhang**。⇒ 最壞需要縮到 **≈0.10，也就是 authored 0.32 的 31%**，
+**而且正好發生在這個功能唯一存在理由的那個位置。**
+
+#### B. 開始下降：**2 個 physics step，instant 與 ramp 完全一樣**
+
+| overhang | mode | firstDescendStep | Δxz@shrink | Δy@shrink | Δy(40 步) |
+|---|---|---:|---:|---:|---:|
+| 0.10–0.30 | instant | **2** | **0.0000** | −0.0039 | −3.22 |
+| 0.10–0.30 | ramp3 | **2** | **0.0000** | −0.0039 | −3.22 |
+
+⇒ **逐項完全相同。2–3 frame ramp 買不到任何東西**（它縮到 release 值的那一帧才是真正生效的那一帧）。
+若真要做，**instant，理由是它更簡單，不是它比較好**。
+**shrink 當帧沒有水平跳動、沒有 depenetrate、沒有瞬移**（Δxz = 0.0000）。
+
+#### C. Resize 不變量：**乾淨，而且是這輪唯一無條件成立的好消息**
+
+| case | Δroot.xz | Δroot.y | 腳底世界高度 before → after | `height ≥ 2r` |
+|---|---:|---:|---|---|
+| 開闊地 | **0.0000** | **0.0000** | 0.0300 → **0.0300** | ok（1.827 vs 0.64） |
+| 貼牆 | **0.0000** | **0.0000** | 0.0300 → **0.0300** | ok |
+
+⇒ **改 `radius` 不會移動 root，也不會移動 foot plane。**
+幾何原因：Unity 的 `CharacterController` 膠囊底 = `center.y − height/2`，**與 radius 無關**
+（只要 `height ≥ 2r`，本專案 1.827 vs 0.64 差很遠）。
+⇒ **UE 那套 `ScaledHalfHeightAdjust` 位置補償只有改 height 才需要，改 radius 不需要。**
+還原後 Δxz／Δy 也都是 0.0000。**問題不在 resize 本身。**
+
+#### F. 誤觸：零
+
+| 情境 | 站立取樣點 | support 否決 | stuck 判定 |
+|---|---:|---:|---:|
+| 平地 | 13 | **0** | **0** |
+| 樓梯（4 階 0.18×0.30） | 12 | **0** | **0** |
+| 30° 斜坡 | 11 | **0** | **0** |
+
+stuck 判準＝`support 否決 ＋ 連續 3 個 physics step 重力想往下但 Δy > −0.0005`。
+⇒ **正常地形永不觸發**（第 15 題的 1–4 項成立）。
+
+#### G. 旋轉邊緣：門檻與角度無關
+
+| yaw | overhang | 0.18 | 0.14 | 0.10 | 0.08 | 0.06 |
+|---|---|---|---|---|---|---|
+| 0° / 17° / 31° | 0.12 | −0.02 | −0.04 | ✅ | ✅ | ✅ |
+| 0° / 17° / 31° | 0.20 | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+⇒ **三個角度逐格相同。** 脫離只看 `releaseRadius` vs `overhang`，不看邊緣朝向。
+（與 §11.1 的 outward direction 不同——那個才對角度敏感。）
+
+### 12.3 🔴 第一個致命發現：**沒有可用的 clearance 恢復判準**
+
+UE 的模式是「先長大 → `OverlapTest` → 重疊就退回」。**在這個問題上它問錯了問題。**
+
+實測：**角色卡在 ledge corner 時，authored 0.32 膠囊與平台「完全沒有重疊」。**
+
+```
+=== I. naive restore 逐步紀錄（overhang 0.12）===
+step | radius | root.y  | Δy/step | support | clearance(authored−skin) | clearance(authored+0.02)
+   0 |  0.320 |   0.003 |  0.0000 | False   | True                     | True
+```
+
+原因：CharacterController 用 `skinWidth`(0.03) 把膠囊**隔著**停在角上——
+它是**靠著**邊角，不是**插進**邊角。`OverlapCapsule` 因此永遠回報「安全」。
+
+⇒ **UE 的 `EncroachesBlockingGeometry` 問的是「有沒有東西插進我」**——
+那對 crouch → stand（頭上有天花板，真的會重疊）是對的問題；
+對「我還踩在我想離開的那個邊上嗎」**是錯的問題**。
+📌 `MotionDriver.ClampCapsuleOffsetAgainstGeometry` 甚至刻意再縮一個 `skinWidth`（原碼註解說明理由），
+**更不可能當恢復閘門**。
+
+### 12.4 🔴 第二個致命發現：naive restore ＝ **25 Hz 鋸齒震盪**
+
+把「clearance 通過就恢復」直接接上去（overhang 0.12，release 0.10）：
+
+```
+step | radius | root.y  | Δy/step
+   2 |  0.100 |  -0.041 | -0.0439   ← 縮小：掉下去
+   3 |  0.320 |   0.001 | +0.0427   ← 恢復：**被 Unity depenetration 抬回來**
+   4 |  0.100 |  -0.043 | -0.0439
+   5 |  0.320 |  -0.007 | +0.0357
+   ...
+→ 24 步內重新縮小 12 次 ⇒ 震盪迴圈 CONFIRMED
+```
+
+**每一帧 ±0.04 m、每兩帧一個週期（25 Hz）。** 角色確實有淨下降（24 步 −0.24 m），
+但那是**靠震盪磨下去的**，而且往上的那一半**正是使用者明令不得當作恢復手段的 depenetration**。
+⛔ 視覺上這是抖動，不是失足。
+
+### 12.5 🔴 第三個致命發現：唯一可行的 latch，代價太大
+
+唯一真的會動的規則是**「latch 到重新落地」**——縮小後完全不試恢復，直到 `isGrounded` 再次為真
+且嚴格 clearance（authored + 0.02）通過。實測（2 m 高平台，崖底地面延伸到崖壁正下方）：
+
+```
+step | root.y  | root.z | radius | maxSafe(嚴格) | grounded | note
+   0 |  -0.033 |  0.120 |  0.100 |          0.14 | False    |
+  10 |  -0.649 |  0.120 |  0.100 |          0.10 | False    |
+  23 |  -1.970 |  0.120 |  0.100 |          0.10 | True     | LANDED
+  ...（第 80 步起玩家往外走 0.6 m/s）
+  90 |  -1.970 |  0.252 |  0.100 |          0.22 | True     |
+  98 |  -1.970 |  0.348 |  0.320 |          0.32 | True     | RESTORED
+→ 落地步 = 23（0.46 s）
+→ 恢復步 = 98，小尺寸持續 1.96 s（落地後還持續 1.50 s）
+```
+
+**它有效**——角色乾淨地掉了 1.94 m，沒有震盪、沒有瞬移。**但：**
+
+1. **小尺寸持續 1.96 s，其中 1.50 s 是站在地上的**。
+2. **`maxSafe` 在整段下墜與落地後都是 0.10**——因為角色**貼著崖面**往下掉（root.z 0.12，崖面 z=0），
+   0.32 的膠囊在那條路徑上**任何一點都放不下**。
+3. **恢復需要玩家自己走開 0.23 m。** 玩家不動 ⇒ **永遠維持 31% 的碰撞半徑站在崖底**。
+   ⚠️ 崖底正是「牆最多」的地方——水平碰撞保護在最需要的時候消失。
+
+### 12.6 🔴 第四個致命發現：縮小期間會鑽進 authored 膠囊永遠進不去的地方
+
+牆面在 `x = +0.20`（authored 0.32 塞不進去），release 0.10，玩家往牆推 0.8 m/s：
+
+| step | root.x | root.y | radius | maxSafe | 以 authored 計的重疊數 |
+|---:|---:|---:|---:|---:|---:|
+| 0 | −0.134 | 0.003 | 0.080 | 0.320 | 0 |
+| 10 | **0.026** | −0.252 | 0.080 | 0.148 | **2** |
+| 20 | **0.090** | −0.900 | 0.080 | 0.136 | **2** |
+| 40 | **0.106** | −3.373 | 0.080 | 0.148 | **1** |
+
+```
+→ 最右可達 root.x = 0.410（authored 0.32 時最右應為 −0.090）
+→ 縮小期間多鑽進去 0.500 m
+```
+
+⇒ **玩家可以在 release 期間把角色開進 authored 膠囊永遠不該到得了的幾何裡，深達 0.50 m。**
+之後 `maxSafe` 長期卡在 0.136–0.148 ⇒ **恢復被無限期封鎖**；
+若強制恢復，那就是一次 depenetration 擠出——**使用者明令不得依賴的東西**。
+這不是調參數能解的：**只要碰撞體會變小，「小尺寸期間可達的空間」就一定大於 authored 可達空間。**
+
+### 12.7 它也**不解決浮空**，而且時序 B 在結構上做不到（第 12 題）
+
+| 時序 | 可行性 |
+|---|---|
+| **A**：support lost → `IsGrounded` false → shrink | ✅ 唯一做得到的 |
+| **B**：support lost → release → 真的開始下降 → `IsGrounded` false | ⛔ **結構上不可能** |
+
+理由：**release 的觸發條件就是否決本身**。要先否決才會縮，所以否決一定在下降之前。
+B 需要「support 已失效但 `IsGrounded` 還是 true」這個中間狀態——
+那就是 `SupportedButReleasing` / `CollisionReleaseActive` **另一個語意**，
+而它的消費者是 `FootIKController` 的閘門 ⇒ **等於改 Foot IK 的 grounding 依賴**，
+本輪明令不得碰，且屬獨立裁決。
+
+⇒ 與方案③一樣：**把「永久浮空」變成「浮空 ~0.5 s 然後掉下去」**，浮空本身沒解決。
+
+### 12.8 ⛔ 裁決：**不值得採用**
+
+按使用者給的否決條件逐條對照：
+
+| 使用者的否決條件 | 實測 |
+|---|---|
+| 必須縮得非常誇張 | ✅ **成立**：最壞 0.32 → **0.10**（31%），且正好在目標情境 |
+| 恢復常常被牆卡住 | ✅ **成立**：沿崖面下墜全程 `maxSafe = 0.10`；靠牆時卡在 0.136–0.148 |
+| collider 長時間維持小尺寸 | ✅ **成立**：1.96 s，其中 **1.50 s 站在地上**；玩家不動則無限期 |
+| traversal 衝突難解 | ⚠️ 未量（見下） |
+| 視覺比原本更差 | ✅ **成立**：naive ⇒ 25 Hz 抖動；latch ⇒ 浮空 0.46 s 後才掉，且浮空未解 |
+
+**五條裡四條成立 ⇒ 判定 REJECTED。**
+
+⛔ **因此刻意沒有做的事**（不是遺漏，是不為一個否決掉的方案付工程費）：
+- ⛔ 沒有實作 traversal gating（第 10 題）。**seam 已經找到**：`TraversalProbe.Candidate`（每帧候選）
+  與 `TraversalState.CommittedCandidate`，且 `TraversalState` 本來就是 push 方向呼叫 `MotionDriver`
+  （`BeginTraversalCollisionProfile`／`OnUpdateMotion`）⇒ gating 應該由 Core **推**一個 claim 給
+  `MotionDriver`，不是讓 `MotionDriver` 反向去讀 Core。**方向正確、成本低，但沒有理由現在做。**
+- ⛔ 沒有實作玩家輸入 gating（第 11 題）。§10.2 已經證明**只要有 ≥0.5 m/s 水平速度角色一定走得出去**
+  ⇒「有輸入就不介入」本來就是對的，但它保護的是一個不該存在的機制。
+- ⛔ 沒有加第 15 題的回歸測試——**不為不存在的功能建測試**。
+  （第 15 題的 1–4 項其實已被 §12.2-F 量到 0 誤觸；5–12 項描述的是被否決的行為。）
+- ⛔ 沒有做第 14 題的安全 ring buffer trace——同上。
+
+### 12.9 ⭐ 這一輪真正換到的東西
+
+即使方案被否決，下面四件事是**可複用的知識**，不要重新踩：
+
+1. **`CharacterController.radius` 的 resize 本身是免費且安全的**——
+   Δroot = 0、foot plane 不動、`height ≥ 2r` 有大量餘裕、instant 無跳動（§12.2-C）。
+   ⇒ 未來若有**真的需要動 radius** 的功能（例如 traversal C2/C3 通道），**幾何面不是障礙**。
+2. **`OverlapCapsule` 類的 clearance 測不出「靠在邊角上」**——`skinWidth` 讓它不算重疊（§12.3）。
+   ⇒ 任何「我離開那個邊了沒」的判斷**不能用重疊測試**，要用**距離**（到支撐邊緣的水平距離 > authored radius）。
+3. **脫離門檻 = `releaseRadius ≤ overhang`，與邊緣朝向無關**（§12.2-A／G）。
+   ⇒ 這是個幾何恆等式，不是可調參數。**任何「縮小碰撞體來脫離」的變體都會撞到同一條線。**
+4. 🔴 **最重要的一條**：§10.3 說「否決層只能改狀態不能改位置」。
+   這一輪證明了更強的版本——**在 Unity `CharacterController` 上，
+   任何只改「碰撞體形狀」的手段都無法乾淨地製造「離開邊角」這個位移**，
+   因為 `Move()` 不會沿邊角滑開（§10.2 實測 Δz = 0.000），
+   而唯一會產生水平位移的機制是 depenetration，那是明令禁止的手段。
+   ⇒ **剩下的選項只剩「不要讓角色站到那個位置」（方案②的速度感知否決）
+   或「明確地移動角色」（方案③，代價已在 §11.2 量化）。沒有第三種。**
+
+### 12.10 若使用者仍要推翻此裁決，最少要改哪些檔案（第 14 題）
+
+留這份清單只是為了不必重查，**不代表建議實作**：
+
+| 檔案 | 改動 |
+|---|---|
+| `Presentation/Motion/MotionDriver.cs` | release 狀態機（latch／觸發窗／退出）＋ radius override 層，接在 `_capsuleBaseRadius` 之上 |
+| `Presentation/Motion/TraversalWarpPlan.cs`（`TraversalCollisionProfile`） | 啟用既有但未使用的 C2/C3 radius/height 通道，避免第二套 resize 機制 |
+| 🆕 `Presentation/Motion/CollisionReleaseProbe.cs` | **距離式**分離判定（⛔ 不是重疊式，見 §12.3） |
+| `Core/StateMachine/States/TraversalState.cs` ＋ `Core/Environment/TraversalProbe.cs` | push 一個 traversal claim 給 `MotionDriver` |
+| `Presentation/IK/FootIKController.cs` | ⛔ **只有在同時裁決浮空問題時才動**——那會碰 Foot IK 鐵律 |
+| `Prefabs/X Bot`、`Y Bot` | 新欄位 |
+
+**應資產化**：`releaseRadius`（或 `releaseMargin`）、`stuckDetectionFrames`、`minInputToSkipRelease`。
+**應固定（⛔ 不要外露）**：shrink 模式（instant，因為 ramp 實測無差異）、
+clearance inflate 量、latch 規則（到重新落地）——這三個只要給旋鈕就會被調成錯的。
+
+### 12.11 量測方法與可信度
+
+| | |
+|---|---|
+| 工具 | PlayMode spike，10 條 `[UnityTest]`，合成場景（平台／樓梯／30° 斜坡／牆／崖底地面） |
+| 物理 | `fixedDeltaTime = 0.02`（50 Hz，專案實際值）；`Time.timeScale = 8` **只加快每個真實 frame 跑幾個 fixed step，不改 `fixedDeltaTime`** ⇒ 每一步的物理與正常執行逐位元相同 |
+| 角色幾何 | `radius 0.32`／`height 1.8266189`／`center.y 0.9134095`／`skinWidth 0.03`／`stepOffset 0.3`／`slopeLimit 45`（＝ prefab 實際值） |
+| ⚠️ 未涵蓋 | 真實場景的 collider 組成（合成幾何都是 box）；斜坡邊緣（只測了平面邊緣的旋轉，沒測**傾斜**的邊緣）；與 Capsule Offset V2 同時作用；多角色互相碰撞 |
+| ⚠️ 不需要涵蓋 | 因為結論是否決——上面那些只會讓結論更差，不會翻盤 |
