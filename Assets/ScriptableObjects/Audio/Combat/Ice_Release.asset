@@ -12,10 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 482bd9bce0e670643910e8cd019e70ca, type: 3}
   m_Name: Ice_Release
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Audio.AudioDefinitionSO
-  clips:
-  - {fileID: 8300000, guid: 1ff7921f4c98efe4789fff7eb98eb3c8, type: 3}
-  - {fileID: 8300000, guid: a99791e51658c434ca9053d8e3f31a6e, type: 3}
-  - {fileID: 8300000, guid: 74d43afdec486c048957418ee12a62a2, type: 3}
+  clips: []
   volume: 0.85
   volumeJitter: 0.1
   pitchRange: {x: 0.96, y: 1.04}

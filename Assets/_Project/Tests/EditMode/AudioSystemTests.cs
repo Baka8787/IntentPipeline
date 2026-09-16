@@ -150,6 +150,42 @@ namespace Project.Tests.EditMode
             }
         }
 
+        /// <summary>
+        /// 🐛 2026-09-17 迴歸：**clip 池裡有空格子 ⇒ 同一個事件時有聲時無聲**（使用者回報「冰法術偶爾有聲沒聲」）。
+        ///
+        /// 成因：`GetNextClip` 原本直接回傳 shuffle bag 指到的那一格，
+        /// 只要有一格是空引用（Inspector 留空，或素材檔被刪掉）就會**隨機**回傳 null，
+        /// 呼叫端靜默跳過 ⇒ 間歇性無聲。
+        ///
+        /// ⚠️ 這個缺陷偽裝成「隨機」，很難從現象回推到「資產有一個空格子」，
+        /// 所以修在 `GetNextClip` 而不是只清一次資產。
+        /// </summary>
+        [Test]
+        public void Definition_GetNextClip_SkipsNullEntries_NeverReturnsNullWhileAnyClipExists()
+        {
+            AudioClip real = CreateClip("real");
+            // 3 格裡只有中間那格有效——舊實作會有 2/3 的機率回 null。
+            var def = CreateDefinition(new[] { null, real, null });
+
+            for (int i = 0; i < 64; i++)
+            {
+                Assert.AreSame(real, def.GetNextClip(),
+                    "池裡只要還有一顆有效 clip，就不得因為抽到空格子而回傳 null");
+            }
+        }
+
+        /// <summary>整池皆空時仍必須安靜地回 null（與空池同義），不得無窮迴圈。</summary>
+        [Test]
+        public void Definition_GetNextClip_AllEntriesNull_ReturnsNullWithoutHanging()
+        {
+            var def = CreateDefinition(new AudioClip[] { null, null, null });
+
+            for (int i = 0; i < 8; i++)
+            {
+                Assert.IsNull(def.GetNextClip(), "整池皆空 ⇒ 回 null，由呼叫端靜默跳過");
+            }
+        }
+
         [Test]
         public void Definition_GetRandomPitch_DefaultRange_IsConstantOne()
         {

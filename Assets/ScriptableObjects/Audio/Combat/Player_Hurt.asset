@@ -12,11 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 482bd9bce0e670643910e8cd019e70ca, type: 3}
   m_Name: Player_Hurt
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Audio.AudioDefinitionSO
-  clips:
-  - {fileID: 8300000, guid: 15126effde904ef4889959f5f71dfc4a, type: 3}
-  - {fileID: 8300000, guid: 37ff2adc66a3c05468d94cc96fbbde74, type: 3}
-  - {fileID: 8300000, guid: ba6b294d8ccc2dd4783213b23b63fbb5, type: 3}
-  - {fileID: 8300000, guid: 5a1f2697a0bee534399ff82745ed1cdd, type: 3}
+  clips: []
   volume: 0.8
   volumeJitter: 0.08
   pitchRange: {x: 0.98, y: 1.02}

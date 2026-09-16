@@ -14,7 +14,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Audio.AudioDefinitionSO
   clips:
   - {fileID: 8300000, guid: 13bb5f7190d487a439fdff121b432475, type: 3}
-  - {fileID: 8300000, guid: 8c8bb095f30e76649abf3a360e59d5da, type: 3}
   volume: 0.7
   volumeJitter: 0.08
   pitchRange: {x: 0.97, y: 1.03}

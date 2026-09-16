@@ -55,12 +55,31 @@ namespace Project.Presentation.Audio
             if (clips == null || clips.Length == 0) return null;
             if (clips.Length == 1) return clips[0];
 
-            if (_bag == null || _bag.Length != clips.Length)
+            // 🐛 2026-09-17：**袋子只裝「非空」的索引。**
+            //
+            // 原本袋子裝的是 0..N-1 全部索引，直接 `return clips[_bag[_bagCursor++]]`
+            // ⇒ 只要陣列裡有一個空引用（Inspector 留空、或素材檔被刪掉），
+            //   就會**隨機**回傳 null、呼叫端靜默跳過 ⇒ **同一個事件時有聲時無聲**。
+            //   本輪移除 43 顆素材後 `Ice_Cast` 剩 2 格其中 1 格失效，使用者回報
+            //   「冰法術偶爾有聲沒聲」——就是這個。
+            //
+            // ⚠️ **第一版修法是錯的**：我原本保留整袋、改成「最多重試 _bag.Length 次」。
+            //    那個上限**不是**正確性保證——重試途中若跨過換袋邊界就會重新洗牌，
+            //    可能重複造訪同一格而漏掉有效的那一格（測試實際抓到）。
+            // ⇒ 改成**由建構保證**：袋裡根本沒有空格子，所以抽到的一定有效。
+            int validCount = 0;
+            for (int i = 0; i < clips.Length; i++) if (clips[i] != null) validCount++;
+            if (validCount == 0) return null;
+
+            if (_bag == null || _bag.Length != validCount)
             {
-                _bag = new int[clips.Length];
-                for (int i = 0; i < _bag.Length; i++) _bag[i] = i;
+                _bag = new int[validCount];
+                int w = 0;
+                for (int i = 0; i < clips.Length; i++) if (clips[i] != null) _bag[w++] = i;
                 _bagCursor = _bag.Length; // 迫使第一次取用前先洗牌
             }
+
+            if (_bag.Length == 1) return clips[_bag[0]];
 
             if (_bagCursor >= _bag.Length)
             {

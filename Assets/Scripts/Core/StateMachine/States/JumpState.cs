@@ -241,6 +241,22 @@ namespace Project.Core.StateMachine
                 {
                     _landingPhase = LandingPhase.None;
                 }
+                // 🐛 2026-09-17：上面那條的**鏡像**。
+                //
+                // `continueMovement` 只在 `EnterLandPhase` 依落地當幀的意圖判定一次，
+                // 之後整段 Land2Move 都不再回頭看。於是「落下瞬間按住移動、隨即放開」
+                // 會播完整段 Land2Run **而角色其實已經停住** ⇒ 滑步（使用者 2026-09-17 回報）。
+                //
+                // 原註解的理由是「**持續**同一意圖不得在下一幀跳過它」——那句話成立的前提是
+                // 意圖**還在**。意圖消失是另一回事，而舊程式把兩者混為一談。
+                // ⇒ 補上對稱的那一半：NormalContinue 失去移動意圖時放行，讓 FSM 轉回 Idle／Stop。
+                //
+                // ⚠️ 刻意**不加最小持續時間**：NormalStop 那一條也沒有，兩邊必須同樣靈敏，
+                //    否則「按了又放」與「放了又按」的手感會不一致。
+                else if (_landingPhase == LandingPhase.NormalContinue && !HasEffectiveMoveIntent(data))
+                {
+                    _landingPhase = LandingPhase.None;
+                }
                 return;
             }
 

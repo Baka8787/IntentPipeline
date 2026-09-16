@@ -273,6 +273,58 @@ namespace Project.Tests.EditMode
             Assert.IsFalse(jump.CanTransitionAway);
         }
 
+        /// <summary>
+        /// 🐛 2026-09-17 迴歸：**落下瞬間按移動、隨即放開 ⇒ 滑步**（使用者回報）。
+        ///
+        /// <c>continueMovement</c> 只在 <c>EnterLandPhase</c> 依落地當幀的意圖判定一次，
+        /// 之後整段 Land2Move 都不再回頭看 ⇒ 會播完整段 Land2Run 而角色其實已經停住。
+        ///
+        /// ⭐ 這條是上一則 <see cref="NormalLandContinue_HeldIntent_DoesNotImmediatelySkipTransition"/>
+        /// 的**鏡像**：那條守「意圖**還在**時不得跳過」，這條守「意圖**消失**時必須放行」。
+        /// 舊程式把兩者混為一談，只實作了 NormalStop 那一半的對稱。
+        /// </summary>
+        [Test]
+        public void NormalLandContinue_IntentReleased_ReleasesLandingLockToAvoidFootSlide()
+        {
+            var (sm, data, model) = BuildMachine();
+            JumpState jump = EnterLandingPhase(sm, data, "NormalContinue", 0.5f);
+
+            // 落地當幀有意圖（已選中 Land2Move），下一幀放開。
+            data.MovementIntent.DesiredSpeedNormalized = 0f;
+            model.IsProducingMotion = false;
+
+            sm.Tick(data, 0.016f);
+
+            // ⚠️ 斷言的是**「轉移出去」這個可觀察結果**，不是 `jump.CanTransitionAway`——
+            //    `OnExit` 會把 `IsLanded` 設回 false，而 `CanTransitionAway` 讀它，
+            //    所以**轉移成功之後那個屬性反而是 false**。第一版測試就是這樣寫錯而假性失敗的。
+            Assert.AreNotSame(jump, sm.CurrentState,
+                "NormalContinue 失去移動意圖後必須解除 landing lock 並轉出——" +
+                "否則 Land2Run 會在角色已經停住時繼續播完，那就是使用者看到的滑步。");
+            Assert.AreNotEqual(StateType.Jump, sm.CurrentState.Type,
+                "解除鎖定後應交由 FSM 自然轉出 Jump（無移動意圖 ⇒ Idle）");
+        }
+
+        /// <summary>
+        /// 守住上一條**不會過度放行**：`_landElapsedTime` 尚未走完但意圖仍在時，
+        /// Land2Move 必須照常播完。兩條合起來才完整描述這個決定。
+        /// </summary>
+        [Test]
+        public void NormalLandContinue_IntentDropsBelowThresholdOnly_StillReleases()
+        {
+            var (sm, data, model) = BuildMachine();
+            JumpState jump = EnterLandingPhase(sm, data, "NormalContinue", 0.5f);
+
+            // 低於 MovementIntentThreshold（預設 0.2）即視為沒有移動意圖。
+            data.MovementIntent.DesiredSpeedNormalized = 0.05f;
+            model.IsProducingMotion = false;
+
+            sm.Tick(data, 0.016f);
+
+            Assert.AreNotSame(jump, sm.CurrentState,
+                "低於門檻的殘餘輸入不算移動意圖——門檻的定義在兩個方向必須一致");
+        }
+
         // === 迴歸：Bake 資產存在但沒有可用時長時，Roll 不得秒退（🆕 2026-07-26）===
         [Test]
         public void Roll_WhenBakeDataHasNoDuration_FallsBackInsteadOfEndingInstantly()

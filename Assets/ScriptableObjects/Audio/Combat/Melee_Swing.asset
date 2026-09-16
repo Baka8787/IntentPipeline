@@ -12,16 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 482bd9bce0e670643910e8cd019e70ca, type: 3}
   m_Name: Melee_Swing
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Audio.AudioDefinitionSO
-  clips:
-  - {fileID: 8300000, guid: 13a9d50e901754843914fbdad06341f5, type: 3}
-  - {fileID: 8300000, guid: 241f1173d6d72334f9ca3833ca8a6a5f, type: 3}
-  - {fileID: 8300000, guid: 38338cc2dc89bf341818ac72fc083034, type: 3}
-  - {fileID: 8300000, guid: 0aef55d9b9ab86f46a9ed6e2740e3ac2, type: 3}
-  - {fileID: 8300000, guid: bbd4c4dfa6c150047bc24e091d4b6aa7, type: 3}
-  - {fileID: 8300000, guid: 636d1bbf2c08fe943a3b83ed7477c4d1, type: 3}
-  - {fileID: 8300000, guid: 841f9827f140d644285f077619eba187, type: 3}
-  - {fileID: 8300000, guid: 66d954dd8c1f51e47ac401529a98f274, type: 3}
-  - {fileID: 8300000, guid: 99f609865473e3847814d0c187accee2, type: 3}
+  clips: []
   volume: 0.65
   volumeJitter: 0.12
   pitchRange: {x: 0.93, y: 1.07}

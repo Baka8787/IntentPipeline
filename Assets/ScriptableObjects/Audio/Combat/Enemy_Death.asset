@@ -12,9 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 482bd9bce0e670643910e8cd019e70ca, type: 3}
   m_Name: Enemy_Death
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Audio.AudioDefinitionSO
-  clips:
-  - {fileID: 8300000, guid: b6c97ab4e9999474f996a1457ee44c3a, type: 3}
-  - {fileID: 8300000, guid: 40f1c26ebb137d942ab5c1d550b76b2d, type: 3}
+  clips: []
   volume: 0.9
   volumeJitter: 0.05
   pitchRange: {x: 0.98, y: 1.02}
