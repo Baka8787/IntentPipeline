@@ -121,22 +121,22 @@ namespace Project.Tests.EditMode
         // === AudioDefinitionSO：clip 池與音高邊界 ===
 
         [Test]
-        public void Definition_GetRandomClip_EmptyPool_ReturnsNull()
+        public void Definition_GetNextClip_EmptyPool_ReturnsNull()
         {
             var withNullArray = CreateDefinition(clips: null);
             var withEmptyArray = CreateDefinition(clips: new AudioClip[0]);
 
-            Assert.IsNull(withNullArray.GetRandomClip(), "clip 池為 null 應回 null（呼叫端據此跳過播放）");
-            Assert.IsNull(withEmptyArray.GetRandomClip(), "clip 池為空陣列應回 null（呼叫端據此跳過播放）");
+            Assert.IsNull(withNullArray.GetNextClip(), "clip 池為 null 應回 null（呼叫端據此跳過播放）");
+            Assert.IsNull(withEmptyArray.GetNextClip(), "clip 池為空陣列應回 null（呼叫端據此跳過播放）");
         }
 
         [Test]
-        public void Definition_GetRandomClip_SingleClip_ReturnsThatClip()
+        public void Definition_GetNextClip_SingleClip_ReturnsThatClip()
         {
             var clip = CreateClip("only");
             var def = CreateDefinition(clips: new[] { clip });
 
-            Assert.AreSame(clip, def.GetRandomClip(), "單一 clip 池必回傳該 clip");
+            Assert.AreSame(clip, def.GetNextClip(), "單一 clip 池必回傳該 clip");
         }
 
         [Test]

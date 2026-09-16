@@ -51,8 +51,8 @@ namespace Project.Tests.EditMode
             }
         }
 
-        private static PresentationEventData Left => new PresentationEventData { LeftFootPlanted = true };
-        private static PresentationEventData Right => new PresentationEventData { RightFootPlanted = true };
+        private static PresentationEventData Left => new PresentationEventData { LeftFootstep = FootstepKind.Normal };
+        private static PresentationEventData Right => new PresentationEventData { RightFootstep = FootstepKind.Normal };
 
         // =====================================================================
         // 發布時序：必須在所有 Controller Tick 完成之後
@@ -204,7 +204,7 @@ namespace Project.Tests.EditMode
             // 若哪天有人「順手」把它加進統一復位，事件會在被讀到前就死掉——這條會紅。
             var data = new PlayerRuntimeData
             {
-                PresentationEvents = new PresentationEventData { LeftFootPlanted = true, RightFootPlanted = true },
+                PresentationEvents = new PresentationEventData { LeftFootstep = FootstepKind.Normal, RightFootstep = FootstepKind.Normal },
                 JustLanded = true,
                 JustLeftGround = true,
             };

@@ -19,3 +19,5 @@ MonoBehaviour:
     Definition: {fileID: 11400000, guid: 498ffa7959694a248a56282cf2f896bc, type: 2}
   - EventId: 2
     Definition: {fileID: 11400000, guid: 2f8a1ae530f6165428f87b26b70cd1f5, type: 2}
+  - EventId: 3
+    Definition: {fileID: 11400000, guid: 81a3fa824a3e8a34eb7ae8809be1a1b1, type: 2}

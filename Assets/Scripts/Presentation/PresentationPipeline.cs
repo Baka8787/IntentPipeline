@@ -57,9 +57,11 @@ namespace Project.Presentation
             {
                 PresentationEventData reported = _eventSources[i].Evaluate(data);
 
-                // 合併政策：純 OR（同 ArbiterPipeline）。來源只回報自己，看不見也改不掉別人的結果。
-                events.LeftFootPlanted |= reported.LeftFootPlanted;
-                events.RightFootPlanted |= reported.RightFootPlanted;
+                // 合併政策：取較重的分類（🔄 Stage 1，原為純 OR——欄位從 bool 升級為 FootstepKind 後的同義推廣）。
+                // 性質與 OR 完全一致：可交換、可結合、以 None／false 為單位元
+                // ⇒ **合併結果與來源順序無關**，來源只回報自己，看不見也改不掉別人的結果。
+                if (reported.LeftFootstep > events.LeftFootstep) events.LeftFootstep = reported.LeftFootstep;
+                if (reported.RightFootstep > events.RightFootstep) events.RightFootstep = reported.RightFootstep;
             }
 
             data.PresentationEvents = events;

@@ -18,5 +18,13 @@ namespace Project.Presentation.Audio
         // 合成一個 Footstep 之後想再拆左右就得改動既有值，而拆開的成本只有一個空的查表格。
         LeftFootstep = 1,
         RightFootstep = 2,
+
+        /// <summary>
+        /// 🆕（Stage 1）小幅腳部調整（停步收腳／轉身／姿勢微調）。
+        /// **刻意不分左右**：這是很輕的摩擦聲，左右差異在聽感上不可辨，
+        /// 多開一個查表格換不到任何東西（對比 Left/RightFootstep 拆開是為了「enum 只增不改」的將來性，
+        /// 那裡拆開的成本只有一個空格子，這裡拆開的成本是每個材質都要多維護一組資產）。
+        /// </summary>
+        Shuffle = 3,
     }
 }

@@ -13,6 +13,12 @@ MonoBehaviour:
   m_Name: Audio_Landing
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Audio.AudioDefinitionSO
   clips:
-  - {fileID: 8300000, guid: 4d11813f5983ce047873c94858e6a6c1, type: 3}
+  - {fileID: 8300000, guid: 35ea904e1ed6c6346be2eee4c58b76e1, type: 3}
+  - {fileID: 8300000, guid: 846128bfecc8f87438c8f99fd2aa8e0d, type: 3}
+  - {fileID: 8300000, guid: cf5e4f008a60f0846b6beb684a8ade5f, type: 3}
+  - {fileID: 8300000, guid: 76df89262bfd6c94ba282002ea0d19ca, type: 3}
+  - {fileID: 8300000, guid: 82d7237d013ed6842a54e1f04e086c1d, type: 3}
+  - {fileID: 8300000, guid: f9269a279075dda41a0287238b86b35f, type: 3}
   volume: 1
-  pitchRange: {x: 1, y: 1}
+  volumeJitter: 0.08
+  pitchRange: {x: 0.95, y: 1.05}

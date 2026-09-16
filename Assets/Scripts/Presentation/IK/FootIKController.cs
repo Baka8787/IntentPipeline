@@ -46,6 +46,19 @@ namespace Project.Presentation.IK
         /// </summary>
         public FootIKPoseData PoseData => _poseData;
 
+        // 🆕（M3.x-C）地面觀測的 **lifetime owner**：本類別是它的唯一 Writer（擁有權跟著寫入權走）。
+        // 以**欄位初始式**建立（比照 FootIKRig 持有 _poseData 的先例）：初始式早於所有 Awake，
+        // 因此任何讀取方都不需要關心元件之間的 Awake 順序——「拿得到同一份實例」是結構保證，不是時序紀律。
+        private readonly FootIKGroundData _groundData = new FootIKGroundData();
+
+        /// <summary>
+        /// 🆕（M3.x-C）本帧地面觀測（唯讀共享）。本類別為**唯一 Writer**；回傳引用而非拷貝。
+        /// 現有讀取方＝<c>FootstepDetector</c>。時序保證與讀取方契約見 <see cref="FootIKGroundData"/>。
+        /// ⚠️ 這**不是**把 Foot IK 的決策開放出去——公開的只有「本帧腳下有什麼」這個物理觀測，
+        /// 權重／目標／骨盆等決策仍然完全私有。
+        /// </summary>
+        public FootIKGroundData GroundData => _groundData;
+
         // 單幀採樣暫存（struct，棧上語義、零 GC）。
         private struct FootSample
         {
@@ -56,6 +69,9 @@ namespace Project.Presentation.IK
             public Vector3 TargetPosition;
             public Quaternion TargetRotation;
             public float GroundY;
+
+            /// <summary>🆕（M3.x-C）命中的碰撞體。IK 本身不使用，純粹沿用同一次 raycast 的結果轉發給 <see cref="FootIKGroundData"/>。</summary>
+            public Collider HitCollider;
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             // O-2 只快取「本幀真正採樣過」的幾何。Drawer 不得重發 physics query。
@@ -145,6 +161,13 @@ namespace Project.Presentation.IK
             FootSample right = SampleGround(_poseData.RightFootPosition, _poseData.RightFootRotation,
                 _poseData.RightFootBottomHeight, ikAllowed);
 
+            // === ①' 轉發地面觀測（🆕 M3.x-C）===
+            // 刻意放在採樣之後、任何決策之前：公開的是**觀測**，不是 IK 的結論。
+            // 整體覆寫即復位——沒有命中時 SampleGround 回傳 default，HasGround 自然為 false。
+            PublishGroundContact(in left, ref _groundData.Left);
+            PublishGroundContact(in right, ref _groundData.Right);
+            _groundData.IsWarm = true;
+
             // === ② 骨盆補償：沉向較低的腳（夾限＋平滑）===
             float pelvisTarget = (ikAllowed && left.HasHit && right.HasHit)
                 ? ComputePelvisOffset(left.GroundY, right.GroundY, rootY, settings.MaxPelvisOffset)
@@ -181,6 +204,19 @@ namespace Project.Presentation.IK
                 ref _debugRightFoot);
             UpdateRuntimeDebugLines();
 #endif
+        }
+
+        /// <summary>
+        /// ①' 把單腳採樣轉成對外的地面觀測。純欄位搬運，無任何判斷——
+        /// 「腳踩到了沒有」的解讀屬各 Reader 自己的事（同 <c>FootIKRig</c> 對 Pose 快照的立場）。
+        /// </summary>
+        private static void PublishGroundContact(in FootSample sample, ref FootGroundContact contact)
+        {
+            contact.HasGround = sample.HasHit;
+            contact.Point = sample.HitPoint;
+            contact.Normal = sample.Normal;
+            contact.GroundY = sample.GroundY;
+            contact.Collider = sample.HitCollider;
         }
 
         /// <summary>
@@ -264,6 +300,7 @@ namespace Project.Presentation.IK
             sample.HasHit = true;
             sample.HitPoint = hit.point;
             sample.Normal = hit.normal;
+            sample.HitCollider = hit.collider; // 🆕（M3.x-C）IK 不用，轉發給 FootIKGroundData（Stage 2 Surface Resolver 的接點）
             sample.SoleNormal = ClampGroundNormal(hit.normal, settings.MaxFootAlignAngle);
             sample.TargetPosition = ComputeAnkleTarget(origin, hit.point, sample.SoleNormal, footBottomHeight);
             sample.TargetRotation = Quaternion.FromToRotation(Vector3.up, sample.SoleNormal) * poseRotation;

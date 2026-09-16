@@ -3526,9 +3526,9 @@ AudioSource:
   Spatialize: 0
   SpatializePostEffects: 0
   Priority: 128
-  DopplerLevel: 1
-  MinDistance: 1
-  MaxDistance: 500
+  DopplerLevel: 0
+  MinDistance: 2
+  MaxDistance: 40
   Pan2D: 0
   rolloffMode: 0
   BypassEffects: 0
@@ -3563,7 +3563,7 @@ AudioSource:
     m_Curve:
     - serializedVersion: 3
       time: 0
-      value: 0
+      value: 1
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -3578,7 +3578,7 @@ AudioSource:
     m_Curve:
     - serializedVersion: 3
       time: 0
-      value: 0
+      value: 0.06944445
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -3778,9 +3778,14 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Footstep.FootstepDetector
   settings:
-    ArmDescentSpeed: 0.35
+    ArmDescentSpeed: 0.25
     FireDescentSpeed: 0.05
-    MinLiftExcursion: 0.03
+    ReArmLift: 0.025
+    NormalStepLift: 0.06
+    ContactClearance: 0.045
+    PlantHorizontalSpeedMax: 2
+    GroundStepTolerance: 0.06
+  recordDebugTrace: 0
 --- !u!114 &-7971596924591842964
 MonoBehaviour:
   m_ObjectHideFlags: 0
