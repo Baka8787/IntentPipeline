@@ -247,7 +247,7 @@ L73  R107  L133  R167  L194  R227  L253  R287      ← 8 步，完整左右交�
 | **從角色中心播，不是從腳播** | 同上受限於單一 AudioSource。鏡頭距離僅 1.92 m，腳與中心的角度差在此距離下可察覺但不嚴重 |
 | **只有 Stone 一種材質** | Surface Resolver 未做；`FootIKGroundData.Collider` 已備好接點 |
 | **原地高速旋轉可能漏步** | 踩住的腳會繞軸畫弧而有殘速；寧可漏報也不誤報（`PlantHorizontalSpeedMax` 的取捨） |
-| **DSP buffer** | 見 §6 |
+| ~~**DSP buffer**~~ | ⛔ 2026-09-17 撤銷，不做（`docs/37` §12） |
 
 ---
 

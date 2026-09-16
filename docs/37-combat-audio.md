@@ -313,7 +313,7 @@ to the downloads」）——依使用者指示「需要登入／人工接受條�
 
 ## 9. 後續（本輪明確不做）
 
-- **DSP buffer A/B**（`ProjectSettings/AudioManager.asset` 1024 → 256，可省 16–32 ms）——使用者裁決：**戰鬥音效完成後再做**
+- ~~**DSP buffer A/B**（`ProjectSettings/AudioManager.asset` 1024 → 256）~~ ⛔ **2026-09-17 撤銷，不做**（見 §12）
 - 優先權 ／ virtualization ／ ducking ／ mixer 路由
 - 戰鬥音效的 Surface 感知（冰刺打在木板 vs 石頭）——第二個使用者尚未出現
 - Jump Takeoff 的精確事件源（目前借用 `JustLeftGround`）
@@ -510,3 +510,39 @@ to the downloads」）——依使用者指示「需要登入／人工接受條�
   還留著長度不為 0 但元素為 missing 的槽位。
   **行為上已經正確（靜音、不報錯）**，重跑只是把陣列收乾淨。
 - 程式面**完全沒有動**：`Assets/Scripts` 改動 = 0，EditMode 592／591 passed 不變。
+
+---
+
+## 12. ⏹ 結案狀態（2026-09-17，使用者明確裁決）
+
+> **Audio 這條線降優先級並停止。下一個會話不要主動重啟它。**
+
+| 項目 | 狀態 |
+|---|---|
+| 腳步／落地 | **維持現況**，不再微調 |
+| Melee Hit / Impact（存活的 10 顆） | ✅ **繼續使用** |
+| 法術音效 | **允許不完整**。之後若有需要，再補**少量** Cast／Impact |
+| Hurt ／ Death ／ Exertion 等人聲 | ⛔ **全部不做** |
+| 搜尋 voice pack | ⛔ **不需要** |
+| **DSP buffer A/B** | ⛔ **不做**（⚠️ 推翻本檔 §9 與 `docs/36` §7 的排隊項——**該提案已撤銷，不要再提** ） |
+| 擴張 Audio Framework | ⛔ **不再擴張** |
+
+### 12.1 唯一的待辦
+
+Unity Editor 下次開啟時，**只做這一件事**：
+
+```bash
+unity cmd eval_file --file Tools/audio-pipeline/WireClips.cs
+```
+
+把 10 個 `AudioDefinition` 裡因素材移除而留下的 **missing clip slot** 收乾淨。
+⚠️ 這是**清理**，不是恢復功能——目前行為已經正確（池空 ⇒ 靜音 ⇒ `GetNextClip()` 回 null
+⇒ `AudioController` 靜默跳過，不報錯）。
+
+⛔ 除此之外**不要動任何 audio 的東西**。優先事項回到 gameplay／combat／animation／VFX。
+
+### 12.2 若日後要重啟（給未來的自己）
+
+管線是現成的（`Tools/audio-pipeline/`，13 支腳本 ＋ README），但**不要照上次的順序跑**。
+上次的命中率是 **23%**（43/56 白做），根因記在 §11.3：
+**先列候選 pack ＋ 官方 demo 連結讓使用者挑，之後才跑下載／切段／匯入。**
