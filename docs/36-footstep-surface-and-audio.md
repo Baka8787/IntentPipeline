@@ -51,9 +51,21 @@
 ### 1.2 ⚠️ 順帶發現（非本輪處理範圍）
 
 `FootIKController.settings.GroundLayers` 目前是 **Everything（-1）**，其中包含 `Player` 與 `Enemy` layer。
-理論上腳部 ray 可能打到角色自己的 `CharacterController`，屆時材質會解析到角色的 Material。
-本輪**未修**（屬 Foot IK 設定，不在 Stage 2 範圍），但已記錄——
-真正要修的作法是把 GroundLayers 收窄成地面 layer，而不是在腳步系統裡特判。
+
+> 🔄 **2026-09-17 實測修正**：先前這裡寫「理論上腳部 ray 可能打到角色自己的 `CharacterController`」——
+> **實測後這句是錯的**，已修正。量到的實際行為：
+>
+> | 情境 | 結果 |
+> |---|---|
+> | 從自己膠囊**內部**往下射 | **打不到自己**（Unity 的 ray 起點在凸面體內部時不回報該碰撞體） |
+> | 從別的角色膠囊**內部**往下射 | 只打到 Ground，打不到那個膠囊 |
+> | 從別的角色**上方**往下射 | ⚠️ **會打到**（Y Bot 膠囊頂 y=1.588，比 Ground 更近 ⇒ `Physics.Raycast` 取它） |
+>
+> ⇒ 唯一會發生的情境是**角色踩在另一個角色頭上**（`RaycastUpOffset 0.25`／`RaycastDistance 0.85`，
+> 腳要高於對方膠囊頂才構得到）。此時 Foot IK 會把對方的膠囊當成地面。
+> 對**音效**無害（角色 Material 未列入 Surface Map ⇒ 落到 Default Stone），
+> 但對 **Foot IK 本身**是錯的。屬 Foot IK 設定、非腳步系統範圍；
+> 要修就是把 GroundLayers 收窄成地面 layer，⛔ 不要在腳步系統裡特判。
 
 ---
 
