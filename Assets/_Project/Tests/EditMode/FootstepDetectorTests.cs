@@ -24,6 +24,12 @@ namespace Project.Tests.EditMode
     {
         private const float Dt = 1f / 60f;
 
+        /// <summary>
+        /// 測試預設的「角色實際世界水平速度」。取 3.0（正常跑步）⇒ 水平速度閘**生效**，
+        /// 與 Stage 1 的行為一致。貼牆（root 不前進）的情境由專屬測項單獨驗。
+        /// </summary>
+        private const float MovingRootSpeed = 3.0f;
+
         private readonly List<Object> _created = new();
 
         [TearDown]
@@ -44,6 +50,7 @@ namespace Project.Tests.EditMode
             NormalStepLift = 0.060f,
             ContactClearance = 0.045f,
             PlantHorizontalSpeedMax = 2.0f,
+            SwingGateMinRootSpeed = 0.5f,
             GroundStepTolerance = 0.06f,
         };
 
@@ -64,14 +71,14 @@ namespace Project.Tests.EditMode
 
         /// <summary>把高度序列餵進 tracker（腳水平不動、地面恆 0），回傳每帧的分類。</summary>
         private static List<FootstepKind> Feed(IEnumerable<float> heights, FootstepDetectionSettings settings,
-            float dt = Dt, float horizontalStep = 0f)
+            float dt = Dt, float horizontalStep = 0f, float rootHorizontalSpeed = MovingRootSpeed)
         {
             var tracker = new FootPlantTracker();
             var result = new List<FootstepKind>();
             float x = 0f;
             foreach (float h in heights)
             {
-                result.Add(tracker.Advance(new Vector3(x, h, 0f), true, 0f, 0f, dt, settings, out _));
+                result.Add(tracker.Advance(new Vector3(x, h, 0f), true, 0f, 0f, rootHorizontalSpeed, dt, settings, out _));
                 x += horizontalStep;
             }
             return result;
@@ -107,7 +114,7 @@ namespace Project.Tests.EditMode
         public void FirstSample_DoesNotProduceEvent()
         {
             var tracker = new FootPlantTracker();
-            FootstepKind k = tracker.Advance(Vector3.zero, true, 0f, 0f, Dt, Settings(), out FootstepSuppressReason r);
+            FootstepKind k = tracker.Advance(Vector3.zero, true, 0f, 0f, MovingRootSpeed, Dt, Settings(), out FootstepSuppressReason r);
             Assert.AreEqual(FootstepKind.None, k, "首次採樣沒有前一帧，算不出速度");
             Assert.AreEqual(FootstepSuppressReason.Warmup, r);
         }
@@ -128,14 +135,14 @@ namespace Project.Tests.EditMode
 
             foreach (float h in Stride(0.18f, 8))
             {
-                Assert.AreEqual(FootstepKind.None, tracker.Advance(new Vector3(0f, h, 0f), true, 0f, 0f, 0f, s, out _),
+                Assert.AreEqual(FootstepKind.None, tracker.Advance(new Vector3(0f, h, 0f), true, 0f, 0f, MovingRootSpeed, 0f, s, out _),
                     "deltaTime = 0 時不得產生事件");
             }
 
             int fired = 0;
             foreach (float h in Stride(0.18f, 8))
             {
-                if (tracker.Advance(new Vector3(0f, h, 0f), true, 0f, 0f, Dt, s, out _) != FootstepKind.None) fired++;
+                if (tracker.Advance(new Vector3(0f, h, 0f), true, 0f, 0f, MovingRootSpeed, Dt, s, out _) != FootstepKind.None) fired++;
             }
             Assert.AreEqual(1, fired, "凍結期間不得污染跨帧狀態——解除後偵測必須照常運作");
         }
@@ -179,7 +186,7 @@ namespace Project.Tests.EditMode
             for (int i = 0; i < profile.Count; i++)
             {
                 x += profile[i].vxz * Dt;
-                FootstepKind k = tracker.Advance(new Vector3(x, profile[i].h, 0f), true, 0f, 0f, Dt, s, out _);
+                FootstepKind k = tracker.Advance(new Vector3(x, profile[i].h, 0f), true, 0f, 0f, MovingRootSpeed, Dt, s, out _);
                 if (k != FootstepKind.None) fired.Add(i);
             }
 
@@ -245,12 +252,16 @@ namespace Project.Tests.EditMode
         }
 
         /// <summary>
-        /// 實測的停步腳部調整（`WalkFwdStop_RU` 右腳：行程 0.033 m、峰值下降速度 0.40 m/s）
-        /// 應判為 **Shuffle**——既不是完整腳步、也不該完全靜音。
-        /// ⚠️ 下降速度必須照實測給：0.40 m/s 會通過上膛門檻(0.25)，這正是它與純 settling 的差別。
+        /// 🔄 實測的停步腳部調整（`WalkFwdStop_RU` 右腳：行程 0.033 m、峰值下降速度 0.40 m/s）
+        /// **必須完全靜音**。
+        ///
+        /// 這一條的期望值在本輪被**翻轉**了：原本判為 `Shuffle` 並播較輕的摩擦聲，
+        /// 使用者實測後裁決「突兀且聽感很怪，收步／起步不該有聲音」⇒ 改為一律抑制。
+        /// ⚠️ 抑制不等於沒發生——tracker 仍會 `MarkPlanted`，否則下一步的行程基準會錯亂
+        /// （`SuppressedAdjustment_DoesNotCorruptNextStep` 守這件事）。
         /// </summary>
         [Test]
-        public void StopAdjustment_IsClassifiedAsShuffle()
+        public void StopAdjustment_IsSilent()
         {
             FootstepDetectionSettings s = Settings();
             var heights = new List<float> { 0f };
@@ -260,9 +271,71 @@ namespace Project.Tests.EditMode
             heights.Add(0f);
 
             List<FootstepKind> kinds = Feed(heights, s);
-            Assert.AreEqual(1, CountAny(kinds), "0.033 m 的調整應產生剛好一次事件");
-            Assert.AreEqual(1, Count(kinds, FootstepKind.Shuffle),
-                "行程介於 ReArmLift(0.025) 與 NormalStepLift(0.060) 之間 ⇒ Shuffle，不得用正常腳步音");
+            Assert.AreEqual(0, CountAny(kinds),
+                "行程 0.033 m 低於 NormalStepLift(0.060) ⇒ 不構成完整跨步，必須完全靜音");
+            Assert.AreEqual(0, Count(kinds, FootstepKind.Shuffle),
+                "⛔ Shuffle 已移除——偵測器不得再回報這個分類");
+        }
+
+        /// <summary>
+        /// 抑制的那一步仍然必須**收束跨帧狀態**，否則行程基準會累積下去，
+        /// 讓後面一次真正的跨步被誤判成更大的行程、或反過來永遠打不到門檻。
+        /// </summary>
+        [Test]
+        public void SuppressedAdjustment_DoesNotCorruptNextStep()
+        {
+            FootstepDetectionSettings s = Settings();
+
+            var heights = new List<float> { 0f };
+            // 先來兩次「行程不足」的小調整（會被抑制）
+            for (int round = 0; round < 2; round++)
+            {
+                for (int i = 1; i <= 16; i++) heights.Add(0.033f * i / 16f);
+                for (int i = 4; i >= 0; i--) heights.Add(0.033f * i / 5f);
+                heights.Add(0f);
+            }
+            // 再來一次真正的跨步
+            heights.AddRange(Stride(0.18f, 8));
+
+            List<FootstepKind> kinds = Feed(heights, s);
+            Assert.AreEqual(1, CountAny(kinds),
+                "兩次被抑制的小調整之後，真正的跨步必須照常擊發，且只有它擊發");
+        }
+
+        // =====================================================================
+        // ⭐ 回歸鎖：貼牆跑不得沒有聲音
+        // =====================================================================
+
+        /// <summary>
+        /// **真實缺陷的回歸鎖（使用者回報）。**
+        ///
+        /// 水平速度閘的前提是「踩住的腳在世界空間靜止，因為身體會從它旁邊走過去」。
+        /// 貼著牆跑時 `CharacterController` 被擋住、root 完全不前進，但動畫照跑
+        /// ⇒ **踩住的腳反而以動畫速度（約 3.5 m/s）往後滑**，直接衝破 2.0 的門檻，
+        /// 每一步都被判成 `StillSwinging` ⇒ **完全沒有腳步聲**。
+        ///
+        /// 此時擺盪腳與踩住腳的世界速度都接近動畫速度，**這個量裡已經沒有可分辨的資訊**，
+        /// 唯一正確的處置是在 root 幾乎沒有位移時關掉這道閘。
+        /// </summary>
+        [Test]
+        public void BlockedAgainstWall_StillProducesSteps()
+        {
+            FootstepDetectionSettings s = Settings();
+
+            // 腳以 3.5 m/s 在世界空間滑動（遠超過 PlantHorizontalSpeedMax 2.0），
+            // 但 root 完全沒有位移 ⇒ 角色被牆擋住。
+            List<FootstepKind> blocked = Feed(Stride(0.18f, 8), s,
+                dt: Dt, horizontalStep: 3.5f * Dt, rootHorizontalSpeed: 0f);
+
+            Assert.AreEqual(1, CountAny(blocked),
+                "貼牆跑（root 不前進）時仍然必須有腳步聲——這正是使用者回報的 bug");
+
+            // 對照組：同樣的腳部滑動，但角色**確實在移動** ⇒ 閘生效，判為擺盪不擊發。
+            List<FootstepKind> moving = Feed(Stride(0.18f, 8), s,
+                dt: Dt, horizontalStep: 3.5f * Dt, rootHorizontalSpeed: MovingRootSpeed);
+
+            Assert.AreEqual(0, CountAny(moving),
+                "角色正常移動時，水平速度閘必須照常擋掉擺盪中低點——修 bug 不得把這道閘廢掉");
         }
 
         // =====================================================================
@@ -289,7 +362,7 @@ namespace Project.Tests.EditMode
             {
                 groundY += 0.004f;           // root／地面持續上升（走上斜向的一階）
                 float worldY = groundY + clearance[i];
-                if (tracker.Advance(new Vector3(0f, worldY, 0f), true, groundY, groundY, Dt, s, out _)
+                if (tracker.Advance(new Vector3(0f, worldY, 0f), true, groundY, groundY, MovingRootSpeed, Dt, s, out _)
                     != FootstepKind.None) fired++;
             }
 
@@ -314,7 +387,7 @@ namespace Project.Tests.EditMode
                 bool onHigh = (i / 2) % 2 == 0;      // 每兩帧換一階
                 float groundY = onHigh ? high : low;
                 float worldY = groundY + 0.004f * ((i % 3) - 1); // ±4 mm 抖動
-                if (tracker.Advance(new Vector3(0f, worldY, 0f), true, groundY, groundY, Dt, s, out _)
+                if (tracker.Advance(new Vector3(0f, worldY, 0f), true, groundY, groundY, MovingRootSpeed, Dt, s, out _)
                     != FootstepKind.None) fired++;
             }
 
@@ -337,11 +410,11 @@ namespace Project.Tests.EditMode
             var tracker = new FootPlantTracker();
 
             // 腳穩穩踩在地上，地面觀測與 Root 平面一致。
-            tracker.Advance(new Vector3(0f, 1.0f, 0f), true, 1.0f, 1.0f, Dt, s, out _);
+            tracker.Advance(new Vector3(0f, 1.0f, 0f), true, 1.0f, 1.0f, MovingRootSpeed, Dt, s, out _);
 
             // 下一帧角色被抬上一階（級高 0.194）：Root 平面與腳一起上移，
             // 但腳下的 ray 這一帧還打在舊的一階（例如腳懸在級緣外）。
-            FootstepKind k = tracker.Advance(new Vector3(0f, 1.194f, 0f), true, 1.0f, 1.194f, Dt, s,
+            FootstepKind k = tracker.Advance(new Vector3(0f, 1.194f, 0f), true, 1.0f, 1.194f, MovingRootSpeed, Dt, s,
                 out FootstepSuppressReason reason);
 
             Assert.AreEqual(FootstepKind.None, k, "Root 平面跳變的那一帧不得擊發");
@@ -378,7 +451,7 @@ namespace Project.Tests.EditMode
             {
                 foreach (float h in cycle)
                 {
-                    if (tr.Advance(new Vector3(0f, h, 0f), true, 0f, 0f, Dt, s, out _) != FootstepKind.None) fired++;
+                    if (tr.Advance(new Vector3(0f, h, 0f), true, 0f, 0f, MovingRootSpeed, Dt, s, out _) != FootstepKind.None) fired++;
                 }
             }
 
@@ -401,7 +474,7 @@ namespace Project.Tests.EditMode
             foreach (float h in Stride(0.18f, 8))
             {
                 // hasGround = false ⇒ 必須改用 rootPlaneY 當基準
-                if (tracker.Advance(new Vector3(0f, rootY + h, 0f), false, 0f, rootY, Dt, s, out _)
+                if (tracker.Advance(new Vector3(0f, rootY + h, 0f), false, 0f, rootY, MovingRootSpeed, Dt, s, out _)
                     != FootstepKind.None) fired++;
             }
 
@@ -415,11 +488,11 @@ namespace Project.Tests.EditMode
             var tracker = new FootPlantTracker();
 
             // 有地面觀測：離地 0.0
-            tracker.Advance(new Vector3(0f, 1.0f, 0f), true, 1.0f, 1.0f, Dt, s, out _);
+            tracker.Advance(new Vector3(0f, 1.0f, 0f), true, 1.0f, 1.0f, MovingRootSpeed, Dt, s, out _);
 
             // 下一帧觀測消失、退回 Root 平面 0.2 ⇒ 離地瞬間變成 0.8。
             // 若直接差分，會算出 0.8 / (1/60) = 48 m/s 的假速度。
-            FootstepKind k = tracker.Advance(new Vector3(0f, 1.0f, 0f), false, 0f, 0.2f, Dt, s,
+            FootstepKind k = tracker.Advance(new Vector3(0f, 1.0f, 0f), false, 0f, 0.2f, MovingRootSpeed, Dt, s,
                 out FootstepSuppressReason reason);
 
             Assert.AreEqual(FootstepKind.None, k, "地面來源改變的那一帧不得擊發");
@@ -483,7 +556,7 @@ namespace Project.Tests.EditMode
             var results = new List<PresentationEventData>();
             for (int i = 0; i < left.Count; i++)
             {
-                results.Add(detector.Detect(Pose(left[i], right[i]), ground, 0f, justLanded, Dt));
+                results.Add(detector.Detect(Pose(left[i], right[i]), ground, 0f, MovingRootSpeed, justLanded, Dt));
             }
             return results;
         }
@@ -494,13 +567,13 @@ namespace Project.Tests.EditMode
             FootstepDetector detector = CreateDetector();
             var cold = new FootIKPoseData(); // IsWarm = false
 
-            PresentationEventData e = detector.Detect(cold, FlatGround(), 0f, false, Dt);
+            PresentationEventData e = detector.Detect(cold, FlatGround(), 0f, MovingRootSpeed, false, Dt);
 
             Assert.IsFalse(e.LeftFootPlanted, "快照尚未被 Rig 寫過時不得消費全零數據");
             Assert.IsFalse(e.RightFootPlanted, "同上");
-            Assert.DoesNotThrow(() => detector.Detect(null, FlatGround(), 0f, false, Dt),
+            Assert.DoesNotThrow(() => detector.Detect(null, FlatGround(), 0f, MovingRootSpeed, false, Dt),
                 "pose 為 null（缺 Rig）必須安全靜默");
-            Assert.DoesNotThrow(() => detector.Detect(Pose(0f, 0f), null, 0f, false, Dt),
+            Assert.DoesNotThrow(() => detector.Detect(Pose(0f, 0f), null, 0f, MovingRootSpeed, false, Dt),
                 "ground 為 null（缺 FootIKController）必須安全退化，不得丟例外");
         }
 
@@ -516,7 +589,7 @@ namespace Project.Tests.EditMode
             for (int i = 0; i < stride.Count; i++)
             {
                 // ground = null ⇒ 必須退回 rootPlaneY（此處 0）
-                if (detector.Detect(Pose(stride[i], flat[i]), null, 0f, false, Dt).LeftFootPlanted) fired++;
+                if (detector.Detect(Pose(stride[i], flat[i]), null, 0f, MovingRootSpeed, false, Dt).LeftFootPlanted) fired++;
             }
             Assert.AreEqual(1, fired, "缺少地面觀測時，平地上的偵測必須與有觀測時等價");
         }
@@ -569,16 +642,16 @@ namespace Project.Tests.EditMode
 
             // 先讓雙腳抬起並進入快速下降（上膛），但還沒踩到。
             float[] descent = { 0.20f, 0.16f, 0.12f, 0.08f };
-            foreach (float h in descent) detector.Detect(Pose(h, h), ground, 0f, false, Dt);
+            foreach (float h in descent) detector.Detect(Pose(h, h), ground, 0f, MovingRootSpeed, false, Dt);
 
             // 落地帧
-            detector.Detect(Pose(0.04f, 0.04f), ground, 0f, true, Dt);
+            detector.Detect(Pose(0.04f, 0.04f), ground, 0f, MovingRootSpeed, true, Dt);
 
             // 落地後貼地不動：若上膛狀態沒被收束，這幾帧會冒出腳步。
             int spurious = 0;
             for (int i = 0; i < 20; i++)
             {
-                PresentationEventData e = detector.Detect(Pose(0f, 0f), ground, 0f, false, Dt);
+                PresentationEventData e = detector.Detect(Pose(0f, 0f), ground, 0f, MovingRootSpeed, false, Dt);
                 if (e.LeftFootPlanted || e.RightFootPlanted) spurious++;
             }
 

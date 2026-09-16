@@ -16,27 +16,27 @@ MonoBehaviour:
   - Surface: 1
     Walk: {fileID: 11400000, guid: 7fe52e6b2f90b06419a7bc4b95f07488, type: 2}
     Run: {fileID: 11400000, guid: 8850dd2bfb934564eb2b9567e89e8366, type: 2}
-    Shuffle: {fileID: 11400000, guid: c93dfd6476f578940bdc57179584d17e, type: 2}
+    Shuffle: {fileID: 0}
     Landing: {fileID: 11400000, guid: 406a3f0e74d442f4a8f486e522b136a5, type: 2}
   - Surface: 2
     Walk: {fileID: 11400000, guid: 57560b4e8235b4d4f8748b6deb3ad314, type: 2}
     Run: {fileID: 11400000, guid: d59e5ee7b60d21146a2792dbc7eb4816, type: 2}
-    Shuffle: {fileID: 11400000, guid: 7d89374b3e13b9243b74b58ea458407d, type: 2}
+    Shuffle: {fileID: 0}
     Landing: {fileID: 11400000, guid: 8a2eb828ad8e5494bb4a5ca09f1ca1af, type: 2}
   - Surface: 3
     Walk: {fileID: 11400000, guid: bb7bd8673928a3840ad75bd649cf304f, type: 2}
     Run: {fileID: 11400000, guid: f6d0fd7107af27a4ca542bc2b9df1613, type: 2}
-    Shuffle: {fileID: 11400000, guid: 09bc26ac9bb0e0a4caca5c80e9a9a4a7, type: 2}
+    Shuffle: {fileID: 0}
     Landing: {fileID: 11400000, guid: b08f4d1ff7b367149b828b57c446342f, type: 2}
   - Surface: 4
     Walk: {fileID: 11400000, guid: 8c4ecdbce484d7544bfc6f38cc66a9ed, type: 2}
     Run: {fileID: 11400000, guid: 07c6dc1c6bd4d2848a736d33505d4e27, type: 2}
-    Shuffle: {fileID: 11400000, guid: cbf9ad8b9e3aa6a46b75c4750b60180d, type: 2}
+    Shuffle: {fileID: 0}
     Landing: {fileID: 11400000, guid: 50b83a45e6088da489c2d47d95cf7299, type: 2}
   defaultSurface: 1
-  masterVolume: 1
+  masterVolume: 0.55
   normalStepVolume: 1
-  shuffleVolume: 0.45
+  shuffleVolume: 0
   landingVolume: 1.1
   walkMultiplier: 0.9
   runMultiplier: 1

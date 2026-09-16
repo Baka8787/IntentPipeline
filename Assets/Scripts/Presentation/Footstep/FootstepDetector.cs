@@ -61,6 +61,12 @@ namespace Project.Presentation.Footstep
         private SurfaceResolver _leftSurface;
         private SurfaceResolver _rightSurface;
 
+        // 🆕 角色**實際**的世界水平速度。⚠️ 刻意量 Transform 的位移，不讀黑板的 MoveSpeed——
+        //    後者是「想移動多快」的意圖，貼牆被擋住時它仍然是滿的；
+        //    我們要問的正是「意圖有沒有變成實際位移」，所以只有量位置差才答得出來。
+        private Vector3 _previousRootPosition;
+        private bool _hasPreviousRootPosition;
+
         private void Awake()
         {
             var rig = GetComponentInChildren<FootIKRig>();
@@ -107,8 +113,21 @@ namespace Project.Presentation.Footstep
         public PresentationEventData Evaluate(PlayerRuntimeData data)
         {
             // 本方法刻意只做「取得本帧輸入」這一件事，判定全部在 Detect —— 見 Detect 的說明。
-            return Detect(_poseData, _groundData, transform.position.y,
-                data != null && data.JustLanded, Time.deltaTime);
+            float deltaTime = Time.deltaTime;
+            Vector3 rootPosition = transform.position;
+
+            float rootHorizontalSpeed = 0f;
+            if (_hasPreviousRootPosition && deltaTime > 0f)
+            {
+                Vector3 rootDelta = rootPosition - _previousRootPosition;
+                rootDelta.y = 0f;
+                rootHorizontalSpeed = rootDelta.magnitude / deltaTime;
+            }
+            _previousRootPosition = rootPosition;
+            _hasPreviousRootPosition = true;
+
+            return Detect(_poseData, _groundData, rootPosition.y, rootHorizontalSpeed,
+                data != null && data.JustLanded, deltaTime);
         }
 
         /// <summary>
@@ -121,10 +140,11 @@ namespace Project.Presentation.Footstep
         /// <param name="pose">pre-IK 動畫 pose 快照。</param>
         /// <param name="ground">本帧地面觀測；<c>null</c> 或未 warm 時退化為以 <paramref name="rootPlaneY"/> 為地面。</param>
         /// <param name="rootPlaneY">角色 Root 平面世界 Y（＝膠囊底＝腳底基準）。</param>
+        /// <param name="rootHorizontalSpeed">角色**實際**的世界水平速度（量 Transform 位移，不是移動意圖）。</param>
         /// <param name="justLanded">本帧是否剛落地。</param>
         /// <param name="deltaTime">本帧時間步長。</param>
         public PresentationEventData Detect(FootIKPoseData pose, FootIKGroundData ground,
-            float rootPlaneY, bool justLanded, float deltaTime)
+            float rootPlaneY, float rootHorizontalSpeed, bool justLanded, float deltaTime)
         {
             PresentationEventData events = default;
 
@@ -155,11 +175,11 @@ namespace Project.Presentation.Footstep
 
             FootstepKind left = _leftTracker.Advance(
                 leftBottom, leftHasGround, leftHasGround ? ground.Left.GroundY : 0f,
-                rootPlaneY, deltaTime, settings, out FootstepSuppressReason leftReason);
+                rootPlaneY, rootHorizontalSpeed, deltaTime, settings, out FootstepSuppressReason leftReason);
 
             FootstepKind right = _rightTracker.Advance(
                 rightBottom, rightHasGround, rightHasGround ? ground.Right.GroundY : 0f,
-                rootPlaneY, deltaTime, settings, out FootstepSuppressReason rightReason);
+                rootPlaneY, rootHorizontalSpeed, deltaTime, settings, out FootstepSuppressReason rightReason);
 
             // Landing 優先（輪 3 裁決）：落地是更高階的語意，該帧不再額外報一次腳步。
             // ⚠️ 抑制刻意發生在**推進之後**——tracker 的跨帧狀態照常前進，

@@ -43,6 +43,15 @@ namespace Project.Presentation.Footstep
                  "極端轉速下可能漏一步——寧可漏報也不誤報。")]
         public float PlantHorizontalSpeedMax = 2.0f;
 
+        [Tooltip("水平速度閘生效所需的**角色實際世界移動速度**（m/s）。低於此值時該閘關閉。\n" +
+                 "⚠️ 這道是為了修「貼著牆跑會沒聲音」：水平速度閘的前提是『踩住的腳在世界空間靜止，\n" +
+                 "因為身體會從它旁邊走過去』。被牆擋住時 root 不前進、動畫照跑 ⇒ 踩住的腳反而以\n" +
+                 "動畫速度往後滑，速度直接衝破門檻，每一步都被誤判成擺盪。\n" +
+                 "此時兩隻腳的世界速度都接近動畫速度，**世界速度裡已經不存在可分辨的資訊**，\n" +
+                 "唯一正確的處置是關掉這道閘，改由接觸帶＋行程＋下降三道守。\n" +
+                 "取 0.5：正常行走的世界速度約 2.2 m/s，跑步 4.7 ⇒ 正常移動時此閘恆生效。")]
+        public float SwingGateMinRootSpeed = 0.5f;
+
         [Tooltip("地面高度跳變容許值（公尺）：單帧內腳下地面高度變化超過此值，視為 ray 跨過了階梯級緣，\n" +
                  "該帧的離地高度與上一帧不可比 ⇒ 不計速度、不擊發、不累計行程。\n" +
                  "量測依據：場景樓梯級高 0.194 m；而擊發前提已把腳的水平速度限在 2.0 m/s，\n" +
@@ -82,6 +91,9 @@ namespace Project.Presentation.Footstep
         AboveContactBand,
         /// <summary>⭐ 下降結束且貼近地面，但腳仍以擺盪速度水平掠過——這是擺盪中低點，不是落腳。</summary>
         StillSwinging,
+
+        /// <summary>抬腳行程不足以構成一次完整跨步（停步收腳／起步微調／姿勢調整）。🔄 這類事件目前**完全靜音**。</summary>
+        BelowNormalStep,
     }
 
     /// <summary>
@@ -177,6 +189,7 @@ namespace Project.Presentation.Footstep
             bool hasGround,
             float groundY,
             float fallbackGroundReferenceY,
+            float rootHorizontalSpeed,
             float deltaTime,
             FootstepDetectionSettings settings,
             out FootstepSuppressReason reason)
@@ -306,17 +319,33 @@ namespace Project.Presentation.Footstep
                 return FootstepKind.None;
             }
 
-            if (horizontalSpeed > settings.PlantHorizontalSpeedMax)
+            // ⚠️ 水平速度閘**只有在角色真的在世界中位移時才有意義**。
+            //    被牆擋住（或被任何東西卡住）時 root 不前進、動畫照跑 ⇒ 踩住的腳以動畫速度往後滑，
+            //    而擺盪的腳以差不多的速度往前——**兩者的世界速度幾乎一樣，這個量裡已經沒有可分辨的資訊**。
+            //    此時繼續套用只會讓每一步都被判成擺盪（＝貼牆跑完全沒有腳步聲）。
+            //    正確處置是關掉它，讓接觸帶／行程／下降三道接手。
+            bool swingGateApplies = rootHorizontalSpeed >= settings.SwingGateMinRootSpeed;
+            if (swingGateApplies && horizontalSpeed > settings.PlantHorizontalSpeedMax)
             {
                 reason = FootstepSuppressReason.StillSwinging;
                 return FootstepKind.None;
             }
 
             // === ④ 擊發 ===
-            FootstepKind kind = lift >= settings.NormalStepLift ? FootstepKind.Normal : FootstepKind.Shuffle;
+            // 🔄 行程不足以構成完整跨步者**一律靜音**（原本判為 Shuffle 並播較輕的摩擦聲）。
+            //    使用者實測裁決：收步／起步冒出的那些聲音「突兀且聽感很怪」，寧可沒有。
+            //    ⚠️ 仍然要 MarkPlanted——事件被抑制不代表這一步沒發生，
+            //    跨帧狀態照常收束，否則下一步的行程基準會錯亂。
+            if (lift < settings.NormalStepLift)
+            {
+                MarkPlanted(clearance);
+                reason = FootstepSuppressReason.BelowNormalStep;
+                return FootstepKind.None;
+            }
+
             MarkPlanted(clearance);
             reason = FootstepSuppressReason.Fired;
-            return kind;
+            return FootstepKind.Normal;
         }
 
         /// <summary>

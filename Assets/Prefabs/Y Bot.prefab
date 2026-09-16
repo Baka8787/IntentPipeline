@@ -669,6 +669,7 @@ MonoBehaviour:
     NormalStepLift: 0.06
     ContactClearance: 0.045
     PlantHorizontalSpeedMax: 2
+    SwingGateMinRootSpeed: 0.5
     GroundStepTolerance: 0.06
   recordDebugTrace: 0
   surfaceMap: {fileID: 11400000, guid: 3739daca706202746b7f4f2e0f605200, type: 2}
