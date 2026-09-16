@@ -45,6 +45,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Actions.GroundEffectSink
   effectPrefab: {fileID: 7865134773366943936, guid: ca9ff8d9a7cfbd24a9968357a2fb9b59, type: 3}
+  impactAudio: {fileID: 11400000, guid: c62c104d9750d65448d57f351616931c, type: 2}
+  audioController: {fileID: -2945132341864011770}
   castDistance: 0.4
   effectRadius: 0.7
   effectNearReach: 0.58
@@ -179,6 +181,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Actions.MeleeHitboxSink
   hitbox: {fileID: -900000000000000003}
   damage: 25
+  hitAudio: {fileID: 11400000, guid: 5fa1d6c3647c9b24ab7cffc90d9e63f3, type: 2}
+  audioController: {fileID: -2945132341864011770}
 --- !u!54 &6544388870404131249
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -206,6 +210,54 @@ Rigidbody:
   m_Interpolate: 0
   m_Constraints: 0
   m_CollisionDetection: 0
+--- !u!1 &269027329608431247
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 9023837030874355267}
+  - component: {fileID: 9014280190568063984}
+  m_Layer: 0
+  m_Name: AudioSink_Ice
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &9023837030874355267
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 269027329608431247}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 8480833622433434003}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &9014280190568063984
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 269027329608431247}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 620a6581c03d4a44080bd3eedad110cf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Audio.ActionAudioSink
+  audioController: {fileID: -2945132341864011770}
+  emitPoint: {fileID: 0}
+  castDefinition: {fileID: 11400000, guid: 78660b1cee84b324aaeafbbc98ba99bd, type: 2}
+  releaseDefinition: {fileID: 11400000, guid: 5d3ef5601a114bd44a9e030cca0badac, type: 2}
 --- !u!1 &373510547886659223
 GameObject:
   m_ObjectHideFlags: 0
@@ -1217,6 +1269,54 @@ Transform:
   - {fileID: 4968236804058325143}
   m_Father: {fileID: 4481201666268439059}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &2553515644861797166
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 5016105562731165344}
+  - component: {fileID: 1335308412360043568}
+  m_Layer: 0
+  m_Name: AudioSink_Fireball
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &5016105562731165344
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2553515644861797166}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 8480833622433434003}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1335308412360043568
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2553515644861797166}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 620a6581c03d4a44080bd3eedad110cf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Audio.ActionAudioSink
+  audioController: {fileID: -2945132341864011770}
+  emitPoint: {fileID: 0}
+  castDefinition: {fileID: 11400000, guid: 6bea1e01d9b613748b051179a7921305, type: 2}
+  releaseDefinition: {fileID: 11400000, guid: 031dd9ce075de724dbbfa461867bce86, type: 2}
 --- !u!1 &2599043293246753333
 GameObject:
   m_ObjectHideFlags: 0
@@ -2667,6 +2767,54 @@ Transform:
   - {fileID: 4973938248781497812}
   m_Father: {fileID: 2709418936412747184}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &6596886543820680436
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 8453475185643965468}
+  - component: {fileID: 2889096294448198654}
+  m_Layer: 0
+  m_Name: AudioSink_Melee
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &8453475185643965468
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6596886543820680436}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 8480833622433434003}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &2889096294448198654
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6596886543820680436}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 620a6581c03d4a44080bd3eedad110cf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Audio.ActionAudioSink
+  audioController: {fileID: -2945132341864011770}
+  emitPoint: {fileID: 0}
+  castDefinition: {fileID: 0}
+  releaseDefinition: {fileID: 11400000, guid: 408ff4816aee79c4dac86b8bc342b21a, type: 2}
 --- !u!1 &6719406263040778714
 GameObject:
   m_ObjectHideFlags: 0
@@ -3009,6 +3157,9 @@ Transform:
   - {fileID: -910000000000000002}
   - {fileID: -910000000000000005}
   - {fileID: 2262512354047553627}
+  - {fileID: 8453475185643965468}
+  - {fileID: 5016105562731165344}
+  - {fileID: 9023837030874355267}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &5885071440779706115
@@ -3039,6 +3190,12 @@ MonoBehaviour:
     Sink: {fileID: 2215182672636702657}
   - Slot: 1
     Sink: {fileID: 2299014653633880490}
+  - Slot: 1
+    Sink: {fileID: 2889096294448198654}
+  - Slot: 2
+    Sink: {fileID: 1335308412360043568}
+  - Slot: 3
+    Sink: {fileID: 9014280190568063984}
   actionReleaseSinkComponent: {fileID: -7971596924591842964}
   animationFacade: {fileID: 5884176032741337020}
   motionDriver: {fileID: 4074466034556624722}
@@ -3616,9 +3773,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Audio.AudioController
   audioSource: {fileID: 0}
-  library: {fileID: 11400000, guid: 435e87715d6833e41a8a77676627976d, type: 2}
+  library: {fileID: 11400000, guid: c5f6574d5db386442ae26a24b09ca5dd, type: 2}
   footstepBank: {fileID: 11400000, guid: 84179a4b6b8934b439f451e1a780e659, type: 2}
-  footstepSourceCount: 6
+  audioSourceCount: 10
 --- !u!114 &-7543379725507232644
 MonoBehaviour:
   m_ObjectHideFlags: 0

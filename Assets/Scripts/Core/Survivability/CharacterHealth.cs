@@ -46,6 +46,14 @@ namespace Project.Core.Survivability
         /// </summary>
         private bool _pendingHurt;
 
+        /// <summary>
+        /// 🆕（2026-09-17）尚未發布的「本次由活轉死」。與 <see cref="_pendingHurt"/> 完全同構：
+        /// 由 <see cref="PublishTo"/> 寫出後立即清除。
+        /// ⚠️ 只在 <see cref="ApplyDamage"/> 真的把 <see cref="_isDead"/> 翻成 true 的那一次抬起
+        /// ⇒ 後續對屍體的傷害（早在函式開頭就 return）不會再抬起它。
+        /// </summary>
+        private bool _pendingDeath;
+
         public float MaxHealth => maxHealth;
 
         public float CurrentHealth
@@ -87,6 +95,9 @@ namespace Project.Core.Survivability
                 // 抬了會讓 Hurt 與 Death 在同一幀爭同一顆 FSM。
                 _isDead = true;
                 _pendingHurt = false;
+                // 🆕（2026-09-17）死亡**事件**的唯一抬起點。這一行就是「活轉死」發生的地方——
+                // 讓知道的人說出來，下游才不必各自快取上一幀的 IsDead 去猜。
+                _pendingDeath = true;
                 return true;
             }
 
@@ -124,6 +135,9 @@ namespace Project.Core.Survivability
             _currentHealth = maxHealth;
             _isDead = false;
             _pendingHurt = false;
+            // 復活是「活轉死」的反向，不是死亡事件。若在死亡與發布之間復活，
+            // 殘留的旗標會讓角色一復活就播一次死亡音——與上面清 _pendingHurt 同一個理由。
+            _pendingDeath = false;
             return true;
         }
 
@@ -144,7 +158,9 @@ namespace Project.Core.Survivability
             data.Survivability.MaxHealth = maxHealth;
             data.Survivability.IsDead = _isDead;
             data.Survivability.JustTookDamage = _pendingHurt;
+            data.Survivability.JustDied = _pendingDeath;
             _pendingHurt = false;
+            _pendingDeath = false;
         }
 
         /// <summary>測試用的確定性初始狀態設定；正式路徑一律由 <see cref="EnsureInitialized"/> 帶起。</summary>
@@ -154,10 +170,15 @@ namespace Project.Core.Survivability
             _currentHealth = Mathf.Max(0f, startingHealth);
             _isDead = _currentHealth <= 0f;
             _pendingHurt = false;
+            // ⚠️ 以 0 血起始的測試角色**不會**抬起死亡事件：它不是「這一幀死的」，是「一開始就是屍體」。
+            _pendingDeath = false;
         }
 
         /// <summary>測試用：檢查尚未發布的受擊事件。</summary>
         internal bool HasPendingHurt => _pendingHurt;
+
+        /// <summary>測試用：檢查尚未發布的死亡事件。</summary>
+        internal bool HasPendingDeath => _pendingDeath;
 
         private void EnsureInitialized()
         {
@@ -166,6 +187,7 @@ namespace Project.Core.Survivability
             _currentHealth = maxHealth;
             _isDead = false;
             _pendingHurt = false;
+            _pendingDeath = false;
         }
     }
 }

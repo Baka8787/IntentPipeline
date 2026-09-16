@@ -1,6 +1,7 @@
 using UnityEngine;
 using Project.Core.Actions;
 using Project.Core.Survivability;
+using Project.Presentation.Audio;
 
 namespace Project.Presentation.Actions
 {
@@ -16,6 +17,17 @@ namespace Project.Presentation.Actions
 
         // 🆕（ADR-009 D2）揮擊傷害。數值在資產上，不在程式裡（同 ThrownProjectile.damage）。
         [SerializeField, Min(0f)] private float damage = 10f;
+
+        // 🆕（2026-09-17，戰鬥音效）**命中音**。與 damage 同一種配置慣例：數值／資產在 Inspector，不在程式裡。
+        // ⚠️ 這是 **Hit**（打到東西了），不是 **Swing**（揮了一下）——
+        //    揮擊聲掛在同一個 slot 的 ActionAudioSink.releaseDefinition 上，**必定**會響；
+        //    本欄位只在真的結算了傷害時才響。兩者是不同的事件，刻意不合併。
+        [Header("Audio（🆕 2026-09-17）")]
+        [Tooltip("命中並結算傷害時播放。留空 ⇒ 無命中音。")]
+        [SerializeField] private AudioDefinitionSO hitAudio;
+
+        [Tooltip("本角色的音效輸出。留空 ⇒ Awake 時沿階層向上尋找。")]
+        [SerializeField] private AudioController audioController;
 
         // 固定容量只在元件建立時配置一次；命中窗內不用 HashSet／List，因此多 collider 命中也不產生 GC。
         // 若極端情況超過容量，直接關窗比失去去重能力更安全：寧可漏掉第 17 個目標，也不能重複結算。
@@ -42,6 +54,7 @@ namespace Project.Presentation.Actions
         internal void ResolveHitbox()
         {
             if (hitbox == null) hitbox = GetComponent<Collider>();
+            if (audioController == null) audioController = GetComponentInParent<AudioController>();
         }
 
         public void Begin()
@@ -99,6 +112,15 @@ namespace Project.Presentation.Actions
             // 🆕（ADR-009 D2）近戰與投射物、地面 AoE 走同一條新 seam：只送傷害，
             // 「要播受擊還是要死」由持有生命值的一方決定。
             health.ApplyDamage(damage);
+
+            // 🆕（2026-09-17）命中音在**被打者身上**播，不在武器上——
+            // 「打到東西」這件事在空間上發生在接觸的那一側，而去重迴圈已保證每個目標只響一次。
+            // ⚠️ 用 `health.transform.position`（被打者 root）而非 collider 接觸點：
+            //    `OnTriggerEnter` 沒有給我們接觸點，而編一個出來就是在發明資料。
+            //    近戰距離下 root 與接觸點的差距聽不出來；真的需要精確接觸點時
+            //    要換成 `OnTriggerStay` ＋ `ClosestPoint`，那是獨立的一件事。
+            if (audioController != null) audioController.PlayAt(hitAudio, health.transform.position);
+
             return true;
         }
 

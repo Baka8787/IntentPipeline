@@ -1,6 +1,7 @@
 using UnityEngine;
 using Project.Core.Effects;
 using Project.Core.Survivability;
+using Project.Presentation.Audio;
 
 namespace Project.Presentation.Actions
 {
@@ -54,6 +55,20 @@ namespace Project.Presentation.Actions
         [SerializeField] private GameObject impactEffectPrefab;
         [SerializeField, Min(0.01f)] private float impactEffectLifetime = 2f;
 
+        // 🆕（2026-09-17，戰鬥音效）**命中音**。
+        //
+        // ⭐ **為什麼不掛在投射物自己身上**：投射物命中後就 `Destroy` 自己，
+        //    掛在它身上的 `AudioSource` 會被一起銷毀 ⇒ 命中音**必定被切斷**。
+        //    這與 §18 的 VFX 問題是同一個形狀：**聲音必須活得比投射物久**。
+        //    VFX 的解法是 `SetParent(null)` 讓它留在世界上；
+        //    聲音的解法更簡單——**從射手的 `AudioController` 播**（它本來就活著），
+        //    只是把播放位置設在命中點。不需要第二套機制。
+        //
+        // ⚠️ 已知侷限：射手若在飛行途中被銷毀，那一發命中音會沒了。已記在 `AudioController.PlayAt`。
+        [Tooltip("命中時在 hit.point 播放。留空 ⇒ 無命中音。\n" +
+                 "⚠️ 由**射手**的 AudioController 播出（投射物會自我銷毀，掛在它身上的聲音會被切斷）。")]
+        [SerializeField] private AudioDefinitionSO impactAudio;
+
         /// <summary>固定容量，執行期不配置；掃掠一次最多檢視這麼多命中。</summary>
         private const int SweepBufferSize = 16;
         private readonly RaycastHit[] _sweepBuffer = new RaycastHit[SweepBufferSize];
@@ -65,12 +80,20 @@ namespace Project.Presentation.Actions
         private Transform _ownerRoot;
         private bool _completed;
 
+        /// <summary>
+        /// 🆕（2026-09-17）射手的音效輸出。**在 <see cref="Initialize"/> 解析一次**，不在命中時才找——
+        /// 命中是每步都可能發生的熱路徑，而發射只發生一次。
+        /// ⚠️ 從 <see cref="_ownerRoot"/> 沿階層取得，**不是** `FindObjectOfType`。
+        /// </summary>
+        private AudioController _ownerAudio;
+
         public void Initialize(float speed, float lifetime, Transform ownerRoot)
         {
             _speed = Mathf.Max(0f, speed);
             _remainingLifetime = Mathf.Max(0.01f, lifetime);
             _ownerRoot = ownerRoot;
             _completed = false;
+            _ownerAudio = ownerRoot != null ? ownerRoot.GetComponentInChildren<AudioController>() : null;
             if (_sphere == null) _sphere = GetComponentInChildren<SphereCollider>();
             DetachVisual();
         }
@@ -160,6 +183,9 @@ namespace Project.Presentation.Actions
                 transform.position = start + direction * hit.distance;
                 // ② impact 用真正的接觸點（不是 root，也不是 desiredEnd）。
                 SpawnImpactEffect(hit.point);
+                // 🆕（2026-09-17）命中音與 impact VFX 同一個位置、同一個時點——
+                //    兩者是同一件事的兩種表現，**不得**其中一個用 hit.point 另一個用 root。
+                if (_ownerAudio != null) _ownerAudio.PlayAt(impactAudio, hit.point);
                 // ③ 最後才結算。
                 ResolveImpact(hit.collider);
                 return;

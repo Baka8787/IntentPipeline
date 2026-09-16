@@ -1,6 +1,7 @@
 using Project.Core.Actions;
 using Project.Core.Effects;
 using Project.Core.Survivability;
+using Project.Presentation.Audio;
 using UnityEngine;
 
 namespace Project.Presentation.Actions
@@ -25,6 +26,16 @@ namespace Project.Presentation.Actions
         [Tooltip("在地面生成的一次性視覺（例如 Human_Spell_Ice）。粒子需自帶 Play On Awake——" +
                  "本元件刻意不觸碰任何播放 API（外部 seam 不得持有動畫權威）。")]
         [SerializeField] private GameObject effectPrefab;
+
+        // 🆕（2026-09-17，戰鬥音效）**冰刺落地／爆發音**，在**落點**播出而不是在施法者身上——
+        // 冰刺長在身前 0.4 m 到 4.4 m 的一整列上，聲音當然屬於那裡。
+        // ⚠️ 與 `castDistance`／`effectRadius` 同一個慣例：資產在 Inspector，不在程式裡。
+        [Header("Audio（🆕 2026-09-17）")]
+        [Tooltip("爆發時在**落點**播放（不是施法者身上）。留空 ⇒ 無爆發音。")]
+        [SerializeField] private AudioDefinitionSO impactAudio;
+
+        [Tooltip("本角色的音效輸出。留空 ⇒ Awake 時沿階層向上尋找。")]
+        [SerializeField] private AudioController audioController;
 
         [Tooltip("落點沿段落邊界承諾的瞄準方向、距施法者多遠。無瞄準承諾時才退回角色正前方。")]
         [SerializeField, Min(0f)] private float castDistance = 0.4f;
@@ -87,6 +98,11 @@ namespace Project.Presentation.Actions
 
             Quaternion rotation = ResolveEffectRotation(center);
             SpawnVisual(center, rotation);
+            // 🆕（2026-09-17）爆發音與視覺同位置同時點——比照 `ThrownProjectile` 命中音的作法。
+            // ⚠️ 播在 `center`（落點）而不是 `transform.position`（施法者）：
+            //    使用者要的是「冰刺從那裡冒出來」的聲音，不是「我施了個法」的聲音。
+            if (audioController == null) audioController = GetComponentInParent<AudioController>();
+            if (audioController != null) audioController.PlayAt(impactAudio, center);
             ApplyToTargetsAround(center, rotation * Vector3.forward);
         }
 

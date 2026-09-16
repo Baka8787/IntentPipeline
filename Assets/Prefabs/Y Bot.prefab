@@ -219,6 +219,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Actions.MeleeHitboxSink
   hitbox: {fileID: 4769451904037475120}
   damage: 25
+  hitAudio: {fileID: 11400000, guid: 5fa1d6c3647c9b24ab7cffc90d9e63f3, type: 2}
+  audioController: {fileID: 6571454698858054111}
 --- !u!54 &493608363577383561
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -584,9 +586,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Audio.AudioController
   audioSource: {fileID: 0}
-  library: {fileID: 11400000, guid: 435e87715d6833e41a8a77676627976d, type: 2}
+  library: {fileID: 11400000, guid: 586122f883696384f88047be5890eba6, type: 2}
   footstepBank: {fileID: 11400000, guid: 84179a4b6b8934b439f451e1a780e659, type: 2}
-  footstepSourceCount: 6
+  audioSourceCount: 10
 --- !u!114 &8077407419101261980
 MonoBehaviour:
   m_ObjectHideFlags: 0

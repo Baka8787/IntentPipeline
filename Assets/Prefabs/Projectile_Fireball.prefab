@@ -105,6 +105,7 @@ MonoBehaviour:
   detachedVisualLifetime: 4
   impactEffectPrefab: {fileID: 0}
   impactEffectLifetime: 2
+  impactAudio: {fileID: 11400000, guid: 3ab01ef40a6a3634185a196471c90b24, type: 2}
   drawHitDebug: 1
 --- !u!1001 &9035095806104523832
 PrefabInstance:

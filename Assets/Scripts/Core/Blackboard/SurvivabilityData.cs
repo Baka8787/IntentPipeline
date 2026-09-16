@@ -50,5 +50,27 @@ namespace Project.Core.Blackboard
         /// 會在同一幀競爭同一顆 FSM（ADR-009 D2 的決策擁有權）。
         /// </summary>
         public bool JustTookDamage;
+
+        /// <summary>
+        /// 🆕（2026-09-17，戰鬥音效）本幀**由活著轉為死亡**的那一次邊沿。
+        /// 與 <see cref="JustTookDamage"/> 逐字同構：同一個寫入者（<c>CharacterHealth</c>）、
+        /// 同一個發布點（順序 0.5 `PublishTo`）、寫出後立即清除、不走 `ResetTransientState`。
+        ///
+        /// <para><b>⭐ 為什麼加欄位，而不是讓讀者自己對 <see cref="IsDead"/> 做邊沿偵測</b></para>
+        /// 「由活轉死」是 <c>CharacterHealth.ApplyDamage</c> **當下就知道**的事——
+        /// 它正是在那一行把 <c>_isDead</c> 翻成 true 的。讓下游各自快取上一幀的 <see cref="IsDead"/>
+        /// 再比對，就是 <c>docs/16</c> 點名的加重缺陷「**下游重新推導已 commit 的狀態**」：
+        /// 每多一個消費者（音效、VFX、ragdoll、鏡頭震動）就多一份 `_wasDead` 快取，
+        /// 而它們會因為讀取時機不同而**彼此不一致**。一個欄位換掉 N 份會漂移的推導。
+        ///
+        /// <para><b>⚠️ 這與 <see cref="IsDead"/> 不重複，兩者語意不同</b></para>
+        /// <see cref="IsDead"/> 是**狀態**（「現在是不是屍體」，FSM 的准入條件）；
+        /// 本欄位是**事件**（「就是這一幀死的」，一次性表現的觸發點）。
+        /// 死亡音必須用後者——用前者會每幀重播。
+        ///
+        /// <para><b>Revive 不抬起本旗標</b></para>
+        /// 復活是活轉死的**反向**，不是死亡事件。比照 <c>Revive()</c> 一併清掉 pending 的作法。
+        /// </summary>
+        public bool JustDied;
     }
 }

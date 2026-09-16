@@ -3,7 +3,15 @@ using UnityEngine;
 namespace Project.Presentation.Audio
 {
     /// <summary>
-    /// 🆕（Stage 2）極小的 <c>AudioSource</c> 池——解 M2 起就記錄在案的兩個侷限。
+    /// 極小的 <c>AudioSource</c> 池——解 M2 起就記錄在案的兩個侷限。
+    ///
+    /// <para><b>🔄 2026-09-17：由 <c>FootstepAudioSourcePool</c> 更名而來（戰鬥音效輪）</b></para>
+    /// 更名**不是**為了「將來也許有人要用」，而是因為第二個使用者已經出現：戰鬥音效
+    /// （cast／release／impact／hurt／death）與腳步有完全相同的需求——
+    /// 每發要獨立的 pitch、每發要自己的世界位置、會重疊。
+    /// ⚠️ 本類別原本就**一行腳步知識都沒有**（讀一次 <see cref="Play"/> 即可確認：
+    /// 參數只有 clip／位置／音量／音高），舊名字描述的是它的第一個呼叫者，不是它的職責。
+    /// ⇒ 這次改的只有名字；行為逐位元不變，因此沒有任何測試需要跟著改。
     ///
     /// ## 它解掉的是什麼
     /// <c>pitch</c> 與**位置**都是 `AudioSource` 的**狀態**，不是 `PlayOneShot` 的參數。
@@ -19,8 +27,13 @@ namespace Project.Presentation.Audio
     /// 它只做一件事：**給我一個現在沒在用的 AudioSource**。
     /// 池子滿了就搶用最早借出的那一個（腳步是高頻短音，搶掉最舊的一發是正確取捨——
     /// 讓新的一步沒有聲音比讓舊的一步播完更糟）。
+    ///
+    /// ⚠️ **戰鬥音效共用同一個池之後，這條淘汰規則就有代價了**：一發長的死亡音可能被
+    /// 後續的腳步搶掉。本輪**刻意不加優先權**——那正是「完整 Audio Framework」的第一步，
+    /// 而使用者明確裁決本輪不做。緩解手段是**池子開大一點**（`AudioController.audioSourceCount`），
+    /// 不是在這裡長出 priority 欄位。真的聽到被切斷再談，屆時證據會指出該加什麼。
     /// </summary>
-    public sealed class FootstepAudioSourcePool
+    public sealed class AudioSourcePool
     {
         private readonly AudioSource[] _sources;
         private readonly float[] _busyUntil;
@@ -30,7 +43,7 @@ namespace Project.Presentation.Audio
         /// 依樣板建立池。樣板的 3D 設定（spatialBlend／rolloff／min-max distance／mixer group）會逐一複製，
         /// 因此**只要調樣板那一顆，整池跟著變**——不需要在 Inspector 維護 N 顆一樣的 Source。
         /// </summary>
-        public FootstepAudioSourcePool(AudioSource template, Transform parent, int size)
+        public AudioSourcePool(AudioSource template, Transform parent, int size)
         {
             size = Mathf.Max(1, size);
             _sources = new AudioSource[size];

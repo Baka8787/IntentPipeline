@@ -7,6 +7,57 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🔊 2026-09-17 — **戰鬥音效**（程式／資產／測試已落地，⛔ **尚無音檔 ⇒ 現在 Play 是靜音的**）
+>
+> EditMode **592 total／591 passed／0 failed／1 skipped**（+10 條 `CA1`–`CA10`；skip 為既有 NavMesh 環境限制）。
+> PlayMode **61／61 passed**。**正本 `docs/37-combat-audio.md`**。
+>
+> ## ⭐ 這一輪真正的發現
+>
+> **使用者問「哪些可以抽成真正共用的 audio 基礎元件」——答案是四項裡有三項根本不用抽。**
+> `AudioDefinitionSO`（clip 池／shuffle bag／volume jitter／pitch range）、`AudioLibrarySO`、
+> 3D playback 早就是通用的，而且早就住在 `Presentation/Audio` 而不是 Footstep 命名空間。
+> 真正要動的只有一個名字：`FootstepAudioSourcePool` → **`AudioSourcePool`**
+> （它原本就一行腳步知識都沒有，舊名字描述的是**第一個呼叫者**，不是職責）。
+> **行為逐位元不變 ⇒ 零測試改動。** 上一輪把通用能力放在通用的位置，這一輪就只付了改名的成本。
+>
+> ⛔ **留在 Footstep domain**：`FootstepAudioBankSO`（key 是 Surface×Kind×Gait，對戰鬥全部無意義）、
+> `FootstepDetector`／`SurfaceResolver`／`SurfaceMapSO`／`SurfaceId`／`FootstepKind`／`GaitTier`。
+> **Combat 端沒有任何一行 `using` 指到 Footstep 型別。**
+>
+> ## 做了什麼
+>
+> | 項目 | 狀態 |
+> |---|---|
+> | 13 個事件全部接上**既有的時間權威**（不靠動畫時間猜） | ✅ |
+> | `ActionAudioSink`（新，per-slot Cast／Release）；X Bot 掛三顆並綁 Slot 1／2／3 | ✅ |
+> | 命中音：`ThrownProjectile`@`hit.point`／`MeleeHitboxSink`@被打者／`GroundEffectSink`@落點 | ✅ |
+> | 黑板加 `SurvivabilityData.JustDied`（**事件**，與 `JustTookDamage` 逐字同構） | ✅ |
+> | `AudioController` 成為角色音效輸出持有者（`PlayAt`）；Library 事件改走池 | ✅ |
+> | Player／Enemy 各一份 `AudioLibrarySO`（同一個 enum，不同資產 ⇒ **不把陣營寫進詞彙**） | ✅ |
+> | 13 個 `AudioDefinition` 資產建立並接線 | ✅（**clip 池全空**） |
+>
+> ## 🔴 需要你決定的一件事：**素材**
+>
+> **Sonniss GDC 2026 盤點完了 ⇒ 不建議下載**（已重抓官方 track list 逐筆比對，正本 `docs/37` §6）：
+> ①它是 **sampler**——346 檔 ÷ 121 library ≈ **每個 library 只有 2–4 顆**，湊不出任何一個事件的 shuffle 池；
+> ②**指定的 part1 剛好是最不相關的那一卷**（`344 Audio` 的 A→H ＝ 古董／理髮廳／聖誕節／恐怖氛圍）；
+> ③真正好的東西**全在 part1 之外**（Alexander Kopeikin 的 `Emotion and Magic`／`100 kHz Designed Ice`、
+> David Dumais 的 `Melee Weapons Pack 2`、Epic Stock Media 的 `Elemental Mutation`／`Anime Game`／
+> `Humanoid Creatures Vol 4`）——但即使抓了，每個也只有 2–4 顆。
+>
+> ⇒ **正解是一個「拿來接事件」的遊戲 SFX 包**（每個事件 5–10 顆變化），不是 GDC bundle。
+> 決定之後把 clip 拖進 `Assets/ScriptableObjects/Audio/Combat/*.asset` 即可，**程式零改動**。
+>
+> ## Play 驗收（⚠️ **先填 clip，否則是靜音的**）
+>
+> 完整清單見 `docs/37` §8。最關鍵的三項：
+> **①Melee 連段要響三聲**（只響一聲＝有人把 §5.1 的節流閘門加回去了）
+> **②Fireball Impact 要出現在接觸點**，不是角色身上
+> **③走下平台邊緣會不會也有起跳聲**——`JustLeftGround` 是「離地」不是「起跳」（已知近似）
+>
+> 📌 **DSP buffer A/B 依你的指示排在戰鬥音效之後**，本輪未動。
+
 > # 🔊 2026-09-16 — **腳步聲 Stage 0 ＋ Stage 1**（已落地，⛔ 待 Play 驗收）
 >
 > EditMode **565 total／564 passed／0 failed／1 skipped**（skip 為既有 NavMesh 環境限制）。
@@ -92,7 +143,25 @@
 > ⚠️ **已知並接受的副作用**：`ApplyCombatDirectionalSpeedLimit` 只看 `InCombat`、不看當前 mixer
 > ⇒ **X Bot 在所有戰鬥中側移都會變慢**，不只施法時。`L6` 原本明文禁止此事，該禁令一併廢除。
 >
-> ## 🔴 火球／冰刺命中判定 — **首要嫌疑：敵人的碰撞膠囊與網格錯位 0.18 m**
+> ## ✅ 火球／冰刺命中判定 — **已結案（2026-09-17，使用者 Play 確認修好）**
+>
+> > **⛔ 本項不再是 blocker。以下整節保留為診斷歷程的案例紀錄。⬇️**
+> >
+> > 三個獨立成因全數落地於 commit `7532772`，收尾於 `9386016`：
+> > ①視覺 core 與 collider 分家 → VFX 生成時 unparent、回到原生模型，投射物以同速平行飛；
+> > ②`Update` 位移 ＋ `OnTriggerEnter` → `FixedUpdate` ＋ `SphereCast` 掃掠**獨佔** hit authority；
+> > ③瞄準點在段落邊界鎖死 → 承諾拆成 `_releaseContext`（facing，不變）／`_effectContext`（每帧刷新）。
+> > 冰刺判定形狀同 commit 由 `OverlapSphere` 改為沿施法方向的 `OverlapCapsule`。
+> >
+> > **磁碟複查（2026-09-17，逐條對照程式碼而非憑 commit 訊息）**：
+> > `ThrownProjectile.FixedUpdate` 已是掃掠獨佔、全檔無 `OnTriggerEnter`；
+> > `ActionState.OnTick` 每帧呼叫 `RefreshEffectContext`；`GroundEffectSink` 已用 `OverlapCapsuleNonAlloc`。
+> >
+> > ⚠️ **下方「📌 仍未修的結構性弱點」那一段已作廢**——它說「位移在 `Update`、判定在物理步，兩者不同步」，
+> > 而掃掠上線後兩者都在 `FixedUpdate`，該段描述的是修好之前的狀態。
+> > 真正沒動的只有 `spawnPoint` 接在 `mixamorig:Spine2`，且已裁決那是**美術取向、不是缺陷**。
+>
+> ### （以下為當時的診斷過程）首要嫌疑：敵人的碰撞膠囊與網格錯位 0.18 m
 >
 > 回報：①火球**穿過敵人之後**才銷毀並受傷 ②冰刺視覺命中但實際不中。
 >
@@ -288,7 +357,7 @@
 > 使用者只授權 1 和 3。而且再評估：`ThrowSpawnPoint`（右手）是給 **Throw** 用的，
 > **法術從軀幹放出來本來就合理** ⇒ Codex 把它列為「缺陷」可能過頭，那是美術取向選擇而非接線錯誤。
 >
-> ### 📌 仍未修的結構性弱點
+> ### ~~📌 仍未修的結構性弱點~~ ⛔ **已作廢（2026-09-17）——`7532772` 的掃掠就是這一段要的結構修法**
 >
 > 投射物位移在 `Update`、判定在物理步，**兩者不同步**（實測 drift 0.015–0.120 m 鋸齒）。
 > 今天不是主因，但目前不穿透是**參數碰巧**不是結構保證。

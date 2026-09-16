@@ -1,0 +1,19 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cee5e1cc15e6c2844ab721389e99ca76, type: 3}
+  m_Name: EnemyAudioLibrary
+  m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Audio.AudioLibrarySO
+  entries:
+  - EventId: 4
+    Definition: {fileID: 11400000, guid: f091c86ab8b9e2544a2691f5fecb064f, type: 2}
+  - EventId: 5
+    Definition: {fileID: 11400000, guid: 8874caa0d85e52f46a80f1f2915f7499, type: 2}
