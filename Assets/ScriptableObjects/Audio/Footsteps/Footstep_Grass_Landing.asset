@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 482bd9bce0e670643910e8cd019e70ca, type: 3}
+  m_Name: Footstep_Grass_Landing
+  m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Audio.AudioDefinitionSO
+  clips:
+  - {fileID: 8300000, guid: 4c5a9898cf4587847b76f92d12a24ef4, type: 3}
+  - {fileID: 8300000, guid: d5057cae6e7f97d4ab9c85476048c7ef, type: 3}
+  - {fileID: 8300000, guid: 8b4ebb69c4634c641af3709ac071bb99, type: 3}
+  - {fileID: 8300000, guid: 4a6c6e8652081da40b1749b734b1f344, type: 3}
+  - {fileID: 8300000, guid: 995b7e5891a76bb4a9f24d8a2d6f3852, type: 3}
+  - {fileID: 8300000, guid: 5afde2d55dac8d74083af77e872e9a8f, type: 3}
+  volume: 1
+  volumeJitter: 0.1
+  pitchRange: {x: 0.95, y: 1.05}

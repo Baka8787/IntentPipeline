@@ -3617,6 +3617,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Audio.AudioController
   audioSource: {fileID: 0}
   library: {fileID: 11400000, guid: 435e87715d6833e41a8a77676627976d, type: 2}
+  footstepBank: {fileID: 11400000, guid: 84179a4b6b8934b439f451e1a780e659, type: 2}
+  footstepSourceCount: 6
 --- !u!114 &-7543379725507232644
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -3786,6 +3788,7 @@ MonoBehaviour:
     PlantHorizontalSpeedMax: 2
     GroundStepTolerance: 0.06
   recordDebugTrace: 0
+  surfaceMap: {fileID: 11400000, guid: 3739daca706202746b7f4f2e0f605200, type: 2}
 --- !u!114 &-7971596924591842964
 MonoBehaviour:
   m_ObjectHideFlags: 0

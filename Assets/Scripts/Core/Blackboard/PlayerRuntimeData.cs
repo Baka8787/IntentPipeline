@@ -69,6 +69,20 @@ namespace Project.Core.Blackboard
         public float MoveSpeed { get; set; }
 
         /// <summary>
+        /// 🆕（Stage 2）本帧的步態檔位。**由決定它的人直接 commit**——
+        /// 寫入者＝<c>PlayerLocomotionPolicy</c>（持有 <c>GaitProfileSO</c>、實作「預設 Run／Sprint 鍵／Walk 鍵」
+        /// 這套 per-game 控制方案的那一顆）。
+        ///
+        /// ⚠️ **下游不得從 <see cref="MoveSpeed"/> 反推步態。** 那是 `docs/16` 明列的加重缺陷
+        /// 「下游重新推導已 commit 的狀態」——而且會推錯：B9 平滑讓 `MoveSpeed` 在切換檔位時
+        /// 要花數十帧才爬到目標值，用它反推會在整段加速期給出錯誤的檔位。
+        ///
+        /// **預設為 <see cref="GaitTier.Run"/> 而非 enum 的 0 值**：本作的控制方案是「不按修飾鍵＝Run」，
+        /// 且沒有 policy 的角色（AI 敵人）也應該聽起來在跑而不是在走。
+        /// </summary>
+        public GaitTier Gait { get; set; } = GaitTier.Run;
+
+        /// <summary>
         /// 有效移動方向（世界座標 XZ 平面，y 恆為 0）。同 <see cref="MoveSpeed"/>，為
         /// <see cref="MovementIntent"/> 的下游衍生值（含減速滑行期保留最後方向的 dynamics），
         /// 非獨立真相。

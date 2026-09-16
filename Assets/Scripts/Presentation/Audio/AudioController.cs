@@ -5,30 +5,45 @@ namespace Project.Presentation.Audio
 {
     /// <summary>
     /// 🆕（M2）音效控制器——第一個 IPresentationController 實作，兼作後續表現模組的範本：
-    /// 讀黑板（單幀事件 JustLanded + 仲裁旗標 BlockAudio）→ 經 Library 查表 → 播放。
+    /// 讀黑板 → 經 Library／Bank 查表 → 播放。
     /// 對 PlayerRuntimeData 只讀不寫；由 PresentationPipeline 在順序 6.5 集中驅動，本身沒有 Update。
-    /// 掛載：Character Root 階層下（Runner 的 GetComponentsInChildren 收集得到即可）。
     ///
-    /// M2 裁決：單一 AudioSource + PlayOneShot（多音軌 / Source 池屬 dev-spec §5 Future Work）。
-    /// ⚠️ **已知侷限（Stage 1 重新確認，仍未解）**：`pitch` 與位置都是 **Source 層**屬性——
-    /// * 連續觸發時後一發會改到仍在播的前一發音高。腳步 clip 約 0.39~0.45 s、跑步步距約 0.3 s
-    ///   ⇒ **重疊是必然的**。目前的緩解是把 pitchRange 壓在 ±5%（聽不出走音），
-    ///   真正的解法是 AudioSource 池（Stage 2）。
-    /// * 所有事件都從**角色中心**播，不是從實際左／右腳的世界位置播。第三人稱鏡頭距離下
-    ///   （3~5 m）腳與中心的角度差很小，暫時可接受；同樣等 Source 池（Stage 2）才有得改。
+    /// ---
+    /// ## 🆕（Stage 2）腳步音改走 <see cref="FootstepAudioBankSO"/> ＋ AudioSource 池
     ///
-    /// BlockAudio 現在就讀（契約先行）。🆕（輪 4）writer 已存在（ArbiterPipeline，順序 4.5），
-    /// 但目前沒有任何 IArbiterSource 要求 BlockAudio，故旗標仍恆 false，直到死亡等來源進場——
-    /// 屆時本檔**零改動**即生效，這正是當初契約先行要買的東西。
+    /// **三個 M2／Stage 1 的已知侷限在本輪一起解掉**：
+    /// 1. **材質不一致**——Normal／Shuffle／Landing 現在讀的是黑板上**同一個** `Surface` 欄位
+    ///    （由 `FootstepDetector` 一次決定），型別層保證三者同材質。
+    /// 2. **pitch 互相干擾**——每一發借一顆獨立的 `AudioSource`（<see cref="FootstepAudioSourcePool"/>）。
+    /// 3. **只能從角色中心播**——左右腳各自從自己的世界位置播。
+    ///
+    /// ⚠️ **本類別不做任何材質或步態判斷**：`Surface` 與 `Gait` 都是上游已 commit 的決定，
+    /// 這裡只做「查表 → 播放」。下游重新推導已 commit 的狀態是 `docs/16` 明列的加重缺陷。
+    ///
+    /// `BlockAudio` 讀取**契約先行**（M2）：目前沒有任何 `IArbiterSource` 要求它，旗標恆 false。
     /// </summary>
     [RequireComponent(typeof(AudioSource))]
     public class AudioController : MonoBehaviour, IPresentationController
     {
         [Header("Setup")]
+        [Tooltip("非腳步事件用的 AudioSource，同時是腳步 Source 池的 3D 設定樣板。\n" +
+                 "⚠️ 調 3D 設定（spatialBlend／距離／mixer group）只要改這一顆，整池跟著變。")]
         [SerializeField] private AudioSource audioSource;
 
-        [Tooltip("音效總表：事件 → 定義的查表資產。未綁定時本控制器全程靜默並於啟動時報錯。")]
+        [Tooltip("非腳步音效的查表資產（事件 → 定義）。腳步／落地已改由 Footstep Bank 負責。")]
         [SerializeField] private AudioLibrarySO library;
+
+        [Header("Footstep（🆕 Stage 2）")]
+        [Tooltip("腳步音的單一配置窗口：(Surface, Kind, Gait) → clip pool，以及所有音量係數。\n" +
+                 "⭐ 要調整整體腳步音量，改這顆資產的 Master Volume 即可。")]
+        [SerializeField] private FootstepAudioBankSO footstepBank;
+
+        [Tooltip("腳步專用 AudioSource 池大小。腳步是高頻短音，6 顆足以涵蓋雙腳重疊＋落地。\n" +
+                 "⚠️ 太小會讓最舊的一發被搶掉（可接受）；太大只是多幾顆閒置物件。")]
+        [Range(2, 16)]
+        [SerializeField] private int footstepSourceCount = 6;
+
+        private FootstepAudioSourcePool _footstepSources;
 
         private void Awake()
         {
@@ -41,11 +56,21 @@ namespace Project.Presentation.Audio
 
             if (library == null)
             {
-                Debug.LogError($"[{gameObject.name}] AudioController 未綁定 AudioLibrarySO，音效事件將全部靜默！", this);
+                Debug.LogError($"[{gameObject.name}] AudioController 未綁定 AudioLibrarySO，非腳步音效將全部靜默！", this);
             }
             else
             {
                 library.Initialize();
+            }
+
+            if (footstepBank == null)
+            {
+                Debug.LogError($"[{gameObject.name}] AudioController 未綁定 FootstepAudioBankSO，腳步與落地音將全部靜默！", this);
+            }
+            else
+            {
+                footstepBank.Initialize();
+                _footstepSources = new FootstepAudioSourcePool(audioSource, transform, footstepSourceCount);
             }
         }
 
@@ -53,39 +78,52 @@ namespace Project.Presentation.Audio
         {
             if (data.Arbitration.BlockAudio) return;
 
-            if (data.JustLanded)
-            {
-                Play(AudioEventId.Landing);
-            }
-
-            // 🆕（M3.x-B）腳步音：讀黑板的表現層事件廣播快照。
             // ⚠️ 讀到的是**上一帧**由 PresentationPipeline 發布的快照（發布在所有 Controller Tick 之後），
             //    這正是「事件正確性與 Hierarchy 順序無關」的代價與保證，見 PresentationPipeline.Tick。
             // ⚠️ **只讀不清除**——這是廣播快照不是佇列，未來的 VFX／鏡頭震動要讀到同一份。
-            //    復位由發布端的整體覆寫負責，本類別不得插手。
+            PresentationEventData events = data.PresentationEvents;
+
+            // 🆕（Stage 2）Landing 改讀事件快照（不再讀 data.JustLanded）——
+            //    為的是與腳步共用同一次 Surface 決策，見 PresentationEventData.Landed 的說明。
+            if (events.Landed)
+            {
+                PlayFootstep(events.Surface, FootstepKind.None, landing: true,
+                    gait: data.Gait, worldPosition: transform.position, isRightFoot: false);
+            }
+
             // Landing 與 Footstep 的互斥已由事件源處理（JustLanded 當帧抑制腳步），此處不重複判斷。
-            PlayFootstep(data.PresentationEvents.LeftFootstep, AudioEventId.LeftFootstep);
-            PlayFootstep(data.PresentationEvents.RightFootstep, AudioEventId.RightFootstep);
+            PlayFootstep(events.Surface, events.LeftFootstep, false, data.Gait, events.LeftFootPosition, false);
+            PlayFootstep(events.Surface, events.RightFootstep, false, data.Gait, events.RightFootPosition, true);
         }
 
         /// <summary>
-        /// 🆕（Stage 1）依分類選事件。**分類的語意屬黑板契約，這裡只做對應、不做判斷**——
-        /// 「這一步算不算真正的腳步」是偵測器的決定，AudioController 不得重新推導
-        /// （下游重新推導已 commit 的狀態是本專案明列的加重項，見 `docs/16` ）。
+        /// 腳步／落地的統一播放路徑。**材質、分類、步態全部是傳入的既成事實**，這裡不推導任何一項。
         /// </summary>
-        private void PlayFootstep(FootstepKind kind, AudioEventId normalEvent)
+        private void PlayFootstep(SurfaceId surface, FootstepKind kind, bool landing,
+            GaitTier gait, Vector3 worldPosition, bool isRightFoot)
         {
-            switch (kind)
-            {
-                case FootstepKind.Normal:
-                    Play(normalEvent);
-                    break;
-                case FootstepKind.Shuffle:
-                    Play(AudioEventId.Shuffle);
-                    break;
-            }
+            if (!landing && kind == FootstepKind.None) return;
+            if (footstepBank == null || _footstepSources == null) return;
+
+            AudioDefinitionSO definition = footstepBank.ResolveDefinition(
+                surface, kind, landing, gait, out float volumeScale);
+            if (definition == null) return;
+
+            AudioClip clip = definition.GetNextClip();
+            if (clip == null) return;
+
+            float volume = footstepBank.ApplyMasterVolume(definition.GetRandomVolume(), volumeScale);
+            float pitch = definition.GetRandomPitch() *
+                (isRightFoot ? footstepBank.RightFootPitchScale : footstepBank.LeftFootPitchScale);
+
+            _footstepSources.Play(clip, worldPosition, volume, pitch);
         }
 
+        /// <summary>
+        /// 非腳步事件的播放路徑（保留給未來的 UI／技能／環境音）。
+        /// ⚠️ 仍然是單一 AudioSource ＋ PlayOneShot，沿用 M2 的已知侷限——
+        /// 那些事件不像腳步會高頻重疊，沒有理由為它們也開池。
+        /// </summary>
         private void Play(AudioEventId eventId)
         {
             if (audioSource == null || library == null) return;

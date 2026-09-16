@@ -47,6 +47,16 @@ namespace Project.Core.Movement
 
             data.MovementIntent.WalkModeActive = walkActive;
 
+            // 🆕（Stage 2）**步態檔位就在這裡決定，所以就在這裡 commit**。
+            // ⚠️ 刻意寫成黑板欄位而不是讓下游（音效）自己從 MoveSpeed 反推：
+            //    ①那是重新推導已 commit 的狀態（docs/16 加重項）；
+            //    ②B9 平滑讓 MoveSpeed 要數十帧才爬到目標，反推會在整段加速期給出錯的檔位。
+            // 「Walk 與 Sprint 同時成立時 Walk 優先」與 GaitProfileSO.ResolveIntensity 的規則保持一致——
+            // 強度與檔位必須同源，否則會出現「聽起來在衝刺、實際在走」的錯位。
+            data.Gait = walkActive ? GaitTier.Walk
+                      : input.SprintButtonHeld ? GaitTier.Sprint
+                      : GaitTier.Run;
+
             // 未指派 profile＝無 gait 差異，強度即原始推桿量（＝Migration 前行為）。
             data.MovementIntent.DesiredSpeedNormalized = gaitProfile != null
                 ? gaitProfile.ResolveIntensity(magnitude, input.SprintButtonHeld, walkActive)

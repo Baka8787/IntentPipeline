@@ -62,6 +62,14 @@ namespace Project.Presentation
                 // ⇒ **合併結果與來源順序無關**，來源只回報自己，看不見也改不掉別人的結果。
                 if (reported.LeftFootstep > events.LeftFootstep) events.LeftFootstep = reported.LeftFootstep;
                 if (reported.RightFootstep > events.RightFootstep) events.RightFootstep = reported.RightFootstep;
+                events.Landed |= reported.Landed;
+
+                // 🆕（Stage 2）Surface／腳部位置：**第一個表態的來源勝出**（Unknown ＝不表態＝合併單位元）。
+                // 同樣可交換、可結合 ⇒ 與來源順序無關。多個來源觀察的是同一個角色，
+                // 它們對「現在站在什麼上面」不該有分歧；真的分歧時取先表態者是穩定且可預期的。
+                if (events.Surface == SurfaceId.Unknown) events.Surface = reported.Surface;
+                if (reported.LeftFootstep != FootstepKind.None) events.LeftFootPosition = reported.LeftFootPosition;
+                if (reported.RightFootstep != FootstepKind.None) events.RightFootPosition = reported.RightFootPosition;
             }
 
             data.PresentationEvents = events;

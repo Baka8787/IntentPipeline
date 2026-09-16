@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 482bd9bce0e670643910e8cd019e70ca, type: 3}
+  m_Name: Footstep_Stone_Walk
+  m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Audio.AudioDefinitionSO
+  clips:
+  - {fileID: 8300000, guid: 0cd42889b091b6e468505cb019ea8159, type: 3}
+  - {fileID: 8300000, guid: a76834402c7a8a0418e3354c56783692, type: 3}
+  - {fileID: 8300000, guid: 229affde53c14fb4299d0eb1270ffcf3, type: 3}
+  - {fileID: 8300000, guid: 02f5979249822c24c846234ad29a4c27, type: 3}
+  - {fileID: 8300000, guid: 6ac874a89a5d7ef4cb219febf718230c, type: 3}
+  - {fileID: 8300000, guid: 47e19dbb897bc0a4a9b24abbc1df55e9, type: 3}
+  volume: 1
+  volumeJitter: 0.1
+  pitchRange: {x: 0.95, y: 1.05}

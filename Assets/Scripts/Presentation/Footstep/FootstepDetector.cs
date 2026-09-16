@@ -38,6 +38,11 @@ namespace Project.Presentation.Footstep
                  "檢視方式：選取本元件，於 Inspector 底部的「Footstep Trace」面板。")]
         [SerializeField] private bool recordDebugTrace;
 
+        [Header("Surface（🆕 Stage 2）")]
+        [Tooltip("聲學材質對應表。**未綁定時所有事件的 Surface 皆為 Unknown**，消費端會退回它自己的 default。\n" +
+                 "一張場景設定一次即可——demo map 實測只需要 6 筆。")]
+        [SerializeField] private SurfaceMapSO surfaceMap;
+
         // Pose 管道：向 owner（唯一 Writer）取得引用，**不是**向其他 Controller 要
         // ——後者會構成 Controller 互相引用，違反 IPresentationController 契約（M3.x-A 明訂）。
         private FootIKPoseData _poseData;
@@ -51,6 +56,10 @@ namespace Project.Presentation.Footstep
         // 跨帧偵測狀態：本元件是它的擁有者。與「黑板事件的發布／生命週期」刻意分屬兩個擁有者。
         private FootPlantTracker _leftTracker;
         private FootPlantTracker _rightTracker;
+
+        // 🆕（Stage 2）材質解析的記憶化狀態（每腳一份；左右腳可能踩在不同 collider 上）。
+        private SurfaceResolver _leftSurface;
+        private SurfaceResolver _rightSurface;
 
         private void Awake()
         {
@@ -79,6 +88,16 @@ namespace Project.Presentation.Footstep
             {
                 // Controller 以欄位初始式持有它（早於所有 Awake），故此處同樣不需要關心 Awake 順序。
                 _groundData = ikController.GroundData;
+            }
+
+            if (surfaceMap == null)
+            {
+                Debug.LogWarning($"[{gameObject.name}] FootstepDetector 未綁定 SurfaceMapSO——" +
+                    "所有事件的 Surface 將為 Unknown，音效端會一律退回它自己的 default 材質。", this);
+            }
+            else
+            {
+                surfaceMap.Initialize();
             }
         }
 
@@ -124,6 +143,16 @@ namespace Project.Presentation.Footstep
             bool leftHasGround = groundWarm && ground.Left.HasGround;
             bool rightHasGround = groundWarm && ground.Right.HasGround;
 
+            // 🆕（Stage 2）材質解析：**每帧都解**，不是只在擊發時解。
+            // 理由是落地事件也要用它——落地那一瞬間必須已經有值，不能等到擊發才去查。
+            // 成本由 SurfaceResolver 的 collider 記憶化吸收（同一塊地板上等同一次參考比對）。
+            SurfaceId leftSurface = _leftSurface.Resolve(
+                leftHasGround ? ground.Left.Collider : null,
+                leftHasGround ? ground.Left.Point : Vector3.zero, surfaceMap);
+            SurfaceId rightSurface = _rightSurface.Resolve(
+                rightHasGround ? ground.Right.Collider : null,
+                rightHasGround ? ground.Right.Point : Vector3.zero, surfaceMap);
+
             FootstepKind left = _leftTracker.Advance(
                 leftBottom, leftHasGround, leftHasGround ? ground.Left.GroundY : 0f,
                 rootPlaneY, deltaTime, settings, out FootstepSuppressReason leftReason);
@@ -158,7 +187,36 @@ namespace Project.Presentation.Footstep
 
             events.LeftFootstep = left;
             events.RightFootstep = right;
+            events.LeftFootPosition = leftBottom;
+            events.RightFootPosition = rightBottom;
+
+            // 🆕（Stage 2）落地由本來源**轉報**，而不是讓消費端自己讀黑板的 JustLanded。
+            // 唯一理由是**材質必須同源**：消費端讀到的事件快照慢一帧，而 JustLanded 是當帧值，
+            // 混用會讓落地拿到「上一帧還在空中、沒有地面觀測」的材質。
+            events.Landed = justLanded;
+
+            // 🆕（Stage 2）三種事件共用的單一材質決策。
+            // 雙腳踩在不同 collider 上時（跨材質交界、樓梯轉角）取**有事件的那一隻**；
+            // 都沒事件就取任一已解析的——這一格描述的是「角色現在站在什麼上面」。
+            events.Surface = PickSurface(left, leftSurface, right, rightSurface);
             return events;
+        }
+
+        /// <summary>
+        /// 選出本帧代表性的材質。
+        /// ⚠️ 刻意**不**做「左右各自一個材質」——那會讓 Landing 無所適從，
+        /// 也會在材質交界處產生左右腳交替變聲的抖動。單一決策是使用者要的「同一次接觸共用材質」。
+        /// </summary>
+        private static SurfaceId PickSurface(FootstepKind left, SurfaceId leftSurface,
+            FootstepKind right, SurfaceId rightSurface)
+        {
+            bool leftFired = left != FootstepKind.None;
+            bool rightFired = right != FootstepKind.None;
+
+            if (leftFired && leftSurface != SurfaceId.Unknown) return leftSurface;
+            if (rightFired && rightSurface != SurfaceId.Unknown) return rightSurface;
+            if (leftSurface != SurfaceId.Unknown) return leftSurface;
+            return rightSurface;
         }
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD

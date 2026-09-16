@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 482bd9bce0e670643910e8cd019e70ca, type: 3}
+  m_Name: Footstep_Wood_Run
+  m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Audio.AudioDefinitionSO
+  clips:
+  - {fileID: 8300000, guid: d2d822cbdf406d4469fe20080d402934, type: 3}
+  - {fileID: 8300000, guid: 0ad3a2e8b7eefdd4ca4dba1fd6b1b569, type: 3}
+  - {fileID: 8300000, guid: 483866867067ff84d85ec0ef062dc797, type: 3}
+  - {fileID: 8300000, guid: 674d030a31343f34dacdf6e5fd7a5d4e, type: 3}
+  - {fileID: 8300000, guid: 670f3de24c4fb424cb8f1d43cd16c65e, type: 3}
+  - {fileID: 8300000, guid: c4950043cd9145e4291e5b791391f071, type: 3}
+  volume: 1
+  volumeJitter: 0.1
+  pitchRange: {x: 0.95, y: 1.05}

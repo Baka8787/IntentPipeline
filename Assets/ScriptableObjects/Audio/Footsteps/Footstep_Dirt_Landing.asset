@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 482bd9bce0e670643910e8cd019e70ca, type: 3}
+  m_Name: Footstep_Dirt_Landing
+  m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Audio.AudioDefinitionSO
+  clips:
+  - {fileID: 8300000, guid: 973897a07c44b884b90660293215f75b, type: 3}
+  - {fileID: 8300000, guid: 1db58d3ba633d93409c076d4d2a6cea8, type: 3}
+  - {fileID: 8300000, guid: 4bfc6b4d8e11dfa418ab11af38797719, type: 3}
+  - {fileID: 8300000, guid: 90c9f941a5f9f5f4fa7ad477a988dea6, type: 3}
+  - {fileID: 8300000, guid: 1e9e9c86877ee6d4aaf7d050b3080b28, type: 3}
+  - {fileID: 8300000, guid: 7de5aff321ace224ba6fef53c1cb5801, type: 3}
+  volume: 1
+  volumeJitter: 0.1
+  pitchRange: {x: 0.95, y: 1.05}

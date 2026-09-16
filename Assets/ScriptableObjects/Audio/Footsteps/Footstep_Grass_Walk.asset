@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 482bd9bce0e670643910e8cd019e70ca, type: 3}
+  m_Name: Footstep_Grass_Walk
+  m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Audio.AudioDefinitionSO
+  clips:
+  - {fileID: 8300000, guid: d8b426caf749ff54797946058f94a1fe, type: 3}
+  - {fileID: 8300000, guid: 192a98ac4b388cd48bca240b6288e97f, type: 3}
+  - {fileID: 8300000, guid: 33ee70dba302ff1409869401ce90f1dd, type: 3}
+  - {fileID: 8300000, guid: 88e3731ed1d2df6478e55dc4aec0af86, type: 3}
+  - {fileID: 8300000, guid: 3dfaf5f10215d59408f7aaaebf3dd6b0, type: 3}
+  - {fileID: 8300000, guid: 2318971f3a8a4ae4cb2a4c5fc797b17e, type: 3}
+  volume: 1
+  volumeJitter: 0.1
+  pitchRange: {x: 0.95, y: 1.05}

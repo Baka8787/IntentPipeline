@@ -541,6 +541,12 @@ namespace Project.Tests.EditMode
             //    ⛔ 攻擊方 sink 不得寫這一區——它們只送傷害（D2 的決策擁有權）。
             new WriterRule { Member = "Survivability", AllowedFiles = new[] { "CharacterHealth.cs" },
                              Owner = "CharacterHealth（順序 0.5 PublishTo；ADR-009 D1 single-writer）" },
+            // 🆕（Stage 2）步態檔位。⚠️ 寫入者是**決定它的那一顆**（持有 GaitProfileSO、實作
+            //    「預設 Run／Sprint 鍵／Walk 鍵」控制方案的 policy），不是把它算出來的 model。
+            //    這條擋的是「音效端自己從 MoveSpeed 反推步態」——那是 docs/16 明列的
+            //    「下游重新推導已 commit 的狀態」，而且會在 B9 平滑的整段加速期推錯。
+            new WriterRule { Member = "Gait", AllowedFiles = new[] { "PlayerLocomotionPolicy.cs" },
+                             Owner = "PlayerLocomotionPolicy（順序 2.5；與 DesiredSpeedNormalized 同源同帧）" },
         };
 
         [Test]
