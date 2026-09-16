@@ -7,6 +7,46 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🔊 2026-09-16 — **腳步聲 Stage 0 ＋ Stage 1**（已落地，⛔ 待 Play 驗收）
+>
+> EditMode **565 total／564 passed／0 failed／1 skipped**（skip 為既有 NavMesh 環境限制）。
+> commit `5778ba8`。**正本 `docs/35-footstep-detector-stage1.md`**（研究輪 `docs/34` 已結案並標註推翻處）。
+>
+> ## ⭐ 這一輪真正的發現
+>
+> **舊偵測器不是「慢」，是在錯的相位擊發。** 重放真實動畫量到：`WalkFwdLoop` 的腳步
+> **提前約 340 ms 擊發在擺盪中低點**，而真正的踩地因剩餘行程不足反而被吃掉。
+> `docs/34` §4.2 把這項估成「落後 0–17 ms」——**該估計作廢**。
+>
+> 根因是**判準選錯**：用「腳的世界高度」分離「真正踩地」vs「擺盪中低點」只有 **1.27 倍**分離度；
+> 改用**腳的世界水平速度**是 **4.4 倍**（踩住的腳在世界空間靜止）。**選對訊號比調對門檻重要。**
+>
+> ## 做了什麼
+>
+> | 項目 | 狀態 |
+> |---|---|
+> | WASD Stone × {Walk,Run,Drop,Shuffle} 24 顆匯入（mono/48k/PCM/preload） | ✅ |
+> | 三事件不再共用同一顆 clip；shuffle bag ＋ 音量抖動 ＋ Landing 改用 Drop | ✅ |
+> | AudioSource 3D（spatialBlend 1／min 2.0／max 40／doppler 0／spread 25°） | ✅ |
+> | 偵測判準改為「離地高度 ＋ 水平速度」，分類 Normal／Shuffle | ✅ |
+> | `FootIKGroundData`：複用 Foot IK 既有 raycast，**零額外查詢** | ✅ |
+> | Editor 環形緩衝 trace 面板（`recordDebugTrace`，非每帧 log） | ✅ |
+>
+> ## 🟠 需要你決定的兩件事（Play 之後）
+>
+> 1. **gait 未分池**——Walk/Run/Sprint 目前共用 Walk 素材（Run 已匯入未接線）。屬 Stage 2，但這是
+>    現在最明顯的品質缺口；若跑起來明顯不對，可考慮把它提前。
+> 2. **`ProjectSettings/AudioManager.asset` 的 DSP buffer 1024 未動**——它現在是剩餘延遲中**最大的一項**
+>    （21–43 ms），改 256 可省 16–32 ms，但是**全域設定**、以 CPU 換延遲 ⇒ 沒有你的裁決不動。
+>
+> ⚠️ **`docs/34` §8-Q1（管線①②對調）已作廢**：Stage 1 之後對調會讓偵測器讀到上一帧的地面高度，樓梯上淨虧。
+>
+> ## Play 驗收請聽
+>
+> Idle（應**完全無聲**）／Walk↔Run↔Stop 的收步有沒有碎步／上下樓梯節奏／左右腳是否有差異／
+> 近距離音量是否足夠／Shuffle 是否太吵。勾 `FootstepDetector.recordDebugTrace` 可在 Inspector 看逐筆判定。
+
+
 > # ✅ 2026-09-15（晚）— **敵人卡死 ＋ 死亡收束 ＋ 貼身鏡頭**（四項落地、一項退回裁決）
 >
 > EditMode **545 total／544 passed／0 failed／1 skipped**（+22 條；skip 是既有 NavMesh 環境限制）。
