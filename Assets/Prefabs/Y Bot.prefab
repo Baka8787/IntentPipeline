@@ -428,7 +428,7 @@ MonoBehaviour:
   overrideMoveSpeed: 0
   gravity: -9.81
   reboundForce: -2
-  requireValidStandingSupport: 1
+  requireValidStandingSupport: 0
   standingSupportRadius: 0.14
   standingSupportSearchDepth: 0.3
   standingSupportMask:

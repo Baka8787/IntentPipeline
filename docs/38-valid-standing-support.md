@@ -1,6 +1,8 @@
 # 38 — Valid Standing Support（碰撞支撐 ≠ 可站支撐）
 
-> **狀態**：✅ **已裁決並落地（2026-09-17）——採用方案 B，`supportRadius = 0.14`。**
+> **狀態**：🔴 **已實作但已停用（2026-09-17）——方案 B 單獨使用不足，見 §10。**
+> 程式／測試／文件保留，兩隻 prefab 的 `requireValidStandingSupport` 已改回 **false**
+> ⇒ 行為與導入前逐位元相同。
 > EditMode 596／595 passed、PlayMode **66／66**（+5 條 `StandingSupportTests`）。
 > ⛔ **人工 Play 驗收未做**（見 §9）。throwaway spike 已依規則刪除，數據固化為測試斷言。
 > 本輪**沒有**改 CharacterController radius／prefab capsule／JumpState／Falling entry／traversal，
@@ -428,3 +430,98 @@ traversal 各段共 9 個呼叫點），不快取就是每帧多次 SphereCast�
 
 📌 若 0.204 仍嫌寬，**方案 C 的 2/3 footprint 是現成的下一階**（實測 0.114，同樣 0 誤判）。
 外部原碼副本在 session scratchpad，未進 repo；本文已記錄來源與版本，重抓即可。
+
+---
+
+## 10. 🔴 回歸：**方案 B 單獨使用是不夠的，已停用**（2026-09-17，使用者 Play 回報）
+
+> **狀態更正**：§8 說「已落地」是對的，但**落地的東西是淨負面的**。
+> 兩隻 prefab 的 `requireValidStandingSupport` 已改回 **false**。程式與測試保留。
+
+### 10.1 使用者回報的兩個症狀
+
+1. **可以單腳完全浮空**
+2. **由於碰撞箱沒實質變小所以下不去**
+
+### 10.2 實測（throwaway spike，已刪）
+
+**① 否決 grounded 之後，站著不動時角色下不去。**
+
+| 起始 root.z | 60 個物理步後 Δy | Δz |
+|---|---:|---:|
+| 0.02 / 0.07 / 0.12 / 0.17 / 0.22 | **0.000（全部）** | **0.000** |
+
+**Unity 的 `CharacterController.Move()` 不會從邊角滑下去。** 膠囊側面靠在角上，
+往下推完全不動，水平也不漂移。
+
+**② 但只要有水平輸入就沒事。**
+
+| 前進速度 | 結果 |
+|---|---|
+| 0.5 m/s | ✅ 5/5 走出去（掉落 1.5 m） |
+| 2.0 m/s | ✅ 5/5 走出去 |
+
+⇒ **缺陷的精確形狀：只有「站定在帶狀區間內」才卡住。**
+
+**③ 補 `IsWithinEdgeTolerance` 幫助有限**（腳尖懸空 0.204 → 0.184）。
+⚠️ 我原本假設「SphereCast 擦到邊角」是單腳浮空的成因——**假設是錯的**。
+
+### 10.3 ⭐ 真正的根因：否決層改變了狀態，卻無法改變位置
+
+```
+support 否決 → data.IsGrounded = false
+   ├─ FSM 認為在 Falling，但角色物理上一動也不動
+   └─ FootIKController 的閘門是 IsGrounded ⇒ **Foot IK 關閉**
+        ⇒ 腳不再貼地、停在動畫姿勢 ⇒ **看起來完全浮空**
+```
+
+📌 **「單腳完全浮空」很可能是這次改動造成的，不只是被它暴露。**
+這正是 §9 第 2 點事先標記為「最可疑」的那一項——**它成真了**。
+
+⚠️ 教訓：**一個只能改變「狀態」而不能改變「位置」的否決層，在角色被物理撐住時
+只會製造狀態與現實的矛盾。** 它沒有能力把角色從邊角上移開。
+
+### 10.4 Unreal 有沒有提到怎麼「自然地下去」？——有，但那是結構性的答案
+
+UE 原碼確實處理了「站著不動也要掉下去」：
+
+```cpp
+// PhysWalking：bZeroDelta ＝ 這一帧沒有水平位移
+bool bMustJump = bZeroDelta || (OldBase == NULL || …);
+if ((bMustJump || !bCheckedFall) && CheckFall(…, bMustJump)) return;
+
+// CheckFall
+if (bMustJump || CanWalkOffLedges())
+{
+    HandleWalkingOffLedge(…);
+    if (IsMovingOnGround()) StartFalling(…);   // → SetMovementMode(MOVE_Falling)
+}
+```
+
+**但它之所以真的會移動，靠的不是這段程式，而是 UE 的移動架構本身：**
+
+| | Unreal | 我們（Unity CharacterController） |
+|---|---|---|
+| 走路時誰決定角色高度 | **`FindFloor` ＋ `AdjustFloorHeight`**——膠囊被**放置**在離地板 `MIN_FLOOR_DIST`(1.9)～`MAX_FLOOR_DIST`(2.4) 的浮貼區間 | **碰撞**——膠囊被地面「擋住」 |
+| 地板失效時 | `MOVE_Falling` → `PhysFalling` → `SafeMoveUpdatedComponent` ＋ **`SlideAlongSurface`**（撞到邊角 ⇒ 沿法線滑開） | `Move()` 撞到邊角就**停住**，不滑開（實測 Δz = 0.000） |
+| 有沒有「卡在邊角」這個狀態 | **沒有**——角色本來就不是被碰撞撐住的 | **有**，而且否決層製造了它 |
+
+⇒ **UE 的答案是「結構上不讓這個狀態存在」，不是一個可以照抄的函式。**
+要在 Unity `CharacterController` 上複製它，等於自己重寫整個移動解算（取代 `Move()`），
+那是遠超本問題的工程量。
+
+### 10.5 現況與可選的下一步
+
+**現況**：`requireValidStandingSupport = false`（兩隻 prefab）。
+行為與導入前**逐位元相同**。程式、測試、文件全部保留。
+
+| 選項 | 內容 | 代價／風險 |
+|---|---|---|
+| **① 維持停用** | 接受「站在邊緣腳尖懸空 0.434 m」 | 零風險。原始觀感問題**沒解決** |
+| **② 改成速度感知**（Unity DOTS 的 `PreventGroundingWhenMovingTowardsNoGrounding`） | **只在「正朝著沒有地面的方向移動」時才否決** | 實測顯示有水平速度時一定走得出去 ⇒ **卡住與浮空兩個症狀都消失**。但**站定時不否決** ⇒ 原始觀感問題仍然沒解決，只是不再惡化 |
+| **③ 否決 ＋ 主動推離** | 否決的同時給一個遠離支撐邊緣的水平位移，讓膠囊脫離邊角 | 真的能解決站定的情況。但這是**新的移動權威**（MotionDriver 在 locomotion 沒要求時移動角色），會與 locomotion／traversal 互動，需要獨立裁決 |
+| **④ 方案 C（footprint 多點）** | 換判準，但**不解決本節的問題**——一樣只能改狀態不能改位置 | 同樣會卡住。⛔ 不要以為換判準能繞過 |
+
+📌 **②與③可以疊加**：②消除惡化、③解決站定。但③必須單獨裁決。
+
+⚠️ **不要在沒解決 10.3 的前提下把 `requireValidStandingSupport` 打開。**
