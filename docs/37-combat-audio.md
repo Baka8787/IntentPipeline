@@ -453,3 +453,60 @@ to the downloads」）——依使用者指示「需要登入／人工接受條�
 - **沒有去找 magic SFX pack**——使用者的條件是「**如果法術仍缺 designed sound**」，
   而那個「仍缺」要等聽感結論。§10.2／§10.4 只說得出 `Woosh_Sweep_Slide_Infographics`
   的**來源本來就是 UI 素材**，說不出它聽起來對不對。
+
+---
+
+## 11. 🎧 聽感驗收結果（2026-09-17，使用者判定）
+
+> **這是這條線目前的終點。素材工作依使用者裁決暫停。**
+
+### 11.1 結果：56 顆採用 → **13 顆存活（23%）**
+
+| 判定 | 內容 |
+|---|---|
+| ✅ **Keep** | **Melee/Hit ×10**（4× 拳擊肉體 ＋ 6× 金屬刀刃命中）——「幾乎都接受」 |
+| 🟡 **考慮中** | `FIREWhsh_Whoosh_Fire_Deep_Growl`、`Woosh_Sweep_Slide_Infographics_Basic`（Fireball/Release）、`GLASMvmt_Whoosh_Glass_Crystal_Fragments`（Ice/Cast） |
+| ⛔ **Replace（寧願不要）** | 其餘 **43 顆**，已移出 `Assets/`（原檔仍在 `_AudioResearch/Selected`／`Cut`） |
+
+⇒ 除 Melee/Hit 外的池目前**全部是空的 ＝ 靜音**。
+這是刻意的：使用者原則「**不要為了『有聲音』硬塞**」。
+`GetNextClip()` 回 null → `AudioController` 靜默跳過，不報錯。
+
+### 11.2 ⭐ 陣亡的分類——它不是隨機的
+
+| 類別 | 數量 | 備註 |
+|---|---:|---|
+| **人聲／生物聲** | **18** | Hurt 6 ＋ Death 2 ＋ Exertion 2 ＋ JumpTakeoff 8。⚠️ 使用者**事前就把 Anime Fight Voices 標成高風險候選**，判斷正確 |
+| **designed 調性音** | 6 | Magic Light Spell／Power Up Bright／Impact Hit Rapid Chord／Transition Frantic Shaker／Impact Cut Sweep／ELECMisc |
+| **冰材質實錄** | 8 | ICEFric ×4／ice crack ×2／ice surface／ice block crushed |
+| **Melee/Swing** | 9 | 就是 §10.5 點出的「自帶 thud」那顆母帶 |
+| 其他 | 2 | EXPLDsgn 爆炸／Woosh_Debris |
+
+**存活的 13 顆只有兩種性質**：①**錄下來的實體接觸**（拳／刃打在身體上）②**錄下來的空氣移動**（whoosh）。
+
+⇒ **Sonniss 給了我們 impact 層，而且只給了 impact 層。**
+這與使用者一開始的判斷逐字吻合：「Sonniss 比較適合真實 weapon／impact／body Foley，
+法術需要另外找比較 designed／stylized 的素材」。
+📌 值得注意的是**連「冰材質實錄」也全滅**——真實的冰裂聲讀不出「冰刺法術」的身份。
+⇒ 不是「錄音 vs 設計」的分野，是**「物理接觸」vs「其他一切」**。
+
+### 11.3 🔴 這一輪真正的教訓：**盲找的命中率是 23%**
+
+我連續兩輪用同一個模式：下載 → 切段 → 匯入 → 請使用者驗收。
+兩輪下來 43/56 白做。**瓶頸不是找不到素材，是我無法判斷適不適合。**
+
+⇒ 正確的順序是**把昂貴的一步倒過來**：先列候選 pack ＋ 官方 demo 連結，
+由使用者聽 demo reel 挑一個，**之後**才跑下載／切段／匯入的管線。
+⛔ 不要再在「還不知道合不合用」的狀態下跑完整管線。
+
+### 11.4 ⏸ 現況與待辦
+
+- **素材工作已暫停**（使用者裁決 2026-09-17）。人聲方向的問題亦經裁決**不追**。
+- ⚠️ **待辦：Unity Editor 重開後要重跑一次接線**
+  ```bash
+  unity cmd eval_file --file Tools/audio-pipeline/WireClips.cs
+  ```
+  移除 43 顆時 Editor 已關閉 ⇒ 那 10 個 `AudioDefinition` 的 `clips` 陣列裡
+  還留著長度不為 0 但元素為 missing 的槽位。
+  **行為上已經正確（靜音、不報錯）**，重跑只是把陣列收乾淨。
+- 程式面**完全沒有動**：`Assets/Scripts` 改動 = 0，EditMode 592／591 passed 不變。

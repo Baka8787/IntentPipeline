@@ -7,6 +7,52 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # ⏸ 2026-09-17（三）— **戰鬥音效聽感驗收完成，素材工作暫停**
+>
+> ## 結果：56 顆採用 → **13 顆存活（23%）**
+>
+> | | |
+> |---|---|
+> | ✅ **Keep** | **Melee/Hit ×10**（拳擊肉體 ×4 ＋ 金屬刀刃命中 ×6）——使用者：「幾乎都接受」 |
+> | 🟡 考慮中 | `FIREWhsh_Whoosh_Fire_Deep_Growl`、`Woosh_Sweep_Slide_Infographics`、`GLASMvmt_Whoosh_Glass_Crystal` |
+> | ⛔ 寧願不要 | 其餘 **43 顆**，已移出 `Assets/`（原檔仍在 `_AudioResearch/Selected`／`Cut`） |
+>
+> ⇒ **除 Melee/Hit 外全部靜音。** 這是刻意的——使用者原則「不要為了『有聲音』硬塞」。
+> 池空時 `GetNextClip()` 回 null、`AudioController` 靜默跳過，不報錯。
+>
+> ## ⭐ 陣亡的分類不是隨機的
+>
+> **人聲／生物聲 18 顆全滅**（Hurt 6／Death 2／Exertion 2／Jump 8）——你**事前就標成高風險**，判斷正確。
+> designed 調性音 6 顆全滅。**冰材質實錄 8 顆也全滅**（真實冰裂聲讀不出「冰刺法術」的身份）。
+> Melee/Swing 9 顆全滅（就是自帶 thud 的那顆母帶）。
+>
+> **存活的只有兩種性質：①錄下來的實體接觸 ②錄下來的空氣移動。**
+> ⇒ Sonniss 給了 impact 層，而且**只**給了 impact 層——與你一開始的判斷逐字吻合。
+>
+> ## 🔴 這輪真正的教訓
+>
+> 我連續兩輪都是「下載 → 切段 → 匯入 → 請你驗收」，**43/56 白做，命中率 23%**。
+> 瓶頸不是找不到素材，是**我無法判斷適不適合**。
+> ⇒ 下次要把昂貴的一步倒過來：**先列候選 pack ＋ 官方 demo 連結，你聽 demo 挑完再跑管線。**
+>
+> ## ⏸ 決定
+>
+> - **素材工作暫停**（你的裁決）。人聲方向的問題亦裁決**不追**。
+> - 程式面**完全沒動**：`Assets/Scripts` 改動 = 0，EditMode **592／591 passed** 不變。
+>
+> ## ⚠️ 唯一的待辦：Unity 重開後補跑一次接線
+>
+> ```bash
+> unity cmd eval_file --file Tools/audio-pipeline/WireClips.cs
+> ```
+>
+> 我移除那 43 顆時 Editor 已經關了 ⇒ 10 個 `AudioDefinition` 的 `clips` 陣列裡
+> 還留著 missing 的槽位。**行為已經正確（靜音、不報錯）**，重跑只是把陣列收乾淨。
+>
+> 📌 **還沒做、你先前排過隊的**：DSP buffer A/B（`AudioManager.asset` 1024 → 256，
+> 可省 16–32 ms，全域設定、以 CPU 換延遲）。腳步聲仍是主要音源，這項對它仍然有效。
+
+
 > # 🎧 2026-09-17（二）— **驗收整備完成，等你聽**（系統零擴張）
 >
 > ⛔ **這一輪沒有動任何 runtime 程式**（`Assets/Scripts` 改動 = 0）、沒有新增 Audio Framework、
