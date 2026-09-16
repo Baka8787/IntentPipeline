@@ -2,9 +2,10 @@
 
 > **狀態**：程式 ／ 資產 ／ **素材** ／ 測試皆已落地
 > （EditMode **592 / 591 passed / 0 failed / 1 skipped**、PlayMode **61 / 61**）。
-> **56 個 clip 已匯入並接線 ⇒ 現在 Play 應該聽得到聲音。**
+> **56 個 clip 已匯入並接線；池內響度已對齊（§10.2）⇒ 現在 Play 聽得到聲音。**
 > ⛔ **但選材沒有經過耳朵**——我無法試聽音訊，依據只有客觀量測、檔名語意與專案已知事實。
-> 試聽頁：`D:/Unity Project/_AudioResearch/Combat/audition.html`（瀏覽器開啟，含 56 個選用 ＋ 31 個備援）。
+> 🎧 **驗收工具：`D:/Unity Project/_AudioResearch/Combat/audition.html`**（雙擊開啟）——
+> 含 6 個**情境試聽**（以遊戲真實時間差與相對音量疊播）＋ 逐池試聽 ＋ Keep/Needs tuning/Replace/Needs extra layer 填答。見 §10.7。
 > 素材來源、授權與重建程序見 §6。
 >
 > **routing**：本輪**不開 ADR**。唯一的跨系統契約變更是黑板加了一個 `SurvivabilityData.JustDied`，
@@ -316,3 +317,139 @@ to the downloads」）——依使用者指示「需要登入／人工接受條�
 - 優先權 ／ virtualization ／ ducking ／ mixer 路由
 - 戰鬥音效的 Surface 感知（冰刺打在木板 vs 石頭）——第二個使用者尚未出現
 - Jump Takeoff 的精確事件源（目前借用 `JustLeftGround`）
+
+---
+
+## 10. 驗收前的量測整備（2026-09-17 第二輪）
+
+> 使用者裁決：**這輪不擴張系統，以 Play 實際聽感驗收為主**，且
+> **「不要再以檔名或量測代替聽感判斷」**。
+> ⇒ 本節只做兩件事：①回答那些**本來就是量測問題**的檢查項（#5／#6）；
+> ②把混在裡面的**干擾因素**清掉，讓聽感判斷是對素材本身的判斷。
+> ⛔ **本節不含任何 Keep／Replace 判定**——那是使用者的。
+
+### 10.1 ✅ #5 前置靜音：沒有重演 footstep 的問題
+
+| 事件 | 前置靜音（−50 dB） |
+|---|---|
+| 除下列外的 9 個事件 | **0 ms** |
+| Melee/Swing | 0–5 ms |
+| Fireball/Impact | 0–33 ms（`Transition_Frantic_Shaker_Snap`） |
+| Fireball/Release | 8–48 ms（`Woosh_Debris`） |
+| Ice/Impact | 0–25 ms |
+
+`cut.mjs` 的 `silenceremove` 有效。最差 48 ms，且那顆本來就是緩起的 whoosh。
+⇒ **不是 `docs/34` 那種「音檔自身造成的 delay」**（當時腳步是每一顆都帶 29.7 ms）。
+
+### 10.2 🐛 #5 響度：**我上一輪做錯了，已修**
+
+`cut.mjs` 當時只做 **peak 正規化到 −1 dBFS** 就收工。
+但峰值只描述「最大的那個取樣點」，**不描述聽起來多大聲**——
+一個密實的悶響與一個尖銳的 transient 可以峰值相同、響度差十幾 dB。
+
+實測池內離散度（修正前 → 修正後，指標＝最響 300 ms 窗口 RMS）：
+
+| 事件 | 修正前 | 修正後 |
+|---|---:|---:|
+| **Melee/Hit** | **15.0 dB** | **2.5 dB** |
+| Ice/Spawn | 17.0 dB | 8.7 dB ⚠️ |
+| Fireball/Impact | 12.0 dB | 4.6 dB |
+| Ice/Impact | 11.9 dB | 3.6 dB |
+| Character/Hurt | 8.6 dB | 2.6 dB |
+| Fireball/Release | 8.6 dB | 6.4 dB ⚠️ |
+| 其餘 6 個 | ≤5.2 dB | ≤4.6 dB |
+
+**為什麼這件事必須在試聽之前修**：Melee/Hit 原本每抽一次 shuffle bag 音量就可能差 15 dB
+⇒ 「近戰有沒有重量」聽到的其實是**抽到 10 顆裡的哪一顆**，素材本身的影響反而是次要的。
+不修就驗收，結論會是雜訊。
+
+⚠️ **兩個仍然偏大的，成因是峰值夾制**（推不上去，再推就削波），且都是 0.22–0.30 s 的碎片：
+- `Ice/Spawn` → `ice_crack_ice_block_snapping-001_02.wav`（需 +7.44 dB，被夾住）
+- `Fireball/Release` → `Woosh_Sweep_Slide_Infographics_Basic_01.wav`（檔名就叫 **Infographics**，本來就是 UI 素材）
+
+這兩顆**結構上無法與同池對齊**。⇒ 列為使用者優先聽的對象，但**不由我判定去留**。
+
+### 10.3 🐛 差點誤報的量測失配（記下來，因為它很像真的）
+
+第一次量響度用 **integrated LUFS**，三顆 clip 回傳 **−70 LUFS**，看起來像「檔案是空的」。
+實際上 EBU R128 的 gating block 是 **400 ms**，那三顆是 0.22／0.30／0.36 s
+⇒ **短到量不出來，不是沒有聲音**（真峰值 −1.2／−2.7／−8.4 dBFS，內容確實存在）。
+
+⇒ 改用與長度無關的指標（全檔 RMS ／ 最響 300 ms 窗口 RMS）。
+📌 這是本專案記錄過的同一類錯誤：**量測代理答非所問**。選錯指標會憑空生出三個不存在的缺陷。
+
+### 10.4 ✅ #6 會不會爆掉 —— 不會。但**會互相吃掉**
+
+預測電平 ＝ 池目標響度 ＋ 20·log₁₀(SO volume)：
+
+| 定義 | 預測電平 | | 定義 | 預測電平 |
+|---|---:|---|---|---:|
+| Ice_Cast | −11.2 dB | | Fireball_Impact | −16.1 dB |
+| Ice_Release | −12.6 dB | | Ice_Impact | −18.4 dB |
+| Fireball_Release | −13.0 dB | | Melee_Swing | −18.6 dB |
+| Player/Enemy_Death | −13.5 dB | | Player_JumpTakeoff | −22.2 dB |
+| Player/Enemy_Hurt | −14.3 dB | | **Melee_Hit** | **−22.6 dB** |
+| Fireball_Cast | −15.0 dB | | | |
+
+**不會爆掉**：最壞的同時組合（冰刺打中）功率相加是 **−9.7 dB**，離 0 dBFS 還有 ~10 dB。
+⛔ 不需要 limiter／ducking（那是 Audio Framework，本輪不做）。
+
+**但會互相吃掉**——這是 #1 的答案：
+
+| 同時發生 | 最大電平差 | |
+|---|---:|---|
+| 近戰打中敵人（Swing＋Hit＋Hurt） | **8.3 dB** | ⚠️ Melee_Hit 是**全場最小聲**，被 Enemy_Hurt 壓在下面 |
+| 近戰打死敵人（Swing＋Hit＋Death） | **9.1 dB** | ⚠️ 同上，更嚴重 |
+| 冰刺打中 | 5.8 dB | |
+| 火球命中敵人 | 1.8 dB | ✅ |
+
+**`Melee_Hit` 池目標 −22.2 dB，比 `Character/Hurt` 的 −12.4 dB 低 10 dB**，
+而 `volume 0.95` 補不回 10 dB 的素材落差。
+⇒ 「近戰沒有重量」有一個**與素材品質無關**的成因在這裡。
+📌 這批 punch／sword 命中素材的 crest factor 很高（峰值 −1 dB、300 ms 窗口 RMS −22 dB）
+＝ **有 transient、沒有 body**。這正對應使用者預留的 **Needs extra layer** 類別，
+但**要不要這樣歸類仍然是聽過之後才算數**。
+
+### 10.5 ⚠️ 一個我在選材時沒注意到的語意衝突
+
+`Melee_Swing` 用的母帶是
+**`SWSH_SWING IMPACTS Quick Heavy Weapon Swing To Thud Impact`** ——
+**它自己就包含一次撞擊**。而 `Melee_Swing` 在遊戲裡是「每次揮擊必響」，
+命中與否都播 ⇒ **揮空時也會聽到撞擊聲**，打中時則是**兩次撞擊疊在一起**
+（swing 自帶的 thud ＋ Melee_Hit，相隔僅 20 ms）。
+
+⇒ 試聽頁的情境二（「只有揮擊（沒打中）」）就是為了讓這一項能被單獨聽到。
+備援裡有 `METLFric_SWING SCRAPE`（純刮擦、無撞擊）可替換，**但由使用者決定**。
+
+### 10.6 ⏱ 實際時序（給試聽當參照）
+
+| 動作 | Cast | Release | 備註 |
+|---|---:|---:|---|
+| Melee Slash1 | — | **0.24 s**（0.6 × 0.4） | 命中窗**同幀**開啟；Hurt 慢一幀 ≈16 ms |
+| Fireball | 0 s | **0.42 s**（1.2 × 0.35） | 命中再 +0.2 s（3 m ÷ 15 m/s） |
+| Ice Spell | 0 s | **0.48 s**（1.367 × 0.35） | `Ice_Release` 與 `Ice_Impact` **同時** |
+| Hurt 狀態長度 | | 0.70 s | |
+
+⭐ **近戰的 swing / hit / hurt 幾乎同時，不是先後**（0 / +20 ms / +36 ms）。
+所以使用者說的「放進完整 swing → contact → reaction 流程判斷」——
+那條流程在時間上其實**壓在同一個瞬間**，這本身可能就是「沒有重量」的一部分原因。
+
+### 10.7 🎧 驗收工具：`_AudioResearch/Combat/audition.html`
+
+雙擊開啟即可（Selected 已內嵌為 data URI；若情境無聲改跑 `node Tools/audio-pipeline/serve-audition.mjs`）。
+
+- **A. 情境試聽**：6 個情境，用 **Web Audio 以真實時間差與真實相對音量**排程多顆 clip。
+  已驗證排程精確度：近戰情境實測為 0 / 0.020 / 0.036 s，與設定完全一致。
+  「🎲 換一組」可重抽，用來聽 shuffle bag 的變化幅度。
+- **B. 逐池試聽 ＋ 填驗收結論**：12 個池、56 選用 ＋ 31 備援，
+  每池一組 **Keep / Needs tuning / Replace / Needs extra layer** 單選 ＋ 備註，
+  按「產生結論」輸出可貼回對話的 Markdown。
+  ⚠️ **四個選項全部預設為空**——頁面裡沒有任何我的判定。
+
+### 10.8 ⛔ 本輪沒做（依裁決）
+
+- 沒有新增任何 Audio Framework、事件類型、runtime 程式（**`Assets/Scripts` 零改動**）
+- 沒有動 melee／impact 的 Sonniss 選材（只做了不改內容的響度對齊）
+- **沒有去找 magic SFX pack**——使用者的條件是「**如果法術仍缺 designed sound**」，
+  而那個「仍缺」要等聽感結論。§10.2／§10.4 只說得出 `Woosh_Sweep_Slide_Infographics`
+  的**來源本來就是 UI 素材**，說不出它聽起來對不對。

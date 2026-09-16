@@ -57,12 +57,34 @@ node cut.mjs
 node select.mjs
 node sources.mjs
 
+# 6.5) ⭐ **池內響度對齊**（2026-09-17 補，修上一版的錯）
+#      cut.mjs 只做了 peak 正規化，而 peak ≠ 響度：
+#      實測 Melee/Hit 池內 RMS 差 **15.0 dB**、Character/Hurt 差 8.6 dB
+#      ⇒ shuffle bag 每抽一次音量就跳一次，「近戰有沒有重量」根本無法被公平試聽。
+#      改用「最響的 300 ms 窗口 RMS」對齊到池中位數，峰值超過 -1 dBFS 就夾住。
+#      ⚠️ 不要用 integrated LUFS 當指標：它的 gating block 是 400 ms，
+#         對 <0.4s 的 clip 一律回 -70 ⇒ 量測代理答非所問（本輪差點據此誤報三顆「壞掉」）。
+node loudnorm-pool.mjs
+
+# 6.6) 驗證：量測實際採用的 clip（前置靜音／響度／離散度）＋ 預測遊戲內相對電平
+node measure.mjs        # 前置靜音 ＋ EBUR128（含上述 <0.4s 的已知限制）
+node loud2.mjs          # RMS ／ M-max（與長度無關，可跨 clip 比較）
+node mix.mjs            # 池目標 × SO volume ⇒ 預測電平 ＋ 同時發生組合的遮蔽分析
+
 # 7) 複製進 Unity
 #    Assets/Audio/Combat/{Spells,Melee,Character,Movement}
 
 # 8) 匯入設定 ＋ 接線（在連著的 Editor 上跑）
 unity cmd eval_file --file Tools/audio-pipeline/ImportAudio.cs
 unity cmd eval_file --file Tools/audio-pipeline/WireClips.cs
+
+# 9) 產生情境試聽頁（Selected 內嵌為 data URI，可直接雙擊開啟）
+node audition.mjs
+#    ⚠️ 為什麼要內嵌：以 file:// 開啟時 `fetch()` 會被 CORS 擋掉，
+#       而情境排程（本頁最重要的功能）靠 fetch + decodeAudioData ⇒ 會**靜默失敗**。
+#       data: URI 不受此限。備援 clip 走 <audio src>，那條路不經過 fetch，所以維持檔案參照。
+#    若情境播放仍無聲，改用本機伺服器：
+node serve-audition.mjs   # → http://localhost:8731/
 ```
 
 ---
