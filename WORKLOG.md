@@ -7,6 +7,42 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # ⏹ 2026-09-17（五）— **平台邊緣 grounding：`Deferred / Accepted Limitation`**（使用者明確裁決）
+>
+> ## ⛔ 下一個會話：**不要再碰這個問題**
+>
+> **正式行為已退回：`data.IsGrounded` ＝ `CharacterController.isGrounded`，沒有任何額外 support 規則。**
+> 極端平台邊緣時**允許膠囊側面被平台角支撐、允許部分腳掌／腳尖懸空，不強迫掉落**。
+> ⭐ 這是**已知且被接受的限制，不是待修的 bug**。
+>
+> | 已撤回的東西 | 狀態 |
+> |---|---|
+> | Unreal 式 smaller support radius 否決層 | ⛔ 程式已刪（`StandingSupportProbe.cs`／4 個 `[SerializeField]`／prefab 欄位） |
+> | footprint／multi-point support | ⛔ 從未接線，也不會接 |
+> | Temporary Collision Release | ⛔ 只做過 throwaway spike，已刪 |
+> | outward auto-push／edge slip | ⛔ 只做過 throwaway spike，已刪 |
+> | `StandingSupportTests`（PlayMode ×5） | ⛔ 已刪（測的是不存在的功能） |
+>
+> **runtime 與導入前的 `c28e1e5` 相比只差註解**（22 行純說明，零行為差異）。
+> EditMode 596／595 passed、PlayMode **61／61**（66 → 61，正好是移除的 5 條）。
+>
+> ## 🔓 唯一的重開條件（正本 `docs/38` §13.3，四選一）
+>
+> ①改用自製／Kinematic Character Motor ②正式重寫 grounded／floor solver
+> ③traversal／ledge gameplay 本身需要精確 support model ④實際展示證明此 overhang 明顯影響觀感或玩法
+>
+> ⛔ **否則不要再新增局部 workaround**——較小 support radius／footprint／暫時縮小碰撞體／
+> outward push／只在某些狀態否決 grounded／為 Foot IK 開特例閘門，**這些全部量過了，全是淨負面或成本過高**。
+>
+> 📌 若真的要重開，**先讀 `docs/38` §12.9 的四條結論**，可省下整輪重新量測。
+> 最重要的一條：**在 Unity `CharacterController` 上，任何只改「碰撞體形狀」的手段都無法乾淨地
+> 製造「離開邊角」這個位移**——`Move()` 不沿邊角滑開，唯一會產生水平位移的機制是 depenetration。
+>
+> ## ➡️ 優先事項
+>
+> 回到 gameplay ／ combat ／ animation ／ VFX（與下方 audio 結案交辦一致）。
+
+
 > # ⏹ 2026-09-17（四）— **Audio 結案並降優先級**（使用者明確裁決）
 >
 > ## ⛔ 下一個會話：**不要主動重啟 audio**
