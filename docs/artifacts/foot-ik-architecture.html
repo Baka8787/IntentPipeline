@@ -1,0 +1,739 @@
+<title>Foot IK 解剖</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground:#EDEFF1; --surface:#F8F9FA; --sunken:#E0E3E6; --ink:#1E2126;
+    --muted:#646B73; --hair:#C6CBD0; --grid:#D8DCE0;
+    --measure:#0E6E6B; --measure-s:#D9ECEA;
+    --bind:#A8256A; --bind-s:#F6E0EC;
+    --wrong:#A33B1F; --wrong-s:#F5E2DA;
+    --sans:"Noto Sans TC",-apple-system,"Segoe UI","Microsoft JhengHei",sans-serif;
+    --mono:"IBM Plex Mono","Cascadia Mono",Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:#14161A; --surface:#1C1F24; --sunken:#262A30; --ink:#E3E6EA;
+      --muted:#969DA6; --hair:#363B42; --grid:#2C3036;
+      --measure:#5FC9C3; --measure-s:#10302F;
+      --bind:#F186BB; --bind-s:#35182A;
+      --wrong:#EE9070; --wrong-s:#381D14;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:#14161A; --surface:#1C1F24; --sunken:#262A30; --ink:#E3E6EA;
+    --muted:#969DA6; --hair:#363B42; --grid:#2C3036;
+    --measure:#5FC9C3; --measure-s:#10302F;
+    --bind:#F186BB; --bind-s:#35182A;
+    --wrong:#EE9070; --wrong-s:#381D14;
+  }
+  * { box-sizing: border-box; }
+  body { background:var(--ground); color:var(--ink); font-family:var(--sans);
+         font-size:15px; line-height:1.75; margin:0; -webkit-font-smoothing:antialiased; }
+  .shell { max-width:940px; margin:0 auto; padding:40px 28px 96px; }
+
+  .eyebrow { font-family:var(--mono); font-size:11px; letter-spacing:.16em;
+             text-transform:uppercase; color:var(--measure); margin-bottom:10px; }
+  h1 { font-weight:900; font-size:38px; line-height:1.2; letter-spacing:-.01em; margin:0 0 16px; text-wrap:balance; }
+  .lede { font-size:16.5px; color:var(--muted); max-width:60ch; margin:0; }
+  .lede strong { color:var(--ink); font-weight:500; }
+
+  .keyfacts { display:grid; grid-template-columns:repeat(auto-fit,minmax(128px,1fr));
+              gap:1px; background:var(--hair); border:1px solid var(--hair); margin:28px 0 0; }
+  .keyfacts div { background:var(--surface); padding:12px 14px; }
+  .keyfacts .v { font-family:var(--mono); font-size:18px; font-weight:600;
+                 font-variant-numeric:tabular-nums; line-height:1.2; }
+  .keyfacts .k { font-size:11.5px; color:var(--muted); line-height:1.45; margin-top:4px; }
+
+  section { margin-top:54px; }
+  .sec-head { display:flex; align-items:baseline; gap:12px; padding-bottom:9px;
+              border-bottom:2px solid var(--ink); margin-bottom:6px; }
+  .sec-head .n { font-family:var(--mono); font-size:12px; font-weight:600; color:var(--measure); letter-spacing:.06em; }
+  .sec-head h2 { font-size:21px; font-weight:700; margin:0; flex:1; letter-spacing:-.005em; }
+  .sec-head .tag { font-family:var(--mono); font-size:10.5px; color:var(--muted);
+                   border:1px solid var(--hair); padding:1px 6px; white-space:nowrap; }
+  .sec-intro { color:var(--muted); font-size:14px; margin:10px 0 0; max-width:62ch; }
+
+  figure { margin:22px 0 0; background:var(--surface); border:1px solid var(--hair); padding:18px 20px 6px; }
+  figure svg { display:block; width:100%; height:auto; }
+  figcaption { font-size:13.5px; color:var(--muted); padding:12px 0 14px;
+               border-top:1px solid var(--hair); margin-top:12px; }
+  figcaption strong { color:var(--ink); font-weight:500; }
+
+  svg text { font-family:var(--sans); fill:currentColor; }
+  svg .m { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  svg .t{font-size:13px;font-weight:700;} svg .s{font-size:11.5px;} svg .xs{font-size:10.5px;}
+  svg .mu{fill:var(--muted);} svg .me{fill:var(--measure);} svg .bd{fill:var(--bind);} svg .wr{fill:var(--wrong);}
+  svg .box{fill:var(--sunken);stroke:var(--hair);stroke-width:1;}
+  svg .boxm{fill:var(--measure-s);stroke:var(--measure);stroke-width:1.3;}
+  svg .boxb{fill:var(--bind-s);stroke:var(--bind);stroke-width:1.3;}
+  svg .boxw{fill:var(--wrong-s);stroke:var(--wrong);stroke-width:1.3;}
+  svg .ln{stroke:currentColor;stroke-width:1.4;fill:none;}
+  svg .lnm{stroke:var(--measure);stroke-width:1.6;fill:none;}
+  svg .lnb{stroke:var(--bind);stroke-width:1.8;fill:none;}
+  svg .lnw{stroke:var(--wrong);stroke-width:1.6;fill:none;stroke-dasharray:5 4;}
+  svg .thin{stroke:var(--hair);stroke-width:1;fill:none;}
+  svg .dash{stroke:var(--muted);stroke-width:1.1;fill:none;stroke-dasharray:4 4;}
+  svg .grid{stroke:var(--grid);stroke-width:1;fill:none;}
+  #ar path{fill:var(--ink);} #arm path{fill:var(--measure);}
+  #arb path{fill:var(--bind);} #arw path{fill:var(--wrong);}
+
+  .wrap { overflow-x:auto; margin:18px 0 0; }
+  table { width:100%; border-collapse:collapse; font-size:13px; min-width:580px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--hair); vertical-align:top; }
+  th { font-family:var(--mono); font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+       color:var(--muted); border-bottom:1px solid var(--ink); white-space:nowrap; }
+  td.m,th.m { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  td.num { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  td.no { color:var(--wrong); }
+  tr.bind td { background:var(--bind-s); }
+  tr.bind td:first-child { font-weight:700; }
+
+  .note { display:grid; grid-template-columns:74px minmax(0,1fr); gap:14px; padding:12px 0;
+          border-top:1px dotted var(--hair); font-size:13.5px; line-height:1.7; }
+  .note .lab { font-family:var(--mono); font-size:10.5px; letter-spacing:.06em; padding-top:4px; }
+  .note.why .lab{color:var(--measure);} .note.bad .lab{color:var(--wrong);} .note.key .lab{color:var(--bind);}
+  .note p { margin:0; }
+
+  .callout { border-left:3px solid var(--bind); background:var(--bind-s);
+             padding:14px 16px; margin:20px 0 0; font-size:14px; }
+  .callout .h { font-weight:700; margin-bottom:4px; }
+
+  code { font-family:var(--mono); font-size:.88em; background:var(--sunken); padding:1px 4px; }
+  .calc { font-family:var(--mono); font-size:12.5px; line-height:1.9; background:var(--sunken);
+          border:1px solid var(--hair); padding:14px 16px; margin:16px 0 0; overflow-x:auto;
+          white-space:pre; font-variant-numeric:tabular-nums; }
+  .calc .hl{color:var(--bind);font-weight:600;} .calc .me{color:var(--measure);} .calc .c{color:var(--muted);}
+
+  .speak { margin:22px 0 0; padding:16px 18px; border:1px dashed var(--measure);
+           background:var(--measure-s); font-size:14.5px; line-height:1.8; }
+  .speak .h { font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; color:var(--measure); margin-bottom:6px; }
+
+  .foot { font-family:var(--mono); font-size:11px; color:var(--muted); margin-top:56px;
+          padding-top:20px; border-top:2px solid var(--ink); line-height:1.9; }
+
+  @media (max-width:720px){ .shell{padding:26px 16px 70px;} h1{font-size:28px;}
+    .note{grid-template-columns:1fr;gap:2px;} }
+  @media (prefers-reduced-motion:reduce){ *{animation:none!important;transition:none!important;} }
+</style>
+
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+  </defs>
+</svg>
+
+<div class="shell">
+
+<header>
+  <div class="eyebrow">Architecture Deep-Dive · 視覺版 · 對應 docs/29</div>
+  <h1>Foot IK 解剖</h1>
+  <p class="lede">
+    動畫假設角色站在一個完美的平面上。真實地形不是。
+    這套系統在<strong>不改變角色位置、不改變接地判定</strong>的前提下，
+    每一幀把腳骨畫到地形上該在的地方。<br>
+    全頁數字取自 <code>X Bot.prefab</code> 與其 Avatar 的實際 authored 值。
+  </p>
+
+  <div class="keyfacts">
+    <div><div class="v">0.0873</div><div class="k">Avatar 量出的<br>FeetBottomHeight（m）</div></div>
+    <div><div class="v">0.957</div><div class="k">完美踩地時的<br>權重上限（不是 1.0）</div></div>
+    <div><div class="v">23°</div><div class="k">踝關節對齊<br>夾限</div></div>
+    <div><div class="v">0.195</div><div class="k">Heel＋Toe<br>跨距（m）</div></div>
+    <div><div class="v">4</div><div class="k">整個子系統的<br>跨幀狀態數量</div></div>
+    <div><div class="v">1 幀</div><div class="k">IK 結果延遲<br>（結構，非缺陷）</div></div>
+  </div>
+</header>
+
+<!-- ═══ 1 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">01</span>
+    <h2>兩條單向管道：執行期零方法呼叫</h2>
+    <span class="tag">單寫多讀 ／ 單寫單讀</span>
+  </div>
+  <p class="sec-intro">
+    Rig 與 Controller 之間<strong>沒有任何方法呼叫、事件或回呼</strong>，只有兩份共享資料各自單向流動。
+    每條箭頭標了五件事：資料是什麼、誰是唯一 Writer、座標空間、更新時機、以及是不是跨幀。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 840 560" role="img" aria-label="Foot IK 雙管道資料流：FootIKRig 在 Animator IK pass 拍下 pre-IK 快照並套用目標，FootIKController 在順序 6.5 讀快照算出目標">
+      <rect class="thin" x="14" y="26" width="452" height="196"></rect>
+      <text class="xs m mu" x="26" y="20">Animator 評估流程（早於 LateUpdate）</text>
+
+      <rect class="box" x="30" y="42" width="180" height="60"></rect>
+      <text class="s t" x="42" y="64">Animancer 混合後姿勢</text>
+      <text class="xs mu" x="42" y="82">擁有者：Animator</text>
+      <text class="xs mu" x="42" y="95">世界空間</text>
+
+      <line class="ln" x1="214" y1="72" x2="248" y2="72" marker-end="url(#ar)"></line>
+
+      <rect class="boxm" x="252" y="42" width="198" height="60"></rect>
+      <text class="s t me" x="264" y="64">FootIKRig【出】</text>
+      <text class="xs mu" x="264" y="82">GetIKPosition / GetIKRotation</text>
+      <text class="xs bd" x="264" y="95">必須在套用 IK 之前讀</text>
+
+      <rect class="boxm" x="252" y="150" width="198" height="60"></rect>
+      <text class="s t me" x="264" y="172">FootIKRig【入】</text>
+      <text class="xs mu" x="264" y="190">SetIKPosition / Rotation / Weight</text>
+      <text class="xs mu" x="264" y="203">bodyPosition += up × PelvisOffsetY</text>
+
+      <line class="ln" x1="214" y1="180" x2="248" y2="180" marker-end="url(#ar)"></line>
+      <rect class="box" x="30" y="150" width="180" height="60"></rect>
+      <text class="s t" x="42" y="172">Humanoid IK Solver</text>
+      <text class="xs bd" x="42" y="190">★ 最終決定權在這裡</text>
+      <text class="xs mu" x="42" y="203">腿長可達範圍內盡量靠近</text>
+
+      <line class="lnb" x1="352" y1="106" x2="352" y2="142" marker-end="url(#arb)"></line>
+      <text class="xs m bd" x="360" y="128">O1：出必須在入之前</text>
+
+      <rect class="boxb" x="520" y="42" width="180" height="76"></rect>
+      <text class="s t bd" x="532" y="64">FootIKPoseData</text>
+      <text class="xs mu" x="532" y="82">pre-IK goal ×2 ＋ 旋轉 ×2</text>
+      <text class="xs mu" x="532" y="96">＋ FeetBottomHeight ×2</text>
+      <text class="xs bd" x="532" y="110">單寫 多讀　Writer：Rig</text>
+
+      <path class="lnb" d="M454,68 L500,68 L500,74 L516,74" marker-end="url(#arb)"></path>
+
+      <rect class="boxm" x="520" y="150" width="180" height="60"></rect>
+      <text class="s t me" x="532" y="172">FootIKTargetData</text>
+      <text class="xs mu" x="532" y="190">位置／旋轉／權重 ×2</text>
+      <text class="xs me" x="532" y="203">單寫 單讀　Writer：Controller</text>
+
+      <path class="lnm" d="M516,180 L484,180 L484,180 L454,180" marker-end="url(#arm)"></path>
+      <text class="xs m me" x="462" y="228">下一幀才生效</text>
+
+      <line class="dash" x1="14" y1="248" x2="826" y2="248"></line>
+      <text class="xs m mu" x="26" y="242">⋯ MotionDriver（順序 6）先把 root 移到本幀位置 ⋯</text>
+
+      <rect class="thin" x="14" y="264" width="812" height="180"></rect>
+      <text class="xs m mu" x="26" y="278">LateUpdate 順序 6.5（PresentationPipeline）</text>
+
+      <rect class="boxm" x="252" y="292" width="198" height="130"></rect>
+      <text class="s t me" x="264" y="314">FootIKController.Tick</text>
+      <text class="xs bd" x="264" y="334">閘門 ikAllowed =</text>
+      <text class="xs mu" x="264" y="348">　IsGrounded &amp;&amp; !BlockIK</text>
+      <text class="xs mu" x="264" y="368">① SampleGround（左右腳）</text>
+      <text class="xs mu" x="264" y="384">② 骨盆補償（沉向較低的腳）</text>
+      <text class="xs mu" x="264" y="400">③ ResolveFoot（位置／旋轉／權重）</text>
+      <text class="xs me" x="264" y="416">O5：②必須在①後、③前</text>
+
+      <rect class="box" x="30" y="292" width="180" height="40"></rect>
+      <text class="xs m" x="42" y="310">FootIKPoseData</text>
+      <text class="xs mu" x="42" y="324">唯讀 · 本幀新鮮值</text>
+      <line class="ln" x1="214" y1="312" x2="248" y2="312" marker-end="url(#ar)"></line>
+
+      <rect class="box" x="30" y="340" width="180" height="40"></rect>
+      <text class="xs m" x="42" y="358">黑板（唯讀）</text>
+      <text class="xs mu" x="42" y="372">IsGrounded / BlockIK</text>
+      <line class="ln" x1="214" y1="360" x2="248" y2="360" marker-end="url(#ar)"></line>
+
+      <rect class="box" x="30" y="388" width="180" height="40"></rect>
+      <text class="xs m" x="42" y="406">場景碰撞體</text>
+      <text class="xs mu" x="42" y="420">Raycast ×2～6 · 不快取</text>
+      <line class="ln" x1="214" y1="408" x2="248" y2="408" marker-end="url(#ar)"></line>
+
+      <line class="lnm" x1="454" y1="356" x2="512" y2="356" marker-end="url(#arm)"></line>
+      <text class="xs m me" x="460" y="348">寫入（唯一 Writer）</text>
+      <rect class="boxm" x="516" y="336" width="140" height="40"></rect>
+      <text class="xs m me" x="528" y="354">FootIKTargetData</text>
+      <text class="xs mu" x="528" y="368">每幀整組覆寫</text>
+
+      <path class="lnb" d="M120,332 L120,470 L252,470" marker-end="url(#arb)"></path>
+      <rect class="boxb" x="256" y="450" width="198" height="42"></rect>
+      <text class="xs m bd" x="268" y="470">FootstepDetector</text>
+      <text class="xs mu" x="268" y="484">同一份引用（單寫多讀）</text>
+      <text class="xs m bd" x="132" y="466">向 owner 取引用</text>
+
+      <line class="ln" x1="458" y1="470" x2="512" y2="470" marker-end="url(#ar)"></line>
+      <rect class="box" x="516" y="450" width="200" height="42"></rect>
+      <text class="xs m" x="528" y="470">回傳 value struct</text>
+      <text class="xs mu" x="528" y="484">由 pipeline 寫黑板事件區</text>
+
+      <rect class="boxw" x="14" y="504" width="812" height="46"></rect>
+      <text class="xs wr m" x="26" y="524">⛔ 反饋禁令（I1）：Controller 的輸入永不來自骨骼 Transform 現值——那是上一幀 IK 的輸出。</text>
+      <text class="xs mu" x="26" y="540">違反即重現腳踝抽搐／腳黏地（changelog v0.18.1 實際發生過）。pose 一律取自快照。</text>
+    </svg>
+
+    <figcaption>
+      擁有權跟著寫入權走：<strong>誰是唯一 Writer，誰就持有那份資料的生命週期</strong>。
+      新的 Pose 讀取者向 <code>FootIKRig.PoseData</code> 取引用，<strong>不向其他 Reader 要</strong>（I3）。
+    </figcaption>
+  </figure>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>箭頭</th><th>資料</th><th class="m">唯一 Writer</th><th>座標空間</th><th>跨幀？</th></tr></thead>
+      <tbody>
+        <tr><td>Animator → PoseData</td><td>IK goal 位置＋旋轉、Avatar 常數</td><td class="m">FootIKRig</td><td>世界</td><td>❌ 每幀整組覆寫</td></tr>
+        <tr><td>PoseData → Controller</td><td>同上，唯讀</td><td>—</td><td>世界</td><td>本幀新鮮值</td></tr>
+        <tr><td>PoseData → FootstepDetector</td><td>同一份引用</td><td>—</td><td>世界</td><td>偵測器自持 tracker</td></tr>
+        <tr><td>黑板 → Controller</td><td class="m">IsGrounded、BlockIK</td><td class="m">MotionDriver／ArbiterPipeline</td><td>—</td><td>⚠️ 讀到的是上一幀 Move() 之後</td></tr>
+        <tr><td>root → Controller</td><td class="m">transform.position.y</td><td class="m">MotionDriver</td><td>世界</td><td>順序 6 已更新 ⇒ 本幀新位置</td></tr>
+        <tr><td>場景 → Controller</td><td>Raycast 命中點與法線</td><td>Unity Physics</td><td>世界</td><td>❌ 不快取、不濾波</td></tr>
+        <tr class="bind"><td>Controller → TargetData</td><td>位置／旋轉／權重 ×2 ＋ PelvisOffsetY</td><td class="m">FootIKController</td><td>世界</td><td>✅ 權重與骨盆是跨幀的</td></tr>
+        <tr><td>TargetData → Rig</td><td>同上，唯讀</td><td>—</td><td>世界</td><td><strong>下一幀</strong>才套用</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══ 2 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">02</span>
+    <h2>三個「接地」不是同一個 authority</h2>
+    <span class="tag">本子系統最重要的一節</span>
+  </div>
+  <p class="sec-intro">
+    三個東西聽起來都在講「腳有沒有踩到地」，但它們是三個不同的權威，服務三個不同的問題，
+    <strong>而且可以互相矛盾——那是正常的</strong>。把它們混成一件事，是這個子系統最貴的誤解。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 840 400" role="img" aria-label="三個接地權威：gameplay grounded 是閘門、physics observation 是輸入、visual IK correction 是輸出，反向影響一律禁止">
+      <rect class="boxm" x="14" y="30" width="256" height="200"></rect>
+      <text class="xs m me" x="26" y="22">① Gameplay Grounded</text>
+      <text class="s t" x="26" y="54">PlayerRuntimeData</text>
+      <text class="s t" x="26" y="72">.IsGrounded</text>
+      <text class="xs mu" x="26" y="96">真相來源：CharacterController</text>
+      <text class="xs mu" x="26" y="110">.isGrounded（整顆膠囊）</text>
+      <text class="xs mu" x="26" y="132">粒度：整個角色一個 bool</text>
+      <text class="xs mu" x="26" y="146">　　　不分左右腳</text>
+      <text class="xs me" x="26" y="170">決定：能不能起跳、套不套重力</text>
+      <text class="xs wr" x="26" y="190">⛔ 不決定：腳畫在哪裡</text>
+      <text class="xs mu" x="26" y="214">時序：上一幀 Move() 之後</text>
+
+      <rect class="box" x="292" y="30" width="256" height="200"></rect>
+      <text class="xs m mu" x="304" y="22">② Physics Observation</text>
+      <text class="s t" x="304" y="54">每幀的</text>
+      <text class="s t" x="304" y="72">Physics.Raycast</text>
+      <text class="xs mu" x="304" y="96">真相來源：該條射線</text>
+      <text class="xs mu" x="304" y="110">在該一幀的命中</text>
+      <text class="xs mu" x="304" y="132">粒度：單點、單幀</text>
+      <text class="xs mu" x="304" y="146">用完即丟，沒有人「寫」它</text>
+      <text class="xs me" x="304" y="170">決定：什麼都不決定</text>
+      <text class="xs wr" x="304" y="190">⛔ 不改變 ①</text>
+      <text class="xs mu" x="304" y="214">時序：本幀</text>
+
+      <rect class="boxb" x="570" y="30" width="256" height="200"></rect>
+      <text class="xs m bd" x="582" y="22">③ Visual IK Correction</text>
+      <text class="s t" x="582" y="54">FootIKTargetData</text>
+      <text class="s t" x="582" y="72">目標＋權重</text>
+      <text class="xs mu" x="582" y="96">真相來源：前兩者的函數</text>
+      <text class="xs mu" x="582" y="132">粒度：每腳一組</text>
+      <text class="xs me" x="582" y="170">決定：骨頭畫在哪裡</text>
+      <text class="xs wr" x="582" y="190">⛔ 不改變 ①，也不改角色位置</text>
+      <text class="xs mu" x="582" y="214">時序：本幀算、下一幀生效</text>
+
+      <line class="lnm" x1="146" y1="238" x2="146" y2="266" marker-end="url(#arm)"></line>
+      <text class="xs m me" x="154" y="258">閘門</text>
+      <line class="lnm" x1="420" y1="238" x2="420" y2="266" marker-end="url(#arm)"></line>
+      <text class="xs m me" x="428" y="258">輸入</text>
+
+      <rect class="box" x="14" y="270" width="812" height="40"></rect>
+      <text class="s m" x="424" y="295" text-anchor="middle">bool ikAllowed = data.IsGrounded &amp;&amp; !data.Arbitration.BlockIK;</text>
+
+      <path class="lnw" d="M698,238 L698,254 L60,254 L60,238" marker-end="url(#arw)"></path>
+      <text class="xs m wr" x="380" y="250" text-anchor="middle">⛔ 反向一律不成立</text>
+
+      <rect class="boxw" x="14" y="326" width="812" height="64"></rect>
+      <text class="xs wr m" x="26" y="346">為什麼刻意這樣切</text>
+      <text class="xs mu" x="26" y="364">若讓 IK 的觀測回頭改變 gameplay grounded，就會有兩個 IsGrounded 來源，而它們必然在某些幀不一致</text>
+      <text class="xs mu" x="26" y="380">（膠囊還浮著、但腳尖的 ray 打到了台階）。那時「角色能不能跳」取決於元件執行順序＝<tspan class="wr" font-weight="700">行為無法推理</tspan>。</text>
+    </svg>
+
+    <figcaption>
+      ① 是 ③ 的<strong>閘門</strong>，② 是 ③ 的<strong>輸入</strong>。
+      IK 的 raycast 打到地面<strong>不會</strong>讓 <code>IsGrounded</code> 變 true；
+      腳被 IK 拉低 0.2 m，角色位置<strong>一個公釐都不會動</strong>。
+    </figcaption>
+  </figure>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>看起來像 bug 的現象</th><th>真正原因</th><th>屬於哪一層</th></tr></thead>
+      <tbody>
+        <tr><td>起跳那一幀腳突然回到動畫姿勢</td><td><code>IsGrounded</code> 一翻 false，<code>ikAllowed</code> 立刻 false ⇒ 權重往 0 走</td><td class="m">①，刻意</td></tr>
+        <tr><td>站台階邊緣，骨盆沉下去了但角色看起來浮在邊緣</td><td>膠囊高度不隨骨盆變動——IK 是純視覺層</td><td class="m">①③ 邊界，已定義的天花板</td></tr>
+        <tr><td>斜坡上 <code>IsGrounded</code> 一直 true，但某隻腳的 ray 沒打到東西</td><td>② 是單點查詢，會落空；落空不代表沒接地</td><td class="m">②，刻意保留 ankle-only</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout">
+    <div class="h">「最終決定權」在誰手上</div>
+    <strong>畫面上腳最後在哪裡，決定權在 Unity 的 Humanoid IK solver，不在我們。</strong>
+    我們給的是目標＋權重，solver 在腿長可達範圍內盡量靠近。
+    所以當你看到「腳沒有到我要的位置」時，先問的不是「Controller 算錯了嗎」，
+    而是「<strong>這個目標腿搆得到嗎</strong>」。
+  </div>
+</section>
+
+<!-- ═══ 3 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">03</span>
+    <h2>跨幀狀態：整個子系統只有四項</h2>
+    <span class="tag">記憶盤點</span>
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>跨幀的東西</th><th>持有者</th><th>為什麼需要跨幀</th><th>弄丟會怎樣</th></tr></thead>
+      <tbody>
+        <tr class="bind"><td class="m">四個權重</td><td class="m">FootIKTargetData</td><td>權重必須平滑收斂，否則 IK 瞬切</td><td>每次踩地／抬腳都跳變，腳彈一下</td></tr>
+        <tr class="bind"><td class="m">PelvisOffsetY</td><td class="m">FootIKTargetData</td><td>骨盆瞬移比腳瞬移更明顯</td><td>上下樓梯骨盆抽動</td></tr>
+        <tr><td class="m">PoseData.IsWarm</td><td class="m">FootIKRig</td><td>區分「全零是還沒寫過」與「真的是零」</td><td>開場第一幀拿全零座標去打 raycast</td></tr>
+        <tr><td class="m">FootPlantTracker ×2</td><td class="m">FootstepDetector</td><td>Schmitt trigger 的上膛／擊發狀態</td><td>腳步聲在速度抖動時連發</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout">
+    <div class="h">📌 除此之外沒有任何跨幀記憶——而且腳的「位置目標」刻意不平滑</div>
+    位置的連續性由「raycast 對連續地形連續」保證；台階邊緣的目標跳變由<strong>權重</strong>平滑吸收。
+    這是刻意的分工：<strong>平滑一個會瞬移的量，只會把瞬移變成滑移。</strong>
+  </div>
+</section>
+
+<!-- ═══ 4 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">04</span>
+    <h2>六條不能交換的順序</h2>
+    <span class="tag">O1–O6</span>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 840 250" role="img" aria-label="O1：同一個 OnAnimatorIK 回呼裡，拍快照必須在套用 IK 之前，否則形成輸出回授輸入的迴路">
+      <text class="s t me" x="16" y="20">✅ 現在：出 → 入</text>
+      <rect class="boxm" x="16" y="30" width="386" height="120"></rect>
+      <rect class="box" x="32" y="48" width="106" height="38"></rect>
+      <text class="xs m" x="85" y="66" text-anchor="middle">【出】拍快照</text>
+      <text class="xs mu" x="85" y="80" text-anchor="middle">GetIK*</text>
+      <line class="lnm" x1="142" y1="67" x2="168" y2="67" marker-end="url(#arm)"></line>
+      <rect class="box" x="172" y="48" width="106" height="38"></rect>
+      <text class="xs m" x="225" y="66" text-anchor="middle">【入】套目標</text>
+      <text class="xs mu" x="225" y="80" text-anchor="middle">SetIK*</text>
+      <line class="lnm" x1="282" y1="67" x2="308" y2="67" marker-end="url(#arm)"></line>
+      <rect class="box" x="312" y="48" width="76" height="38"></rect>
+      <text class="xs m" x="350" y="70" text-anchor="middle">Solver</text>
+      <text class="xs me" x="32" y="110">快照拍到的是<tspan font-weight="700">該幀動畫的原始 goal</tspan>，</text>
+      <text class="xs mu" x="32" y="128">未被任何 IK 改寫 ⇒ 決策端與輸出端徹底隔離。</text>
+
+      <text class="s t wr" x="438" y="20">❌ 若順序顛倒：入 → 出</text>
+      <rect class="boxw" x="438" y="30" width="386" height="120"></rect>
+      <rect class="box" x="454" y="48" width="106" height="38"></rect>
+      <text class="xs m" x="507" y="66" text-anchor="middle">【入】套目標</text>
+      <line class="lnw" x1="564" y1="67" x2="590" y2="67" marker-end="url(#arw)"></line>
+      <rect class="box" x="594" y="48" width="106" height="38"></rect>
+      <text class="xs m" x="647" y="66" text-anchor="middle">【出】拍快照</text>
+      <path class="lnw" d="M700,67 L760,67 L760,104 L507,104 L507,90" marker-end="url(#arw)"></path>
+      <text class="xs wr" x="454" y="126">快照拍到自己剛套上去的 IK 結果 ⇒ <tspan font-weight="700">output → input 迴路</tspan></text>
+      <text class="xs wr" x="454" y="142">⇒ 腳踝抽搐／腳黏地（changelog v0.18.1 實際發生過）</text>
+
+      <rect class="boxb" x="16" y="176" width="808" height="60"></rect>
+      <text class="xs bd m" x="28" y="198">O6：一幀延遲不是「可以交換的順序」，是結構</text>
+      <text class="xs mu" x="28" y="216">Controller 在 LateUpdate 算，OnAnimatorIK 在下一幀才跑到。想消掉它就得把決策搬進 OnAnimatorIK，</text>
+      <text class="xs mu" x="28" y="230">那會讓決策端重新依賴 Animator ⇒ 違反 O1 的隔離。60 fps 下不可察 ⇒ 接受它。</text>
+    </svg>
+  </figure>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th class="m">#</th><th>約束</th><th>交換之後會發生什麼</th></tr></thead>
+      <tbody>
+        <tr class="bind"><td class="m">O1</td><td><code>OnAnimatorIK</code> 裡【出】必須在【入】之前</td><td>output → input 反饋迴路 ⇒ 腳踝抽搐／腳黏地</td></tr>
+        <tr><td class="m">O2</td><td>Controller（順序 6.5）必須在 <code>MotionDriver</code>（順序 6）之後</td><td>root 停在上一幀 ⇒ rootY 與 ray 原點落後一幀 ⇒ 高速移動時腳往後拖</td></tr>
+        <tr><td class="m">O3</td><td>Pipeline 必須「先驅動全部 controller，再發布事件」</td><td>同幀 consumer 讀不讀得到，取決於 Hierarchy 誰被拖在上面</td></tr>
+        <tr><td class="m">O4</td><td><code>lift</code> 先算出來，<code>TargetPosition</code> 與 <code>GroundY</code> 共用同一份</td><td>兩邊各算一次會漂移——就是 §06 的 bug</td></tr>
+        <tr><td class="m">O5</td><td>骨盆補償在兩腳採樣之後、各腳解算之前</td><td>骨盆要的是「兩腳的最低地面」，少一腳就不是最低</td></tr>
+        <tr><td class="m">O6</td><td>IK 結果一幀延遲</td><td>不是順序問題，是結構（見上圖）</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══ 5 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">05</span>
+    <h2>真實案例：X Bot 走上一道 12° 斜坡</h2>
+    <span class="tag">實際 authored 值</span>
+  </div>
+
+  <div class="calc"><span class="c">// 這隻角色的常數（Avatar 量出來的，不是手填）</span>
+FeetBottomHeight      = <span class="me">0.0873</span>
+膠囊 center=(0, 0.9134, 0)  radius=0.32  height=1.8266  skinWidth=0.03
+
+<span class="c">// FootIKSettings（X Bot.prefab 上實際序列化的值）</span>
+RaycastUpOffset  = 0.25     RaycastDistance   = 0.85
+HeelOffset       = 0.025    ToeOffset         = 0.17    <span class="hl">⇒ 跨距 0.195</span>
+MaxFootAlignAngle = 23°     UseTwoPointSampling = true
+FootGroundedHeightMin = 0.08   FootGroundedHeightMax = 0.25
+WeightSmoothSpeed = 8       MaxPelvisOffset = 0.35   PelvisSmoothSpeed = 5
+</div>
+
+  <div class="calc"><span class="c">// 第 1 步：先看平地 —— 答案是「IK 什麼都不做」</span>
+ray 原點 = goal + up×0.25 = y 0.3373，向下打 0.85
+平地命中 y = 0，法線 = up
+ClampGroundNormal(up, 23°)  ⇒ 夾角 0° ≤ 23° ⇒ 原樣回傳
+ComputeAnkleTarget          ⇒ 垂直 ray、水平分量≈0 ⇒ 退化分支
+                            ⇒ target = hitPoint + up×0.0873 = (x, <span class="me">0.0873</span>, z)
+
+<span class="hl">這正好等於動畫 goal。</span> 平地上 IK 目標與動畫目標重合 ⇒ 看不出任何差別。
+<span class="c">這是正確的：IK 只有在「地面 ≠ 動畫假設的平面」時才有東西可修。</span>
+</div>
+
+  <div class="calc"><span class="c">// 第 2 步：權重 —— 這裡有一個值得知道的細節</span>
+footHeightAboveRoot = 0.0873 − 0 = 0.0873
+ComputeFootWeight(0.0873, min=0.08, max=0.25)
+  = 1 − InverseLerp(0.08, 0.25, 0.0873)
+  = 1 − (0.0073 / 0.17)
+  = <span class="hl">0.957</span>   <span class="c">← 不是 1.0</span>
+</div>
+
+  <div class="callout">
+    <div class="h">⚠️ 一個可驗算的事實，不是猜測</div>
+    <code>FootGroundedHeightMin = 0.08</code> 被設在這隻 Avatar 自己的腳踝高度 <code>0.0873</code> <strong>下面</strong>
+    ⇒ 一隻「完美踩在地上、高度等於 bind pose」的腳，權重上限就是 <strong>0.957</strong>。<br>
+    0.957 與 1.0 的視覺差極小，但它意味著這個門檻<strong>沒有留任何餘裕</strong>——
+    動畫踩地相只要比 bind 高 1 公分，權重就掉到 0.90。
+    想讓踩地相確實吃到權重 1，<code>FootGroundedHeightMin</code> 應該 ≥ <code>FeetBottomHeight</code>。
+    <strong>本頁只陳述這個量測，不擅自改資產。</strong>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 840 400" role="img" aria-label="12度斜坡側視圖：ankle ray 定出腳踝高度與法線，heel 與 toe 兩條 ray 只負責向上補戳穿，骨盆沉向較低的腳">
+      <text class="xs m mu" x="16" y="18">側視圖（比例尺 1 m = 400 px）　+Z 上坡方向 →</text>
+
+      <line class="grid" x1="30" y1="330" x2="560" y2="330"></line>
+      <text class="xs m mu" x="34" y="346">水平基準</text>
+
+      <line class="ln" x1="60" y1="330" x2="540" y2="228" stroke-width="2"></line>
+      <text class="xs m me" x="470" y="250">12° 斜坡</text>
+      <text class="xs m mu" x="470" y="264">tan12° = 0.2126</text>
+
+      <path class="thin" d="M120,330 A 70 70 0 0 0 134.9,315.1" fill="none"></path>
+      <text class="xs m mu" x="140" y="326">12°</text>
+
+      <g>
+        <line class="lnm" x1="300" y1="287" x2="337" y2="263" stroke-width="2" marker-end="url(#arm)"></line>
+        <text class="xs m me" x="342" y="262">n = (0, 0.9781, −0.2079)</text>
+        <path class="dash" d="M300,287 L300,247"></path>
+        <text class="xs m mu" x="272" y="252" text-anchor="end">world up</text>
+        <path class="thin" d="M300,257 A 30 30 0 0 0 312.2,251.7" fill="none"></path>
+      </g>
+
+      <line class="lnb" x1="300" y1="200" x2="300" y2="283" marker-end="url(#arb)"></line>
+      <text class="xs m bd" x="308" y="196">ankle ray 原點 = goal + up×0.25</text>
+      <text class="xs mu" x="308" y="210">向下打 0.85 —— 高度與法線的<tspan class="bd" font-weight="700">唯一權威</tspan></text>
+
+      <circle cx="300" cy="252" r="5" fill="var(--bind)"></circle>
+      <text class="xs m bd" x="256" y="242" text-anchor="end">腳踝目標</text>
+      <line class="thin" x1="260" y1="246" x2="294" y2="250"></line>
+
+      <line class="lnm" x1="300" y1="252" x2="300" y2="287"></line>
+      <text class="xs m me" x="294" y="274" text-anchor="end">0.0873</text>
+
+      <g transform="rotate(-12 300 287)">
+        <rect x="290" y="281" width="88" height="10" fill="var(--sunken)" stroke="var(--ink)" stroke-width="1.4"></rect>
+        <line class="thin" x1="290" y1="286" x2="290" y2="306"></line>
+        <line class="thin" x1="378" y1="286" x2="378" y2="306"></line>
+      </g>
+
+      <text class="xs m mu" x="286" y="318" text-anchor="end">heel</text>
+      <text class="xs m mu" x="392" y="298">toe</text>
+      <text class="xs m me" x="334" y="330" text-anchor="middle">跨距 0.195</text>
+
+      <rect class="boxm" x="580" y="30" width="244" height="120"></rect>
+      <text class="xs me m" x="592" y="50">第 3 步：法線與旋轉</text>
+      <text class="xs mu" x="592" y="68">12° ≤ 23° ⇒ 完全對齊，soleNormal = n</text>
+      <text class="xs mu" x="592" y="86">TargetRotation =</text>
+      <text class="xs mu" x="592" y="102">　FromToRotation(up, n) × poseRotation</text>
+      <text class="xs me" x="592" y="122">只把世界 up 轉到法線 ⇒</text>
+      <text class="xs me" x="592" y="138">動畫腳踝自己的俯仰／roll 原樣保留</text>
+
+      <rect class="boxb" x="580" y="160" width="244" height="112"></rect>
+      <text class="xs bd m" x="592" y="180">第 4 步：Heel / Toe 只做一件事</text>
+      <text class="xs mu" x="592" y="200">lift = max(0, max(heelPen, toePen))</text>
+      <text class="xs mu" x="592" y="216">TargetPosition.y += lift</text>
+      <text class="xs bd" x="592" y="238">⛔ 不決定腳踝基礎高度</text>
+      <text class="xs bd" x="592" y="254">⛔ 不決定法線</text>
+      <text class="xs mu" x="592" y="268">只回答「照那樣放，有沒有戳進去」</text>
+
+      <rect class="box" x="580" y="282" width="244" height="104"></rect>
+      <text class="xs m" x="592" y="302">第 5 步：骨盆</text>
+      <text class="xs mu" x="592" y="320">前後腳沿 Z 相距 0.30 m</text>
+      <text class="xs mu" x="592" y="336">⇒ 地面高差 0.30 × 0.2126 = 0.0638</text>
+      <text class="xs me" x="592" y="356">較低腳 GroundY − rootY ≈ −0.032</text>
+      <text class="xs mu" x="592" y="372">⇒ 骨盆下沉 3.2 cm（I4：只沉不頂）</text>
+
+      <rect class="boxw" x="16" y="352" width="540" height="36"></rect>
+      <text class="xs wr m" x="28" y="374">若是 30° 的坡：法線被夾到 23°，剩下 7° 交給戳穿抬升吸收 ⇒ 一端接觸、另一端浮空＝真人行為。</text>
+    </svg>
+
+    <figcaption>
+      <strong>ankle ray 是高度與法線的唯一權威</strong>；heel／toe 兩條 ray 只回答「有沒有戳進去」，
+      而且<strong>只向上</strong>（I5）——某一端懸空不會把腳往下壓。
+    </figcaption>
+  </figure>
+
+  <div class="speak">
+    <div class="h">你現在應該能口頭講一次</div>
+    「Rig 在 IK 套用前把動畫的腳 goal 拍下來。Controller 拿那個 goal 往上抬 25 公分打一條 ray 找地面，
+    把法線夾在踝關節 23 度以內，算出腳底貼住坡面時腳踝該在哪；再用腳跟腳尖兩條 ray 看腳掌有沒有戳進去，
+    有就整隻往上抬。兩腳都算完之後，骨盆沉到比較低的那隻腳，最多 35 公分。
+    權重看動畫腳離 root 平面多高——8 公分以下算踩地、25 公分以上算抬腳，中間線性，再平滑。
+    全部寫進 Target，下一幀 Rig 套給 Animator。<strong>角色站在哪、能不能跳，這整套一個字都沒碰。</strong>」
+  </div>
+</section>
+
+<!-- ═══ 6 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">06</span>
+    <h2>Failure case：斜坡上骨盆在兩態之間反覆跳動</h2>
+    <span class="tag">2026-09-08 probe 確診</span>
+  </div>
+  <p class="sec-intro">
+    <strong>症狀</strong>：角色站在小斜坡上時，在「骨盆高／膝蓋直」與「骨盆低／膝蓋彎」兩態間反覆跳動。
+    <strong>平地完全正常。</strong>
+  </p>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>階段</th><th>這一層的行為</th><th>是不是凶手</th></tr></thead>
+      <tbody>
+        <tr><td>1 Animation Goal</td><td>idle 動畫的腳部有細微位移</td><td class="no">❌ 正常（但它是<strong>觸發器</strong>）</td></tr>
+        <tr><td>2 Ground Observation</td><td>probe 證明 <code>L.hit</code>／<code>R.hit</code> 全程未翻動</td><td class="no">❌ 排除「raycast 間歇落空」</td></tr>
+        <tr><td>① Gameplay Grounded</td><td>probe 證明 <code>IsGrounded</code>／<code>ikAllowed</code> 全程未翻動</td><td class="no">❌ 排除「isGrounded 在斜坡跳動」</td></tr>
+        <tr><td>4 Heel/Toe</td><td><code>lift = max(0, max(heelPen, toePen))</code></td><td class="no">❌ <code>max()</code> 對輸入<strong>連續</strong></td></tr>
+        <tr class="bind"><td>4→5 交接</td><td><code>GroundY = heelPen &gt;= toePen ? heelHit.point.y : toeHit.point.y</code></td><td>✅ <strong>就是這裡</strong></td></tr>
+        <tr><td>5 骨盆</td><td>忠實地跟隨一個會跳的輸入</td><td class="no">❌ 它沒錯，它被餵了錯的東西</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 840 360" role="img" aria-label="heelPen 與 toePen 兩條連續曲線交叉，取 argmax 後改讀該命中點的 y 座標，使 GroundY 在交叉點產生階躍">
+      <text class="xs m mu" x="16" y="18">上圖：兩個戳穿量都是<tspan class="me" font-weight="700">連續</tspan>的</text>
+
+      <line class="grid" x1="60" y1="120" x2="480" y2="120"></line>
+      <line class="grid" x1="60" y1="40" x2="60" y2="120"></line>
+      <path class="lnm" d="M60,105 C160,95 230,72 270,64 C330,52 400,46 480,44" fill="none"></path>
+      <path class="lnb" d="M60,50 C160,56 230,62 270,64 C330,68 400,88 480,104" fill="none"></path>
+      <text class="xs m me" x="486" y="46">heelPen</text>
+      <text class="xs m bd" x="486" y="108">toePen</text>
+      <circle cx="270" cy="64" r="4.5" fill="none" stroke="var(--wrong)" stroke-width="2"></circle>
+      <line class="lnw" x1="270" y1="64" x2="270" y2="300"></line>
+      <text class="xs m wr" x="278" y="36">交叉點 heelPen == toePen</text>
+
+      <text class="xs m mu" x="16" y="168">下圖：<tspan class="wr" font-weight="700">GroundY 在同一點階躍</tspan></text>
+
+      <line class="grid" x1="60" y1="300" x2="480" y2="300"></line>
+      <line class="grid" x1="60" y1="200" x2="60" y2="300"></line>
+      <path class="lnb" d="M60,268 C140,262 220,256 270,252" fill="none" stroke-width="2.4"></path>
+      <path class="lnb" d="M270,214 C330,210 400,206 480,202" fill="none" stroke-width="2.4"></path>
+      <circle cx="270" cy="252" r="4" fill="var(--surface)" stroke="var(--bind)" stroke-width="2"></circle>
+      <circle cx="270" cy="214" r="4" fill="var(--bind)"></circle>
+      <line class="lnw" x1="270" y1="252" x2="270" y2="214" stroke-dasharray="none"></line>
+      <text class="xs m wr" x="282" y="236">跳幅 ＝ 跨距 × 坡度梯度</text>
+      <text class="xs m mu" x="16" y="206">讀 heelHit.point.y</text>
+      <text class="xs m mu" x="486" y="202">讀 toeHit.point.y</text>
+
+      <rect class="boxw" x="520" y="30" width="304" height="96"></rect>
+      <text class="xs wr m" x="532" y="52">根因，一句話</text>
+      <text class="s" x="532" y="76"><tspan class="me" font-weight="700">max()</tspan> 是連續的；</text>
+      <text class="s" x="532" y="96">「選出 argmax 之後<tspan class="wr" font-weight="700">改讀它的別的欄位</tspan>」</text>
+      <text class="s" x="532" y="116">不是。</text>
+
+      <rect class="boxb" x="520" y="140" width="304" height="100"></rect>
+      <text class="xs bd m" x="532" y="160">用現在 authored 的值反推</text>
+      <text class="xs mu" x="532" y="180">跨距 = 0.025 + 0.17 = <tspan class="bd" font-weight="700">0.195</tspan>（不是舊文件的 0.25）</text>
+      <text class="xs mu" x="532" y="198">實測震盪 0.042～0.069 m ÷ 0.195</text>
+      <text class="xs mu" x="532" y="216">⇒ 梯度 0.215～0.354</text>
+      <text class="xs me" x="532" y="234">⇒ 坡度 <tspan font-weight="700">12.1°～19.5°</tspan></text>
+
+      <rect class="box" x="520" y="254" width="304" height="90"></rect>
+      <text class="xs m" x="532" y="274">為什麼只有斜坡發作</text>
+      <text class="xs mu" x="532" y="294">平地上 heelHit.y == toeHit.y ⇒ 三元運算在兩個</text>
+      <text class="xs mu" x="532" y="310">相等的值之間選 ⇒ 跳幅 0 ⇒ 不可觀察。</text>
+      <text class="xs wr" x="532" y="332">這類缺陷天生只在非退化幾何下現形，</text>
+      <text class="xs wr" x="532" y="348">因此極容易被誤判成環境問題。</text>
+    </svg>
+
+    <figcaption>
+      兩條輸入曲線都是連續的、<code>max()</code> 也是連續的——
+      <strong>不連續性是在「選了誰之後改讀它的另一個欄位」那一步憑空出現的</strong>。
+    </figcaption>
+  </figure>
+
+  <div class="note key"><span class="lab">可推廣</span><p>
+    <strong>I10：由「不連續選擇」導出的量，不得餵給被當成連續量使用的下游。</strong>
+    本 repo 已把它列為專屬記憶——看到「兩態之間反覆跳動」而且「退化情形下正常」，
+    先去找程式裡的<strong>硬分支</strong>，不要先懷疑環境或參數。
+  </p></div>
+
+  <div class="note bad"><span class="lab">文件陷阱</span><p>
+    <code>docs/05</code> §3.5.4.1 用當時的預設值 <code>0.1 + 0.15 = 0.25</code> 推導跳幅，
+    推得坡度 9.5°～15.5°。<strong>那個數字現在是錯的</strong>——prefab 上 authored 的是 0.195。
+    重算必須用 0.195，別直接引用舊值。
+  </p></div>
+</section>
+
+<!-- ═══ 7 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">07</span>
+    <h2>權限表與不變量</h2>
+    <span class="tag">改動前必讀</span>
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>角色</th><th>可以寫</th><th>⛔ 絕對不可以</th></tr></thead>
+      <tbody>
+        <tr><td class="m">FootIKRig</td><td><code>FootIKPoseData</code>；Animator 的 <code>SetIK*</code>／<code>bodyPosition</code></td><td class="no">打 raycast、讀黑板、判定 plant/lift、任何決策分支</td></tr>
+        <tr><td class="m">FootIKController</td><td><code>FootIKTargetData</code></td><td class="no">讀骨骼 Transform（反饋迴路）；寫黑板；寫 <code>CharacterController</code>；引用其他 Controller</td></tr>
+        <tr><td class="m">FootstepDetector</td><td>只有自己的 <code>FootPlantTracker</code></td><td class="no">寫黑板（它<strong>回傳</strong> struct）；從 Controller 取 Pose 引用</td></tr>
+        <tr><td class="m">PresentationPipeline</td><td>黑板 <code>PresentationEvents</code> 區（唯一 Writer）</td><td class="no">做輸出仲裁（目前刻意沒有）</td></tr>
+        <tr><td class="m">MotionDriver</td><td><code>IsGrounded</code>／位置／落地事件</td><td class="no">碰任何 IK 資料</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th class="m">#</th><th>不變量</th><th>破壞的後果</th></tr></thead>
+      <tbody>
+        <tr class="bind"><td class="m">I1</td><td>Controller 的輸入只來自 <code>FootIKPoseData</code>，永不來自骨骼 Transform</td><td>反饋迴路（O1）</td></tr>
+        <tr><td class="m">I2</td><td>每條管道恰好一個 Writer</td><td>新增 Reader 時所有權錯置</td></tr>
+        <tr><td class="m">I3</td><td>新 Pose 讀取者向 <strong>owner</strong> 取引用，不向其他 Reader 要</td><td>構成 Controller 互相引用</td></tr>
+        <tr><td class="m">I4</td><td><code>PelvisOffsetY ≤ 0</code>（只沉不頂）</td><td>上坡側把角色頂起來</td></tr>
+        <tr><td class="m">I5</td><td><code>lift ≥ 0</code>（戳穿修正只向上）</td><td>端點懸空時把腳往下壓 ⇒ 腳插進地裡</td></tr>
+        <tr><td class="m">I6</td><td>權重只經 <code>MoveTowards</code> 改變，永不直接賦值</td><td>IK 瞬切，腳彈一下</td></tr>
+        <tr><td class="m">I7</td><td>Root 原點 ＝ 腳底平面 ＝ 膠囊底（ADR-001）</td><td>權重門檻與骨盆補償<strong>同時</strong>失準</td></tr>
+        <tr><td class="m">I8</td><td>IK 不寫膠囊、不寫黑板、不改角色位置</td><td>出現第二個接地／位置權威</td></tr>
+        <tr><td class="m">I9</td><td>額外資訊不足<strong>不是</strong>關 IK 的理由</td><td>邊緣地形上 IK 整個閃爍</td></tr>
+        <tr class="bind"><td class="m">I10</td><td>不連續選擇導出的量，不得餵給連續量下游</td><td>§06 的 bug</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<div class="foot">
+  原始檔：<code>docs/artifacts/foot-ik-architecture.html</code>　·　文字正本：<code>docs/29-foot-ik-architecture-guide.md</code><br>
+  規格分卷：<code>docs/05-foot-ik.md</code>（§3.5.2 反饋禁令／§3.5.5 Level 1 約束模型）<br>
+  ⚠️ <code>docs/05</code> §3.5.4 的權重公式表<strong>整段已不存在於程式</strong>；§3.5.4.1 的跳幅推導用的是舊跨距 0.25。<br>
+  姊妹頁：<code>foot-ik.html</code>（Level 1 剛體腳底的專題圖解）· <code>dynamic-capsule.html</code>（對應 docs/28）
+</div>
+
+</div>

@@ -1,0 +1,482 @@
+<title>Traversal 解剖</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground:#EDEFF1; --surface:#F8F9FA; --sunken:#E0E3E6; --ink:#1E2126;
+    --muted:#646B73; --hair:#C6CBD0; --grid:#D8DCE0;
+    --measure:#0E6E6B; --measure-s:#D9ECEA;
+    --bind:#A8256A; --bind-s:#F6E0EC;
+    --wrong:#A33B1F; --wrong-s:#F5E2DA;
+    --sans:"Noto Sans TC",-apple-system,"Segoe UI","Microsoft JhengHei",sans-serif;
+    --mono:"IBM Plex Mono","Cascadia Mono",Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:#14161A; --surface:#1C1F24; --sunken:#262A30; --ink:#E3E6EA;
+      --muted:#969DA6; --hair:#363B42; --grid:#2C3036;
+      --measure:#5FC9C3; --measure-s:#10302F;
+      --bind:#F186BB; --bind-s:#35182A;
+      --wrong:#EE9070; --wrong-s:#381D14;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:#14161A; --surface:#1C1F24; --sunken:#262A30; --ink:#E3E6EA;
+    --muted:#969DA6; --hair:#363B42; --grid:#2C3036;
+    --measure:#5FC9C3; --measure-s:#10302F;
+    --bind:#F186BB; --bind-s:#35182A;
+    --wrong:#EE9070; --wrong-s:#381D14;
+  }
+  * { box-sizing: border-box; }
+  body { background:var(--ground); color:var(--ink); font-family:var(--sans);
+         font-size:15px; line-height:1.75; margin:0; -webkit-font-smoothing:antialiased; }
+  .shell { max-width:940px; margin:0 auto; padding:40px 28px 96px; }
+  .eyebrow { font-family:var(--mono); font-size:11px; letter-spacing:.16em;
+             text-transform:uppercase; color:var(--measure); margin-bottom:10px; }
+  h1 { font-weight:900; font-size:38px; line-height:1.2; letter-spacing:-.01em; margin:0 0 16px; text-wrap:balance; }
+  .lede { font-size:16.5px; color:var(--muted); max-width:60ch; margin:0; }
+  .lede strong { color:var(--ink); font-weight:500; }
+  .keyfacts { display:grid; grid-template-columns:repeat(auto-fit,minmax(128px,1fr));
+              gap:1px; background:var(--hair); border:1px solid var(--hair); margin:28px 0 0; }
+  .keyfacts div { background:var(--surface); padding:12px 14px; }
+  .keyfacts .v { font-family:var(--mono); font-size:18px; font-weight:600;
+                 font-variant-numeric:tabular-nums; line-height:1.2; }
+  .keyfacts .k { font-size:11.5px; color:var(--muted); line-height:1.45; margin-top:4px; }
+  section { margin-top:54px; }
+  .sec-head { display:flex; align-items:baseline; gap:12px; padding-bottom:9px;
+              border-bottom:2px solid var(--ink); margin-bottom:6px; }
+  .sec-head .n { font-family:var(--mono); font-size:12px; font-weight:600; color:var(--measure); letter-spacing:.06em; }
+  .sec-head h2 { font-size:21px; font-weight:700; margin:0; flex:1; letter-spacing:-.005em; }
+  .sec-head .tag { font-family:var(--mono); font-size:10.5px; color:var(--muted);
+                   border:1px solid var(--hair); padding:1px 6px; white-space:nowrap; }
+  .sec-intro { color:var(--muted); font-size:14px; margin:10px 0 0; max-width:62ch; }
+  figure { margin:22px 0 0; background:var(--surface); border:1px solid var(--hair); padding:18px 20px 6px; }
+  figure svg { display:block; width:100%; height:auto; }
+  figcaption { font-size:13.5px; color:var(--muted); padding:12px 0 14px;
+               border-top:1px solid var(--hair); margin-top:12px; }
+  figcaption strong { color:var(--ink); font-weight:500; }
+  svg text { font-family:var(--sans); fill:currentColor; }
+  svg .m { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  svg .t{font-size:13px;font-weight:700;} svg .s{font-size:11.5px;} svg .xs{font-size:10.5px;}
+  svg .mu{fill:var(--muted);} svg .me{fill:var(--measure);} svg .bd{fill:var(--bind);} svg .wr{fill:var(--wrong);}
+  svg .box{fill:var(--sunken);stroke:var(--hair);stroke-width:1;}
+  svg .boxm{fill:var(--measure-s);stroke:var(--measure);stroke-width:1.3;}
+  svg .boxb{fill:var(--bind-s);stroke:var(--bind);stroke-width:1.3;}
+  svg .boxw{fill:var(--wrong-s);stroke:var(--wrong);stroke-width:1.3;}
+  svg .ln{stroke:currentColor;stroke-width:1.4;fill:none;}
+  svg .lnm{stroke:var(--measure);stroke-width:1.6;fill:none;}
+  svg .lnb{stroke:var(--bind);stroke-width:1.8;fill:none;}
+  svg .lnw{stroke:var(--wrong);stroke-width:1.6;fill:none;stroke-dasharray:5 4;}
+  svg .thin{stroke:var(--hair);stroke-width:1;fill:none;}
+  svg .dash{stroke:var(--muted);stroke-width:1.1;fill:none;stroke-dasharray:4 4;}
+  svg .grid{stroke:var(--grid);stroke-width:1;fill:none;}
+  #ar path{fill:var(--ink);} #arm path{fill:var(--measure);}
+  #arb path{fill:var(--bind);} #arw path{fill:var(--wrong);}
+  .wrap { overflow-x:auto; margin:18px 0 0; }
+  table { width:100%; border-collapse:collapse; font-size:13px; min-width:600px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--hair); vertical-align:top; }
+  th { font-family:var(--mono); font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+       color:var(--muted); border-bottom:1px solid var(--ink); white-space:nowrap; }
+  td.m,th.m { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  td.num { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  td.no { color:var(--wrong); }
+  tr.bind td { background:var(--bind-s); }
+  tr.bind td:first-child { font-weight:700; }
+  .note { display:grid; grid-template-columns:74px minmax(0,1fr); gap:14px; padding:12px 0;
+          border-top:1px dotted var(--hair); font-size:13.5px; line-height:1.7; }
+  .note .lab { font-family:var(--mono); font-size:10.5px; letter-spacing:.06em; padding-top:4px; }
+  .note.why .lab{color:var(--measure);} .note.bad .lab{color:var(--wrong);} .note.key .lab{color:var(--bind);}
+  .note p { margin:0; }
+  .callout { border-left:3px solid var(--bind); background:var(--bind-s);
+             padding:14px 16px; margin:20px 0 0; font-size:14px; }
+  .callout .h { font-weight:700; margin-bottom:4px; }
+  code { font-family:var(--mono); font-size:.88em; background:var(--sunken); padding:1px 4px; }
+  .calc { font-family:var(--mono); font-size:12.5px; line-height:1.9; background:var(--sunken);
+          border:1px solid var(--hair); padding:14px 16px; margin:16px 0 0; overflow-x:auto;
+          white-space:pre; font-variant-numeric:tabular-nums; }
+  .calc .hl{color:var(--bind);font-weight:600;} .calc .me{color:var(--measure);} .calc .c{color:var(--muted);}
+  .speak { margin:22px 0 0; padding:16px 18px; border:1px dashed var(--measure);
+           background:var(--measure-s); font-size:14.5px; line-height:1.8; }
+  .speak .h { font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; color:var(--measure); margin-bottom:6px; }
+  .foot { font-family:var(--mono); font-size:11px; color:var(--muted); margin-top:56px;
+          padding-top:20px; border-top:2px solid var(--ink); line-height:1.9; }
+  @media (max-width:720px){ .shell{padding:26px 16px 70px;} h1{font-size:28px;}
+    .note{grid-template-columns:1fr;gap:2px;} }
+  @media (prefers-reduced-motion:reduce){ *{animation:none!important;transition:none!important;} }
+</style>
+
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+  </defs>
+</svg>
+
+<div class="shell">
+
+<header>
+  <div class="eyebrow">Architecture Deep-Dive · 視覺版 · 對應 docs/30</div>
+  <h1>Traversal 解剖</h1>
+  <p class="lede">
+    角色前面有一堵 1 公尺高的矮牆。普通跳躍表達不了「翻過去」。
+    這套系統每幀偷看前方幾何，判斷「那是什麼、身體過不過得去」，
+    在你按下跳躍的那一瞬間<strong>把答案鎖起來</strong>，播一支翻越動畫，
+    並把那支動畫的 root 軌跡<strong>重新映射</strong>到現場真正的邊緣位置上。<br>
+    關鍵詞是 <strong>committed（已承諾）</strong>：一旦開始就不再看環境、不再吃輸入。
+  </p>
+
+  <div class="keyfacts">
+    <div><div class="v">8</div><div class="k">階段，每層回答<br>一個不同的問題</div></div>
+    <div><div class="v">6</div><div class="k">跨幀狀態<br>（全專案最多）</div></div>
+    <div><div class="v">1.4017</div><div class="k">Vault1m 由 bake 推導<br>的理想進場距離（m）</div></div>
+    <div><div class="v">2.1385</div><div class="k">因此被撐開的<br>感測範圍（m）</div></div>
+    <div><div class="v">3</div><div class="k">四個 landmark<br>來自三個不同來源</div></div>
+    <div><div class="v">20 cm</div><div class="k">修正前可執行<br>站位的實測寬度</div></div>
+  </div>
+</header>
+
+<!-- ═══ 1 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">01</span>
+    <h2>八個階段：每一層回答一個不同的問題</h2>
+    <span class="tag">理解 traversal 唯一有效的骨架</span>
+  </div>
+  <p class="sec-intro">
+    把任兩層合成一個「TraversalState」方塊，你就再也無法回答
+    <strong>「為什麼畫面顯示 Climb1m 卻什麼都沒發生」</strong>。
+    每一層都有自己的 <code>RejectReason</code>，而失敗發生在哪一層決定了你該去改什麼。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 840 500" role="img" aria-label="Traversal 八階段：觀測、分類、進場合法性、玩法取捨、動畫配合、承諾、運動映射、執行、恢復，commit 是環境與動畫的分界線">
+      <text class="xs m me" x="16" y="18">← 環境說了算</text>
+      <text class="xs m bd" x="824" y="18" text-anchor="end">動畫說了算 →</text>
+
+      <g>
+        <rect class="boxm" x="16" y="30" width="152" height="86"></rect>
+        <text class="xs m me" x="28" y="50">1 · Observation</text>
+        <text class="s t" x="28" y="70">TraversalProbe</text>
+        <text class="xs mu" x="28" y="88">「前面的幾何長什麼樣？」</text>
+        <text class="xs mu" x="28" y="104">順序 2.7 · 每幀 · 純量測</text>
+
+        <line class="lnm" x1="172" y1="73" x2="196" y2="73" marker-end="url(#arm)"></line>
+
+        <rect class="boxm" x="200" y="30" width="152" height="86"></rect>
+        <text class="xs m me" x="212" y="50">2 · Candidate</text>
+        <text class="s t" x="212" y="70">Classifier</text>
+        <text class="xs mu" x="212" y="88">「那是 Vault／Climb，</text>
+        <text class="xs mu" x="212" y="104">還是不能過？」純函式</text>
+
+        <line class="lnm" x1="356" y1="73" x2="380" y2="73" marker-end="url(#arm)"></line>
+
+        <rect class="boxm" x="384" y="30" width="152" height="86"></rect>
+        <text class="xs m me" x="396" y="50">3 · Entry</text>
+        <text class="s t" x="396" y="70">EntryPolicy</text>
+        <text class="xs mu" x="396" y="88">「我站的位置與朝向，</text>
+        <text class="xs mu" x="396" y="104">做得了嗎？」純函式</text>
+
+        <line class="lnm" x1="540" y1="73" x2="564" y2="73" marker-end="url(#arm)"></line>
+
+        <rect class="boxm" x="568" y="30" width="126" height="86"></rect>
+        <text class="xs m me" x="580" y="50">3b · Selection</text>
+        <text class="s t" x="580" y="70">玩法取捨</text>
+        <text class="xs mu" x="580" y="88">「該不該用</text>
+        <text class="xs mu" x="580" y="104">普通跳躍？」</text>
+
+        <line class="lnm" x1="698" y1="73" x2="712" y2="73" marker-end="url(#arm)"></line>
+
+        <rect class="boxm" x="716" y="30" width="108" height="86"></rect>
+        <text class="xs m me" x="728" y="50">3c · Fitting</text>
+        <text class="s t" x="728" y="70">播放速率</text>
+        <text class="xs mu" x="728" y="88">貼近現場尺寸</text>
+        <text class="xs mu" x="728" y="104">rate ∈ [0.6,1.6]</text>
+      </g>
+
+      <path class="lnb" d="M770,120 L770,140 L420,140 L420,158" marker-end="url(#arb)"></path>
+
+      <rect class="boxb" x="16" y="162" width="808" height="62"></rect>
+      <text class="s t bd" x="424" y="186" text-anchor="middle">4 · COMMIT —— 把上面全部鎖存</text>
+      <text class="s" x="424" y="208" text-anchor="middle">從這條線之後，<tspan class="bd" font-weight="700">環境不再有發言權</tspan>。candidate／entry／fit 三份結果整段 traversal 不變。</text>
+
+      <line class="lnb" x1="420" y1="228" x2="420" y2="252" marker-end="url(#arb)"></line>
+
+      <g>
+        <rect class="boxb" x="16" y="256" width="196" height="86"></rect>
+        <text class="xs m bd" x="28" y="276">5 · Motion Map</text>
+        <text class="s t" x="28" y="296">PlanBuilder</text>
+        <text class="xs mu" x="28" y="314">「動畫 root 要怎麼搬，</text>
+        <text class="xs mu" x="28" y="330">才落在真正的邊緣上？」</text>
+
+        <line class="lnb" x1="216" y1="299" x2="240" y2="299" marker-end="url(#arb)"></line>
+
+        <rect class="boxb" x="244" y="256" width="196" height="86"></rect>
+        <text class="xs m bd" x="256" y="276">6 · Execution</text>
+        <text class="s t" x="256" y="296">MotionDriver</text>
+        <text class="xs mu" x="256" y="314">「這一幀角色該在哪？」</text>
+        <text class="xs mu" x="256" y="330">順序 6 · 每幀</text>
+
+        <line class="lnb" x1="444" y1="299" x2="468" y2="299" marker-end="url(#arb)"></line>
+
+        <rect class="box" x="472" y="256" width="164" height="86"></rect>
+        <text class="xs m mu" x="484" y="276">7 · Collision</text>
+        <text class="s t" x="484" y="296">CharacterController</text>
+        <text class="xs mu" x="484" y="314">「真的過得去嗎？」</text>
+        <text class="xs wr" x="484" y="330">被擋的量<tspan font-weight="700">不回授</tspan></text>
+
+        <line class="ln" x1="640" y1="299" x2="664" y2="299" marker-end="url(#ar)"></line>
+
+        <rect class="boxm" x="668" y="256" width="156" height="86"></rect>
+        <text class="xs m me" x="680" y="276">8 · Recovery</text>
+        <text class="s t" x="680" y="296">交還控制</text>
+        <text class="xs mu" x="680" y="314">還原碰撞 profile</text>
+        <text class="xs me" x="680" y="330">回到 continuous</text>
+      </g>
+
+      <line class="dash" x1="16" y1="362" x2="824" y2="362"></line>
+
+      <text class="s t" x="16" y="388">🔴 為什麼這八層不能合併</text>
+      <text class="xs mu" x="16" y="410">1↔2　量測不能有判斷——Classifier 是純函式、完全不碰 Physics，所以 400 條分類測試不需要物理場景。</text>
+      <text class="xs mu" x="16" y="430">2↔3　candidate 答「<tspan class="me">那是什麼</tspan>」，entry 答「<tspan class="me">我站得對不對</tspan>」。同一堵牆對站 0.5 m 的人合法、對站 1.5 m 的人不合法，但它還是同一堵牆。</text>
+      <text class="xs mu" x="16" y="450">3↔3b　entry 是<tspan class="me">幾何</tspan>（做不做得到），selection 是<tspan class="me">玩法</tspan>（該不該做）。</text>
+      <text class="xs mu" x="16" y="470">5↔6　plan 是<tspan class="bd">絕對 pose</tspan> 的函數（給 t 回位置），execution 是<tspan class="bd">相對 delta</tspan>。被牆擋掉的部分<tspan class="wr" font-weight="700">不會回授進 plan</tspan>——刻意的。</text>
+      <text class="xs me" x="16" y="490">4　　是一條線：線之前環境說了算，線之後動畫說了算。</text>
+    </svg>
+
+    <figcaption>
+      <strong>commit 是這個系統的軸</strong>。它不是一個步驟，是一個時間點——
+      在那之前一切每幀重算，在那之後一切鎖死。
+    </figcaption>
+  </figure>
+</section>
+
+<!-- ═══ 2 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">02</span>
+    <h2>四個 landmark 來自三個不同來源</h2>
+    <span class="tag">最容易誤解的部分</span>
+  </div>
+  <p class="sec-intro">
+    每個 landmark 的<strong>時間</strong>與<strong>位置</strong>可能來自不同的權威——
+    時間屬動畫（bake 量的），位置屬世界（probe 量的）。混用它們就會出現「手抓著牆卻在滑」這種 bug。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 840 330" role="img" aria-label="三個資料來源：Probe 量世界幾何、Bake 量動畫身體、Commit 時解出世界目標">
+      <rect class="boxm" x="16" y="30" width="248" height="150"></rect>
+      <text class="xs m me" x="28" y="22">🔵 Probe 量出來的（世界幾何真相）</text>
+      <text class="s t" x="28" y="54">LedgeFrame</text>
+      <text class="xs mu" x="28" y="72">EdgeOrigin／Tangent／WallNormal</text>
+      <text class="xs mu" x="28" y="86">TangentMin／TangentMax</text>
+      <text class="s t" x="28" y="112">DestinationPoint</text>
+      <text class="xs mu" x="28" y="130">已驗證的落腳面</text>
+      <text class="s t" x="28" y="154">CorridorEvidence</text>
+      <text class="xs wr" x="28" y="172">⚠️ 這是 query evidence，不是 motion target</text>
+
+      <rect class="boxb" x="288" y="30" width="248" height="150"></rect>
+      <text class="xs m bd" x="300" y="22">🟢 Bake 量出來的（動畫自己的身體真相）</text>
+      <text class="s t" x="300" y="54">GripEdgeInRoot L/R</text>
+      <text class="xs mu" x="300" y="72">root-local</text>
+      <text class="s t" x="300" y="98">ContactTime／TransferTime</text>
+      <text class="s t" x="300" y="116">ExitTime／RecoveryTime</text>
+      <text class="xs mu" x="300" y="134">normalized [0,1]</text>
+      <text class="s t" x="300" y="158">各 Anchor 的 rootLocalPosition</text>
+
+      <rect class="box" x="560" y="30" width="264" height="150"></rect>
+      <text class="xs m mu" x="572" y="22">⚙️ Commit 時解出來的（世界目標）</text>
+      <text class="s t" x="572" y="54">primaryGripTarget</text>
+      <text class="xs mu" x="572" y="72">= ledge.PointAt(clamp(...))</text>
+      <text class="s t" x="572" y="98">6 個 Knot 的 PositionCorrection</text>
+      <text class="s t" x="572" y="124">手腕世界目標</text>
+      <text class="xs mu" x="572" y="142">給 Hand IK（順序 6.5）</text>
+
+      <line class="lnm" x1="268" y1="60" x2="556" y2="60" marker-end="url(#arm)"></line>
+      <line class="lnb" x1="540" y1="104" x2="556" y2="104" marker-end="url(#arb)"></line>
+
+      <rect class="boxw" x="16" y="200" width="808" height="112"></rect>
+      <text class="s t wr" x="28" y="222">🔴 Transfer 為什麼刻意不指向 corridor 的 clearance 點</text>
+      <text class="xs mu" x="28" y="244">手一旦植在牆／邊緣上，它的世界位置就是<tspan font-weight="700">硬約束</tspan>。舊版把 Transfer knot 指向另一個空間目標（corridor clearance root），</text>
+      <text class="xs mu" x="28" y="262">於是 Contact→Transfer 這段——<tspan class="wr" font-weight="700">也就是手正抓著的整段</tspan>——correction 會一路內插過去；沒有 IK 釘住手時，手就被 root 拖著在牆面上滑。</text>
+      <text class="xs me" x="28" y="284">修法：Transfer knot 直接沿用最後一次接觸的 correction ⇒ <tspan font-weight="700">抓握期間零額外 root 位移</tspan>。越過邊緣的位移交還給動畫自己。</text>
+      <text class="xs bd" x="28" y="304">📌 一句話：混用它們，就是把「我確認過這裡走得通」誤讀成「我必須精確走過這幾個點」。</text>
+    </svg>
+  </figure>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>Landmark</th><th>時間從哪來</th><th>位置從哪來</th><th>最終 authority</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Entry</strong> 進場</td><td class="m">固定 t = 0</td><td>🔵 角色當下真正站的地方</td><td>🔵 Probe——entry correction 恆為 0，起點就是角色自己</td></tr>
+        <tr class="bind"><td><strong>L / R Hand Contact</strong></td><td>🟢 Bake</td><td>🔵 Probe 的 <code>LedgeFrame</code></td><td><strong>混合</strong>：時間屬動畫、位置屬世界、橫向偏移屬動畫</td></tr>
+        <tr><td><strong>Transfer</strong> 重心轉移</td><td>🟢 Bake</td><td>⭐ 刻意沿用 Right Contact 的 correction</td><td>🟢 動畫（這一段 root 不額外修正）</td></tr>
+        <tr><td><strong>Exit</strong> 脫離</td><td>🟢 Bake</td><td>🔵 Probe 的 <code>DestinationPoint</code></td><td><strong>兩者取近</strong>——再遠不保證還在已驗證的落腳面上</td></tr>
+        <tr><td><strong>Recovery</strong> 恢復控制</td><td>🟢 Bake 與 binding 取大</td><td>同 Exit</td><td>🟢 動畫</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══ 3 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">03</span>
+    <h2>跨幀狀態：六項，全專案最多</h2>
+    <span class="tag">commit 的定義就是「這些不再變」</span>
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>跨幀的東西</th><th>持有者</th><th>為什麼需要</th><th>弄丟會怎樣</th></tr></thead>
+      <tbody>
+        <tr><td class="m">_previousKind</td><td class="m">TraversalProbe</td><td>分類的遲滯（高度 0.1／深度 0.08）</td><td>邊界高度的牆會在 Vault／Climb 之間跳分類</td></tr>
+        <tr class="bind"><td class="m">_committedCandidate<br>_entryEvaluation<br>_animationFit</td><td class="m">TraversalState</td><td>commit 的定義就是「這些不再變」</td><td>每幀重算 ⇒ 回到 continuous，動畫與環境失去同步</td></tr>
+        <tr class="bind"><td class="m">_warpPlan</td><td class="m">TraversalState</td><td>plan 只能建一次</td><td>每幀重建 ⇒ root 目標抖動</td></tr>
+        <tr><td class="m">_previousNormalizedTime</td><td class="m">TraversalState</td><td>delta 是兩個 pose 的差</td><td>位移量錯，或第一幀跳一大段</td></tr>
+        <tr><td class="m">_traversalOriginal<br>Center/Height/Radius</td><td class="m">MotionDriver</td><td>結束時要還原膠囊</td><td>帶著 traversal 尺寸的膠囊回到正常遊玩</td></tr>
+        <tr><td class="m">_playbackSpeedApplied</td><td class="m">TraversalState</td><td>速率只能在動畫真的開始播之後套一次</td><td>逐幀寫速率，或永遠套不上</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout">
+    <div class="h">⭐ 進度的唯一權威是動畫，不是計時器</div>
+    執行階段每幀問 <code>AnimationFacade.GetNormalizedTime()</code>，再用
+    <code>plan.TryEvaluate(t) − plan.TryEvaluate(t_prev)</code> 算出這一幀該移動多少。
+    <strong>位移是兩個絕對 pose 的差</strong>，所以動畫播多快、被 fitting 調過速率，位移都自動跟著對。
+  </div>
+</section>
+
+<!-- ═══ 4 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">04</span>
+    <h2>真實案例：X Bot 對著 1 公尺矮牆按下跳躍</h2>
+    <span class="tag">Bake_Vault1m 實測</span>
+  </div>
+
+  <div class="calc"><span class="c">// Bake_Vault1m.asset（實測）</span>
+BakedDuration = 2.9000     HorizontalDisplacementAt(end) = 3.2585
+UsesLeftHand  = true       UsesRightHand = <span class="hl">false</span>
+leftHandContactNormalizedTime  = 0.2069
+transferNormalizedTime         = 0.2529
+exitNormalizedTime             = 0.4598     recoveryNormalizedTime = 0.4598
+leftGripEdgeInRoot  = (−0.1654, 0.0279, 0.8835)
+handIKWindow(L/R)   = start 0.1724 / full 0.2069 / release 0.2529
+
+TryGetDesiredEntryDistance() = <span class="me">1.4017 m</span>
+TryGetNaturalExitDepth()     = <span class="me">1.1160 m</span>
+</div>
+
+  <div class="calc"><span class="c">// 第 1 步：感測範圍先被動畫「撐開」——CanEnter 每次都重推一次需求</span>
+GetRequiredSensingReach()
+  = max over 啟用中的 kind of (desiredEntry + MaximumFarError) / cos(MaximumFacingAngle)
+
+  Vault1m : (1.4017 + 0.35) / cos(35°) = 1.7517 / 0.81915 = <span class="hl">2.1385</span>
+  Climb2m : (0.4615 + 0.35) / 0.81915 = 0.9907
+  ⇒ 取最大 = <span class="hl">2.1385 m</span>   <span class="c">← 實測值一致</span>
+
+EffectiveForwardScanDistance = max(authored 1.25, 2.1385) = <span class="me">2.1385 m</span>
+</div>
+
+  <div class="note key"><span class="lab">關鍵</span><p>
+    注意這個方向：<strong>感測範圍不是 authored 常數，而是從「動畫需要站多遠」反推出來的</strong>。
+    這正是下一節那個 bug 的修法——讓需求從<strong>有資料的那一層</strong>推過來。
+  </p></div>
+</section>
+
+<!-- ═══ 5 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">05</span>
+    <h2>Failure case：站對了卻爬不上去</h2>
+    <span class="tag">沒有任何一層說謊</span>
+  </div>
+  <p class="sec-intro">
+    <strong>症狀</strong>：明明對著牆、明明按了跳躍，大部分站位都不觸發；
+    只有很窄的一小段站位會成功。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 840 330" role="img" aria-label="按比例繪製的數線：感測範圍 1.25 公尺與理想進場帶 1.00 到 1.75 公尺的交集只有 25 公分，修正後感測範圍撐到 2.1385 完整覆蓋">
+      <text class="xs m mu" x="16" y="18">按比例數線（1 m = 280 px）　距離牆面（m）</text>
+
+      <line class="grid" x1="80" y1="130" x2="780" y2="130"></line>
+      <g class="mu">
+        <line class="grid" x1="80" y1="126" x2="80" y2="134"></line>
+        <text class="xs m mu" x="80" y="148" text-anchor="middle">0</text>
+        <line class="grid" x1="220" y1="126" x2="220" y2="134"></line>
+        <text class="xs m mu" x="220" y="148" text-anchor="middle">0.5</text>
+        <line class="grid" x1="360" y1="126" x2="360" y2="134"></line>
+        <text class="xs m mu" x="360" y="148" text-anchor="middle">1.0</text>
+        <line class="grid" x1="500" y1="126" x2="500" y2="134"></line>
+        <text class="xs m mu" x="500" y="148" text-anchor="middle">1.5</text>
+        <line class="grid" x1="640" y1="126" x2="640" y2="134"></line>
+        <text class="xs m mu" x="640" y="148" text-anchor="middle">2.0</text>
+      </g>
+
+      <rect x="80" y="54" width="350" height="22" fill="var(--wrong-s)" stroke="var(--wrong)" stroke-width="1.3"></rect>
+      <text class="xs m wr" x="88" y="69">感測範圍　authored forwardScanDistance = 1.25</text>
+      <line class="lnw" x1="430" y1="50" x2="430" y2="200"></line>
+
+      <rect x="360" y="84" width="211" height="22" fill="var(--measure-s)" stroke="var(--measure)" stroke-width="1.3"></rect>
+      <text class="xs m me" x="368" y="99">理想進場帶　[1.00, 1.75]　中心 1.4017</text>
+      <circle cx="472" cy="95" r="4" fill="var(--measure)"></circle>
+
+      <rect x="360" y="160" width="70" height="26" fill="var(--bind-s)" stroke="var(--bind)" stroke-width="1.8"></rect>
+      <text class="xs m bd" x="395" y="204" text-anchor="middle">交集</text>
+      <text class="xs m bd" x="395" y="218" text-anchor="middle">≈ 25 cm</text>
+      <text class="xs m bd" x="444" y="178">⇒ 實測可執行站位只剩約 <tspan font-weight="700">20 cm</tspan>（扣掉玩家難以精準停下的部分）</text>
+
+      <line class="dash" x1="16" y1="236" x2="824" y2="236"></line>
+
+      <rect x="80" y="252" width="599" height="22" fill="var(--measure-s)" stroke="var(--measure)" stroke-width="1.3"></rect>
+      <text class="xs m me" x="88" y="267">修正後　EffectiveForwardScanDistance = 2.1385（由動畫需求反推）</text>
+      <rect x="360" y="282" width="211" height="22" fill="var(--bind-s)" stroke="var(--bind)" stroke-width="1.8"></rect>
+      <text class="xs m bd" x="368" y="297">交集 ＝ 整個理想進場帶</text>
+      <text class="xs m me" x="588" y="297">✓ 完整覆蓋</text>
+    </svg>
+
+    <figcaption>
+      理想站位 <strong>1.40 m</strong> 落在感測範圍 <strong>1.25 m</strong> 之外——
+      兩個區間的交集只有 <code>[1.00, 1.25]</code>。
+    </figcaption>
+  </figure>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>階段</th><th>觀察到什麼</th><th>是不是凶手</th></tr></thead>
+      <tbody>
+        <tr><td>1 Observation</td><td><code>forwardScanDistance</code> 是 authored 常數 <strong>1.25 m</strong></td><td class="no">⚠️ 記著</td></tr>
+        <tr><td>2 Candidate</td><td>站遠一點 ⇒ ray 打不到 ⇒ <code>NoForwardHit</code> ⇒ <code>Kind = None</code></td><td class="no">❌ 症狀，不是根因</td></tr>
+        <tr class="bind"><td>3 Entry</td><td>Vault1m 由 bake 推導的理想進場距離是 <strong>1.4017 m</strong></td><td>🔴 <strong>就是這裡</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout">
+    <div class="h">為什麼這個 bug 很難看出來</div>
+    因為<strong>每一層看起來都沒錯</strong>——Probe 忠實回報「我沒看到東西」；
+    Classifier 忠實回報 <code>NoForwardHit</code>；Entry 根本沒被呼叫到（candidate 是 <code>None</code>）。<br>
+    <strong>沒有任何一層說謊，錯的是兩個常數之間的關係</strong>——而那個關係在程式裡原本<strong>不存在</strong>。
+  </div>
+
+  <div class="note key"><span class="lab">可推廣</span><p>
+    修法不是「把 1.25 改大一點」，而是<strong>讓需求從有資料的那一層推過來</strong>：
+    <code>CanEnter</code> 每次都用 bake 的實際值重推 <code>GetRequiredSensingReach()</code> 餵給 Probe。
+    改資產值只治這一支動畫；把關係寫進程式才治所有動畫，<strong>也治將來換動畫的那一天</strong>。
+  </p></div>
+</section>
+
+<div class="foot">
+  原始檔：<code>docs/artifacts/traversal.html</code>　·　文字正本：<code>docs/30-traversal-architecture-guide.md</code><br>
+  相關：<code>docs/22-traversal-v1.md</code>（規格）· <code>docs/23</code>／<code>docs/24</code>（研究輪）<br>
+  ⚠️ <code>docs/23</code>／<code>docs/24</code> 有兩條關鍵結論<strong>已過期</strong>：Vault1m 與 Climb2m 現在<strong>有</strong> Traversal block；<code>RootReachConstraint</code> 已啟用。<br>
+  姊妹頁：<code>dynamic-capsule.html</code>（docs/28）· <code>foot-ik-architecture.html</code>（docs/29）
+</div>
+
+</div>

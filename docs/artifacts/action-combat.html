@@ -1,0 +1,415 @@
+<title>Action 與戰鬥解剖</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground:#EDEFF1; --surface:#F8F9FA; --sunken:#E0E3E6; --ink:#1E2126;
+    --muted:#646B73; --hair:#C6CBD0; --grid:#D8DCE0;
+    --measure:#0E6E6B; --measure-s:#D9ECEA;
+    --bind:#A8256A; --bind-s:#F6E0EC;
+    --wrong:#A33B1F; --wrong-s:#F5E2DA;
+    --sans:"Noto Sans TC",-apple-system,"Segoe UI","Microsoft JhengHei",sans-serif;
+    --mono:"IBM Plex Mono","Cascadia Mono",Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:#14161A; --surface:#1C1F24; --sunken:#262A30; --ink:#E3E6EA;
+      --muted:#969DA6; --hair:#363B42; --grid:#2C3036;
+      --measure:#5FC9C3; --measure-s:#10302F;
+      --bind:#F186BB; --bind-s:#35182A;
+      --wrong:#EE9070; --wrong-s:#381D14;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:#14161A; --surface:#1C1F24; --sunken:#262A30; --ink:#E3E6EA;
+    --muted:#969DA6; --hair:#363B42; --grid:#2C3036;
+    --measure:#5FC9C3; --measure-s:#10302F;
+    --bind:#F186BB; --bind-s:#35182A;
+    --wrong:#EE9070; --wrong-s:#381D14;
+  }
+  * { box-sizing: border-box; }
+  body { background:var(--ground); color:var(--ink); font-family:var(--sans);
+         font-size:15px; line-height:1.75; margin:0; -webkit-font-smoothing:antialiased; }
+  .shell { max-width:940px; margin:0 auto; padding:40px 28px 96px; }
+  .eyebrow { font-family:var(--mono); font-size:11px; letter-spacing:.16em;
+             text-transform:uppercase; color:var(--measure); margin-bottom:10px; }
+  h1 { font-weight:900; font-size:38px; line-height:1.2; letter-spacing:-.01em; margin:0 0 16px; text-wrap:balance; }
+  .lede { font-size:16.5px; color:var(--muted); max-width:60ch; margin:0; }
+  .lede strong { color:var(--ink); font-weight:500; }
+  .keyfacts { display:grid; grid-template-columns:repeat(auto-fit,minmax(128px,1fr));
+              gap:1px; background:var(--hair); border:1px solid var(--hair); margin:28px 0 0; }
+  .keyfacts div { background:var(--surface); padding:12px 14px; }
+  .keyfacts .v { font-family:var(--mono); font-size:18px; font-weight:600;
+                 font-variant-numeric:tabular-nums; line-height:1.2; }
+  .keyfacts .k { font-size:11.5px; color:var(--muted); line-height:1.45; margin-top:4px; }
+  section { margin-top:54px; }
+  .sec-head { display:flex; align-items:baseline; gap:12px; padding-bottom:9px;
+              border-bottom:2px solid var(--ink); margin-bottom:6px; }
+  .sec-head .n { font-family:var(--mono); font-size:12px; font-weight:600; color:var(--measure); letter-spacing:.06em; }
+  .sec-head h2 { font-size:21px; font-weight:700; margin:0; flex:1; letter-spacing:-.005em; }
+  .sec-head .tag { font-family:var(--mono); font-size:10.5px; color:var(--muted);
+                   border:1px solid var(--hair); padding:1px 6px; white-space:nowrap; }
+  .sec-intro { color:var(--muted); font-size:14px; margin:10px 0 0; max-width:62ch; }
+  figure { margin:22px 0 0; background:var(--surface); border:1px solid var(--hair); padding:18px 20px 6px; }
+  figure svg { display:block; width:100%; height:auto; }
+  figcaption { font-size:13.5px; color:var(--muted); padding:12px 0 14px;
+               border-top:1px solid var(--hair); margin-top:12px; }
+  figcaption strong { color:var(--ink); font-weight:500; }
+  svg text { font-family:var(--sans); fill:currentColor; }
+  svg .m { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  svg .t{font-size:13px;font-weight:700;} svg .s{font-size:11.5px;} svg .xs{font-size:10.5px;}
+  svg .mu{fill:var(--muted);} svg .me{fill:var(--measure);} svg .bd{fill:var(--bind);} svg .wr{fill:var(--wrong);}
+  svg .box{fill:var(--sunken);stroke:var(--hair);stroke-width:1;}
+  svg .boxm{fill:var(--measure-s);stroke:var(--measure);stroke-width:1.3;}
+  svg .boxb{fill:var(--bind-s);stroke:var(--bind);stroke-width:1.3;}
+  svg .boxw{fill:var(--wrong-s);stroke:var(--wrong);stroke-width:1.3;}
+  svg .ln{stroke:currentColor;stroke-width:1.4;fill:none;}
+  svg .lnm{stroke:var(--measure);stroke-width:1.6;fill:none;}
+  svg .lnb{stroke:var(--bind);stroke-width:1.8;fill:none;}
+  svg .lnw{stroke:var(--wrong);stroke-width:1.6;fill:none;stroke-dasharray:5 4;}
+  svg .thin{stroke:var(--hair);stroke-width:1;fill:none;}
+  svg .dash{stroke:var(--muted);stroke-width:1.1;fill:none;stroke-dasharray:4 4;}
+  svg .grid{stroke:var(--grid);stroke-width:1;fill:none;}
+  #ar path{fill:var(--ink);} #arm path{fill:var(--measure);}
+  #arb path{fill:var(--bind);} #arw path{fill:var(--wrong);}
+  .wrap { overflow-x:auto; margin:18px 0 0; }
+  table { width:100%; border-collapse:collapse; font-size:13px; min-width:600px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--hair); vertical-align:top; }
+  th { font-family:var(--mono); font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+       color:var(--muted); border-bottom:1px solid var(--ink); white-space:nowrap; }
+  td.m,th.m { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  td.num { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  td.no { color:var(--wrong); }
+  tr.bind td { background:var(--bind-s); }
+  tr.bind td:first-child { font-weight:700; }
+  .note { display:grid; grid-template-columns:74px minmax(0,1fr); gap:14px; padding:12px 0;
+          border-top:1px dotted var(--hair); font-size:13.5px; line-height:1.7; }
+  .note .lab { font-family:var(--mono); font-size:10.5px; letter-spacing:.06em; padding-top:4px; }
+  .note.why .lab{color:var(--measure);} .note.bad .lab{color:var(--wrong);} .note.key .lab{color:var(--bind);}
+  .note p { margin:0; }
+  .callout { border-left:3px solid var(--bind); background:var(--bind-s);
+             padding:14px 16px; margin:20px 0 0; font-size:14px; }
+  .callout .h { font-weight:700; margin-bottom:4px; }
+  code { font-family:var(--mono); font-size:.88em; background:var(--sunken); padding:1px 4px; }
+  .calc { font-family:var(--mono); font-size:12.5px; line-height:1.9; background:var(--sunken);
+          border:1px solid var(--hair); padding:14px 16px; margin:16px 0 0; overflow-x:auto;
+          white-space:pre; font-variant-numeric:tabular-nums; }
+  .calc .hl{color:var(--bind);font-weight:600;} .calc .me{color:var(--measure);} .calc .c{color:var(--muted);}
+  .speak { margin:22px 0 0; padding:16px 18px; border:1px dashed var(--measure);
+           background:var(--measure-s); font-size:14.5px; line-height:1.8; }
+  .speak .h { font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; color:var(--measure); margin-bottom:6px; }
+  .foot { font-family:var(--mono); font-size:11px; color:var(--muted); margin-top:56px;
+          padding-top:20px; border-top:2px solid var(--ink); line-height:1.9; }
+  @media (max-width:720px){ .shell{padding:26px 16px 70px;} h1{font-size:28px;}
+    .note{grid-template-columns:1fr;gap:2px;} }
+  @media (prefers-reduced-motion:reduce){ *{animation:none!important;transition:none!important;} }
+</style>
+
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+  </defs>
+</svg>
+
+<div class="shell">
+
+<header>
+  <div class="eyebrow">Architecture Deep-Dive · 視覺版 · 對應 docs/32</div>
+  <h1>Action 與戰鬥解剖</h1>
+  <p class="lede">
+    <strong>一顆 <code>ActionState</code> 承載所有技能。</strong>
+    近戰、火球、冰咒、受擊——差異全部住在 ScriptableObject 與 prefab 裡，程式只認識「第幾格」。
+    這頁講的是那五個<strong>絕對不能混成一個</strong>的概念，以及混了之後會長出什麼 bug。<br>
+    全頁數字取自 <code>FireballDefinition</code> 與 <code>PlayerStateMachineConfig</code>。
+  </p>
+
+  <div class="keyfacts">
+    <div><div class="v">5</div><div class="k">不可混用的概念</div></div>
+    <div><div class="v">0</div><div class="k">per-Action 子類別<br>（A19 守著）</div></div>
+    <div><div class="v">0.42 s</div><div class="k">火球第 1 段<br>Release 時點</div></div>
+    <div><div class="v">3</div><div class="k">連段共用<br>一次冷卻</div></div>
+    <div><div class="v">1</div><div class="k">敵人霸體的根因<br>是一個布林值</div></div>
+    <div><div class="v">2</div><div class="k">程式自己寫了幾次<br>「受擊不是出手」</div></div>
+  </div>
+</header>
+
+<!-- ═══ 1 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">01</span>
+    <h2>五個概念，別把它們混成一個</h2>
+    <span class="tag">混了就會長出特例</span>
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>概念</th><th>是什麼</th><th>誰擁有</th><th>⚠️ 常見誤解</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Slot</strong> 身分</td><td><code>ActionSlot</code> enum，<strong>數值就是身分</strong></td><td class="m">Core/Actions</td><td class="no">❌ 不是「哪顆按鍵」。按鍵→slot 的映射住在管線順序 2</td></tr>
+        <tr><td><strong>Definition</strong> 內容</td><td>段落、動畫鍵、冷卻、中斷、targeting</td><td class="m">資產</td><td class="no">❌ 不是 state。一顆 state 承載多份 Definition</td></tr>
+        <tr><td><strong>Phase</strong> 段落</td><td><code>Start</code>／<code>Loop</code>／<code>End</code>／<code>Cancel</code></td><td class="m">ActionState</td><td class="no">❌ 連段<strong>不是</strong>新的 phase，是「Start 換素材重播」</td></tr>
+        <tr class="bind"><td><strong>Release</strong> 生效時點</td><td>段落播到 <code>ReleaseNormalizedTime</code> 的那一瞬間</td><td class="m">ActionState</td><td class="no">❌ 不是動畫事件、不是粒子碰撞</td></tr>
+        <tr class="bind"><td><strong>Commitment</strong> 方向承諾</td><td>段落邊界取得<strong>一次</strong>的世界方向快照</td><td class="m">ActionReleaseContext</td><td class="no">❌ 不是每幀重算的瞄準</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout">
+    <div class="h">🔴 為什麼「一顆 state 承載多份 Definition」</div>
+    如果每個技能一顆 state：<code>StateType</code> 會隨<strong>內容</strong>成長（而它是架構不變量），
+    而且「能不能出手」會有 N 個回答者。<br>
+    <strong>ADR-004 D2</strong>：能不能出手只由 <code>ActionState.CanEnter</code> 回答，不得有第二個 gate。<br>
+    <strong>ADR-005 D1</strong>：身分只有一把鍵（<code>ActionSlot</code>）——輸入映射／冷卻／external request／
+    Action↔Action 中斷全部用它，不得有第二把。
+  </div>
+</section>
+
+<!-- ═══ 2 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">02</span>
+    <h2>真實案例：按 Q 放火球三段連段</h2>
+    <span class="tag">FireballDefinition 實測</span>
+  </div>
+
+  <div class="calc"><span class="c">// FireballDefinition 展開</span>
+Phases[0]       Key=Spell_Fireball_1   FallbackDuration=<span class="me">1.2000</span>  Release=<span class="me">0.35</span>
+                Interruptible=1  EmitsRelease=1
+ChainSegments[0] Key=Spell_Fireball_2  FallbackDuration=1.2000  Release=0.35
+ChainSegments[1] Key=Spell_Fireball_3  FallbackDuration=<span class="me">1.6000</span>  Release=0.35
+ChainInputOpenNormalized = <span class="me">0.25</span>
+Cooldown = <span class="hl">0.4</span>（整條連段<span class="hl">共用一次</span>）  RequiresGrounded = 1
+CancelMoveIntentThreshold = 0.1   Targeting = CameraConeSoftTarget
+</div>
+
+  <figure>
+    <svg viewBox="0 0 840 300" role="img" aria-label="火球三段連段時間軸：每段的連段輸入窗與 Release 時點，整條共用一次冷卻">
+      <text class="xs m mu" x="16" y="18">按實際數值繪製　時間（秒）→</text>
+
+      <line class="grid" x1="100" y1="200" x2="760" y2="200"></line>
+      <g>
+        <line class="grid" x1="100" y1="196" x2="100" y2="204"></line><text class="xs m mu" x="100" y="218" text-anchor="middle">0</text>
+        <line class="grid" x1="260" y1="196" x2="260" y2="204"></line><text class="xs m mu" x="260" y="218" text-anchor="middle">1.0</text>
+        <line class="grid" x1="420" y1="196" x2="420" y2="204"></line><text class="xs m mu" x="420" y="218" text-anchor="middle">2.0</text>
+        <line class="grid" x1="580" y1="196" x2="580" y2="204"></line><text class="xs m mu" x="580" y="218" text-anchor="middle">3.0</text>
+        <line class="grid" x1="740" y1="196" x2="740" y2="204"></line><text class="xs m mu" x="740" y="218" text-anchor="middle">4.0</text>
+      </g>
+
+      <rect x="100" y="60" width="192" height="30" fill="var(--sunken)" stroke="var(--ink)" stroke-width="1.3"></rect>
+      <text class="xs m" x="196" y="80" text-anchor="middle">段 1　Fireball_1　1.2 s</text>
+      <rect x="292" y="60" width="192" height="30" fill="var(--sunken)" stroke="var(--ink)" stroke-width="1.3"></rect>
+      <text class="xs m" x="388" y="80" text-anchor="middle">段 2　Fireball_2　1.2 s</text>
+      <rect x="484" y="60" width="256" height="30" fill="var(--sunken)" stroke="var(--ink)" stroke-width="1.3"></rect>
+      <text class="xs m" x="612" y="80" text-anchor="middle">段 3　Fireball_3　1.6 s</text>
+
+      <rect x="148" y="100" width="144" height="16" fill="var(--measure-s)" stroke="var(--measure)" stroke-width="1.2"></rect>
+      <rect x="340" y="100" width="144" height="16" fill="var(--measure-s)" stroke="var(--measure)" stroke-width="1.2"></rect>
+      <text class="xs m me" x="220" y="113" text-anchor="middle">連段輸入窗</text>
+      <text class="xs m me" x="412" y="113" text-anchor="middle">連段輸入窗</text>
+      <text class="xs m mu" x="128" y="136" text-anchor="middle">0.30</text>
+
+      <line class="lnb" x1="167" y1="126" x2="167" y2="94" marker-end="url(#arb)"></line>
+      <circle cx="167" cy="128" r="4" fill="var(--bind)"></circle>
+      <text class="xs m bd" x="167" y="152" text-anchor="middle">Release</text>
+      <text class="xs m mu" x="167" y="166" text-anchor="middle">0.42 s</text>
+
+      <line class="lnb" x1="359" y1="126" x2="359" y2="94" marker-end="url(#arb)"></line>
+      <circle cx="359" cy="128" r="4" fill="var(--bind)"></circle>
+      <text class="xs m bd" x="359" y="152" text-anchor="middle">Release</text>
+      <text class="xs m mu" x="359" y="166" text-anchor="middle">1.62 s</text>
+
+      <line class="lnb" x1="574" y1="126" x2="574" y2="94" marker-end="url(#arb)"></line>
+      <circle cx="574" cy="128" r="4" fill="var(--bind)"></circle>
+      <text class="xs m bd" x="574" y="152" text-anchor="middle">Release</text>
+      <text class="xs m mu" x="574" y="166" text-anchor="middle">2.96 s</text>
+
+      <rect x="740" y="60" width="64" height="30" fill="var(--bind-s)" stroke="var(--bind)" stroke-width="1.3"></rect>
+      <text class="xs m bd" x="772" y="80" text-anchor="middle">冷卻 0.4</text>
+      <text class="xs m bd" x="772" y="104" text-anchor="middle">整條一次</text>
+
+      <rect class="boxm" x="16" y="240" width="808" height="50"></rect>
+      <text class="xs me m" x="28" y="260">🔴 連段為什麼「只排隊，不立刻切段」</text>
+      <text class="xs mu" x="28" y="278">切段固定發生在<tspan font-weight="700">當前段播完</tspan>，否則第 2 段會從第 1 段的中途插進來，動作看起來像被吃掉。窗內按下只是把 _chainQueued 設 true。</text>
+    </svg>
+
+    <figcaption>
+      <strong>連段不是新的 phase</strong>——phase 一直是 <code>Start</code>，只是換了素材重播。
+      所以冷卻是整條結束後 commit <strong>一次</strong>，不是每段一次。
+    </figcaption>
+  </figure>
+
+  <div class="note why"><span class="lab">時序保證</span><p>
+    <strong>不需要</strong>防「進場那一幀的按鍵被誤判成連按」。理由是時序：
+    <code>IntentData</code> 的 trigger 旗標當幀生、當幀死（順序 7 復位），
+    而 <code>FullBodyStateMachine.Tick</code> 是<strong>先 <code>OnTick</code> 才 <code>OnEnter</code></strong>
+    ⇒ 新進入的 state 第一次 <code>OnTick</code> 已經是下一幀，進場那次按壓早被清掉了。
+  </p></div>
+</section>
+
+<!-- ═══ 3 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">03</span>
+    <h2>段落轉移規則</h2>
+    <span class="tag">秒數住在資產，不在程式</span>
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>目前 phase</th><th>條件</th><th>下一步</th></tr></thead>
+      <tbody>
+        <tr class="bind"><td class="m">Start</td><td>時間到 <strong>且</strong> <code>_chainQueued</code></td><td>換下一段 ChainSegments，<strong>phase 仍是 Start</strong></td></tr>
+        <tr><td class="m">Start</td><td>時間到，沒排到連段</td><td><code>EnterAfterStart()</code>（Loop → End → 結束）</td></tr>
+        <tr><td class="m">Loop</td><td><code>DesiredSpeedNormalized ≥ CancelMoveIntentThreshold</code></td><td><code>Cancel</code></td></tr>
+        <tr><td class="m">Loop</td><td><code>WaitForTrigger</code> 且<strong>同一個 slot</strong> 再次被請求</td><td><code>End</code></td></tr>
+        <tr><td class="m">End / Cancel</td><td>時間到</td><td><code>Complete()</code> → <code>Cleanup()</code> → <code>CommitCooldown()</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note key"><span class="lab">收束</span><p>
+    <code>Cleanup()</code> 在 <code>OnExit</code> 觸發，<strong>所有路徑共用</strong>——
+    完成、取消、被中斷都走同一條。這是「不能留下殘態」的結構保證，
+    而不是「記得在每個分支都呼叫一次」的紀律。
+  </p></div>
+</section>
+
+<!-- ═══ 4 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">04</span>
+    <h2>Failure case ①：敵人的攻擊打不斷</h2>
+    <span class="tag">根因是一個布林值</span>
+  </div>
+  <p class="sec-intro">
+    <strong>症狀</strong>：敵人一出拳就進入無敵霸體，玩家怎麼打都打不斷，直到那一拳播完。
+  </p>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>階段</th><th>這一層</th><th>是不是凶手</th></tr></thead>
+      <tbody>
+        <tr><td class="m">MeleeHitboxSink</td><td>傷害有送到</td><td class="no">❌</td></tr>
+        <tr><td class="m">CharacterHealth</td><td><code>_pendingHurt = true</code></td><td class="no">❌</td></tr>
+        <tr><td class="m">HurtState.CanEnter</td><td><code>JustTookDamage</code> ⇒ true</td><td class="no">❌ 它想進來</td></tr>
+        <tr><td>config（狀態層）</td><td>敵人的 <code>Action.CanBeInterruptedBy</code> 含 <code>Hurt</code></td><td>✅ 第一層過</td></tr>
+        <tr class="bind"><td class="m">ActionState.CanBeInterruptedBy</td><td><code>_phase == None || _currentEntry.Interruptible</code></td><td>🔴 <strong>就是這裡</strong></td></tr>
+        <tr class="bind"><td>資產（段落層）</td><td><code>EnemyPunchDefinition.Phases[0].Interruptible</code></td><td>🔴 <strong>一個布林值</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout">
+    <div class="h">根因，一句話</div>
+    <strong>「這招不可被打斷」的 policy 欄位已經存在，而它被設成了 <code>false</code>。</strong><br>
+    Super Armor <strong>零新程式</strong>——它是一個資產欄位。
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 840 250" role="img" aria-label="中斷授權的兩層：config 的狀態層與資產的段落層，ADR-009 D4 把死亡抽出成只受 config 管的 lethal 層">
+      <text class="xs m mu" x="16" y="18">中斷授權：兩層 ＋ 一個 lethal 例外（ADR-009 D4 的收窄）</text>
+
+      <rect class="box" x="16" y="34" width="250" height="70"></rect>
+      <text class="s t" x="28" y="56">① 狀態層（config 資產）</text>
+      <text class="xs mu" x="28" y="76">Action.CanBeInterruptedBy 清單</text>
+      <text class="xs mu" x="28" y="92">「哪些 state 有資格打斷我」</text>
+
+      <line class="ln" x1="270" y1="69" x2="294" y2="69" marker-end="url(#ar)"></line>
+
+      <rect class="boxb" x="298" y="34" width="250" height="70"></rect>
+      <text class="s t bd" x="310" y="56">② 段落層（Definition 資產）</text>
+      <text class="xs mu" x="310" y="76">Phases[i].Interruptible</text>
+      <text class="xs mu" x="310" y="92">「這一段現在准不准被打斷」</text>
+
+      <line class="lnb" x1="552" y1="69" x2="576" y2="69" marker-end="url(#arb)"></line>
+      <rect class="boxm" x="580" y="34" width="244" height="70"></rect>
+      <text class="s t me" x="592" y="56">結果</text>
+      <text class="xs mu" x="592" y="76">兩層都過才准打斷</text>
+      <text class="xs me" x="592" y="92">⇒ Super Armor ＝ ② 設 false</text>
+
+      <path class="lnm" d="M140,108 L140,140 L420,140 L420,168" marker-end="url(#arm)"></path>
+      <rect class="boxm" x="180" y="172" width="480" height="62"></rect>
+      <text class="xs me m" x="192" y="192">⭐ Death 只受 ① 管，直接略過 ②</text>
+      <text class="xs mu" x="192" y="210">if (other.Type == StateType.Death) return true;　<tspan class="me">← lethal 層</tspan></text>
+      <text class="xs mu" x="192" y="226">否則 Interruptible=false 會連<tspan class="wr" font-weight="700">死亡</tspan>一起擋掉——霸體 ≠ 打不死。</text>
+    </svg>
+
+    <figcaption>
+      中斷權限仍然 <strong>100% authored</strong>：想讓某個狀態連死亡都擋掉，
+      就把 <code>Death</code> 從該狀態的 <code>CanBeInterruptedBy</code> 清單裡拿掉——<strong>那是資產的決定，不是程式的</strong>。
+    </figcaption>
+  </figure>
+
+  <div class="note why"><span class="lab">否決了</span><p>
+    ⛔ 刻意<strong>不</strong>引入通用的 <code>InterruptAuthority</code> 分級：
+    目前只有兩級（normal／lethal），為兩級建通用分級制
+    ＝在沒有第二個非致死高權中斷的情況下把介面定死。
+  </p></div>
+
+  <div class="note bad"><span class="lab">文件過期</span><p>
+    <code>docs/25</code> §1 記載的「敵人攻擊打不斷的根因是 <code>Interruptible: 0</code>」
+    <strong>不再是現況</strong>——2026-09-15 實測已改成 <code>1</code>。
+  </p></div>
+</section>
+
+<!-- ═══ 5 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">05</span>
+    <h2>Failure case ②：「受擊」借住在 Action 裡</h2>
+    <span class="tag">沒有可見的 bug</span>
+  </div>
+  <p class="sec-intro">
+    這個 failure case 特別值得學，因為<strong>它沒有症狀</strong>——
+    沒有閃爍、沒有卡住、沒有錯誤訊息。唯一的證據是程式裡出現了兩處長得很像的特例。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 840 240" role="img" aria-label="ActionState 裡出現兩處「如果是 Reaction 就反過來」的特例，註解各自說明受擊不是出手">
+      <rect class="boxw" x="16" y="30" width="400" height="104"></rect>
+      <text class="xs wr m" x="28" y="50">特例 ①　ShouldFaceTargetOnEnter(slot)</text>
+      <text class="xs mu" x="28" y="72">&amp;&amp; slot != ActionSlot.Reaction</text>
+      <text class="xs mu" x="28" y="96">註解自己寫的：</text>
+      <text class="xs wr" x="28" y="114">「受擊不是出手，被打的人不該自己轉去面對攻擊者」</text>
+
+      <rect class="boxw" x="424" y="30" width="400" height="104"></rect>
+      <text class="xs wr m" x="436" y="50">特例 ②　AllowsSameSlotReentry</text>
+      <text class="xs mu" x="436" y="72">只允許 Reaction 自我重入</text>
+      <text class="xs mu" x="436" y="96">註解自己寫的：</text>
+      <text class="xs wr" x="436" y="114">「硬直中再被打要再踉蹌一次」</text>
+
+      <path class="lnb" d="M216,138 L216,158 L420,158 L420,176" marker-end="url(#arb)"></path>
+      <path class="lnb" d="M624,138 L624,158 L420,158" ></path>
+
+      <rect class="boxb" x="140" y="180" width="560" height="52"></rect>
+      <text class="s t bd" x="420" y="204" text-anchor="middle">程式自己說了兩次「受擊不是出手」</text>
+      <text class="s" x="420" y="224" text-anchor="middle">正確的結論不是加第三個例外，而是<tspan class="bd" font-weight="700">受擊根本不該是 Action</tspan>。</text>
+    </svg>
+
+    <figcaption>
+      <strong>同一句話在程式裡出現第二次時，它就不再是特例，而是一個被放錯位置的概念。</strong>
+      這是最容易錯過的一種架構訊號——因為每個特例單獨看都合理。
+    </figcaption>
+  </figure>
+
+  <div class="note key"><span class="lab">可推廣</span><p>
+    「出手」是<strong>主動</strong>、有冷卻、有方向承諾、由自己發起；
+    「受擊」是<strong>被動</strong>、沒有冷卻、方向由攻擊者決定、由外部提交。
+    兩者共用一顆 state 時，每一條差異都會變成一個 <code>if (slot == Reaction)</code>。
+    <strong>數這種 if 的個數，就是在量這個概念被放錯位置的程度。</strong>
+  </p></div>
+</section>
+
+<div class="foot">
+  原始檔：<code>docs/artifacts/action-combat.html</code>　·　文字正本：<code>docs/32-action-combat-architecture-guide.md</code><br>
+  相關：<code>docs/ADR/004-action-in-fsm.md</code>（Accepted）· <code>docs/ADR/005-multi-action-identity.md</code> · <code>docs/08</code>／<code>docs/11</code>／<code>docs/15</code><br>
+  ⚠️ <code>docs/25</code> §1 的三條「關鍵現況」有兩條<strong>已被推翻或修掉</strong>。<br>
+  姊妹頁：<code>dynamic-capsule.html</code> · <code>foot-ik-architecture.html</code> · <code>traversal.html</code> · <code>jump-landing.html</code>
+</div>
+
+</div>
