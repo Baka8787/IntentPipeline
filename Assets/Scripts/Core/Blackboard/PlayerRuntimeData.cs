@@ -102,16 +102,15 @@ namespace Project.Core.Blackboard
         /// 因此本影格 Update 讀到的 IsGrounded，實際上是「上一影格」LateUpdate 結算後的結果，
         /// 這是 CharacterController 架構下的正常延遲，非 Bug，使用端只需知悉即可。
         ///
-        /// <para><b>🆕（2026-09-17）本欄位已含 valid-standing-support 否決（正本 `docs/38`）</b></para>
-        /// **`IsGrounded` 不再等同於 `CharacterController.isGrounded`。**
-        /// Unity 的膠囊會讓**側面**掛在平台角上（實測 root 可超出邊緣 0.23–0.32 m），
-        /// 因此 <c>MotionDriver.SyncGroundedState</c> 會再用一個**較小的有效支撐半徑**
-        /// （出貨 0.14，碰撞半徑仍是 0.32）重做一次 floor query，查不到就否決。
-        /// 形狀取自 Unreal 的 <c>ComputePerchResult</c>。
+        /// <para><b>⭐ 本欄位 ＝ `CharacterController.isGrounded`，沒有任何額外的 support 規則</b></para>
+        /// （2026-09-17 使用者裁決，正本 `docs/38` §13 `Deferred / Accepted Limitation`。）
+        /// Unity 的膠囊會讓**側面**掛在平台角上 ⇒ **極端平台邊緣時角色可能有部分腳掌／腳尖懸空**。
+        /// 這是**已知且被接受的限制**，不是待修的 bug。
         ///
-        /// ⚠️ **只有否決權、沒有授予權**：`characterController.isGrounded == false` 時該層不介入。
-        /// ⇒ 讀取者語意不變（「角色是否站在可站的地面上」），但**邊緣的判定更嚴格**，
-        /// 走到邊緣時會比以前更早失去觸地。
+        /// ⛔ **不要為此加入 perch／footprint／較小支撐半徑的否決層。** 已實作並 Play 驗證過，
+        /// 是淨負面的：否決只改變狀態不改變位置（角色仍卡在邊角，實測 Δy = 0.000），
+        /// 而 <c>FootIKController</c> 的閘門讀本欄位 ⇒ 提早否決會讓腳提前離地，視覺反而更差。
+        /// 重開條件見 `docs/38` §13.3。
         /// </summary>
         public bool IsGrounded;
 

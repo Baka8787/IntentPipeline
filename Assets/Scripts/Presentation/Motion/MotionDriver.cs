@@ -60,30 +60,6 @@ namespace Project.Presentation.Motion
         [SerializeField] private float gravity = -9.81f;
         [SerializeField] private float reboundForce = -2f; // 踩在地面時的固定貼地力
 
-        [Header("Valid Standing Support（🆕 2026-09-17，正本 docs/38）")]
-        // ⭐ Collision support ≠ Valid standing support。
-        //    Unity 的 CharacterController 會讓**膠囊側面**掛在平台角上 ⇒ 實測 root 可超出邊緣
-        //    0.23–0.32 m 仍 isGrounded，腳尖懸空達 0.434 m。
-        //    照 Unreal 的 perch 形狀處理：**碰撞膠囊完全不動**，另外用較小半徑做一次 floor query，
-        //    查不到就否決 grounded（UE：ComputePerchResult 失敗 ⇒ bWalkableFloor = false）。
-        [Tooltip("是否啟用「有效站立支撐」否決。關閉 ⇒ 行為與導入前逐位元相同。")]
-        [SerializeField] private bool requireValidStandingSupport = true;
-
-        [Tooltip("有效支撐半徑，對應 UE 的 GetValidPerchRadius()。\n" +
-                 "⚠️ 必須**小於** CharacterController.radius（0.32）才有意義；等於它就等於沒開。\n" +
-                 "實測腳尖懸空：0.10→0.184、0.14→0.204、0.18→0.234、0.22→0.264（基準 0.434）。\n" +
-                 "⛔ 0.10 會讓樓梯誤判 2/6 ⇒ 不要低於 0.14。")]
-        [SerializeField, Min(0.01f)] private float standingSupportRadius = 0.14f;
-
-        [Tooltip("由腳底往下搜尋多深仍算「腳下有地」。\n" +
-                 "⚠️ **必須涵蓋 step height**（對齊 UE 的 max(MAX_FLOOR_DIST, MaxStepHeight)）。\n" +
-                 "實測踩過：取 0.05 會讓 30° 斜坡 11/11 全部誤判——膠囊停在斜面上時底部離正下方\n" +
-                 "斜面 r(1/cos30−1)≈0.05，剛好搆不到。「探不到地面」≠「沒有地面」。")]
-        [SerializeField, Min(0.01f)] private float standingSupportSearchDepth = 0.30f;
-
-        [Tooltip("查詢層遮罩。預設 Everything，與現行 isGrounded 的廣義行為一致。")]
-        [SerializeField] private LayerMask standingSupportMask = ~0;
-
         [Header("Facing Execution")]
         // 朝向方向與「本幀該不該轉」都由 CharacterFacingSource 決定；此處只保留執行速率。
         [SerializeField, Min(0f)] private float aimFacingTurnSpeed = 10f;
@@ -100,15 +76,6 @@ namespace Project.Presentation.Motion
         //    ⇒ 不違反「Controller 對 Animation API 零依賴」——我們拿的是骨架，不是動畫控制權。
         [Tooltip("姿勢取樣用的 Animator。留空則 Awake 時 GetComponentInChildren 自動補。")]
         [SerializeField] private Animator poseAnimator;
-
-        // 🆕（2026-09-17）Valid Standing Support 的每帧快取與零配置緩衝。
-        // 起點抬高量：小到不會跨過一階台階，大到足以離開起始重疊。非設計旋鈕，故不外露。
-        private const float StandingSupportProbeLift = 0.05f;
-        private readonly RaycastHit[] _standingSupportBuffer =
-            new RaycastHit[StandingSupportProbe.BufferSize];
-        private int _standingSupportFrame = -1;
-        private bool _standingSupportCached = true;
-        private RaycastHit _standingSupportHit;
 
         private float _verticalVelocity;
 
@@ -1882,13 +1849,18 @@ namespace Project.Presentation.Motion
         {
             // 🆕（M2）單幀落地/離地邊沿：MotionDriver 是這兩個旗標的唯一觸發源（set true）；
             // 復位（set false）由管線末尾 PlayerRuntimeData.ResetTransientState() 負責，非此處。
-            // 🆕（2026-09-17，正本 `docs/38`）**碰撞支撐 ≠ 可站支撐。**
-            // 這是整條鏈路唯一把「CharacterController 還有碰撞接觸」等同為「角色可以 Grounded」
-            // 的地方；否決層插在這裡，下游 8 個消費者一行都不必改，
-            // authority 也沒有搬家（MotionDriver 仍是 IsGrounded 的唯一寫入者）。
             //
-            // ⭐ 只有否決權、沒有授予權：`isGrounded` 為 false 時本層完全不介入。
-            bool grounded = characterController.isGrounded && HasValidStandingSupportThisFrame();
+            // ⭐ 這是整條鏈路唯一把「CharacterController 還有碰撞接觸」等同為「角色可以 Grounded」
+            //    的地方，而那個等號**刻意就是 Unity 原本的碰撞規則**。
+            //
+            // ⛔ **不要在這裡插入任何 ledge／perch／footprint 否決層**（正本 `docs/38` §13
+            //    `Deferred / Accepted Limitation`，2026-09-17 使用者裁決）。試過了，是淨負面的：
+            //    否決層只能改變「狀態」，不能改變「位置」——CharacterController 的膠囊側面仍卡在
+            //    平台角上（實測 Δy = 0.000），於是 FSM 認為 Falling 而角色一動也不動；
+            //    同時 FootIKController 的閘門是 `IsGrounded`，提早否決會讓腳提前離地，**視覺更差**。
+            //    ⇒ 現在明確接受「極端邊緣允許部分腳掌懸空」作為已知限制。
+            //    重開條件見 `docs/38` §13.3，⛔ 不要再加局部 workaround。
+            bool grounded = characterController.isGrounded;
 
             data.JustLanded = !_wasGrounded && grounded;
             data.JustLeftGround = _wasGrounded && !grounded;
@@ -1898,45 +1870,6 @@ namespace Project.Presentation.Motion
             // 必須在 reboundForce 貼地夾持前發布；否則落地幀的 impact velocity 會被銷毀，
             // 所有落地都只會拿到貼地力並被誤分為 Normal。
             data.VerticalVelocity = _verticalVelocity;
-        }
-
-        /// <summary>
-        /// 🆕（2026-09-17）本帧的「腳下是否有有效支撐」，**每帧只查一次**。
-        ///
-        /// ⚠️ <see cref="SyncGroundedState"/> 在一帧內會被多處呼叫（重力路徑、committed 垂直曲線、
-        /// traversal 各段），不快取就會變成每帧多次 SphereCast。
-        /// 比照同檔 <c>GetGravityThisFrame</c> 既有的 <c>_gravityFrame</c> 慣例。
-        ///
-        /// ⭐ 停用時**恆回 true** ⇒ 行為與導入前逐位元相同。
-        /// </summary>
-        private bool HasValidStandingSupportThisFrame()
-        {
-            if (!requireValidStandingSupport || characterController == null) return true;
-
-            int frame = Time.frameCount;
-            if (_standingSupportFrame == frame) return _standingSupportCached;
-
-            _standingSupportFrame = frame;
-
-            // 膠囊**底部**的世界座標。⚠️ 必須用當前的 `center`——Capsule Offset V2 會在執行期
-            //    水平移動它，用 authored 值會讓探測點與實際膠囊錯開。
-            Vector3 up = transform.up;
-            Vector3 footWorld = transform.TransformPoint(
-                characterController.center - new Vector3(0f, characterController.height * 0.5f, 0f));
-
-            _standingSupportCached = StandingSupportProbe.HasValidStandingSupport(
-                footWorld,
-                up,
-                standingSupportRadius,
-                standingSupportSearchDepth,
-                StandingSupportProbeLift,
-                characterController.slopeLimit,
-                standingSupportMask,
-                transform.root,
-                _standingSupportBuffer,
-                out _standingSupportHit);
-
-            return _standingSupportCached;
         }
 
         private static bool IsFinite(Vector3 value) =>

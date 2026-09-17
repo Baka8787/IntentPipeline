@@ -1,12 +1,16 @@
 # 38 — Valid Standing Support（碰撞支撐 ≠ 可站支撐）
 
-> **狀態**：🔴 **已實作但已停用（2026-09-17）——方案 B 單獨使用不足，見 §10。**
-> 程式／測試／文件保留，兩隻 prefab 的 `requireValidStandingSupport` 已改回 **false**
-> ⇒ 行為與導入前逐位元相同。
-> EditMode 596／595 passed、PlayMode **66／66**（+5 條 `StandingSupportTests`）。
-> ⛔ **人工 Play 驗收未做**（見 §9）。throwaway spike 已依規則刪除，數據固化為測試斷言。
-> 本輪**沒有**改 CharacterController radius／prefab capsule／JumpState／Falling entry／traversal，
-> **沒有**把 Foot IK 升成 grounding authority，**沒有**新增 StateType。
+> # ⏹ 狀態：**`Deferred / Accepted Limitation`（2026-09-17，使用者明確裁決）**
+>
+> **這份文件現在是一份研究紀錄，不是一份規格。** §1–§12 的研究與量測全部保留；
+> **所有會改變正式 gameplay 行為的實驗已從 runtime 撤回**（見 §13.1 的退回清單）。
+>
+> **正式行為 ＝ `data.IsGrounded` 就是 `CharacterController.isGrounded`，沒有任何額外的 support 規則。**
+> ⇒ 極端平台邊緣時**允許膠囊側面被平台角支撐、允許角色部分腳掌／腳尖懸空，不額外強迫掉落**。
+> 這是**已知且被接受的限制**，不是待修的 bug。
+>
+> ⛔ **不要再為這個問題新增局部 workaround。** 重開條件見 **§13.3**。
+> 📌 先讀 **§13**，再讀其餘章節——§2–§12 描述的是**已被否決**的方案，不是現行架構。
 
 ## 0. 問題陳述
 
@@ -382,6 +386,10 @@ if (grounded && !HasValidStandingSupport()) grounded = false;   // ← 唯一新
 
 ## 8. ✅ 落地紀錄（2026-09-17）
 
+> ⚠️ **歷史紀錄。本節描述的程式已於同日全部移除**（`StandingSupportProbe.cs`、
+> `StandingSupportTests.cs`、`MotionDriver` 的 4 個 `[SerializeField]` 與否決層、
+> prefab 的 4 個欄位）。**現況見 §13。**
+
 使用者裁決：**採用 B，supportRadius ≈ 0.14。**
 
 | 檔案 | 實際改動 |
@@ -436,7 +444,8 @@ traversal 各段共 9 個呼叫點），不快取就是每帧多次 SphereCast�
 ## 10. 🔴 回歸：**方案 B 單獨使用是不夠的，已停用**（2026-09-17，使用者 Play 回報）
 
 > **狀態更正**：§8 說「已落地」是對的，但**落地的東西是淨負面的**。
-> 兩隻 prefab 的 `requireValidStandingSupport` 已改回 **false**。程式與測試保留。
+> 當時的處置是把兩隻 prefab 的 `requireValidStandingSupport` 改回 **false**，程式與測試保留。
+> ⚠️ **那個處置也已作廢**——2026-09-17 使用者裁決把整套程式移除，見 **§13**。
 
 ### 10.1 使用者回報的兩個症狀
 
@@ -949,3 +958,98 @@ clearance inflate 量、latch 規則（到重新落地）——這三個只要�
 | 角色幾何 | `radius 0.32`／`height 1.8266189`／`center.y 0.9134095`／`skinWidth 0.03`／`stepOffset 0.3`／`slopeLimit 45`（＝ prefab 實際值） |
 | ⚠️ 未涵蓋 | 真實場景的 collider 組成（合成幾何都是 box）；斜坡邊緣（只測了平面邊緣的旋轉，沒測**傾斜**的邊緣）；與 Capsule Offset V2 同時作用；多角色互相碰撞 |
 | ⚠️ 不需要涵蓋 | 因為結論是否決——上面那些只會讓結論更差，不會翻盤 |
+
+---
+
+## 13. ⏹ 最終決策：`Deferred / Accepted Limitation`（2026-09-17，使用者明確裁決）
+
+> **這是本文件唯一描述「現行正式行為」的一節。** §2–§12 全部是**已被否決的方案**的研究紀錄，
+> 保留它們是為了不必重做量測，⛔ **不是**可以照著實作的規格。
+
+### 13.0 正式行為
+
+```text
+data.IsGrounded  ==  CharacterController.isGrounded
+                     （沒有 support radius、沒有 footprint、沒有 collision release、
+                       沒有 outward push、沒有 edge slip）
+
+極端平台邊緣：
+  → 允許 capsule 側面仍被平台邊角支撐
+  → 角色可能出現部分腳掌／腳尖懸空
+  → ⛔ 不額外強迫掉落
+```
+
+**Grounded authority 的最終位置**：`MotionDriver.SyncGroundedState()`
+（`Assets/Scripts/Presentation/Motion/MotionDriver.cs`）。
+`MotionDriver` 仍是 `data.IsGrounded` / `JustLanded` / `JustLeftGround` / `VerticalVelocity` 的
+**唯一寫入者**（由 `ArchitectureRegressionTests` 的 `WriterRules` 守住），
+而那一行的內容**回到 Unity 原本的碰撞規則**：
+
+```csharp
+bool grounded = characterController.isGrounded;
+```
+
+⇒ authority **沒有搬家、也沒有分裂**；改變的只是「那個等號裡有沒有額外條件」——現在沒有。
+
+### 13.1 實際退回了哪些變更
+
+| 檔案 | 退回內容 |
+|---|---|
+| `Presentation/Motion/MotionDriver.cs` | 移除否決層（`&& HasValidStandingSupportThisFrame()`）、整個 `HasValidStandingSupportThisFrame()`、4 個 `[SerializeField]`（`requireValidStandingSupport`／`standingSupportRadius`／`standingSupportSearchDepth`／`standingSupportMask`）、每帧快取欄位與 `StandingSupportProbeLift` 常數 |
+| ⛔ 刪除 `Presentation/Motion/StandingSupportProbe.cs` | 整個檔案（＋`.meta`） |
+| ⛔ 刪除 `Tests/PlayMode/StandingSupportTests.cs` | 整個檔案（＋`.meta`），5 條測試 |
+| `Core/Blackboard/PlayerRuntimeData.cs` | `IsGrounded` 的文件註解改回「本欄位 ＝ `CharacterController.isGrounded`」，並就地寫明這是**被接受的限制** |
+| `Prefabs/X Bot`、`Y Bot` | 透過 Editor API 重新序列化，丟掉 4 個孤兒欄位（diff 為**純刪除 6 行 × 2**，正好是 `7823fdd` 的反向）。⚠️ **已複查 `m_Radius` 前後皆 0.32**，`height` 1.8266／`center` (0, 0.9134, 0)／`stepOffset` 0.3／`slopeLimit` 45／`skinWidth` 0.03 皆未變 |
+
+**⛔ 本輪沒有碰的（逐條確認）**：`CharacterController` 的 authored radius／height／center、
+`FootIKController` 與它的 grounding gate、`JumpState`／Falling entry／`FallEntryGrace`、
+`RollState`、`TraversalProbe`／`TraversalState`／`TraversalClassifier`／traversal collision profile、
+`StateType`（沒有新增 `LedgeExit` 之類的狀態）、`LocomotionModel`、`CharacterPipelineRunner`。
+
+### 13.2 決策原因
+
+1. **原始問題是極端平台邊緣的視覺 overhang，不是一般 locomotion correctness。**
+   平地／樓梯／斜坡在導入前後都正確——這一點被 §5.2／§5.3／§12.2-F 三次獨立量測確認
+   （樓梯、30° 斜坡的誤判數皆為 **0**）。⇒ 要修的是觀感，不是正確性。
+2. **單純否決 grounding 只改狀態、不改位置。** FSM 認為 Falling，但 `CharacterController`
+   的膠囊側面仍卡在 ledge corner，**實測 60 個物理步 Δy = 0.000、Δz = 0.000**（§10.2）。
+   角色會停在空中不動，那比原本的問題更糟。
+3. **Foot IK 依賴 `IsGrounded`。** 提早否決 ⇒ `FootIKController` 的閘門提早關閉 ⇒
+   腳離開地面回到動畫姿勢 ⇒ **視覺反而更差**。使用者 Play 回報的「可以單腳完全浮空」
+   很可能就是這個改動造成的（§10.3）。而這一項在 §9 第 2 點就被事先標成「最可疑」——它成真了。
+4. **Outward push 雖能離邊，但代價是可見的自動滑動。** 實測：單次脈衝 20 個組合**全部失敗**；
+   持續速度最壞需要 **0.35 m/s 持續約 0.9 s**（位移 ~0.3 m）（§11.2）。
+   那是**玩家沒有輸入時角色自己滑出去近一秒**——屬於**新的 movement authority ＋ 手感設計決定**，
+   不是一個 bug fix。
+5. **Temporary Collision Release 雖能讓 gravity 接手，但恢復無解。** 實測最壞要把 radius
+   從 **0.32 縮到 ≈0.10**（31%）；恢復時若牆面空間不足會**長時間維持小碰撞體**
+   （latch 版 1.96 s，其中 **1.50 s 是落地後**，且需要玩家自己走開才恢復）；
+   更嚴重的是**縮小期間角色可進入 authored capsule 原本到不了的空間，實測深達 0.50 m**（§12.5／§12.6）。
+6. **footprint／support radius 可以改善「何時算失去支撐」，但不解決核心問題。**
+   它們改的是判準，而核心問題是 **Unity `CharacterController` 的實體碰撞仍卡在邊角**。
+   ⇒ 換判準只會更快進入第 2 點描述的矛盾狀態（§10.5 選項④）。
+7. **完整解法的工程成本已超過作品集可見收益。** 要真正解決，必須開始要求：
+   自訂／Kinematic movement solver（取代 `CharacterController.Move()`）、
+   `SlideAlongSurface` 式的沿面滑移、額外的 movement authority、
+   Foot IK 的中間語意（`SupportedButReleasing`），以及與 traversal 的協調。
+   **UE 之所以沒有這個狀態，是因為它的角色本來就不是被碰撞撐住的**
+   （`FindFloor` ＋ `AdjustFloorHeight` 把膠囊**放置**在浮貼區間）——
+   那是結構性的答案，不是可以照抄的函式（§10.4）。
+8. **因此接受「極端邊緣允許部分腳掌懸空」作為已知限制。**
+
+### 13.3 🔓 未來重開條件
+
+**只有下列情況之一發生時才重新研究這個問題：**
+
+1. 改用**自製／Kinematic Character Motor**（不再由 `CharacterController.Move()` 解算移動）
+2. **正式重寫 grounded / floor solver**（例如引入 UE 式的 `FindFloor` ＋ 浮貼區間）
+3. **traversal / ledge gameplay 本身**需要精確的 support model（不是為了觀感，是為了玩法）
+4. **實際展示中證明**此 overhang 明顯影響觀感或玩法
+
+⛔ **否則不要再次為這個問題新增局部 workaround。**
+「局部 workaround」包含但不限於：較小的 support radius、footprint 多點、暫時縮小碰撞體、
+outward push／edge slip、只在某些狀態下否決 grounded、為 Foot IK 開特例閘門。
+**這四類這份文件都量過了，全部是淨負面或成本過高。**
+
+📌 重開時**先讀 §12.9 的四條結論**——它們適用於**所有**「改碰撞體形狀」的變體，
+可以省下整輪重新量測。
