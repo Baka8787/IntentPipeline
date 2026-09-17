@@ -122,7 +122,7 @@
   <p class="lede">
     「現在在跟誰打、對方在哪」——這件事有<strong>七個消費者</strong>，橫跨 Core、Presentation 與 App。
     這頁講的不是一個黑板欄位的欄位表，而是<strong>為什麼那七個消費者都只消費語境，
-    而不各自重新判斷戰鬥關係</strong>，以及那份語境為什麼只能在順序 2.6 產生。
+    而不各自重新判斷戰鬥關係</strong>，以及那份語境的<strong>合法產生區間</strong>是怎麼被資料依賴夾出來的。
   </p>
 
   <div class="keyfacts">
@@ -172,7 +172,7 @@
       <text class="xs mu" x="308" y="178">TargetPosition　　Vector3</text>
       <text class="xs mu" x="308" y="194">HasSoftTarget ／ SoftTargetPosition</text>
 
-      <text class="xs m mu" x="580" y="18">七個消費者 —— 全部只讀</text>
+      <text class="xs m mu" x="580" y="18">七個 reader —— 其中兩個同時是 per-actor writer</text>
 
       <g class="xs">
         <rect class="box" x="580" y="28" width="264" height="34"></rect>
@@ -199,9 +199,9 @@
         <text class="m" x="592" y="232">WorldSpaceHealthBar</text>
         <text class="mu" x="592" y="246" style="font-size:9.5px">InCombat（血條可見性）</text>
 
-        <rect class="box" x="580" y="256" width="264" height="34"></rect>
-        <text class="m" x="592" y="270">CharacterPipelineRunner</text>
-        <text class="mu" x="592" y="284" style="font-size:9.5px">排程 producer，不解讀內容</text>
+        <rect class="boxb" x="580" y="256" width="264" height="34"></rect>
+        <text class="m bd" x="592" y="270">PlayerCombatContextSource</text>
+        <text class="mu" x="592" y="284" style="font-size:9.5px">讀<tspan class="bd">上一幀</tspan> InCombat ⇒ 遲滯（自寫自讀）</text>
       </g>
 
       <path class="lnm" d="M550,120 L566,120 L566,45 L576,45" marker-end="url(#arm)"></path>
@@ -219,9 +219,10 @@
     </svg>
 
     <figcaption>
-      注意 <code>AIMovementSource</code> 同時是 <strong>writer 與 reader</strong>——
-      它在順序 2.5 寫出語境，然後在同一步用它決定移動模式。
-      那不是循環依賴，是<strong>「先判斷語境，再依語境行動」的同步兩段</strong>。
+      <strong>兩個 producer 同時是 reader</strong>，而且讀的都是自己<strong>上一幀</strong>寫的值——
+      那不是循環依賴，那就是<strong>遲滯的實作方式</strong>：
+      <code>wasInCombat</code> 決定這一幀用 enter 還是 leave 半徑。<br>
+      ⚠️ <code>CharacterPipelineRunner</code> <strong>不是</strong> reader——它只排程 producer，不解讀語境內容。
     </figcaption>
   </figure>
 </section>
@@ -230,16 +231,18 @@
 <section>
   <div class="sec-head">
     <span class="n">02</span>
-    <h2>順序 2.6：一個只有三格寬的夾縫</h2>
-    <span class="tag">玩家 producer 的時序約束</span>
+    <h2>合法區間：順序 2 之後、順序 3 之前</h2>
+    <span class="tag">2.6 是落點，不是唯一解</span>
   </div>
   <p class="sec-intro">
-    敵人的語境可以在 2.5 產生，因為它不需要看玩家的輸入。
-    <strong>玩家的不行</strong>——它有兩個方向的硬約束，把它夾在一個很窄的位置。
+    玩家的語境需要<strong>晚於順序 2</strong>（要讀本幀剛寫好的 <code>Intent</code>），
+    並<strong>早於順序 3</strong>（最早的消費者 <code>LocomotionModel</code>）。
+    <strong>2.5 與 2.6 都落在這個區間內</strong>——玩家獨立排在 2.6 是責任分工（它的 2.5 producer
+    <code>PlayerLocomotionPolicy</code> 不管戰鬥語境），不是排程上的唯一解。
   </p>
 
   <figure>
-    <svg viewBox="0 0 860 300" role="img" aria-label="順序 2.6 的兩個時序約束：必須在順序 2 之後讀到 Action intent，且必須在順序 4 之前，否則 external ActionRequestTarget 已被清除">
+    <svg viewBox="0 0 860 300" role="img" aria-label="戰鬥語境的合法產生區間：下界是順序 2（要讀本幀 Intent），上界是順序 3（最早的消費者 LocomotionModel；FSM 在順序 4 也消費），2.6 是玩家目前的落點">
       <line class="grid" x1="60" y1="150" x2="800" y2="150"></line>
       <g class="xs m mu">
         <text x="110" y="142" text-anchor="middle">2</text>
@@ -266,32 +269,38 @@
       <text class="xs m bd" x="410" y="180" text-anchor="middle">2.6</text>
       <text class="xs mu" x="410" y="195" text-anchor="middle">玩家語境</text>
 
-      <rect class="boxw" x="660" y="60" width="140" height="40"></rect>
-      <text class="xs m wr" x="730" y="78" text-anchor="middle">FSM 評估後</text>
-      <text class="xs mu" x="730" y="93" text-anchor="middle">清除 external request</text>
+      <rect class="boxw" x="640" y="60" width="160" height="40"></rect>
+      <text class="xs m wr" x="720" y="78" text-anchor="middle">model（3）最早消費</text>
+      <text class="xs mu" x="720" y="93" text-anchor="middle">FSM（4）稍後也消費</text>
       <path class="lnw" d="M700,104 L700,124 L424,124 L424,144" marker-end="url(#arw)"></path>
-      <text class="xs m wr" x="570" y="120" text-anchor="middle">② 必須在這之前 —— 否則 mailbox 已空</text>
+      <text class="xs m wr" x="570" y="120" text-anchor="middle">② 上界＝順序 3 —— 錯過的話至少 model 看到上一幀</text>
 
       <rect class="boxb" x="330" y="216" width="160" height="26"></rect>
-      <text class="xs m bd" x="410" y="234" text-anchor="middle">可用區間就只有這裡</text>
+      <text class="xs m bd" x="410" y="234" text-anchor="middle">合法區間（2.5 也在裡面）</text>
 
       <rect class="boxm" x="16" y="256" width="828" height="36"></rect>
-      <text class="xs me m" x="28" y="278">📌 敵人沒有這兩個約束：它不讀順序 2 的 Action intent，也不依賴 external target ⇒ 所以可以併進 2.5 的同一步。</text>
+      <text class="xs me m" x="28" y="278">📌 敵人沒有<tspan font-weight="700">下界</tspan>①（不讀順序 2 的 Action intent），但同樣受上界②約束 ⇒ 2.5 已滿足，可併進同一步。</text>
     </svg>
 
     <figcaption>
-      這是<strong>由資料依賴推導出來的位置</strong>，不是編號上的美觀安排。
-      把它移到 2.5 會讀到上一幀的 Action intent；移到 4 之後 external mailbox 已經被清空。
+      <code>docs/15</code> 的原話：「順序 2 已寫好 <code>Intent</code>，可直接讀『本帧是否出手』；
+      早於順序 3／4，讓 model 與 FSM 都看得到。」<br>
+      ⚠️ 注意這是一個<strong>區間</strong>而不是一個點——2.5 也滿足這兩條。
+      玩家用獨立的 2.6 是因為它的 2.5 producer（<code>PlayerLocomotionPolicy</code>）不管戰鬥語境；
+      敵人則把它併進自己的 2.5。<strong>編號是排程，約束是區間。</strong>
     </figcaption>
   </figure>
 
-  <div class="callout warn">
-    <div class="h">🔴 這條依賴曾經差點被切斷</div>
-    <code>docs/26</code> §I 記錄：受擊 seam 從 <code>ActionRequestTarget</code> 遷出時，
-    <strong><code>docs/15</code> §4.1 明文把 <code>ActionRequestTarget.PendingSlot</code> 當成戰鬥語境的進入條件</strong>——
-    離開 mailbox 必須<strong>同步遷移</strong> <code>PlayerCombatContextSource</code>，
-    否則會出現「<strong>被圍毆時反而提早脫離戰鬥</strong>」，而且<strong>沒有任何錯誤訊息</strong>。<br>
-    這是 failure-atlas <strong>F4（關係不存在）</strong>的近親：兩個子系統共用一個欄位當判準，而那個共用關係只寫在文件裡。
+  <div class="callout">
+    <div class="h">⭐ 互動判準已經遷移過一次（現況，非風險）</div>
+    舊版用 <code>ActionRequestTarget.PendingSlot</code>（external mailbox）當互動判準。
+    受擊改走 <code>StateType.Hurt</code> 之後那個 mailbox 不再承載受擊——
+    <strong>若不一併遷移，「被打」會安靜地停止刷新交戰計時 ⇒ 被圍毆時反而提早脫離戰鬥，且沒有任何錯誤訊息。</strong><br>
+    現行判準是<strong>兩個黑板欄位</strong>，而且涵蓋面更廣（任何來源的傷害都算互動，不再限於「記得戳 mailbox」的那些）：
+    <div class="calc" style="margin-top:10px">interactionThisFrame = data.Intent.RequestedActionSlot != ActionSlot.None
+                    || data.Survivability.JustTookDamage;</div>
+    📌 這也解釋了約束 ①：<code>Intent</code> 在順序 2 寫、<code>Survivability</code> 在順序 0.5 寫——
+    兩者都必須先於本步。
   </div>
 </section>
 
@@ -350,16 +359,18 @@ aggroEnterRadius = <span class="me">8</span>      aggroLeaveRadius = <span class
       <thead><tr><th>概念</th><th>回答什麼</th><th>誰消費</th><th class="no">⚠️ 常見誤解</th></tr></thead>
       <tbody>
         <tr><td><strong>Target</strong><br><code>HasTarget</code>／<code>TargetPosition</code></td><td>「我現在在跟<strong>誰</strong>打」</td><td>Facing（Priority 2）、HeadLook</td><td class="no">不是 lock-on——它不鎖定，只是語境</td></tr>
-        <tr class="bind"><td><strong>Soft Target</strong><br><code>HasSoftTarget</code>／<code>SoftTargetPosition</code></td><td>「這一擊<strong>該往哪</strong>」</td><td>ActionState 的 targeting 解算</td><td class="no">只有顯式 <code>CameraConeSoftTarget</code> 的 Action 才吃；預設是 <code>CameraForward</code></td></tr>
+        <tr class="bind"><td><strong>Soft Target</strong><br><code>HasSoftTarget</code>／<code>SoftTargetPosition</code></td><td>「這一擊<strong>該往哪</strong>」</td><td>ActionState 的 targeting 解算</td><td class="no">🔴 <strong>沒有黏性</strong>——每幀重選、無記憶（程式註解：「每幀、無記憶」）。黏性只屬於 combat target。且只有顯式 <code>CameraConeSoftTarget</code> 的 Action 才吃</td></tr>
         <tr><td><strong>Interaction</strong><br>（內部 <code>_lastInteractionTime</code>）</td><td>「我最近<strong>有沒有在打</strong>」</td><td>只有 producer 自己（倒數基準）</td><td class="no">不進黑板——它是判準的中間量，不是語境</td></tr>
       </tbody>
     </table>
   </div>
 
   <div class="note key"><span class="lab">為什麼分開</span><p>
-    <strong>Target 是關係，Soft Target 是意圖。</strong>
+    <strong>Target 是<em>關係</em>（黏性、跨幀），Soft Target 是<em>意圖</em>（每幀、無記憶）。</strong>
     「我在跟這隻打」與「這一發火球往哪飛」可以不同——例如你正在跟 A 交戰，但準心掃過 B。
-    合成一個欄位會讓 facing 跟著準心跑，那正是 <code>direction-authority</code> 要拆開的三個方向概念之一。
+    合成一個欄位會讓 facing 跟著準心跑，那正是 <code>direction-authority</code> 要拆開的三個方向概念之一。<br>
+    ⚠️ 兩者的<strong>記憶特性相反</strong>，這正是它們必須是兩個欄位的理由：
+    把無記憶的意圖存成黏性關係，準心一掃過去角色就轉身不回來了。
   </p></div>
 </section>
 
@@ -384,8 +395,8 @@ aggroEnterRadius = <span class="me">8</span>      aggroLeaveRadius = <span class
 
   <div class="note why"><span class="lab">零配置</span><p>
     候選搜尋用固定容量的 <code>_candidateBuffer</code>（建構期一次配置）＋ 非配置 overlap 查詢。
-    這與 <code>AimResolver</code> 的 <code>_hitBuffer</code> 是同一個模式：
-    <strong>熱路徑只需要當幀最優候選，不保存列表</strong>，溢出的候選直接忽略。
+    <strong>熱路徑只需要當幀最優候選，不保存列表</strong>，溢出的候選直接忽略——
+    這與整個 repo 的零 GC 紀律一致：固定容量是刻意的，不是待優化的上限。
   </p></div>
 </section>
 
@@ -403,8 +414,8 @@ aggroEnterRadius = <span class="me">8</span>      aggroLeaveRadius = <span class
       <tbody>
         <tr><td class="m">direction-authority</td><td>Facing 四段優先序；Priority 2 為什麼不吃死區</td><td>Priority 2 讀的那份語境<strong>從哪來、何時產生</strong></td></tr>
         <tr><td class="m">action-combat</td><td>targeting 模式（<code>CameraForward</code> vs <code>CameraConeSoftTarget</code>）</td><td>soft target 本身的產生與黏性</td></tr>
-        <tr><td class="m">enemy-ai</td><td><code>EngagementMovement</code> 的三模式與 NavMesh 退回</td><td>aggro 語境與移動模式<strong>為什麼是兩層</strong></td></tr>
-        <tr><td class="m">authority-timeline</td><td>2.5／2.6 在時間軸上的位置</td><td>2.6 <strong>為什麼</strong>只能在那個夾縫</td></tr>
+        <tr><td class="m">enemy-ai</td><td><code>EngagementMovement</code> 的五個模式與 NavMesh 退回</td><td>aggro 語境與移動模式<strong>為什麼是兩層</strong></td></tr>
+        <tr><td class="m">authority-timeline</td><td>2.5／2.6 在時間軸上的位置</td><td>那個區間的<strong>上下界各自從哪來</strong></td></tr>
         <tr><td class="m">survivability</td><td><code>WorldSpaceHealthBar</code> 讀的血量真相</td><td>那條血條的<strong>可見性</strong>判準（<code>InCombat</code>）</td></tr>
       </tbody>
     </table>
@@ -414,7 +425,8 @@ aggroEnterRadius = <span class="me">8</span>      aggroLeaveRadius = <span class
 <div class="foot">
   原始檔：<code>docs/artifacts/combat-context.html</code>　·　分類：<strong>Subsystem Architecture</strong><br>
   文字正本：<code>docs/15-combat-context.md</code>　·　治理：<strong>ADR-007 S3a</strong>（🟡 Trial）<br>
-  測試：<code>CombatContextTests</code>（含 TC6C 守 HeadLook 的 clamp 行為）<br>
+  測試：<code>CombatContextTests</code>（<code>TC6C</code> 守 HeadLook 角度<strong>全 sweep 連續性</strong>；
+  <code>TC6D</code> 才是 pitch clamp——舊的 TC6C clamp 測試已於 2026-09-08 被取代）<br>
   authored 值來源：<code>X Bot.prefab</code>（enter 6／leave 9／disengage 5）·
   <code>Y Bot.prefab</code>（aggroEnter 8／aggroLeave 12）
 </div>

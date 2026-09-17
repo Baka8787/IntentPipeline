@@ -124,7 +124,7 @@
   <h1>生存與致死解剖</h1>
   <p class="lede">
     這個子系統的核心不是「HP 數字」，而是<strong>一個決定要在哪一幀被做出、被誰做出、以及被誰消費</strong>。
-    傷害在 Physics 階段結算，而 FSM、仲裁、HUD、重生四個下游都需要<strong>同一份</strong>真相——
+    近戰與投射物的傷害在 Physics 階段結算，而 FSM、仲裁、HUD、重生四個下游都需要<strong>同一份</strong>真相——
     所以它必須排在整條管線的最前面。
   </p>
   <div class="trial">⚠️ ADR-009 目前是 Trial —— AC1–AC4 已由自動測試驗證，AC5／AC6 待人類 Play。本頁描述的是「目前的實作基線」，不是已驗收的成品。</div>
@@ -153,12 +153,12 @@
 
   <figure>
     <svg viewBox="0 0 860 440" role="img" aria-label="Survivability 的五個環節：傷害結算、黑板發布、FSM 接管、仲裁封鎖、重生與 HUD 消費">
-      <text class="xs m mu" x="16" y="18">① 傷害真相（Physics 階段，早於 Update）</text>
+      <text class="xs m mu" x="16" y="18">① 傷害真相（三個 sink，觸發時機不同）</text>
       <rect class="box" x="16" y="28" width="250" height="76"></rect>
       <text class="s t" x="28" y="50">三個攻擊 sink</text>
-      <text class="xs mu" x="28" y="70">MeleeHitboxSink</text>
-      <text class="xs mu" x="28" y="85">ThrownProjectile</text>
-      <text class="xs mu" x="28" y="100">GroundEffectSink</text>
+      <text class="xs me" x="28" y="70">MeleeHitboxSink　　Physics</text>
+      <text class="xs me" x="28" y="85">ThrownProjectile　 Physics</text>
+      <text class="xs wr" x="28" y="100">GroundEffectSink　 順序 4 Update</text>
 
       <line class="ln" x1="270" y1="66" x2="300" y2="66" marker-end="url(#ar)"></line>
       <text class="xs m mu" x="274" y="58">damage</text>
@@ -250,7 +250,7 @@
     <svg viewBox="0 0 860 340" role="img" aria-label="死亡幀的時序：傷害在 Physics 階段結算，順序 0.5 發布，順序 4 FSM 同幀接管，順序 6 水平速度消失，而 BlockInput 要下一幀才到">
       <rect class="boxw" x="16" y="26" width="150" height="40"></rect>
       <text class="xs m wr" x="91" y="44" text-anchor="middle">Physics 階段</text>
-      <text class="xs mu" x="91" y="59" text-anchor="middle">OnTriggerEnter</text>
+      <text class="xs mu" x="91" y="59" text-anchor="middle">近戰／投射物</text>
       <text class="xs m mu" x="16" y="18">早於 Update</text>
 
       <line class="lnw" x1="170" y1="46" x2="196" y2="46" marker-end="url(#arw)"></line>
@@ -320,12 +320,58 @@
   </div>
 
   <div class="callout warn">
-    <div class="h">⚠️ 文件與程式的一處落差（以程式為準）</div>
-    ADR-009 D1 把讀者列為「<code>DeathState.CanEnter</code>、<code>AIInputSource</code>、<code>PlayerInputSource</code>（死後停止產生 intent）」。
-    <strong>但目前程式裡 <code>PlayerInputSource</code> 與 <code>AIInputSource</code> 都沒有讀 <code>Survivability</code></strong>——
-    grep 確認只有 <code>AIMovementSource</code>（順序 2.5）直接讀 <code>IsDead</code>。<br>
-    玩家死亡幀的行為因此是靠 <strong>FSM 接管 ＋ <code>ExecuteVerticalOnlyMovement</code></strong> 成立的，不是靠輸入被擋。
-    功能上正確，但 ADR 的那一句描述的是意圖而非現況。
+    <div class="h">⚠️ 同幀論證只適用於 Physics 階段結算的傷害</div>
+    <code>MeleeHitboxSink</code> 與 <code>ThrownProjectile</code> 在 Physics callback 結算，早於所有 <code>Update</code>
+    ⇒ 本幀順序 0.5 發布的就是最新真相，上表成立。<br>
+    但 <code>GroundEffectSink.Release()</code> 是由<strong>順序 4 的 <code>ActionState</code> 呼叫的</strong>，
+    <code>ApplyDamage</code> 發生在 Update-time ⇒ 該角色本幀的順序 0.5 <strong>已經跑完</strong>。
+    加上不同角色的 <code>Update</code> 之間沒有明文執行順序，<strong>AoE 傷害不保證同幀發布</strong>，
+    最晚會在目標的下一次順序 0.5 才成為真相。<br>
+    📌 這不是缺陷——只是<strong>「同幀停下來」這個保證的適用範圍比整句話窄</strong>。
+  </div>
+
+  <div class="callout">
+    <div class="h">⭐ 「死後停止產生 intent」為什麼不寫在輸入層</div>
+    ADR-009 D1 的原始讀者清單含 <code>AIInputSource</code>／<code>PlayerInputSource</code>，
+    但同一份 ADR 的 <strong>§4.1 已正式修訂</strong>：改走 <code>DeathArbiterSource → BlockInput</code>。<br>
+    理由不是偏好，是<strong>既有不變量推出來的</strong>——
+    <code>A27_AttackTrigger_IsProducedByInputSourceOnly</code> 的核心契約是「攻擊 trigger 只能由
+    <code>IInputSource</code> 產生」；它<strong>另外以 token scan 對現行的 <code>AIInputSource</code> 這個檔案</strong>
+    守住「不得出現 <code>PlayerRuntimeData</code>／FSM／<code>ActionState</code>」。<br>
+    ⚠️ <strong>範圍要講準</strong>：那是<strong>針對該檔案的斷言</strong>，
+    既不是掃描所有 <code>IInputSource</code> 實作的通則，也不是「所有 producer 都不得讀 gameplay state」。<br>
+    ⇒ 準確的說法是兩句：<strong>①順序 1 的 <code>IInputSource</code>（現行兩個實作）不直接讀
+    <code>Survivability</code>；②在 <code>IMovementIntentSource</code> 實作中，只有 <code>AIMovementSource</code>
+    直接讀 <code>IsDead</code>。</strong><br>
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th class="m">直接讀 data.Survivability.IsDead 的七個型別</th><th>身分</th><th>讀它做什麼</th></tr></thead>
+      <tbody>
+        <tr class="bind"><td class="m">AIMovementSource</td><td>producer（MovementIntent）</td><td>屍體不產生移動意圖</td></tr>
+        <tr><td class="m">DeathArbiterSource</td><td>producer（仲裁請求）</td><td><code>BlockInput = IsDead</code></td></tr>
+        <tr><td class="m">CharacterFacingSource</td><td>producer（facing 請求）</td><td>死亡否決層——不送 request</td></tr>
+        <tr><td class="m">DeathState</td><td>consumer（FSM）</td><td><code>CanEnter</code> ／ <code>CanTransitionAway</code></td></tr>
+        <tr><td class="m">MotionDriver</td><td>consumer</td><td>依 profile 的 <code>ApplyWhileDead</code> 決定套不套用</td></tr>
+        <tr><td class="m">HeadLookController</td><td>consumer（表現層）</td><td>屍體不轉頭</td></tr>
+        <tr><td class="m">WorldSpaceHealthBar</td><td>consumer（App）</td><td>血條顯示</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note why"><span class="lab">分佈</span><p>
+    七個直接讀者裡有<strong>三個是 producer</strong>——這正是「<strong>死亡由各自的消費者明確收手，
+    不靠下游剛好擋住</strong>」這條紀律的實際樣子：每個 producer 自己知道該在死亡時停手，
+    而不是指望某一層擋住全部。<br>
+    ⚠️ 上表<strong>不含 <code>CharacterHealth</code> 自己</strong>（它是寫入者）。</p></div>
+
+  <div class="note key"><span class="lab">另一條通道</span><p>
+    <code>PlayerCombatContextSource</code> <strong>不在上表</strong>——它讀的不是自己的黑板，
+    而是<strong>候選目標</strong>的 <code>GetComponentInParent&lt;CharacterHealth&gt;().IsDead</code>。<br>
+    用途也不同：上表七個都是「<strong>我死了所以我收手</strong>」，它是「<strong>那個目標死了所以不合法</strong>」——
+    target validity，不是自我抑制。<br>
+    ⚠️ 附帶一條契約：<strong>沒有 <code>CharacterHealth</code> 的目標視為合法</strong>（訓練樁、可互動物件）。</p>
   </div>
 </section>
 

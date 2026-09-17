@@ -197,19 +197,23 @@
       <text class="xs mu" x="544" y="190">4.6 CharacterFacingSource</text>
       <text class="xs mu" x="544" y="208">6　 MotionDriver</text>
       <text class="xs mu" x="544" y="226">6.5 PresentationPipeline（Foot IK／音效）</text>
-      <text class="xs me" x="544" y="242" style="font-size:9.5px">兩隻角色掛的是同一批元件，只是 config 資產不同</text>
+      <text class="xs me" x="544" y="242" style="font-size:9.5px">共用同一組核心 driver 型別；producer 與可選元件不同</text>
 
       <rect class="boxb" x="528" y="268" width="316" height="52"></rect>
       <text class="xs bd m" x="540" y="288">⭐ 這就是「介面可換」的實證</text>
       <text class="xs mu" x="540" y="306">Runner 不知道自己在跑玩家還是敵人——它只呼叫介面。</text>
 
-      <text class="xs mu" x="16" y="392">⚠️ 唯一的結構差異：玩家多一個順序 2.6；敵人把 CombatContext 併進 2.5。理由見 <tspan class="m">combat-context.html</tspan> §02。</text>
+      <text class="xs mu" x="16" y="392">⚠️ 核心 Runner 管線的唯一排程差異：玩家多一個順序 2.6；敵人把 CombatContext 併進 2.5。理由見 <tspan class="m">combat-context.html</tspan> §02。</text>
     </svg>
 
     <figcaption>
-      敵人 prefab（<code>Y Bot</code>）掛的是<strong>同一顆 <code>CharacterPipelineRunner</code>、
-      同一顆 <code>LocomotionModel</code>、同一顆 <code>MotionDriver</code>、同一顆 <code>CharacterHealth</code></strong>。
-      差別只在第一與第二格填了不同的 producer，以及指向不同的 <code>StateMachineConfig</code> 資產。
+      兩隻角色共用同一組<strong>核心 driver 型別</strong>——<code>CharacterPipelineRunner</code>、
+      <code>LocomotionModel</code>、<code>MotionDriver</code>、<code>CharacterHealth</code>、
+      <code>AnimancerFacade</code>、Foot IK——以及順序 3 之後的整條管線。<br>
+      ⚠️ <strong>元件集合本身並不相同</strong>：X Bot 另有 <code>PlayerCombatContextSource</code>／
+      <code>TraversalProbe</code>／<code>RespawnController</code>／<code>PlayerHud</code>／<code>HeadLookController</code>；
+      Y Bot 另有 <code>AIInputSource</code>／<code>AIMovementSource</code>／<code>WorldSpaceHealthBar</code>。
+      <strong>共用的是管線與 driver，不是 prefab 的元件清單。</strong>
     </figcaption>
   </figure>
 </section>
@@ -258,8 +262,8 @@
       <text class="xs wr" x="588" y="126">⛔ 不取得位移 authority</text>
       <text class="xs wr" x="588" y="142">⛔ 不取得旋轉 authority</text>
       <text class="xs mu" x="588" y="166">updatePosition ／ updateRotation</text>
-      <text class="xs mu" x="588" y="182">兩者皆 <tspan class="m">false</tspan></text>
-      <text class="xs me" x="588" y="202">A16 測試守著</text>
+      <text class="xs mu" x="588" y="182">兩者皆 <tspan class="m">false</tspan>（現行實作）</text>
+      <text class="xs mu" x="588" y="202">A16 守：兩個 false ＋ 無 CharacterController</text>
 
       <rect class="boxw" x="16" y="228" width="828" height="100"></rect>
       <text class="s t wr" x="28" y="252">⛔ 混在一起會怎樣</text>
@@ -296,13 +300,22 @@
       <thead><tr><th>模式</th><th>什麼時候</th><th>輸出</th><th>推進遲滯？</th></tr></thead>
       <tbody>
         <tr><td class="m">Approach</td><td>距離 &gt; 近戰帶上緣</td><td>朝目標移動，speed = 1</td><td>✅</td></tr>
-        <tr><td class="m">Hold</td><td>在近戰帶內</td><td>原地或小幅側移（0.35）</td><td>✅</td></tr>
-        <tr><td class="m">Strafe</td><td>帶內且可側移</td><td>橫向移動，週期換向</td><td>✅</td></tr>
+        <tr class="bind"><td class="m">Strafe</td><td><strong>在近戰帶內</strong>（帶內的正常解）</td><td>橫向移動，speed = 0.35；換向間隔 <strong>基準 2.5 s × 隨機 0.75–1.25</strong>（實際 1.875–3.125 s）</td><td>✅</td></tr>
         <tr><td class="m">Retreat</td><td>距離 &lt; 近戰帶下緣</td><td>後退拉開</td><td>✅</td></tr>
+        <tr><td class="m">Hold</td><td><strong>零移動 fallback</strong>：未交戰／無 target／死亡</td><td>直接 return，不產生任何位移</td><td>—</td></tr>
         <tr class="bind"><td class="m">Recover</td><td><strong>agent 離開 NavMesh</strong></td><td>往回得去的方向走（speed 0.5）</td><td class="no">⛔ <strong>刻意不推進</strong></td></tr>
       </tbody>
     </table>
   </div>
+
+  <div class="note bad"><span class="lab">A16 邊界</span><p>
+    <code>A16</code> 是<strong>三條 token 斷言</strong>：原始碼含 <code>updatePosition = false</code>、
+    含 <code>updateRotation = false</code>、不含 <code>CharacterController</code>。<br>
+    ⚠️ 它<strong>不會</strong>阻止同檔稍後又出現 <code>updatePosition = true</code>、
+    <code>NavMeshAgent.Warp()</code> 或其他直接位置寫入。
+    <strong>現行實作確實遵守這條紀律，但測試的保障範圍比紀律本身窄</strong>——
+    這與 <code>cross-system-contract</code> 講的「token 掃描的已知精度」是同一件事。
+  </p></div>
 
   <div class="callout warn">
     <div class="h">🔴 Recover 是為了修一個「沒有出口的終態」</div>
@@ -310,8 +323,11 @@
     （<code>isOnNavMesh</code> 全專案只有 <code>AIMovementSource</code> 這一個檔案讀）。<br>
     ⇒ <code>Hold</code> 變成一個<strong>沒有出口的終態</strong>，敵人永久靜止。
     2026-09-15 錄影：<strong>連續 11 秒零位移</strong>，期間玩家跑遠也不追。<br>
-    <strong>失效模式分類</strong>：這是 failure-atlas <strong>F6（閘門管不到那條路徑）</strong>的變體——
-    不是「閘門擋錯了」，而是「<strong>擋住之後沒有人負責放行</strong>」。
+    <strong>形狀</strong>：守衛本身<strong>正確地 early-return 了</strong>，錯的是
+    <strong>沒有任何一條路徑負責把狀態帶回可用區</strong>——
+    「防呆擋住之後沒有人負責放行」。<br>
+    ⚠️ 這不對應 failure-atlas 現有的八類（F6 講的是「閘門擋不住某條路徑」，
+    這裡相反：閘門有效，但缺少回復路徑）。<strong>刻意不硬套分類。</strong>
   </div>
 
   <div class="note key"><span class="lab">為什麼不推進遲滯</span><p>
@@ -345,8 +361,8 @@
       <tbody>
         <tr class="bind"><td class="m">_engagementMovement</td><td class="m">AIMovementSource</td><td>距離帶遲滯的記憶</td><td>在帶邊緣進退抖動</td></tr>
         <tr><td class="m">_strafeDirectionSign</td><td class="m">AIMovementSource</td><td>現在往左還是往右繞</td><td>每幀換向 ⇒ 原地抽搐</td></tr>
-        <tr><td class="m">_nextStrafeDirectionFlipTime</td><td class="m">AIMovementSource</td><td>2.5 s 週期換向</td><td>換向時機失控</td></tr>
-        <tr><td class="m">_strafeBlocked</td><td class="m">AIMovementSource</td><td>側移方向被牆擋住</td><td>持續往牆裡側移</td></tr>
+        <tr><td class="m">_nextStrafeDirectionFlipTime</td><td class="m">AIMovementSource</td><td>下一次換向的時刻（基準 2.5 s × 0.75–1.25 隨機）</td><td>換向時機失控</td></tr>
+        <tr><td class="m">_strafeBlocked</td><td class="m">AIMovementSource</td><td class="no">⚠️ <strong>純診斷</strong>——兩側都不可走而停步的快照，<strong>不參與任何決策</strong>（gizmo 只讀）</td><td>只影響 debug 顯示，不影響行為</td></tr>
         <tr class="bind"><td class="m">_wasWithinAttackRange</td><td class="m">AIInputSource</td><td>進入攻擊距離的<strong>邊沿</strong></td><td>每幀重複請求出手</td></tr>
         <tr><td class="m">_nextAttackRequestTime</td><td class="m">AIInputSource</td><td>0.5 s 重試間隔</td><td>被拒絕後瘋狂重送</td></tr>
       </tbody>
@@ -377,23 +393,34 @@ desiredSpeedNormalized      = 1
 aggroEnterRadius            = <span class="me">8</span>        aggroLeaveRadius = <span class="me">12</span>
 minimumEngagementDistance   = <span class="hl">1.25</span>     maximumEngagementDistance = <span class="hl">1.6</span>
 distanceHysteresis          = 0.15
-holdStrafeSpeedNormalized   = 0.35     strafeDirectionFlipInterval = 2.5
+holdStrafeSpeedNormalized   = 0.35     strafeDirectionFlipInterval = 2.5  <span class="c">← 基準值</span>
+<span class="c">   實際換向間隔 = 2.5 × Random.Range(0.75, 1.25) ⇒ 約 1.875–3.125 s</span>
 strafeWalkableProbeDistance = 0.6
 offMeshRecoverSampleRadius  = 3        recoverSpeedNormalized = 0.5
 
-<span class="c">// ⭐ 一個值得注意的關係</span>
+<span class="c">// ⭐ 一條跨元件的 authored contract（不是巧合）</span>
 attackRange (1.6) == maximumEngagementDistance (1.6)
-<span class="c">⇒ 「站到近戰帶上緣」與「可以出手」是同一條線。</span>
-<span class="c">⚠️ 這是 authored 巧合，不是程式強制的——程式預設值是 2.0，是 prefab 把它調成 1.6。</span>
-<span class="c">   兩者若分家（例如調 attackRange 不調 engagement），敵人會站在打不到的地方揮拳。</span>
+<span class="c">Tooltip 原話：「契約（W10 守）：必須**等於** AIMovementSource 的 maximumEngagementDistance。」</span>
+<span class="c">兩個欄位的程式預設值其實都是 2.0；是 prefab 一起調成 1.6。</span>
 </div>
 
-  <div class="note bad"><span class="lab">F4 風險</span><p>
-    上面那條「關係」目前<strong>只存在於 authored 值裡，程式沒有任何一行把它們連起來</strong>。
-    這正是 failure-atlas <strong>F4（關係不存在）</strong>的形狀——
-    和 traversal 的「感測 1.25 &lt; 理想站位 1.4017」同一類。<br>
-    ⚠️ 目前沒有測試守這條。要守的話，它屬於 Verification Ladder <strong>L1（prefab 接線契約）</strong>。
+  <div class="note key"><span class="lab">已機器化</span><p>
+    <strong>沒有 runtime coupling</strong>——兩個欄位分屬兩個元件，程式不會互相讀。
+    但這條契約<strong>已經由 <code>PrefabWiringTests.W10_AttackRange_MatchesTheHoldBandUpperBound</code> 守住</strong>
+    （Verification Ladder <strong>L1</strong>），並在 <code>docs/21</code> 定義為 prefab 契約。<br>
+    ⇒ 這是「authored 跨元件契約 ＋ L1 機器化」的正面案例，<strong>不是</strong> failure-atlas F4
+    （F4 的定義是「關係在程式裡<em>不存在</em>」，而這裡存在於測試）。
   </p></div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>若兩者分家</th><th>實際症狀</th></tr></thead>
+      <tbody>
+        <tr><td class="m">attackRange &gt; maximum</td><td>還在 <code>Approach</code> 就揮拳——邊滑步邊出拳</td></tr>
+        <tr><td class="m">attackRange &lt; maximum</td><td>兩者之間出現一段「<strong>站得住但打不到</strong>」的死區，敵人在那裡繞圈永不出手</td></tr>
+      </tbody>
+    </table>
+  </div>
 </section>
 
 <!-- ═══ 6 ═══ -->
