@@ -126,7 +126,10 @@ namespace Project.Presentation.Footstep
             _previousRootPosition = rootPosition;
             _hasPreviousRootPosition = true;
 
+            // ⚠️ `data` 為 null 時視為 **grounded**：退化方向必須是「什麼都不做」（照常出聲），
+            //    而不是把整個角色的腳步靜音。
             return Detect(_poseData, _groundData, rootPosition.y, rootHorizontalSpeed,
+                data == null || data.IsGrounded,
                 data != null && data.JustLanded, deltaTime);
         }
 
@@ -141,10 +144,14 @@ namespace Project.Presentation.Footstep
         /// <param name="ground">本帧地面觀測；<c>null</c> 或未 warm 時退化為以 <paramref name="rootPlaneY"/> 為地面。</param>
         /// <param name="rootPlaneY">角色 Root 平面世界 Y（＝膠囊底＝腳底基準）。</param>
         /// <param name="rootHorizontalSpeed">角色**實際**的世界水平速度（量 Transform 位移，不是移動意圖）。</param>
+        /// <param name="isGrounded">
+        /// 角色本帧是否觸地（黑板 <c>IsGrounded</c>）。⭐ 只用來**否決**沒有地面觀測時的回報，
+        /// 見方法內的說明；為 <c>true</c> 時本規則完全不介入。
+        /// </param>
         /// <param name="justLanded">本帧是否剛落地。</param>
         /// <param name="deltaTime">本帧時間步長。</param>
         public PresentationEventData Detect(FootIKPoseData pose, FootIKGroundData ground,
-            float rootPlaneY, float rootHorizontalSpeed, bool justLanded, float deltaTime)
+            float rootPlaneY, float rootHorizontalSpeed, bool isGrounded, bool justLanded, float deltaTime)
         {
             PresentationEventData events = default;
 
@@ -180,6 +187,29 @@ namespace Project.Presentation.Footstep
             FootstepKind right = _rightTracker.Advance(
                 rightBottom, rightHasGround, rightHasGround ? ground.Right.GroundY : 0f,
                 rootPlaneY, rootHorizontalSpeed, deltaTime, settings, out FootstepSuppressReason rightReason);
+
+            // 🆕（2026-09-17）**離地且沒有地面觀測 ⇒ 不回報。**
+            //
+            // ⚠️ 這不是「把判準調嚴」，是**原本的量測在空中沒有意義**：
+            //    `FootIKController` 的閘門是 `data.IsGrounded` ⇒ 離地時它整段關閉 ⇒ 本偵測器
+            //    拿不到地面觀測 ⇒ `groundReference` 退回 root 平面。root 平面在地上是腳底基準，
+            //    在空中只是一個**跟著角色一起飛的參考點**——腳相對它的起落純粹是動畫內容。
+            //
+            // ⭐ 觸發本 bug 的實例：ledge climb 全程 `isGrounded == false`
+            //    （原碼說明見 `MotionDriver.ExecuteTraversalWarpedMovement`：
+            //    exit knot 之後位置凍結 ⇒ `Move(Vector3.zero)` 不回報觸地 ⇒ 整段 traversal 都是 false），
+            //    攀爬動畫的腳因此在「離地 0」附近反覆進出接觸帶 ⇒ **攀爬途中出現腳步聲**。
+            //
+            // ⭐ 退化方向：`hasGround` 為真（真的有地面觀測）時**完全不介入**
+            //    ⇒ 沒有 `FootIKController` 的退化配置在地上仍照常出聲（`WithoutGroundObservation_*` 契約不變）。
+            // ⚠️ 與 justLanded 相同：抑制只發生在**推進之後**，tracker 的跨帧狀態照常前進。
+            //    「不報告」與「沒發生」是兩件事，這裡只做前者。
+            // ⛔ 刻意**不**認識 traversal／jump／任何狀態——本元件不該知道有哪些狀態存在。
+            if (!isGrounded)
+            {
+                if (!leftHasGround) { left = FootstepKind.None; leftReason = FootstepSuppressReason.Airborne; }
+                if (!rightHasGround) { right = FootstepKind.None; rightReason = FootstepSuppressReason.Airborne; }
+            }
 
             // Landing 優先（輪 3 裁決）：落地是更高階的語意，該帧不再額外報一次腳步。
             // ⚠️ 抑制刻意發生在**推進之後**——tracker 的跨帧狀態照常前進，

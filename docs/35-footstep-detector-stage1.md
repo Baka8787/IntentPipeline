@@ -260,3 +260,84 @@ L73  R107  L133  R167  L194  R227  L253  R287      ← 8 步，完整左右交�
 `PresentationEventData.cs`（`bool` → `FootstepKind`）、`PresentationPipeline.cs`（合併政策）、
 `AudioController.cs`、`AudioDefinitionSO.cs`（shuffle bag ＋ 音量抖動）、`AudioEventId.cs`（＋`Shuffle`）、
 `X Bot.prefab`／`Y Bot.prefab`（AudioSource 3D ＋ 偵測參數）
+
+---
+
+## 9. 🐛 修正：**攀爬途中有腳步聲**（2026-09-17，Play 回報）
+
+### 9.1 症狀
+
+ledge climb 進行中會聽到腳步聲。角色在爬牆，腳沒有踩在任何地面上。
+
+### 9.2 根因：**空中的「離地高度」量的是一個跟著角色飛的參考點**
+
+鏈路是三個各自正確的決定疊出來的：
+
+```
+TraversalState 執行 warp 位移
+   ↓ MotionDriver.ExecuteTraversalWarpedMovement：exit knot 之後 plan 位置凍結
+     ⇒ Move(Vector3.zero) 不回報觸地 ⇒ **整段 traversal isGrounded == false**
+       （這句是該檔 2026-09-13 就寫下的既有註解，不是這次才發現）
+   ↓ FootIKController 的閘門 = `data.IsGrounded && !BlockIK`
+     ⇒ **Foot IK 全程關閉** ⇒ SampleGround 直接 `return default`
+   ↓ FootIKGroundData.HasGround == false（雙腳）
+   ↓ FootPlantTracker：`groundReference = hasGround ? groundY : fallbackGroundReferenceY`
+     ⇒ 退回 **root 平面**
+   ↓ root 平面在地上是腳底基準；**在空中只是一個跟著角色一起上升的參考點**
+     ⇒ 攀爬動畫的腳相對它反覆進出 `ContactClearance`(0.045) 接觸帶
+   ↓ 擊發
+```
+
+⭐ **關鍵在於那個 fallback 的適用範圍被默默擴大了。**
+`hasGround == false ⇒ 用 root 平面` 當初是為了**「沒有掛 `FootIKController` 的退化配置」**
+（§4）——那種情況下角色仍然站在地上，root 平面**確實**是地面。
+但同一個條件在**離地**時也成立，而那時 root 平面不是地面。
+⇒ 這不是「判準不夠嚴」，是**量測對象根本不存在**。
+
+📌 同樣的機制對跳躍／墜落也成立，只是那些動畫的腳離 root 平面較遠，沒有被聽出來。
+
+### 9.3 修法：一個條件，且刻意不認識 traversal
+
+`FootstepDetector.Detect` 增加一個 `isGrounded` 參數（黑板 `IsGrounded`），
+在 tracker **推進之後**做否決：
+
+```csharp
+if (!isGrounded)
+{
+    if (!leftHasGround)  { left  = FootstepKind.None; leftReason  = FootstepSuppressReason.Airborne; }
+    if (!rightHasGround) { right = FootstepKind.None; rightReason = FootstepSuppressReason.Airborne; }
+}
+```
+
+四個刻意的選擇：
+
+| 選擇 | 理由 |
+|---|---|
+| **條件是「離地 **且** 沒有地面觀測」，不是單純「離地」** | 真的有地面觀測時就該相信它。若未來 Foot IK 在離地時仍開著，本規則不得反過來把真事件吃掉（由 `Airborne_WithGroundObservation_StillReports` 守住） |
+| **抑制在推進之後，不是之前** | 與 `justLanded` 同一條既有規則：「不報告」與「沒發生」是兩件事。凍結跨帧狀態會讓落地後第一步的行程基準與上膛狀態錯亂（由 `AirborneSuppression_DoesNotCorruptTheNextGroundedStep` 守住） |
+| ⛔ **不認識 traversal／jump／任何 StateType** | 本元件的契約就是「不認識狀態」。傳入的是一個**物理事實**（有沒有觸地），不是一個狀態名。⇒ 攀爬、跳躍、墜落**同一條規則涵蓋**，未來新增位移狀態零改動 |
+| **`data == null` 視為 grounded** | 退化方向必須是「什麼都不做」（照常出聲），而不是把整個角色的腳步靜音。與 `StandingSupportProbe` 當初的失敗方向原則一致 |
+
+⛔ **沒有用 `ArbiterData.BlockAudio`**：那是**整個角色**的音效總閘，攀爬時仍然要聽得到受擊／衝擊聲。
+用它會把一個偵測器的誤判升級成全域靜音。
+⛔ **沒有動 Foot IK 的閘門**——Foot IK 在 traversal 期間關閉是它自己的既有決定，與本 bug 無關。
+
+### 9.4 驗證
+
+| 測試 | 守什麼 |
+|---|---|
+| `Airborne_WithoutGroundObservation_ProducesNothing` | ⭐ **用與平地完全相同的 stride 資料**，只把 `isGrounded` 改成 false ⇒ 0 次擊發。**含前提斷言**：同一段資料在地面上必須先擊發 1 次，否則測試等於空轉 |
+| `Airborne_WithGroundObservation_StillReports` | 有真實地面觀測時 `isGrounded` 不得否決 |
+| `AirborneSuppression_DoesNotCorruptTheNextGroundedStep` | 空中被抑制的那段不得讓落地後第一步失準 |
+
+EditMode **599 / 598 passed / 0 failed / 1 skipped**（+3）。
+既有的 `WithoutGroundObservation_FallsBackToRootPlane`、`ColdGround_FallsBackAndStillDetects`、
+`FootStartingAirborne_StillProducesSteps` 全部不變 ⇒ **退化路徑的契約沒有被這道閘門改掉**。
+
+### 9.5 ⚠️ 自動化涵蓋不到、需要 Play 確認的
+
+1. **攀爬途中確實不再有腳步聲**（本輪修的就是這個，但自動化驗的是機制，不是那段動畫）。
+2. **翻越（vault）**：若某些 vault 途中 `isGrounded` 仍為 **true**（膠囊沒離開地面），
+   本閘門**不會**介入 ⇒ 腳步聲仍可能出現。**若 Play 時 vault 也有問題請回報**——
+   那會是另一個判準（需要的是「這個位移不是走路」而不是「離地」），不能靠加大這道閘門解決。
+3. **離開 traversal 的落地聲**照舊（`JustLanded` 路徑未動）。

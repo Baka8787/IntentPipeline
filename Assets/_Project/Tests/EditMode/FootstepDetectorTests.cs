@@ -556,7 +556,7 @@ namespace Project.Tests.EditMode
             var results = new List<PresentationEventData>();
             for (int i = 0; i < left.Count; i++)
             {
-                results.Add(detector.Detect(Pose(left[i], right[i]), ground, 0f, MovingRootSpeed, justLanded, Dt));
+                results.Add(detector.Detect(Pose(left[i], right[i]), ground, 0f, MovingRootSpeed, true, justLanded, Dt));
             }
             return results;
         }
@@ -567,13 +567,13 @@ namespace Project.Tests.EditMode
             FootstepDetector detector = CreateDetector();
             var cold = new FootIKPoseData(); // IsWarm = false
 
-            PresentationEventData e = detector.Detect(cold, FlatGround(), 0f, MovingRootSpeed, false, Dt);
+            PresentationEventData e = detector.Detect(cold, FlatGround(), 0f, MovingRootSpeed, true, false, Dt);
 
             Assert.IsFalse(e.LeftFootPlanted, "快照尚未被 Rig 寫過時不得消費全零數據");
             Assert.IsFalse(e.RightFootPlanted, "同上");
-            Assert.DoesNotThrow(() => detector.Detect(null, FlatGround(), 0f, MovingRootSpeed, false, Dt),
+            Assert.DoesNotThrow(() => detector.Detect(null, FlatGround(), 0f, MovingRootSpeed, true, false, Dt),
                 "pose 為 null（缺 Rig）必須安全靜默");
-            Assert.DoesNotThrow(() => detector.Detect(Pose(0f, 0f), null, 0f, MovingRootSpeed, false, Dt),
+            Assert.DoesNotThrow(() => detector.Detect(Pose(0f, 0f), null, 0f, MovingRootSpeed, true, false, Dt),
                 "ground 為 null（缺 FootIKController）必須安全退化，不得丟例外");
         }
 
@@ -589,9 +589,92 @@ namespace Project.Tests.EditMode
             for (int i = 0; i < stride.Count; i++)
             {
                 // ground = null ⇒ 必須退回 rootPlaneY（此處 0）
-                if (detector.Detect(Pose(stride[i], flat[i]), null, 0f, MovingRootSpeed, false, Dt).LeftFootPlanted) fired++;
+                if (detector.Detect(Pose(stride[i], flat[i]), null, 0f, MovingRootSpeed, true, false, Dt).LeftFootPlanted) fired++;
             }
             Assert.AreEqual(1, fired, "缺少地面觀測時，平地上的偵測必須與有觀測時等價");
+        }
+
+        /// <summary>
+        /// 🐛 **攀爬途中有腳步聲**（2026-09-17 Play 回報）的回歸測試。
+        ///
+        /// 重現的是機制本身，不是某一段攀爬動畫：
+        /// ledge climb 全程 <c>isGrounded == false</c>（見 <c>MotionDriver.ExecuteTraversalWarpedMovement</c>
+        /// 的原碼說明）⇒ Foot IK 閘門關閉 ⇒ 沒有地面觀測 ⇒ 高度基準退回 root 平面
+        /// ⇒ 動畫的腳在「離地 0」附近進出接觸帶就被判成落腳。
+        ///
+        /// ⚠️ 刻意用**與平地完全相同的 stride 資料**——差別只有 <c>isGrounded</c>。
+        /// 這樣才證明是「空中不該報」，而不是「這段資料本來就不構成一步」。
+        /// </summary>
+        [Test]
+        public void Airborne_WithoutGroundObservation_ProducesNothing()
+        {
+            List<float> stride = Stride(0.18f, 8);
+            var flat = new List<float>();
+            for (int i = 0; i < stride.Count; i++) flat.Add(0f);
+
+            // ① 先確認這段資料在地面上**確實會**擊發——否則本測試等於空轉。
+            FootstepDetector grounded = CreateDetector();
+            int groundedFired = 0;
+            for (int i = 0; i < stride.Count; i++)
+                if (grounded.Detect(Pose(stride[i], flat[i]), null, 0f, MovingRootSpeed, true, false, Dt)
+                        .LeftFootPlanted) groundedFired++;
+            Assert.AreEqual(1, groundedFired, "前提斷言：同一段資料在地面上必須擊發一次");
+
+            // ② 同一段資料，只把 isGrounded 改成 false ⇒ 一次都不得擊發。
+            FootstepDetector airborne = CreateDetector();
+            int airborneFired = 0;
+            for (int i = 0; i < stride.Count; i++)
+                if (airborne.Detect(Pose(stride[i], flat[i]), null, 0f, MovingRootSpeed, false, false, Dt)
+                        .LeftFootPlanted) airborneFired++;
+
+            Assert.AreEqual(0, airborneFired,
+                "離地且沒有地面觀測時，root 平面不是地面 ⇒ 不得回報腳步（攀爬／跳躍／墜落）");
+        }
+
+        /// <summary>
+        /// ⭐ 上面那道閘門**只在沒有地面觀測時**生效。
+        /// 真的有地面觀測（例如未來 Foot IK 在離地時仍開著）就必須照常回報——
+        /// 否則這道修法會變成「離地一律靜音」，那是另一條規則。
+        /// </summary>
+        [Test]
+        public void Airborne_WithGroundObservation_StillReports()
+        {
+            FootstepDetector detector = CreateDetector();
+            List<float> stride = Stride(0.18f, 8);
+            var flat = new List<float>();
+            for (int i = 0; i < stride.Count; i++) flat.Add(0f);
+
+            int fired = 0;
+            for (int i = 0; i < stride.Count; i++)
+                if (detector.Detect(Pose(stride[i], flat[i]), FlatGround(), 0f, MovingRootSpeed, false, false, Dt)
+                        .LeftFootPlanted) fired++;
+
+            Assert.AreEqual(1, fired, "有真實地面觀測時，isGrounded 不得否決回報");
+        }
+
+        /// <summary>
+        /// ⚠️ 抑制必須發生在 tracker **推進之後**（與 justLanded 同一條規則）。
+        /// 否則空中那段的跨帧狀態會凍結，落地後第一步的行程基準與上膛狀態都會錯亂。
+        /// </summary>
+        [Test]
+        public void AirborneSuppression_DoesNotCorruptTheNextGroundedStep()
+        {
+            FootstepDetector detector = CreateDetector();
+            var flat = new List<float>();
+            List<float> stride = Stride(0.18f, 8);
+            for (int i = 0; i < stride.Count; i++) flat.Add(0f);
+
+            // 空中走完一整個 stride（全部被抑制）
+            for (int i = 0; i < stride.Count; i++)
+                detector.Detect(Pose(stride[i], flat[i]), null, 0f, MovingRootSpeed, false, false, Dt);
+
+            // 回到地面後，同樣的一個 stride 必須**正常擊發一次**
+            int fired = 0;
+            for (int i = 0; i < stride.Count; i++)
+                if (detector.Detect(Pose(stride[i], flat[i]), null, 0f, MovingRootSpeed, true, false, Dt)
+                        .LeftFootPlanted) fired++;
+
+            Assert.AreEqual(1, fired, "空中被抑制的那段不得讓落地後的第一步失準");
         }
 
         [Test]
@@ -642,16 +725,16 @@ namespace Project.Tests.EditMode
 
             // 先讓雙腳抬起並進入快速下降（上膛），但還沒踩到。
             float[] descent = { 0.20f, 0.16f, 0.12f, 0.08f };
-            foreach (float h in descent) detector.Detect(Pose(h, h), ground, 0f, MovingRootSpeed, false, Dt);
+            foreach (float h in descent) detector.Detect(Pose(h, h), ground, 0f, MovingRootSpeed, true, false, Dt);
 
             // 落地帧
-            detector.Detect(Pose(0.04f, 0.04f), ground, 0f, MovingRootSpeed, true, Dt);
+            detector.Detect(Pose(0.04f, 0.04f), ground, 0f, MovingRootSpeed, true, true, Dt);
 
             // 落地後貼地不動：若上膛狀態沒被收束，這幾帧會冒出腳步。
             int spurious = 0;
             for (int i = 0; i < 20; i++)
             {
-                PresentationEventData e = detector.Detect(Pose(0f, 0f), ground, 0f, MovingRootSpeed, false, Dt);
+                PresentationEventData e = detector.Detect(Pose(0f, 0f), ground, 0f, MovingRootSpeed, true, false, Dt);
                 if (e.LeftFootPlanted || e.RightFootPlanted) spurious++;
             }
 

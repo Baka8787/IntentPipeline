@@ -94,6 +94,13 @@ namespace Project.Presentation.Footstep
 
         /// <summary>抬腳行程不足以構成一次完整跨步（停步收腳／起步微調／姿勢調整）。🔄 這類事件目前**完全靜音**。</summary>
         BelowNormalStep,
+
+        /// <summary>
+        /// 🆕（2026-09-17）角色不在地面上，且這隻腳沒有地面觀測 ⇒ **本帧的高度量測沒有意義**。
+        /// 攀爬／跳躍／墜落途中的腳部起落是動畫內容，不是落腳。由 <c>FootstepDetector</c> 判定，
+        /// 不是 tracker 自己——tracker 不認識黑板。
+        /// </summary>
+        Airborne,
     }
 
     /// <summary>
