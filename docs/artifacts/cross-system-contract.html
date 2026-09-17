@@ -1,0 +1,347 @@
+<title>跨系統契約</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground:#EDEFF1; --surface:#F8F9FA; --sunken:#E0E3E6; --ink:#1E2126;
+    --muted:#646B73; --hair:#C6CBD0; --grid:#D8DCE0;
+    --measure:#0E6E6B; --measure-s:#D9ECEA;
+    --bind:#A8256A; --bind-s:#F6E0EC;
+    --wrong:#A33B1F; --wrong-s:#F5E2DA;
+    --sans:"Noto Sans TC",-apple-system,"Segoe UI","Microsoft JhengHei",sans-serif;
+    --mono:"IBM Plex Mono","Cascadia Mono",Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:#14161A; --surface:#1C1F24; --sunken:#262A30; --ink:#E3E6EA;
+      --muted:#969DA6; --hair:#363B42; --grid:#2C3036;
+      --measure:#5FC9C3; --measure-s:#10302F;
+      --bind:#F186BB; --bind-s:#35182A;
+      --wrong:#EE9070; --wrong-s:#381D14;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:#14161A; --surface:#1C1F24; --sunken:#262A30; --ink:#E3E6EA;
+    --muted:#969DA6; --hair:#363B42; --grid:#2C3036;
+    --measure:#5FC9C3; --measure-s:#10302F;
+    --bind:#F186BB; --bind-s:#35182A;
+    --wrong:#EE9070; --wrong-s:#381D14;
+  }
+  * { box-sizing: border-box; }
+  body { background:var(--ground); color:var(--ink); font-family:var(--sans);
+         font-size:15px; line-height:1.75; margin:0; -webkit-font-smoothing:antialiased; }
+  .shell { max-width:960px; margin:0 auto; padding:40px 28px 96px; }
+  .eyebrow { font-family:var(--mono); font-size:11px; letter-spacing:.16em;
+             text-transform:uppercase; color:var(--measure); margin-bottom:10px; }
+  h1 { font-weight:900; font-size:38px; line-height:1.2; letter-spacing:-.01em; margin:0 0 16px; text-wrap:balance; }
+  .lede { font-size:16.5px; color:var(--muted); max-width:60ch; margin:0; }
+  .lede strong { color:var(--ink); font-weight:500; }
+  .keyfacts { display:grid; grid-template-columns:repeat(auto-fit,minmax(128px,1fr));
+              gap:1px; background:var(--hair); border:1px solid var(--hair); margin:28px 0 0; }
+  .keyfacts div { background:var(--surface); padding:12px 14px; }
+  .keyfacts .v { font-family:var(--mono); font-size:18px; font-weight:600;
+                 font-variant-numeric:tabular-nums; line-height:1.2; }
+  .keyfacts .k { font-size:11.5px; color:var(--muted); line-height:1.45; margin-top:4px; }
+  section { margin-top:54px; }
+  .sec-head { display:flex; align-items:baseline; gap:12px; padding-bottom:9px;
+              border-bottom:2px solid var(--ink); margin-bottom:6px; }
+  .sec-head .n { font-family:var(--mono); font-size:12px; font-weight:600; color:var(--measure); letter-spacing:.06em; }
+  .sec-head h2 { font-size:21px; font-weight:700; margin:0; flex:1; letter-spacing:-.005em; }
+  .sec-head .tag { font-family:var(--mono); font-size:10.5px; color:var(--muted);
+                   border:1px solid var(--hair); padding:1px 6px; white-space:nowrap; }
+  .sec-intro { color:var(--muted); font-size:14px; margin:10px 0 0; max-width:62ch; }
+  figure { margin:22px 0 0; background:var(--surface); border:1px solid var(--hair); padding:18px 20px 6px; }
+  figure svg { display:block; width:100%; height:auto; }
+  figcaption { font-size:13.5px; color:var(--muted); padding:12px 0 14px;
+               border-top:1px solid var(--hair); margin-top:12px; }
+  figcaption strong { color:var(--ink); font-weight:500; }
+  svg text { font-family:var(--sans); fill:currentColor; }
+  svg .m { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  svg .t{font-size:13px;font-weight:700;} svg .s{font-size:11.5px;} svg .xs{font-size:10.5px;}
+  svg .mu{fill:var(--muted);} svg .me{fill:var(--measure);} svg .bd{fill:var(--bind);} svg .wr{fill:var(--wrong);}
+  svg .box{fill:var(--sunken);stroke:var(--hair);stroke-width:1;}
+  svg .boxm{fill:var(--measure-s);stroke:var(--measure);stroke-width:1.3;}
+  svg .boxb{fill:var(--bind-s);stroke:var(--bind);stroke-width:1.3;}
+  svg .boxw{fill:var(--wrong-s);stroke:var(--wrong);stroke-width:1.3;}
+  svg .ln{stroke:currentColor;stroke-width:1.4;fill:none;}
+  svg .lnm{stroke:var(--measure);stroke-width:1.6;fill:none;}
+  svg .lnb{stroke:var(--bind);stroke-width:1.8;fill:none;}
+  svg .lnw{stroke:var(--wrong);stroke-width:1.6;fill:none;stroke-dasharray:5 4;}
+  svg .thin{stroke:var(--hair);stroke-width:1;fill:none;}
+  svg .dash{stroke:var(--muted);stroke-width:1.1;fill:none;stroke-dasharray:4 4;}
+  svg .grid{stroke:var(--grid);stroke-width:1;fill:none;}
+  #ar path{fill:var(--ink);} #arm path{fill:var(--measure);}
+  #arb path{fill:var(--bind);} #arw path{fill:var(--wrong);}
+  .wrap { overflow-x:auto; margin:18px 0 0; }
+  table { width:100%; border-collapse:collapse; font-size:13px; min-width:640px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--hair); vertical-align:top; }
+  th { font-family:var(--mono); font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+       color:var(--muted); border-bottom:1px solid var(--ink); white-space:nowrap; }
+  td.m,th.m { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  td.num { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  td.no { color:var(--wrong); }
+  tr.bind td { background:var(--bind-s); }
+  tr.bind td:first-child { font-weight:700; }
+  .note { display:grid; grid-template-columns:74px minmax(0,1fr); gap:14px; padding:12px 0;
+          border-top:1px dotted var(--hair); font-size:13.5px; line-height:1.7; }
+  .note .lab { font-family:var(--mono); font-size:10.5px; letter-spacing:.06em; padding-top:4px; }
+  .note.why .lab{color:var(--measure);} .note.bad .lab{color:var(--wrong);} .note.key .lab{color:var(--bind);}
+  .note p { margin:0; }
+  .callout { border-left:3px solid var(--bind); background:var(--bind-s);
+             padding:14px 16px; margin:20px 0 0; font-size:14px; }
+  .callout .h { font-weight:700; margin-bottom:4px; }
+  code { font-family:var(--mono); font-size:.88em; background:var(--sunken); padding:1px 4px; }
+  .calc { font-family:var(--mono); font-size:12.5px; line-height:1.9; background:var(--sunken);
+          border:1px solid var(--hair); padding:14px 16px; margin:16px 0 0; overflow-x:auto;
+          white-space:pre; font-variant-numeric:tabular-nums; }
+  .calc .hl{color:var(--bind);font-weight:600;} .calc .me{color:var(--measure);} .calc .c{color:var(--muted);}
+  .foot { font-family:var(--mono); font-size:11px; color:var(--muted); margin-top:56px;
+          padding-top:20px; border-top:2px solid var(--ink); line-height:1.9; }
+  @media (max-width:720px){ .shell{padding:26px 16px 70px;} h1{font-size:28px;}
+    .note{grid-template-columns:1fr;gap:2px;} }
+  @media (prefers-reduced-motion:reduce){ *{animation:none!important;transition:none!important;} }
+</style>
+
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+  </defs>
+</svg>
+
+<div class="shell">
+
+<header>
+  <div class="eyebrow">Cross-System · 視覺版 · 對應 dev-spec §1／§2／§3.1</div>
+  <h1>跨系統契約</h1>
+  <p class="lede">
+    子系統之間<strong>不互相引用</strong>。它們只共用三樣東西：一塊黑板、一組驅動介面、一條管線順序。
+    這頁講的是<strong>那三樣東西的規則</strong>——每個子系統都必須遵守，
+    而違反它們的症狀通常出現在<strong>別的子系統</strong>裡。
+  </p>
+
+  <div class="keyfacts">
+    <div><div class="v">7</div><div class="k">黑板區塊</div></div>
+    <div><div class="v">3</div><div class="k">種完全不同的<br>intent 復位語意</div></div>
+    <div><div class="v">8</div><div class="k">驅動介面</div></div>
+    <div><div class="v">4</div><div class="k">可缺席的<br>角色能力</div></div>
+    <div><div class="v">1</div><div class="k">每個欄位的<br>寫入者數量</div></div>
+    <div><div class="v">A5</div><div class="k">守這件事的<br>回歸測試</div></div>
+  </div>
+</header>
+
+<!-- ═══ 1 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">01</span>
+    <h2>黑板：七個區，七個唯一寫入者</h2>
+    <span class="tag">A5 守著</span>
+  </div>
+  <p class="sec-intro">
+    黑板不是「大家都能寫的全域變數」。每一區都綁死在<strong>一個管線順序</strong>上，
+    所以「這個值什麼時候變」永遠有答案——這是整個架構可推理性的來源。
+  </p>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>區塊</th><th>語意類型</th><th class="m">唯一寫入者</th><th class="m">順序</th><th>主要讀取者</th></tr></thead>
+      <tbody>
+        <tr><td class="m">Survivability</td><td>覆寫式</td><td class="m">CharacterHealth</td><td class="num">0.5</td><td>DeathState／HurtState／仲裁</td></tr>
+        <tr class="bind"><td class="m">Intent</td><td><strong>trigger 邊沿</strong></td><td class="m">ProcessIntents</td><td class="num">2</td><td>狀態機（順序 4）</td></tr>
+        <tr class="bind"><td class="m">MovementIntent</td><td><strong>連續型</strong></td><td class="m">IMovementIntentSource</td><td class="num">2.5</td><td>Movement Model（順序 3）</td></tr>
+        <tr><td class="m">CombatContext</td><td>覆寫式</td><td class="m">敵人 AIMovementSource<br>玩家 PlayerCombatContextSource</td><td class="num">2.5<br>2.6</td><td>Facing（4.6）／Action targeting</td></tr>
+        <tr><td class="m">Movement Output</td><td>衍生值</td><td class="m">IMovementModel</td><td class="num">3</td><td>MotionDriver／Facing</td></tr>
+        <tr><td class="m">Arbitration</td><td>覆寫式</td><td class="m">ArbiterPipeline</td><td class="num">4.5</td><td>順序 2 閘門（<strong>下一幀</strong>）</td></tr>
+        <tr><td class="m">IsGrounded／VerticalVelocity<br>JustLanded／JustLeftGround</td><td>觀測＋<strong>單幀邊沿</strong></td><td class="m">MotionDriver</td><td class="num">6</td><td>FSM（下一幀）／表現層（6.5）</td></tr>
+        <tr class="bind"><td class="m">PresentationEvents</td><td><strong>廣播快照</strong></td><td class="m">PresentationPipeline</td><td class="num">6.5②</td><td>各 Controller（<strong>下一幀</strong> 6.5①）</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout">
+    <div class="h">⚠️ <code>CombatContext</code> 的兩個寫入者不是例外</div>
+    敵人在 2.5 寫、玩家在 2.6 寫——但<strong>同一個角色只會有其中一個</strong>。
+    這是「每個 actor 一個寫入者」，不是「一個欄位兩個寫入者」。<br>
+    玩家為什麼非得在 2.6：它要讀順序 2 剛寫好的 Action intent，又必須在順序 4 之前
+    （external <code>ActionRequestTarget</code> 會被順序 4 評估後清除）——<strong>那個夾縫就是 2.6 存在的理由</strong>。
+  </div>
+</section>
+
+<!-- ═══ 2 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">02</span>
+    <h2>三種 intent 語意：復位規則完全不同</h2>
+    <span class="tag">最容易混用的一節</span>
+  </div>
+  <p class="sec-intro">
+    它們都叫「意圖」，但<strong>復位方式三者互斥</strong>。
+    把其中一種的規則套到另一種身上，就是這個專案踩過最貴的幾個坑。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 840 400" role="img" aria-label="三種意圖語意的生命週期對照：trigger 邊沿當幀生當幀死、連續型每幀整體覆寫不復位、廣播快照以覆寫本身當復位">
+      <line class="grid" x1="150" y1="40" x2="150" y2="330"></line>
+      <line class="grid" x1="400" y1="40" x2="400" y2="330"></line>
+      <line class="grid" x1="650" y1="40" x2="650" y2="330"></line>
+      <text class="xs m mu" x="150" y="350" text-anchor="middle">幀 N 開始</text>
+      <text class="xs m mu" x="400" y="350" text-anchor="middle">順序 7 復位</text>
+      <text class="xs m mu" x="650" y="350" text-anchor="middle">幀 N+1</text>
+
+      <text class="xs m bd" x="16" y="62">① trigger 邊沿</text>
+      <text class="xs mu" x="16" y="78">Intent</text>
+      <rect x="150" y="48" width="250" height="26" fill="var(--bind-s)" stroke="var(--bind)" stroke-width="1.4"></rect>
+      <text class="xs m bd" x="275" y="65" text-anchor="middle">當幀生 · 當幀死</text>
+      <line class="lnw" x1="400" y1="61" x2="424" y2="61" marker-end="url(#arw)"></line>
+      <text class="xs m wr" x="432" y="64">順序 7 清空</text>
+      <text class="xs mu" x="16" y="100">Jump／Roll／ActionSlot</text>
+
+      <text class="xs m me" x="16" y="152">② 連續型</text>
+      <text class="xs mu" x="16" y="168">MovementIntent</text>
+      <rect x="150" y="138" width="600" height="26" fill="var(--measure-s)" stroke="var(--measure)" stroke-width="1.4"></rect>
+      <text class="xs m me" x="450" y="155" text-anchor="middle">每幀由 producer 整體覆寫 —— 順序 7 <tspan font-weight="700">刻意不碰它</tspan></text>
+      <text class="xs mu" x="16" y="190">DesiredSpeed／Direction</text>
+
+      <text class="xs m mu" x="16" y="242">③ 廣播快照</text>
+      <text class="xs mu" x="16" y="258">PresentationEvents</text>
+      <rect x="150" y="228" width="500" height="26" fill="var(--sunken)" stroke="var(--hair)" stroke-width="1.4"></rect>
+      <text class="xs m" x="400" y="245" text-anchor="middle">6.5② 發布 → 下一幀 6.5① 被讀</text>
+      <text class="xs mu" x="16" y="280">覆寫本身就是復位</text>
+      <line class="dash" x1="650" y1="228" x2="650" y2="254"></line>
+
+      <rect class="boxw" x="16" y="296" width="808" height="40"></rect>
+      <text class="xs wr m" x="28" y="316">🔴 混用的實際後果（實際發生過）</text>
+      <text class="xs mu" x="28" y="330">封鎖輸入時若「跳過順序 2.5」而不是「把輸入歸零」，② 就會<tspan class="wr" font-weight="700">凍結在最後一幀</tspan>——全速跑時被封鎖，角色會全速前進且放不下來。</text>
+    </svg>
+
+    <figcaption>
+      ① 需要被清空、② <strong>絕對不能</strong>被清空、③ 用覆寫取代清空。
+      三種都對，但規則不可互換。
+    </figcaption>
+  </figure>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>語意</th><th>怎麼復位</th><th>「跳過寫入」等於什麼</th><th>誤用的症狀</th></tr></thead>
+      <tbody>
+        <tr class="bind"><td><strong>trigger 邊沿</strong></td><td>順序 7 明確清空</td><td>該幀沒有意圖 ✓</td><td>忘了清 ⇒ 意圖殘留，連按一次變兩次</td></tr>
+        <tr class="bind"><td><strong>連續型</strong></td><td class="no">⛔ 不復位</td><td class="no">🔴 <strong>凍結在最後一幀</strong>（≠ 歸零）</td><td>封鎖時角色全速前進放不下來</td></tr>
+        <tr><td><strong>廣播快照</strong></td><td>整體覆寫即復位</td><td>沿用上一幀的快照</td><td>消費者「讀完就清」⇒ 兩個消費者互相吃掉事件</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note key"><span class="lab">判準</span><p>
+    要判斷一個新欄位屬於哪一種，問：<strong>「沒有人寫它的那一幀，它應該是什麼？」</strong><br>
+    應該是「沒有」⇒ trigger 邊沿。應該是「上次那個值」⇒ 連續型。
+    應該是「沒有人再關心」⇒ 廣播快照。
+  </p></div>
+</section>
+
+<!-- ═══ 3 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">03</span>
+    <h2>驅動介面：Runner 不認識什麼</h2>
+    <span class="tag">DIP 的實際形狀</span>
+  </div>
+  <p class="sec-intro">
+    每個介面存在的理由都可以寫成同一句話：<strong>「讓 Runner 不需要認識 X」</strong>。
+    下表第三欄就是那個 X——那才是介面真正的價值，不是「多一層抽象」。
+  </p>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th class="m">介面</th><th class="m">順序</th><th>讓 Runner 不必認識</th><th>缺席時</th></tr></thead>
+      <tbody>
+        <tr><td class="m">IInputSource</td><td class="num">1</td><td>裝置、按鍵、Input System</td><td class="me">✅ 以 <code>default InputData</code> 跑完整管線（＝AI 角色）</td></tr>
+        <tr class="bind"><td class="m">IMovementIntentSource</td><td class="num">2.5</td><td>移動策略（Shift=Sprint 這類規則）</td><td class="no">❌ MovementIntent 恆 0，角色不動</td></tr>
+        <tr class="bind"><td class="m">IMovementModel</td><td class="num">3</td><td>平滑、MoveSpeed、gait</td><td class="no">❌ 無運動輸出，也進不了 Move 狀態</td></tr>
+        <tr><td class="m">IArbiterSource</td><td class="num">4.5</td><td>具體封鎖語意（UI／死亡／暫停）</td><td class="me">✅ 沒有人要求封鎖 ⇒ 全 false</td></tr>
+        <tr><td class="m">CharacterHealth</td><td class="num">0.5</td><td>傷害、受擊、死亡動畫</td><td class="me">✅ 整段跳過</td></tr>
+        <tr><td class="m">TraversalProbe</td><td class="num">2.7</td><td>幾何量測與分類</td><td class="me">✅ 整段跳過，Traversal gate 恆 false</td></tr>
+        <tr><td class="m">IPresentationController</td><td class="num">6.5①</td><td>IK／音效／特效的具體實作</td><td class="me">✅ 沒有表現輸出</td></tr>
+        <tr><td class="m">IPresentationEventSource</td><td class="num">6.5②</td><td>事件如何被偵測</td><td class="me">✅ 事件區恆為 default</td></tr>
+        <tr><td class="m">IActionLifecycleSink</td><td>—</td><td>世界效果（開命中窗／生投射物）</td><td class="no">⚠️ 動畫照播，但<strong>沒有任何世界效果</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout">
+    <div class="h">「可缺席」是一個設計，不是防禦性程式</div>
+    <code>IInputSource</code> 缺席不是錯誤——那正是<strong>敵人角色</strong>的定義：
+    沒有輸入源，由順序 2.5 的 producer 直接產生 domain intent。
+    <strong>玩家與敵人共用順序 3 之後的整條管線，差別只在第一格由誰填。</strong><br>
+    ⚠️ 相對地，<code>IMovementIntentSource</code>／<code>IMovementModel</code> 缺席是<strong>真的壞掉</strong>，
+    Runner 在 <code>Awake</code> 會 <code>LogError</code>——但那要等到 Play 才看得到，
+    所以 <code>PrefabWiringTests</code> 在 EditMode 先擋一層。
+  </div>
+</section>
+
+<!-- ═══ 4 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">04</span>
+    <h2>依賴方向：白名單，不是黑名單</h2>
+    <span class="tag">A1 ／ A4</span>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 840 250" role="img" aria-label="黑名單只擋想得到的東西，白名單讓沒想到的新命名空間預設不通過">
+      <text class="s t wr" x="16" y="20">❌ 只有黑名單時</text>
+      <rect class="boxw" x="16" y="30" width="386" height="120"></rect>
+      <text class="xs mu" x="30" y="54">規則：這一層<tspan class="wr" font-weight="700">不得出現</tspan>這些 token</text>
+      <text class="xs mu" x="30" y="76">新增一個命名空間 ⇒ 不在清單上 ⇒ <tspan class="wr" font-weight="700">預設放行</tspan></text>
+      <text class="xs wr" x="30" y="102">實際發生過：producer 每幀讀 gameplay effect，</text>
+      <text class="xs wr" x="30" y="120">與「context-free」紀律直接衝突，而 A4 <tspan font-weight="700">靜默通過</tspan>。</text>
+      <text class="xs mu" x="30" y="140">「這是靜默通過，不是被批准」——dev-spec §7.3</text>
+
+      <text class="s t me" x="438" y="20">✅ 加上白名單之後</text>
+      <rect class="boxm" x="438" y="30" width="386" height="120"></rect>
+      <text class="xs mu" x="452" y="54">規則：這一層<tspan class="me" font-weight="700">只准出現</tspan>這些命名空間</text>
+      <text class="xs mu" x="452" y="76">新增一個命名空間 ⇒ 不在清單上 ⇒ <tspan class="me" font-weight="700">大聲失敗</tspan></text>
+      <text class="xs me" x="452" y="102">新增合法依賴的成本 ＝ 在測試裡補一行，</text>
+      <text class="xs me" x="452" y="120">而那一行正是應該有人停下來想一秒的地方。</text>
+      <text class="xs mu" x="452" y="140">已知的例外以<tspan class="me">明文註解</tspan>留在白名單裡，不再隱形。</text>
+
+      <rect class="boxb" x="16" y="176" width="808" height="60"></rect>
+      <text class="s t bd" x="28" y="200">可推廣的判準</text>
+      <text class="s" x="28" y="224">黑名單擋<tspan font-weight="700">想得到的</tspan>；白名單擋<tspan class="bd" font-weight="700">所有沒想到的</tspan>。安全規則的預設值應該是「拒絕」。</text>
+    </svg>
+  </figure>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th class="m">層</th><th>可以參照</th><th class="no">⛔ 不得參照</th></tr></thead>
+      <tbody>
+        <tr><td class="m">Presentation</td><td class="m">Core.Blackboard／Core.Actions／Core.Effects</td><td class="no">StateMachine／Pipeline／InputData</td></tr>
+        <tr><td class="m">Core/StateMachine</td><td class="m">Core.Blackboard／Core.Actions／Core.Movement／Presentation</td><td class="no">Pipeline／Runner</td></tr>
+        <tr class="bind"><td class="m">Core/Movement（不遞迴）</td><td class="m">Core.Blackboard ＋ <span style="color:var(--wrong)">Core.Effects ⚠️ 已知張力</span></td><td class="no">StateMachine／Presentation</td></tr>
+        <tr><td class="m">Core/Movement/Models</td><td class="m">Core.Blackboard／Core.Movement／Presentation</td><td class="no">StateMachine／Pipeline／Presentation.IK</td></tr>
+        <tr><td class="m">Core/Arbitration</td><td class="m">Core.Arbitration／Core.Blackboard</td><td class="no">Presentation／IPresentationController</td></tr>
+        <tr><td class="m">Core/Blackboard</td><td class="m">Core.Actions／Core.Arbitration</td><td class="no">任何消費者</td></tr>
+        <tr><td class="m">Core/Pipeline</td><td class="m">除 Core.Effects 外的 Core ＋ Presentation</td><td class="no">Core.Effects（管線不得沾玩法概念）</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note bad"><span class="lab">誠實記錄</span><p>
+    <code>Core/Movement</code> 的白名單裡有一筆<strong>明文標記的已知張力</strong>：
+    <code>AIMovementSource</code> 每幀回讀 <code>Core.Effects</code> 的減速倍率。
+    使用者已裁決「先跑 Play 確認展示價值，再決定是否收斂到黑板 status region」——
+    功能已證明，<strong>這筆 debt 尚未償還</strong>。償還時刪掉白名單那一行，A4 會立刻指出剩下的違規點。
+  </p></div>
+</section>
+
+<div class="foot">
+  原始檔：<code>docs/artifacts/cross-system-contract.html</code><br>
+  文字正本：<code>docs/02-dev-spec.md</code> §1（黑板 schema）／§2.1（管線順序）／§3.1（驅動介面）／§7（回歸檢核）<br>
+  機器化守衛：<code>ArchitectureRegressionTests</code> 的 <code>WriterRules</code>（A5）與 <code>LayerRules</code>（A4）<br>
+  姊妹頁：<code>authority-timeline.html</code>（時間維度）· <code>failure-atlas.html</code>（違反契約的症狀長什麼樣）
+</div>
+
+</div>

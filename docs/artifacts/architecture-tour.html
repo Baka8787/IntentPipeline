@@ -390,71 +390,104 @@
 <div class="shell">
 
 <nav class="rail" aria-label="章節">
-  <div class="rail-title">縮放層級</div>
+  <div class="rail-title">這頁是索引</div>
   <ol>
-    <li class="grp">L1 · 全景</li>
+    <li><a href="#route"><span class="n">→</span>深度在哪裡</a></li>
+    <li class="grp">全域座標系</li>
     <li><a href="#f1"><span class="n">01</span>分層與禁止邊</a></li>
-    <li><a href="#f2"><span class="n">02</span>一帧管線順序</a></li>
-    <li><a href="#f3"><span class="n">03</span>黑板所有權</a></li>
-    <li class="grp">L2 · 子系統</li>
-    <li><a href="#f4"><span class="n">04</span>狀態機仲裁</a></li>
-    <li><a href="#f5"><span class="n">05</span>Action 資料驅動</a></li>
-    <li><a href="#f6"><span class="n">06</span>Movement 三段</a></li>
-    <li><a href="#f7"><span class="n">07</span>MotionDriver</a></li>
-    <li><a href="#f8"><span class="n">08</span>表現層兩段發布</a></li>
-    <li><a href="#f9"><span class="n">09</span>離線烘焙鏈</a></li>
-    <li><a href="#f10"><span class="n">10</span>Foot IK 雙管道</a></li>
-    <li><a href="#f11"><span class="n">11</span>方向權威</a></li>
-    <li class="grp">L3 · 呼叫鏈</li>
-    <li><a href="#f12"><span class="n">12</span>主迴圈全鏈</a></li>
-    <li><a href="#f13"><span class="n">13</span>按鍵到命中</a></li>
-    <li><a href="#f14"><span class="n">14</span>落地音</a></li>
-    <li><a href="#f15"><span class="n">15</span>輸入封鎖</a></li>
-    <li><a href="#f16"><span class="n">16</span>Action 收束</a></li>
-    <li><a href="#f17"><span class="n">17</span>Combat Context</a></li>
-    <li><a href="#f18"><span class="n">18</span>Locomotion Stop</a></li>
-    <li><a href="#f19"><span class="n">19</span>Traversal 全鏈</a></li>
+    <li class="grp">尚無深度頁</li>
+    <li><a href="#f2"><span class="n">02</span>狀態機仲裁</a></li>
+    <li><a href="#f3"><span class="n">03</span>Movement 三段</a></li>
+    <li><a href="#f4"><span class="n">04</span>離線烘焙鏈</a></li>
+    <li><a href="#f5"><span class="n">05</span>Combat Context</a></li>
+    <li><a href="#f6"><span class="n">06</span>Locomotion Stop</a></li>
     <li class="grp">收尾</li>
-    <li><a href="#use">怎麼用這頁</a></li>
+    <li><a href="#use">目前基線</a></li>
   </ol>
 </nav>
 
 <main>
 
 <header class="top">
-  <div class="eyebrow">Unity Character Framework · 架構導覽</div>
+  <div class="eyebrow">Unity Character Framework · 架構索引</div>
   <h1>IntentPipeline 架構導覽</h1>
   <p class="lede">
-    從<strong>整帧管線</strong>一路縮放到<strong>單一模組內部</strong>的十九張圖。
-    每一張都標了三件事：這樣做的理由、當初否決了什麼、以及哪一條測試在守著它。
-    看完應該能不看程式碼，把每一層講給別人聽。
+    <strong>這頁是索引，不是教材。</strong>
+    它只做兩件事：給你一張全域座標系，然後告訴你深度在哪一頁。<br>
+    每個子系統的資料契約、authority 時間軸、真實數值與 failure case，
+    都住在它自己的<strong>深度頁</strong>——那裡有這頁放不下的東西。
   </p>
-  <p class="src">同步至 2026-09-14：Direction Authority、MAP Jump、Traversal primary contact 與 Hand IK 已納入。</p>
+  <p class="src">
+    瘦身於 2026-09-18：原本 19 張圖中，已有深度頁承接的 13 張全部移出，避免同一件事有兩份會漂移的說法。
+    留在這裡的 6 張，是<strong>目前還沒有深度頁的那些</strong>。
+  </p>
 
   <div class="stats">
-    <div><div class="v">96</div><div class="k">Runtime ＋ Editor 程式檔</div></div>
-    <div><div class="v">19,579</div><div class="k">程式行數</div></div>
-    <div><div class="v">445</div><div class="k">EditMode 測試條目</div></div>
-    <div><div class="v">43</div><div class="k">架構回歸測試</div></div>
-    <div><div class="v">8</div><div class="k">ADR 決策紀錄</div></div>
-    <div><div class="v">13</div><div class="k">管線步驟（順序 1–7）</div></div>
+    <div><div class="v">119</div><div class="k">Runtime ＋ Editor 程式檔</div></div>
+    <div><div class="v">27,248</div><div class="k">程式行數</div></div>
+    <div><div class="v">599</div><div class="k">EditMode 測試條目</div></div>
+    <div><div class="v">45</div><div class="k">架構回歸測試</div></div>
+    <div><div class="v">9</div><div class="k">ADR 決策紀錄</div></div>
+    <div><div class="v">16</div><div class="k">管線步驟（順序 0.5–7）</div></div>
   </div>
 </header>
 
 
-<!-- ============ L1 ============ -->
+<!-- ============ 路由 ============ -->
+<section class="tier" id="route">
+  <div class="tier-head">
+    <span class="code">→</span>
+    <h2>深度在哪裡</h2>
+    <span class="zoom">先找頁，再讀圖</span>
+  </div>
+  <p class="tier-intro">
+    深度頁固定含五種這頁沒有的東西：<strong>①標註式資料流</strong>（每條箭頭帶 資料／唯一 Writer／座標空間／更新時機／跨幀？）
+    <strong>②Authority 矩陣</strong>（誰能寫什麼 × <strong>什麼時候</strong>）<strong>③跨幀狀態盤點</strong>
+    <strong>④按真實比例的數值計算鏈</strong>（磁碟實測值，可拿計算機驗算）<strong>⑤failure case 資料流追因</strong>。
+  </p>
+
+  <table class="mx">
+    <thead><tr><th>我想弄懂</th><th>讀哪一頁</th><th>文字正本</th></tr></thead>
+    <tbody>
+      <tr><td><strong>跨子系統的契約</strong>——黑板 schema、三種 intent 語意、驅動介面、可選能力</td><td class="m">cross-system-contract.html</td><td class="m">dev-spec §1／§2／§3.1</td></tr>
+      <tr><td><strong>一帧之內誰在什麼時候擁有什麼</strong>——含跨幀交接與一帧延遲</td><td class="m">authority-timeline.html</td><td class="m">dev-spec §2.1</td></tr>
+      <tr><td><strong>這個 bug 屬於哪一類</strong>——依失效模式索引，不依子系統</td><td class="m">failure-atlas.html</td><td class="m">各深度頁的 failure case</td></tr>
+      <tr><td>膠囊為什麼要動、solver 怎麼解</td><td class="m">dynamic-capsule.html</td><td class="m">docs/28</td></tr>
+      <tr><td>Foot IK 的兩條管道、三個「接地」</td><td class="m">foot-ik-architecture.html</td><td class="m">docs/29</td></tr>
+      <tr><td>翻越的八個階段與 commit 分界</td><td class="m">traversal.html</td><td class="m">docs/30</td></tr>
+      <tr><td>跳躍物理、落地分類、滯空相位</td><td class="m">jump-landing.html</td><td class="m">docs/31</td></tr>
+      <tr><td>Action／連段／中斷授權</td><td class="m">action-combat.html</td><td class="m">docs/32</td></tr>
+      <tr><td>移動方向、朝向、瞄準三者的分工</td><td class="m">direction-authority.html</td><td class="m">docs/33</td></tr>
+      <tr><td>Level 1 剛體腳底的幾何近似</td><td class="m">foot-ik.html</td><td class="m">docs/05 §3.5.5</td></tr>
+    </tbody>
+  </table>
+
+  <div class="notes">
+    <div class="note why"><span class="lab">為什麼瘦身</span><p class="bd">
+      同一件事有兩份說明，遲早會漂移成兩份<strong>不一樣</strong>的說明——而且你不會知道哪一份是對的。
+      深度頁出現之後，這頁再留一份淺版就不是「方便」，是<strong>負債</strong>。
+    </p></div>
+    <div class="note self"><span class="lab">怎麼用</span><p class="bd">
+      新會話／新的人：讀完圖 01，再照上表跳到要動的那個子系統。
+      <strong>不要從頭讀到尾</strong>——這頁沒有那個設計意圖。
+    </p></div>
+  </div>
+</section>
+
+
+<!-- ============ 全域座標系 ============ -->
 <section class="tier">
   <div class="tier-head">
     <span class="code">L1</span>
-    <h2>全景：三張圖看完整個框架</h2>
+    <h2>全域座標系：只有一張是真的全域</h2>
     <span class="zoom">×1</span>
   </div>
   <p class="tier-intro">
-    這一層回答三個問題：誰可以依賴誰、一帧內事情按什麼順序發生、每一份資料歸誰所有。
-    只要這三張記得住，後面所有子系統都只是往裡面填東西。
+    管線順序與黑板所有權原本也在這一層，現在它們分別被
+    <code>authority-timeline.html</code> 與 <code>cross-system-contract.html</code> 用更完整的形式承接。
+    留在這裡的只有一張：<strong>誰可以依賴誰</strong>——因為它不屬於任何子系統，也不隨時間變化。
   </p>
 
-  <!-- ---- 圖 1 ---- -->
   <figure id="f1">
     <h3><span class="num">01</span>主要資料流與被禁止的反向邊</h3>
     <p class="src">Assets/Scripts/ · ArchitectureRegressionTests.LayerRules</p>
@@ -527,301 +560,24 @@
       </p></div>
     </div>
   </figure>
-
-  <!-- ---- 圖 2 ---- -->
-  <figure id="f2">
-    <h3><span class="num">02</span>一帧的十三個步驟</h3>
-    <p class="src">CharacterPipelineRunner.Update() ／ .LateUpdate() · dev-spec §2.1</p>
-
-    <svg viewBox="0 0 780 672" role="img" aria-label="垂直時序圖：Update 內含 Combat Context 與 Facing authority，LateUpdate 執行 Motion、Presentation 與復位">
-      <rect class="plain" x="14" y="30" width="752" height="370"></rect>
-      <rect class="boxf" x="14" y="30" width="86" height="22"></rect>
-      <text class="xs m fl" x="26" y="45">Update</text>
-
-      <rect class="plain" x="14" y="424" width="752" height="226"></rect>
-      <rect class="boxf" x="14" y="424" width="106" height="22"></rect>
-      <text class="xs m fl" x="26" y="439">LateUpdate</text>
-
-      <!-- Update rows -->
-      <g>
-        <rect class="box" x="120" y="62" width="34" height="22"></rect>
-        <text class="xs m" x="137" y="77" text-anchor="middle">1</text>
-        <text class="s" x="168" y="77">InputPipeline</text>
-        <text class="xs m mu" x="330" y="77">FetchRawInput(ref InputData)</text>
-        <text class="xs m fl" x="600" y="77">→ 堆疊上的 ref struct</text>
-      </g>
-      <g>
-        <rect class="boxd" x="120" y="94" width="34" height="22"></rect>
-        <text class="xs m dn" x="137" y="109" text-anchor="middle">2✋</text>
-        <text class="s dn" x="168" y="109">BlockInput 閘門</text>
-        <text class="xs m mu" x="330" y="109">inputData = default</text>
-        <text class="xs m dn" x="600" y="109">→ 本帧看不見任何輸入</text>
-      </g>
-      <g>
-        <rect class="box" x="120" y="126" width="34" height="22"></rect>
-        <text class="xs m" x="137" y="141" text-anchor="middle">2</text>
-        <text class="s" x="168" y="141">Intent Processor</text>
-        <text class="xs m mu" x="330" y="141">ProcessIntents(ref input)</text>
-        <text class="xs m fl" x="600" y="141">→ Intent（邊沿）</text>
-      </g>
-      <g>
-        <rect class="box" x="120" y="158" width="34" height="22"></rect>
-        <text class="xs m" x="137" y="173" text-anchor="middle">2.5</text>
-        <text class="s" x="168" y="173">Movement Intent Producer</text>
-        <text class="xs m mu" x="330" y="173">IMovementIntentSource</text>
-        <text class="xs m fl" x="600" y="173">→ MovementIntent</text>
-      </g>
-      <g>
-        <rect class="box" x="120" y="190" width="34" height="22"></rect>
-        <text class="xs m" x="137" y="205" text-anchor="middle">2.6</text>
-        <text class="s" x="168" y="205">Combat Context Producer</text>
-        <text class="xs m mu" x="354" y="205">PlayerCombatContextSource.Tick</text>
-        <text class="xs m fl" x="620" y="205">→ CombatContext</text>
-      </g>
-      <g>
-        <rect class="box" x="120" y="222" width="34" height="22"></rect>
-        <text class="xs m" x="137" y="237" text-anchor="middle">3</text>
-        <text class="s" x="168" y="237">Movement Model Tick</text>
-        <text class="xs m mu" x="354" y="237">IMovementModel.Tick</text>
-        <text class="xs m fl" x="620" y="237">→ Movement Output</text>
-      </g>
-      <g>
-        <rect class="box" x="120" y="254" width="34" height="22"></rect>
-        <text class="xs m" x="137" y="269" text-anchor="middle">4</text>
-        <text class="s" x="168" y="269">狀態機 Tick</text>
-        <text class="xs m mu" x="354" y="269">FullBodyStateMachine.Tick</text>
-        <text class="xs m fl" x="620" y="269">→ 狀態／Action 承諾</text>
-      </g>
-      <g>
-        <rect class="box" x="120" y="286" width="34" height="22"></rect>
-        <text class="xs m" x="137" y="301" text-anchor="middle">4.5</text>
-        <text class="s" x="168" y="301">ArbiterPipeline Tick</text>
-        <text class="xs m mu" x="354" y="301">OR 合併所有 IArbiterSource</text>
-        <text class="xs m fl" x="620" y="301">→ Arbitration</text>
-      </g>
-      <g>
-        <rect class="boxf" x="120" y="318" width="34" height="22"></rect>
-        <text class="xs m fl" x="137" y="333" text-anchor="middle">4.6</text>
-        <text class="s" x="168" y="333">CharacterFacingSource</text>
-        <text class="xs m mu" x="354" y="333">commitment ＞ movement</text>
-        <text class="xs m fl" x="620" y="333">→ RequestFacing</text>
-      </g>
-      <g>
-        <rect class="box" x="120" y="350" width="34" height="22"></rect>
-        <text class="xs m" x="137" y="365" text-anchor="middle">5</text>
-        <text class="s" x="168" y="365">AnimationFacade 同步</text>
-        <text class="xs m mu" x="354" y="365">鍵改變才 Play(AnimationKey)</text>
-        <text class="xs m fl" x="620" y="365">→ 動畫播放請求</text>
-      </g>
-
-      <!-- Animator gap -->
-      <line class="dash" x1="120" y1="412" x2="766" y2="412"></line>
-      <text class="xs m mu" x="124" y="408">⋯ Unity 的 Animator 評估卡在這條線上（所以順序 3 不能搬到 LateUpdate）⋯</text>
-
-      <!-- LateUpdate rows -->
-      <g>
-        <rect class="box" x="120" y="452" width="34" height="22"></rect>
-        <text class="xs m" x="137" y="467" text-anchor="middle">6a</text>
-        <text class="s" x="168" y="467">MotionDriver 基礎運動</text>
-        <text class="xs m mu" x="354" y="467">狀態.OnUpdateMotion</text>
-        <text class="xs m fl" x="620" y="467">→ CharacterController.Move</text>
-      </g>
-      <g>
-        <rect class="box" x="120" y="484" width="34" height="22"></rect>
-        <text class="xs m" x="137" y="499" text-anchor="middle">6b</text>
-        <text class="s" x="168" y="499">烘焙曲線位移</text>
-        <text class="xs m mu" x="354" y="499">ExecuteBakedCurveMovement</text>
-        <text class="xs m fl" x="620" y="499">→ 同帧一併結算</text>
-      </g>
-      <g>
-        <rect class="box" x="120" y="516" width="34" height="22"></rect>
-        <text class="xs m" x="137" y="531" text-anchor="middle">6</text>
-        <text class="s" x="168" y="531">觸地與垂直速度快照</text>
-        <text class="xs m mu" x="354" y="531">GetGravityThisFrame</text>
-        <text class="xs m fl" x="620" y="531">→ Grounded／Velocity／邊沿</text>
-      </g>
-      <g>
-        <rect class="box" x="120" y="548" width="34" height="22"></rect>
-        <text class="xs m" x="137" y="563" text-anchor="middle">6.5</text>
-        <text class="s" x="168" y="563">PresentationPipeline Tick</text>
-        <text class="xs m mu" x="354" y="563">驅動 → 再整體覆寫</text>
-        <text class="xs m fl" x="620" y="563">→ PresentationEvents</text>
-      </g>
-      <g>
-        <rect class="boxg" x="120" y="580" width="34" height="22"></rect>
-        <text class="xs m gd" x="137" y="595" text-anchor="middle">7</text>
-        <text class="s gd" x="168" y="595">ResetTransientState</text>
-        <text class="xs m mu" x="354" y="595">Intent.Reset()＋清邊沿</text>
-        <text class="xs m gd" x="620" y="595">→ 單幀事件當幀死</text>
-      </g>
-
-      <path class="lng" d="M108,591 C60,591 60,73 112,73" marker-end="url(#mk-g)"></path>
-      <text class="xs m gd" x="30" y="332" transform="rotate(-90 30 332)" text-anchor="middle">死守在最末端</text>
-
-      <rect class="boxd" x="120" y="616" width="646" height="26"></rect>
-      <text class="xs dn m" x="132" y="633">⚠ 2.6 必須看見 action intent；4.6 必須等 FSM 提交 commitment。兩者不可任意前移。</text>
-    </svg>
-
-    <figcaption>
-      十三個步驟裡，新增的兩個時點同樣是契約：2.6 必須看見當幀 Action intent，
-      4.6 必須等 FSM 決定 Action commitment，再把唯一 facing request 留給 LateUpdate 消費。
-    </figcaption>
-
-    <div class="notes">
-      <div class="note why"><span class="lab">為什麼</span><p class="bd">
-        順序 3 必須留在 <code>Update</code> 且每帧無條件執行：Animator 的評估卡在 Update 與 LateUpdate 之間，
-        搬到 LateUpdate 會讓動畫參數比位移<em>晚一帧</em>；而若只在 Idle／Move 推進，
-        Jump 落地時會拿起跳瞬間的殘值續走＝滑步。
-      </p></div>
-      <div class="note no"><span class="lab">否決了</span><p class="bd">
-        「封鎖時跳過順序 2.5」被否決。<code>MovementIntent</code> 是連續型意圖、不參與順序 7 復位，
-        跳過不等於歸零而是<em>凍結在最後一帧</em>——封鎖瞬間若正全速跑，角色會全速前進且停不下來。
-        改為把輸入整份歸零，producer 因此完全不需要知道「封鎖」存在。
-      </p></div>
-      <div class="note self"><span class="lab">自我檢核</span><p class="bd">
-        「如果把順序 7 提前到順序 5，什麼會壞？」——答案要具體到某個消費者讀不到某個旗標。
-      </p></div>
-    </div>
-  </figure>
-
-  <!-- ---- 圖 3 ---- -->
-  <figure id="f3">
-    <h3><span class="num">03</span>黑板：每一區只有一個寫入者</h3>
-    <p class="src">Core/Blackboard/PlayerRuntimeData.cs · ArchitectureRegressionTests.WriterRules</p>
-
-    <svg viewBox="0 0 860 458" role="img" aria-label="黑板所有權圖：七組架構資料各有唯一寫入者，右側列出主要讀取者">
-      <text class="xs m mu" x="20" y="22">唯一寫入者（順序）</text>
-      <text class="xs m mu" x="318" y="22">PlayerRuntimeData</text>
-      <text class="xs m mu" x="646" y="22">讀取者</text>
-
-      <rect class="boxf" x="310" y="32" width="230" height="390"></rect>
-
-      <g>
-        <rect class="box" x="20" y="42" width="242" height="44"></rect>
-        <text class="s m" x="32" y="60">順序 2 · ProcessIntents</text>
-        <text class="xs mu" x="32" y="77">Runner 內的意圖轉譯</text>
-        <rect class="box" x="322" y="42" width="206" height="44"></rect>
-        <text class="s m" x="334" y="62">Intent</text>
-        <text class="xs mu" x="334" y="78">trigger 邊沿，順序 7 復位</text>
-        <line class="lnf" x1="264" y1="64" x2="318" y2="64" marker-end="url(#mk-f)"></line>
-        <line class="ln" x1="530" y1="64" x2="640" y2="64" marker-end="url(#mk-a)"></line>
-        <text class="xs" x="648" y="68">狀態機／Combat Context</text>
-      </g>
-
-      <g>
-        <rect class="box" x="20" y="96" width="242" height="44"></rect>
-        <text class="s m" x="32" y="114">順序 2.5 · LocomotionPolicy</text>
-        <text class="xs mu" x="32" y="131">IMovementIntentSource</text>
-        <rect class="box" x="322" y="96" width="206" height="44"></rect>
-        <text class="s m" x="334" y="116">MovementIntent</text>
-        <text class="xs mu" x="334" y="132">連續型，刻意不復位</text>
-        <line class="lnf" x1="264" y1="118" x2="318" y2="118" marker-end="url(#mk-f)"></line>
-        <line class="ln" x1="530" y1="118" x2="640" y2="118" marker-end="url(#mk-a)"></line>
-        <text class="xs" x="648" y="122">Movement Model</text>
-      </g>
-
-      <g>
-        <rect class="boxg" x="20" y="150" width="242" height="44"></rect>
-        <text class="s m gd" x="32" y="168">順序 2.6 · Combat Context</text>
-        <text class="xs mu" x="32" y="185">PlayerCombatContextSource</text>
-        <rect class="boxg" x="322" y="150" width="206" height="44"></rect>
-        <text class="s m gd" x="334" y="170">CombatContext</text>
-        <text class="xs mu" x="334" y="186">InCombat／TargetPosition</text>
-        <line class="lnf" x1="264" y1="172" x2="318" y2="172" marker-end="url(#mk-f)"></line>
-        <line class="ln" x1="530" y1="172" x2="640" y2="172" marker-end="url(#mk-a)"></line>
-        <text class="xs" x="648" y="176">ActionState／HeadLook</text>
-      </g>
-
-      <g>
-        <rect class="box" x="20" y="204" width="242" height="44"></rect>
-        <text class="s m" x="32" y="222">順序 3 · IMovementModel</text>
-        <text class="xs mu" x="32" y="239">當下 active 的那一顆</text>
-        <rect class="box" x="322" y="204" width="206" height="44"></rect>
-        <text class="s m" x="334" y="224">Movement Output</text>
-        <text class="xs mu" x="334" y="240">MoveSpeed／Direction／Weight</text>
-        <line class="lnf" x1="264" y1="226" x2="318" y2="226" marker-end="url(#mk-f)"></line>
-        <line class="ln" x1="530" y1="226" x2="640" y2="226" marker-end="url(#mk-a)"></line>
-        <text class="xs" x="648" y="230">Motion／Facing／Jump</text>
-      </g>
-
-      <g>
-        <rect class="box" x="20" y="258" width="242" height="44"></rect>
-        <text class="s m" x="32" y="276">順序 4.5 · ArbiterPipeline</text>
-        <text class="xs mu" x="32" y="293">OR 合併後整體覆寫</text>
-        <rect class="box" x="322" y="258" width="206" height="44"></rect>
-        <text class="s m" x="334" y="278">Arbitration</text>
-        <text class="xs mu" x="334" y="294">BlockInput 等功能旗標</text>
-        <line class="lnf" x1="264" y1="280" x2="318" y2="280" marker-end="url(#mk-f)"></line>
-        <line class="ln" x1="530" y1="280" x2="640" y2="280" marker-end="url(#mk-a)"></line>
-        <text class="xs" x="648" y="284">順序 2 閘門（下一幀）</text>
-      </g>
-
-      <g>
-        <rect class="box" x="20" y="312" width="242" height="44"></rect>
-        <text class="s m" x="32" y="330">順序 6 · MotionDriver</text>
-        <text class="xs mu" x="32" y="347">同一次 Move 後發布快照</text>
-        <rect class="box" x="322" y="312" width="206" height="44"></rect>
-        <text class="s m" x="334" y="332">Grounding Snapshot</text>
-        <text class="xs mu" x="334" y="348">Grounded／Velocity／Edges</text>
-        <line class="lnf" x1="264" y1="334" x2="318" y2="334" marker-end="url(#mk-f)"></line>
-        <line class="ln" x1="530" y1="334" x2="640" y2="334" marker-end="url(#mk-a)"></line>
-        <text class="xs" x="648" y="338">JumpState／表現層</text>
-      </g>
-
-      <g>
-        <rect class="box" x="20" y="366" width="242" height="44"></rect>
-        <text class="s m" x="32" y="384">順序 6.5 · PresentationPipeline</text>
-        <text class="xs mu" x="32" y="401">末尾整體覆寫＝發布</text>
-        <rect class="box" x="322" y="366" width="206" height="44"></rect>
-        <text class="s m" x="334" y="386">PresentationEvents</text>
-        <text class="xs mu" x="334" y="402">廣播快照，下一幀被讀</text>
-        <line class="lnf" x1="264" y1="388" x2="318" y2="388" marker-end="url(#mk-f)"></line>
-        <line class="ln" x1="530" y1="388" x2="640" y2="388" marker-end="url(#mk-a)"></line>
-        <text class="xs" x="648" y="392">Audio／Footstep 等</text>
-      </g>
-
-      <rect class="boxg" x="20" y="430" width="820" height="18"></rect>
-      <text class="xs gd m" x="32" y="443">A5：每個成員都在 WriterRules 登記唯一寫入者；VerticalVelocity 也只由 MotionDriver 發布。</text>
-    </svg>
-
-    <figcaption>
-      黑板不是「大家都能寫的全域變數」。<strong>七組受治理資料、七個管線擁有者、零競爭寫入</strong>，
-      而且每個寫入者都綁在一個固定的管線順序上——所以「這個值什麼時候變」永遠有答案。
-    </figcaption>
-
-    <div class="notes">
-      <div class="note why"><span class="lab">為什麼</span><p class="bd">
-        欄位刻意用 <code>public</code> 欄位而非屬性：C# 的 struct 值複製會讓
-        <code>data.Intent.JumpRequested = true</code> 在屬性形式下直接編譯失敗。
-        這是語言限制驅動的設計，不是偷懶。
-      </p></div>
-      <div class="note no"><span class="lab">否決了</span><p class="bd">
-        <code>MoveSpeed</code> 不是獨立真相，禁止任何路徑繞過 <code>MovementIntent</code> 直寫——
-        那會製造「兩個真相來源」，兩邊各自對一半時最難查。
-      </p></div>
-      <div class="note self"><span class="lab">自我檢核</span><p class="bd">
-        「我想加一個 <code>IsSprinting</code> 給 UI 用，該加在哪一區、誰寫？」——如果答案是「誰都可以寫」，那就不能加。
-      </p></div>
-    </div>
-  </figure>
 </section>
 
 
-<!-- ============ L2 ============ -->
+<!-- ============ 尚無深度頁 ============ -->
 <section class="tier">
   <div class="tier-head">
     <span class="code">L2</span>
-    <h2>子系統：拆開八個盒子</h2>
-    <span class="zoom">×4</span>
+    <h2>尚無深度頁的子系統</h2>
+    <span class="zoom">暫住在這裡</span>
   </div>
   <p class="tier-intro">
-    L1 的每個方框裡面長什麼樣。這一層開始出現「取捨」——每個子系統都有一兩個
-    看起來多餘、但拿掉就會壞掉的設計。
+    這五張留在索引頁，<strong>不是因為它們比較不重要，而是因為它們還沒有對應的 <code>docs/NN-architecture-guide</code> 文字正本</strong>。
+    沒有正本就做深度頁，等於在發明內容而不是視覺化既有結論——所以它們暫時維持索引層的深度。
+    <br>⚠️ 這五張只有「為什麼／否決了什麼／哪條測試守著」，<strong>沒有</strong>資料契約表、authority 時間軸與數值驗算。
   </p>
 
-  <!-- ---- 圖 4 ---- -->
-  <figure id="f4">
-    <h3><span class="num">04</span>狀態機：兩條評估路徑</h3>
+  <figure id="f2">
+    <h3><span class="num">02</span>狀態機：兩條評估路徑</h3>
     <p class="src">Core/StateMachine/FullBodyStateMachine.cs · StateType 恆五員</p>
 
     <svg viewBox="0 0 820 400" role="img" aria-label="狀態機流程：Tick 先執行 OnTick，再走中斷評估，中斷不成立才走轉移白名單，最後 TransitionTo">
@@ -912,109 +668,8 @@
       </p></div>
     </div>
   </figure>
-
-  <!-- ---- 圖 5 ---- -->
-  <figure id="f5">
-    <h3><span class="num">05</span>Action：一顆狀態撐起所有技能</h3>
-    <p class="src">Core/StateMachine/States/ActionState.cs · Core/Actions/ · ADR-004／005（Accepted）＋ ADR-007（Trial）</p>
-
-    <svg viewBox="0 0 860 420" role="img" aria-label="Action 系統結構：ActionSlot 作為唯一身分鍵，ActionDefinitionSO 提供 phase 資料，ActionState 依 slot 路由到對應的 sink">
-      <text class="xs m mu" x="20" y="20">身分鍵（唯一一把）</text>
-      <rect class="boxf" x="20" y="30" width="200" height="118"></rect>
-      <text class="s m fl" x="32" y="50">ActionSlot</text>
-      <text class="xs mu" x="32" y="70">Slot1 = 1　玩家段</text>
-      <text class="xs mu" x="32" y="86">Slot2 = 2　依序編號</text>
-      <text class="xs mu" x="32" y="102">Slot3 = 3</text>
-      <text class="xs mu" x="32" y="124">Reaction = 100　保留段</text>
-      <text class="xs mu" x="32" y="140">（無輸入來源，只由 seam 提交）</text>
-
-      <text class="xs m mu" x="20" y="180">同一把鍵同時決定三件事</text>
-      <rect class="box" x="20" y="190" width="200" height="30"></rect>
-      <text class="xs" x="32" y="210">輸入映射（順序 2）</text>
-      <rect class="box" x="20" y="224" width="200" height="30"></rect>
-      <text class="xs" x="32" y="244">per-slot 冷卻（稀疏陣列）</text>
-      <rect class="box" x="20" y="258" width="200" height="30"></rect>
-      <text class="xs" x="32" y="278">external request 收件匣</text>
-
-      <line class="lnf" x1="224" y1="90" x2="266" y2="90" marker-end="url(#mk-f)"></line>
-
-      <text class="xs m mu" x="270" y="20">資料（ScriptableObject）</text>
-      <rect class="box" x="270" y="30" width="230" height="118"></rect>
-      <text class="s m" x="282" y="50">ActionDefinitionSO</text>
-      <text class="xs mu" x="282" y="70">Phases[]：每格帶動畫鍵</text>
-      <text class="xs mu" x="282" y="86">＋ Interruptible ＋ Targeting Policy</text>
-      <text class="xs mu" x="282" y="108">換技能＝換這顆資產，</text>
-      <text class="xs mu" x="282" y="124">不寫任何一行程式。</text>
-
-      <line class="lnf" x1="385" y1="152" x2="385" y2="182" marker-end="url(#mk-f)"></line>
-
-      <rect class="boxf" x="270" y="186" width="230" height="102"></rect>
-      <text class="s m fl" x="282" y="206">ActionState（唯一一顆）</text>
-      <text class="xs mu" x="282" y="226">Start → Loop → End</text>
-      <text class="xs mu" x="282" y="242">　　　　 ↘ Cancel</text>
-      <text class="xs mu" x="282" y="264">phase 找不到就跳過，</text>
-      <text class="xs mu" x="282" y="280">不是錯誤——資料說了算。</text>
-
-      <text class="xs m mu" x="550" y="20">生命週期 seam（世界效果只收資料）</text>
-      <rect class="box" x="550" y="30" width="290" height="86"></rect>
-      <text class="s m" x="562" y="50">IActionLifecycleSink</text>
-      <text class="xs mu" x="562" y="70">Begin()　　進入 Action 時</text>
-      <text class="xs mu" x="562" y="86">Release(in ActionReleaseContext)</text>
-      <text class="xs mu" x="562" y="102">Cleanup()　離開／取消時</text>
-
-      <path class="lnf" d="M504,237 L524,237 L524,73 L546,73" marker-end="url(#mk-f)"></path>
-      <text class="xs m fl" x="528" y="160">依 _activeSlot 路由</text>
-      <text class="xs mu" x="528" y="176">同一份承諾同時餵 facing／release</text>
-
-      <rect class="box" x="550" y="200" width="290" height="30"></rect>
-      <text class="xs m" x="562" y="220">Slot1 → MeleeHitboxSink</text>
-      <rect class="box" x="550" y="234" width="290" height="30"></rect>
-      <text class="xs m" x="562" y="254">Slot2 → ThrowProjectileEmitter</text>
-      <rect class="box" x="550" y="268" width="290" height="30"></rect>
-      <text class="xs m" x="562" y="288">Slot3 → ThrowProjectileEmitter（另一顆）</text>
-
-      <line class="lnf" x1="695" y1="120" x2="695" y2="196" marker-end="url(#mk-f)"></line>
-
-      <rect class="boxd" x="20" y="316" width="400" height="84"></rect>
-      <text class="xs dn m" x="32" y="336">seam 的權限上限</text>
-      <text class="xs mu" x="32" y="354">sink 只能做「世界裡的效果」：開碰撞窗、生投射物。</text>
-      <text class="xs mu" x="32" y="370">⛔ 不得播動畫、不得改 transition、不得動位移。</text>
-      <text class="xs mu" x="32" y="386">否則 Action 的時序真相會裂成兩份。</text>
-
-      <rect class="boxg" x="436" y="316" width="404" height="84"></rect>
-      <text class="xs gd m" x="448" y="336">守著這張圖的四條測試</text>
-      <text class="xs mu" x="448" y="354">A19 無 per-Action 子類別　A20 不繞過 MotionDriver</text>
-      <text class="xs mu" x="448" y="370">A21 seam 無動畫權　A24 身分只有一個真相來源</text>
-      <text class="xs mu" x="448" y="386">A26 近戰命中窗由 lifecycle 擁有（非 particle collision）</text>
-    </svg>
-
-    <figcaption>
-      三個技能、零個 per-Action state class。<strong>差異住在 ScriptableObject 與 prefab 裡</strong>；
-      ActionState 在段落邊界取得一次方向承諾，active sink 只消費交付的 context。
-    </figcaption>
-
-    <div class="notes">
-      <div class="note why"><span class="lab">為什麼</span><p class="bd">
-        <code>ActionSlot</code> 的數值刻意不連續（1,2,3 … 100）。玩家段與保留段之間的空隙是設計的一部分，
-        不是待填的洞——Unity 以 <em>int 值</em>序列化 enum，把號碼補滿會讓既有資產默默指向別的 slot。
-      </p></div>
-      <div class="note no"><span class="lab">否決了</span><p class="bd">
-        ADR-005 D2 明文禁止現在就建 <code>Ability</code>／<code>StatusEffect</code>／<code>Buff</code> 這類通用機制。
-        第二個使用者出現之前，抽象是負債。
-      </p></div>
-      <div class="note self"><span class="lab">自我檢核</span><p class="bd">
-        「我要加第四個技能，需要改幾個 <code>.cs</code>？」——正確答案是 0，除非它需要一種全新的世界效果。
-      </p></div>
-      <div class="note test"><span class="lab">方向契約</span><p class="bd">
-        <code>CameraForward</code> 是預設；只有顯式 <code>CameraConeSoftTarget</code> 才可在角錐內修正。
-        <code>A29</code> 禁止 sink 自行查 AimResolver 或從 transform 反推方向。
-      </p></div>
-    </div>
-  </figure>
-
-  <!-- ---- 圖 6 ---- -->
-  <figure id="f6">
-    <h3><span class="num">06</span>Movement：意圖、動力學、輸出</h3>
+  <figure id="f3">
+    <h3><span class="num">03</span>Movement：意圖、動力學、輸出</h3>
     <p class="src">Core/Movement/ · ADR-003（Accepted）</p>
 
     <svg viewBox="0 0 840 300" role="img" aria-label="Movement 三段流程：輸入經策略產生意圖，模型計算動力學，輸出寫回黑板並驅動動畫參數">
@@ -1090,164 +745,8 @@
       </p></div>
     </div>
   </figure>
-
-  <!-- ---- 圖 7 ---- -->
-  <figure id="f7">
-    <h3><span class="num">07</span>MotionDriver：位移的唯一出海口</h3>
-    <p class="src">Presentation/Motion/MotionDriver.cs</p>
-
-    <svg viewBox="0 0 820 340" role="img" aria-label="MotionDriver 結構：三條移動路徑匯入同一個重力積分與 Move 呼叫，並在其中更新觸地狀態與邊沿事件">
-      <text class="xs m mu" x="20" y="20">三條位移路徑（由當前狀態挑一條）</text>
-
-      <rect class="box" x="20" y="30" width="228" height="46"></rect>
-      <text class="s m" x="32" y="50">ExecuteBaseMovement</text>
-      <text class="xs mu" x="32" y="67">Idle／Move：吃 Movement Output</text>
-
-      <rect class="box" x="20" y="84" width="228" height="46"></rect>
-      <text class="s m" x="32" y="104">ExecuteBakedCurveMovement</text>
-      <text class="xs mu" x="32" y="121">Roll：純烘焙曲線，不吃輸入</text>
-
-      <rect class="box" x="20" y="138" width="228" height="46"></rect>
-      <text class="s m" x="32" y="158">ApplyBakedCompensation</text>
-      <text class="xs mu" x="32" y="175">Warping 階段預留，尚無呼叫端</text>
-
-      <path class="lnf" d="M252,53 L292,53 L292,150" ></path>
-      <path class="lnf" d="M252,107 L292,107"></path>
-      <path class="lnf" d="M252,161 L292,161"></path>
-      <line class="lnf" x1="292" y1="150" x2="336" y2="150" marker-end="url(#mk-f)"></line>
-
-      <rect class="boxf" x="340" y="112" width="212" height="76"></rect>
-      <text class="s m fl" x="352" y="134">GetGravityThisFrame</text>
-      <text class="xs mu" x="352" y="152">單帧快取的重力積分</text>
-      <text class="xs mu" x="352" y="168">＋ 觸地前後幀比對</text>
-      <text class="xs mu" x="352" y="184">＝ 邊沿事件的唯一觸發源</text>
-
-      <line class="lnf" x1="556" y1="150" x2="596" y2="150" marker-end="url(#mk-f)"></line>
-
-      <rect class="box" x="600" y="112" width="200" height="76"></rect>
-      <text class="s m" x="612" y="134">CharacterController</text>
-      <text class="s m" x="612" y="152">.Move(delta)</text>
-      <text class="xs mu" x="612" y="172">全程式碼驅動，</text>
-      <text class="xs mu" x="612" y="184">不讀 OnAnimatorMove 根運動</text>
-
-      <path class="lng" d="M700,192 L700,220 L446,220 L446,244" marker-end="url(#mk-g)"></path>
-      <rect class="boxg" x="286" y="248" width="320" height="60"></rect>
-      <text class="xs gd m" x="298" y="268">寫回黑板</text>
-      <text class="xs mu" x="298" y="286">Grounded ／ VerticalVelocity ／ Landing edges</text>
-      <text class="xs mu" x="298" y="302">同次 Move 後發布；落地速度在貼地夾持前快照</text>
-
-      <rect class="boxd" x="20" y="212" width="252" height="96"></rect>
-      <text class="xs dn m" x="32" y="232">IsTimeFrozen 守衛</text>
-      <text class="xs mu" x="32" y="250">deltaTime ≤ 0 ⇒ 整段跳過。</text>
-      <text class="xs mu" x="32" y="266">因為 Move(Vector3.zero) 會讓 Unity 的</text>
-      <text class="xs mu" x="32" y="282">isGrounded 回報 false，連鎖出假的落地事件。</text>
-      <text class="xs mu" x="32" y="298">措辭是「沒有時間流逝」，不是「暫停」。</text>
-
-      <rect class="box" x="620" y="212" width="180" height="96"></rect>
-      <text class="xs m" x="632" y="232">另外兩個入口</text>
-      <text class="xs mu" x="632" y="250">ApplyJumpLaunch</text>
-      <text class="xs mu" x="632" y="266">　烘焙出的起跳速度注入</text>
-      <text class="xs mu" x="632" y="284">RequestFacing</text>
-      <text class="xs mu" x="632" y="300">　唯一送出者：CharacterFacingSource</text>
-    </svg>
-
-    <figcaption>
-      角色的位置與 root rotation 都只有 MotionDriver 實際寫入；但「往哪走／本幀該不該轉」已移出本類別。
-      它只積分 Movement Output、消費 facing request，並發布一致的 grounded／velocity 快照。
-    </figcaption>
-
-    <div class="notes">
-      <div class="note why"><span class="lab">為什麼</span><p class="bd">
-        觸地狀態寫在重力積分「內部」而不是獨立的同步方法：只要本帧呼叫過任一條移動路徑，
-        <code>IsGrounded</code> 就一定是新的——不會有「忘了呼叫同步」這種漏洞。
-      </p></div>
-      <div class="note no"><span class="lab">否決了</span><p class="bd">
-        根運動（Root Motion）驅動位移被否決。動畫是表現資源，位移是玩法——
-        讓動畫直接推動角色會使兩者的真相糾纏在一起。烘焙出的數值走資料，不走 <code>OnAnimatorMove</code>。
-      </p></div>
-      <div class="note test"><span class="lab">守衛</span><p class="bd">
-        <code>A20</code>：Action 層不得繞過 MotionDriver 自行位移。
-      </p></div>
-      <div class="note self"><span class="lab">自我檢核</span><p class="bd">
-        「Update 讀到的 <code>IsGrounded</code> 其實是哪一帧的？」——想清楚這題就懂 CharacterController 的固有延遲。
-      </p></div>
-    </div>
-  </figure>
-
-  <!-- ---- 圖 8 ---- -->
-  <figure id="f8">
-    <h3><span class="num">08</span>表現層事件：為什麼要分兩個子步驟</h3>
-    <p class="src">Presentation/PresentationPipeline.cs · 順序 6.5</p>
-
-    <svg viewBox="0 0 840 340" role="img" aria-label="兩種發布方式對照：迭代途中發布會讓結果取決於階層順序，全部驅動完再整體覆寫則不會">
-      <text class="s m dn" x="20" y="22">✗ 迭代途中就發布</text>
-      <rect class="boxd" x="20" y="34" width="380" height="196"></rect>
-
-      <rect class="box" x="40" y="54" width="150" height="34"></rect>
-      <text class="xs m" x="52" y="76">偵測器 A（發布）</text>
-      <line class="lnd" x1="196" y1="71" x2="228" y2="71" marker-end="url(#mk-d)"></line>
-      <rect class="box" x="232" y="54" width="148" height="34"></rect>
-      <text class="xs m" x="244" y="76">消費者 B　讀得到 ✓</text>
-
-      <rect class="box" x="40" y="102" width="150" height="34"></rect>
-      <text class="xs m" x="52" y="124">消費者 C</text>
-      <text class="xs dn" x="244" y="124">若 C 排在 A 前面 ⇒ 讀不到 ✗</text>
-
-      <rect class="box" x="40" y="150" width="340" height="62"></rect>
-      <text class="xs dn m" x="52" y="170">正確性 = 誰在 Hierarchy 裡排上面</text>
-      <text class="xs mu" x="52" y="188">GetComponentsInChildren 的回傳順序</text>
-      <text class="xs mu" x="52" y="204">＝拖動一個物件就可能改變行為。</text>
-
-      <text class="s m gd" x="440" y="22">✓ 全部驅動完，再整體覆寫</text>
-      <rect class="boxg" x="440" y="34" width="380" height="196"></rect>
-
-      <rect class="box" x="460" y="54" width="340" height="46"></rect>
-      <text class="xs m" x="472" y="74">① 依序驅動所有 IPresentationController</text>
-      <text class="xs mu" x="472" y="91">它們讀到的一律是「上一帧」發布的快照</text>
-
-      <line class="lng" x1="630" y1="104" x2="630" y2="126" marker-end="url(#mk-g)"></line>
-
-      <rect class="box" x="460" y="130" width="340" height="46"></rect>
-      <text class="xs m" x="472" y="150">② 詢問所有 IPresentationEventSource</text>
-      <text class="xs mu" x="472" y="167">OR 合併 → 整體覆寫黑板事件區</text>
-
-      <rect class="box" x="460" y="182" width="340" height="30"></rect>
-      <text class="xs gd m" x="472" y="202">階層順序不再是正確性條件。代價：固定一帧延遲。</text>
-
-      <line class="dash" x1="20" y1="252" x2="820" y2="252"></line>
-
-      <text class="xs m mu" x="20" y="276">職責由型別分開，而不是由紀律分開：</text>
-      <rect class="box" x="20" y="286" width="392" height="42"></rect>
-      <text class="xs m" x="32" y="304">IPresentationController　對黑板只讀不寫</text>
-      <text class="xs mu" x="32" y="320">FootIKController／AudioController 等</text>
-      <rect class="box" x="428" y="286" width="392" height="42"></rect>
-      <text class="xs m" x="440" y="304">IPresentationEventSource　只回傳值</text>
-      <text class="xs mu" x="440" y="320">FootstepDetector 等；由管線負責寫黑板</text>
-    </svg>
-
-    <figcaption>
-      這張圖畫的是<strong>一個被拒絕的做法</strong>與它的替代品。分兩步不是為了整齊，
-      而是為了讓「事件正確性」與「物件在階層裡的位置」徹底脫鉤。
-    </figcaption>
-
-    <div class="notes">
-      <div class="note why"><span class="lab">為什麼</span><p class="bd">
-        偵測者回傳值、管線負責寫——這樣 <code>IPresentationController</code> 的
-        「對黑板只讀不寫」契約<em>一個字都不用改</em>，也不會出現「這個 controller 是例外」的口頭約定。
-      </p></div>
-      <div class="note no"><span class="lab">否決了</span><p class="bd">
-        「消費者讀完就清掉事件」被否決。那會讓兩個消費者互相吃掉對方的事件，
-        且行為同樣取決於誰先跑。改為廣播快照＋整體覆寫，覆寫本身就是復位機制。
-      </p></div>
-      <div class="note self"><span class="lab">自我檢核</span><p class="bd">
-        「這裡付出的一帧延遲，跟 <code>BlockInput</code> 的一帧延遲，是同一個原因嗎？」——不是，值得想清楚差在哪。
-      </p></div>
-    </div>
-  </figure>
-
-  <!-- ---- 圖 9 ---- -->
-  <figure id="f9">
-    <h3><span class="num">09</span>離線烘焙鏈：數值從哪裡來</h3>
+  <figure id="f4">
+    <h3><span class="num">04</span>離線烘焙鏈：數值從哪裡來</h3>
     <p class="src">Editor/Stages/MotionBakeEditor.cs（648 行）· MotionFeatureAnalysis.cs · dev-spec §4</p>
 
     <svg viewBox="0 0 820 300" role="img" aria-label="離線與執行期分界圖：FBX 子片段經由編輯器工具烘焙成資產，執行期只讀取資產">
@@ -1321,487 +820,8 @@
       </p></div>
     </div>
   </figure>
-
-  <!-- ---- 圖 10 ---- -->
-  <figure id="f10">
-    <h3><span class="num">10</span>Foot IK：兩條單向管道，執行期零呼叫</h3>
-    <p class="src">Presentation/IK/ · docs/05-foot-ik.md §3.5.1／§3.5.5</p>
-
-    <svg viewBox="0 0 840 410" role="img" aria-label="Foot IK 雙管道結構：FootIKRig 在 Animator IK pass 寫出 pose 快照並套用 target，FootIKController 在順序 6.5 讀 pose 算出 target，兩者之間只有資料沒有呼叫">
-      <text class="xs m mu" x="20" y="20">Animator 評估流程（早於 LateUpdate）</text>
-      <rect class="box" x="20" y="30" width="450" height="92"></rect>
-      <text class="s m" x="32" y="50">FootIKRig.OnAnimatorIK</text>
-      <text class="xs mu" x="32" y="70">出 ▸ GetIKPosition／GetIKRotation　＋ Avatar 的 feetBottomHeight</text>
-      <text class="xs mu" x="32" y="86">　　 必須在套用 IK 之前讀＝該帧動畫的原始 goal</text>
-      <text class="xs mu" x="32" y="106">入 ▸ bodyPosition += PelvisOffsetY　＋ SetIKPosition／Rotation／Weight</text>
-
-      <line class="lnf" x1="130" y1="126" x2="130" y2="206" marker-end="url(#mk-f)"></line>
-      <rect class="boxf" x="72" y="146" width="116" height="40"></rect>
-      <text class="xs m fl" x="82" y="164">FootIKPoseData</text>
-      <text class="xs mu" x="82" y="180">Rig 是唯一 Writer</text>
-
-      <line class="lng" x1="360" y1="206" x2="360" y2="126" marker-end="url(#mk-g)"></line>
-      <rect class="boxg" x="302" y="146" width="116" height="40"></rect>
-      <text class="xs m gd" x="312" y="164">FootIKTargetData</text>
-      <text class="xs mu" x="312" y="180">Controller 是唯一 Writer</text>
-
-      <text class="xs m mu" x="196" y="170">下一帧才生效</text>
-
-      <text class="xs m mu" x="20" y="202">順序 6.5（LateUpdate，MotionDriver 之後）</text>
-      <rect class="box" x="20" y="210" width="450" height="104"></rect>
-      <text class="s m" x="32" y="230">FootIKController.Tick　<tspan class="xs mu">IPresentationController</tspan></text>
-      <text class="xs mu" x="32" y="250">閘門 ▸ IsWarm ＋ IsGrounded ＋ !Arbitration.BlockIK</text>
-      <text class="xs mu" x="32" y="268">① SampleGround　左右腳各打 ankle／heel／toe ray</text>
-      <text class="xs mu" x="32" y="285">② 骨盆補償　　　沉向較低的腳，夾限＋MoveTowards 平滑</text>
-      <text class="xs mu" x="32" y="302">③ ResolveFoot　　算出每腳的最終位置、旋轉與權重</text>
-
-      <rect class="boxd" x="20" y="326" width="450" height="66"></rect>
-      <text class="xs dn m" x="32" y="346">反饋禁令（M3.1 的教訓）</text>
-      <text class="xs mu" x="32" y="364">Controller 的輸入不得取自骨骼 Transform 現值——那是<tspan class="dn">上一帧</tspan> IK 的輸出。</text>
-      <text class="xs mu" x="32" y="381">違反即重現腳踝抽搐／腳黏地的反饋迴路。pose 一律取自快照。</text>
-
-      <text class="xs m mu" x="490" y="20">Level 1 剛體腳底：三層約束</text>
-      <rect class="box" x="490" y="30" width="330" height="188"></rect>
-      <text class="xs m fl" x="502" y="52">旋轉 ▸ 腳的姿態</text>
-      <text class="xs mu" x="502" y="69">FromToRotation(up, 法線) 左乘 poseRotation</text>
-      <text class="xs mu" x="502" y="85">⇒ 動畫自身的 pitch 原樣保留，不被壓平</text>
-
-      <line class="plain" x1="502" y1="98" x2="808" y2="98"></line>
-      <text class="xs m fl" x="502" y="118">水平 ▸ 腳踝 XZ（等式約束）</text>
-      <text class="xs mu" x="502" y="135">泰勒斯修正：腳踝維持在動畫 goal 的垂直線上</text>
-      <text class="xs mu" x="502" y="151">「腳踝位置不能只是被 foot offset 平移」</text>
-
-      <line class="plain" x1="502" y1="164" x2="808" y2="164"></line>
-      <text class="xs m fl" x="502" y="184">垂直 ▸ 腳踝 Y（不等式約束）</text>
-      <text class="xs mu" x="502" y="201">只抬不壓：lift = Max(0, 各端點穿透量)</text>
-      <text class="xs mu" x="502" y="213">argmax 的端點即接觸點，其餘自動獲得淨空</text>
-
-      <rect class="boxg" x="490" y="230" width="330" height="162"></rect>
-      <text class="xs gd m" x="502" y="250">哲學優先序（三次推翻換來的）</text>
-      <text class="xs mu" x="502" y="270">自然姿態 ＞ 地形貼合 ＞ 接觸精度</text>
-      <text class="xs mu" x="502" y="292">⛔ 禁止 Fade／Gate／權重修正這類補救——</text>
-      <text class="xs mu" x="502" y="308">它們是把症狀藏起來，不是把約束解對。</text>
-      <text class="xs mu" x="502" y="330">✓ 允許 Reach Clamp 類（連續、無二態切換）：</text>
-      <text class="xs mu" x="502" y="346">踝角超過夾限就讓腳保持自然姿勢，</text>
-      <text class="xs mu" x="502" y="362">上坡側接觸、下坡側浮空＝真人行為。</text>
-      <text class="xs mu" x="502" y="383">UE 的 ground orientation 也不是 100% 貼地。</text>
-    </svg>
-
-    <figcaption>
-      Rig 與 Controller <strong>執行期之間沒有任何方法呼叫、事件或回呼</strong>——
-      只有兩條單向共享資料。誰擁有哪份資料，就由誰持有它的生命週期。
-    </figcaption>
-
-    <div class="notes">
-      <div class="note why"><span class="lab">為什麼</span><p class="bd">
-        <code>OnAnimatorIK</code> 在同一個回呼裡同時做「出」與「入」，是因為那正是唯一能讀到
-        <em>IK 套用前</em>原始 goal 的時機。分成兩個回呼就讀不到了。
-      </p></div>
-      <div class="note no"><span class="lab">否決了</span><p class="bd">
-        「雙點取較高者當地面高度」被否決：連續坡面上必然選到上坡側，30° 坡浮空約 8.7cm，
-        還會隨角色朝向擺動。<strong>雙點只該回答「有沒有戳穿」，不該回答「地面在哪」。</strong>
-        「由 heel／toe 高差合成 pitch」同樣否決——斜面上多餘、階梯上根本是錯的。
-      </p></div>
-      <div class="note test"><span class="lab">守衛</span><p class="bd">
-        <code>A11</code>：<code>FootIKPoseData</code> 在它的唯一 Writer 裡只能有一個建構點。
-        <code>A12</code>：腳步相位不得擴張玩法黑板。
-      </p></div>
-      <div class="note self"><span class="lab">自我檢核</span><p class="bd">
-        「IK 結果晚一帧，為什麼是正常的而不是 bug？」——想到 Humanoid IK 的快照架構就對了。
-      </p></div>
-    </div>
-  </figure>
-
-  <!-- ---- 圖 11 ---- -->
-  <figure id="f11">
-    <h3><span class="num">11</span>方向權威：移動、瞄準、朝向各自只決定一次</h3>
-    <p class="src">ADR-007 · docs/14-direction-authority.md · docs/15-combat-context.md　<span class="badge w">Trial 基線</span></p>
-
-    <svg viewBox="0 0 840 560" role="img" aria-label="Direction Authority：Movement chain 擁有移動方向，ActionState 擁有方向承諾，CharacterFacingSource 擁有朝向決策，MotionDriver 只執行 root rotation">
-      <text class="xs m mu" x="16" y="18">來源／事實</text>
-      <text class="xs m mu" x="286" y="18">Gameplay 決策</text>
-      <text class="xs m mu" x="608" y="18">執行／表現</text>
-
-      <rect class="box" x="16" y="32" width="220" height="82"></rect>
-      <text class="s m" x="28" y="54">Movement chain</text>
-      <text class="xs mu" x="28" y="74">Player／AI producer → Model</text>
-      <text class="xs mu" x="28" y="90">輸出世界座標 MoveDirection</text>
-      <text class="xs gd" x="28" y="106">擁有「往哪裡走」</text>
-
-      <rect class="boxg" x="16" y="132" width="220" height="100"></rect>
-      <text class="s m gd" x="28" y="154">CombatContext</text>
-      <text class="xs mu" x="28" y="174">PlayerCombatContextSource 唯一寫入</text>
-      <text class="xs mu" x="28" y="190">提供黏性 target 候選</text>
-      <text class="xs dn" x="28" y="208">不再驅動常駐 root facing</text>
-      <text class="xs mu" x="28" y="224">另供 HeadLook 只讀</text>
-
-      <rect class="box" x="16" y="250" width="220" height="86"></rect>
-      <text class="s m" x="28" y="272">AimResolver : IAimSource</text>
-      <text class="xs mu" x="28" y="292">相機中心射線 → AimPoint</text>
-      <text class="xs mu" x="28" y="308">lazy per-frame，無跨幀承諾</text>
-      <text class="xs gd" x="28" y="324">F6：Core 只依賴介面</text>
-
-      <rect class="boxf" x="282" y="132" width="272" height="204"></rect>
-      <text class="s m fl" x="296" y="154">ActionState：承諾擁有者</text>
-      <text class="xs mu" x="296" y="176">段落邊界 CaptureReleaseContext</text>
-      <text class="xs m" x="296" y="198">ActionTargetingPolicy</text>
-      <text class="xs mu" x="308" y="216">CameraForward（預設）</text>
-      <text class="xs mu" x="308" y="232">CameraConeSoftTarget（角錐內才修正）</text>
-      <text class="xs mu" x="308" y="248">SelfCentered（無方向承諾）</text>
-      <line class="plain" x1="296" y1="262" x2="540" y2="262"></line>
-      <text class="xs m fl" x="296" y="282">ActionReleaseContext</text>
-      <text class="xs mu" x="308" y="300">AimPoint／Direction／HasAim</text>
-      <text class="xs gd" x="296" y="320">同一份同時供 facing 與 release</text>
-
-      <rect class="box" x="604" y="132" width="220" height="100"></rect>
-      <text class="s m" x="616" y="154">Active lifecycle sink</text>
-      <text class="xs mu" x="616" y="174">Release(in ActionReleaseContext)</text>
-      <text class="xs mu" x="616" y="192">Hitbox／Projectile／Ground Effect</text>
-      <text class="xs dn" x="616" y="212">不得再查 AimResolver／transform</text>
-
-      <rect class="box" x="604" y="250" width="220" height="86"></rect>
-      <text class="s m" x="616" y="272">HeadLookController</text>
-      <text class="xs mu" x="616" y="292">只讀 CombatContext.TargetPosition</text>
-      <text class="xs mu" x="616" y="308">只寫 headBone.rotation</text>
-      <text class="xs dn" x="616" y="324">不是 root facing authority</text>
-
-      <rect class="boxf" x="282" y="374" width="272" height="112"></rect>
-      <text class="s m fl" x="296" y="396">CharacterFacingSource（順序 4.6）</text>
-      <text class="xs mu" x="296" y="416">① Action commitment</text>
-      <text class="xs mu" x="296" y="432">② explicit target／lock-on（預留）</text>
-      <text class="xs mu" x="296" y="448">③ MoveDirection　④ 無來源＝保持</text>
-      <text class="xs gd" x="296" y="468">全角色唯一 RequestFacing 送出者</text>
-
-      <rect class="boxg" x="604" y="374" width="220" height="112"></rect>
-      <text class="s m gd" x="616" y="396">MotionDriver</text>
-      <text class="xs mu" x="616" y="416">RequestFacing 收件匣</text>
-      <text class="xs mu" x="616" y="432">ApplyFacingRequest：只做 slerp</text>
-      <text class="xs gd" x="616" y="450">transform.rotation 唯一寫入者</text>
-      <text class="xs dn" x="616" y="468">不決定「該不該轉／朝哪轉」</text>
-
-      <line class="lnf" x1="240" y1="182" x2="278" y2="182" marker-end="url(#mk-f)"></line>
-      <line class="lnf" x1="240" y1="293" x2="278" y2="293" marker-end="url(#mk-f)"></line>
-      <line class="lnf" x1="558" y1="182" x2="600" y2="182" marker-end="url(#mk-f)"></line>
-      <line class="lnf" x1="418" y1="340" x2="418" y2="370" marker-end="url(#mk-f)"></line>
-      <path class="ln" d="M240,72 C260,72 260,430 278,430" marker-end="url(#mk-a)"></path>
-      <line class="lnf" x1="558" y1="430" x2="600" y2="430" marker-end="url(#mk-f)"></line>
-
-      <rect class="boxd" x="16" y="510" width="808" height="34"></rect>
-      <text class="xs dn m" x="28" y="531">⛔ CombatContext ≠ combat state；HeadLook ≠ root facing；sink ≠ aim authority；persistent lock-on 尚未實作。</text>
-    </svg>
-
-    <figcaption>
-      三種方向不再共用載體：<strong>movement chain 決定移動、ActionState 決定出手承諾、
-      CharacterFacingSource 決定 root 朝向</strong>；MotionDriver 與 lifecycle sink 都只執行收到的資料。
-    </figcaption>
-
-    <div class="notes">
-      <div class="note why"><span class="lab">為什麼</span><p class="bd">
-        出手 facing 與世界效果必須讀同一份 <code>ActionReleaseContext</code>，否則連段中敵人移動時，
-        身體與投射物會各自朝不同方向。這是 ADR-007 D4／D5 的核心。
-      </p></div>
-      <div class="note no"><span class="lab">否決了</span><p class="bd">
-        不做第二個 rotation writer、不做常駐 combat-facing、不建立通用 targeting service。
-        persistent lock-on 與上半身層仍是後續獨立工作，不在目前基線裡。
-      </p></div>
-      <div class="note test"><span class="lab">守衛</span><p class="bd">
-        <code>A28–A32</code> 分別守世界移動、sink 零解算、相機基底、唯一 facing sender，
-        以及 MotionDriver 不得重新決定朝向。
-      </p></div>
-      <div class="note self"><span class="lab">自我檢核</span><p class="bd">
-        「敵人在待機時，誰可以看著目標？」——HeadLook 可以；root 不會因此轉，除非 Action commitment 接管。
-      </p></div>
-    </div>
-  </figure>
-</section>
-
-
-<!-- ============ L3 ============ -->
-<section class="tier">
-  <div class="tier-head">
-    <span class="code">L3</span>
-    <h2>呼叫鏈與生命週期：八條端到端路徑</h2>
-    <span class="zoom">×16</span>
-  </div>
-  <p class="tier-intro">
-    前面兩層是靜態結構，這一層是「按下去之後實際發生什麼」。
-    呼叫順序用文字樹，生命週期則用分支流程圖；兩者都把正常路徑與失敗／中斷路徑一起畫出來。
-  </p>
-
-  <!-- ---- 10 ---- -->
-  <figure id="f12">
-    <h3><span class="num">12</span>主迴圈：一帧的完整呼叫樹</h3>
-    <p class="src">CharacterPipelineRunner.cs</p>
-<pre class="tree"><span class="f">CharacterPipelineRunner.Update()</span>
-<span class="g">├─</span> _inputSource<span class="g">?.</span>FetchRawInput(ref inputData)      <span class="c">順序 1　可缺席（AI 角色沒有）</span>
-<span class="g">├─</span> _inputDebug ← inputData                       <span class="c">除錯快照刻意取在閘門之前</span>
-<span class="g">├─</span> <span class="d">if (Arbitration.BlockInput) inputData = default</span>  <span class="c">順序 2 閘門</span>
-<span class="g">├─</span> ProcessIntents(ref inputData)                 <span class="c">順序 2　→ 寫 Intent</span>
-<span class="g">├─</span> _movementIntentSource<span class="g">?.</span>ProduceIntent(...)     <span class="c">順序 2.5 → 寫 MovementIntent</span>
-<span class="g">├─</span> _combatContextSource<span class="g">?.</span>Tick(data, Time.time)   <span class="c">順序 2.6 → 寫 CombatContext</span>
-<span class="g">├─</span> _movementModel<span class="g">?.</span>Tick(data, facade, dt)        <span class="c">順序 3　→ 寫 Movement Output</span>
-<span class="g">│  └─</span> <span class="f">LocomotionModel.Tick</span>
-<span class="g">│     ├─</span> B9 平滑（時間常數收斂）
-<span class="g">│     ├─</span> TickActiveStop / TickPendingStop        <span class="c">停步段狀態推進</span>
-<span class="g">│     └─</span> facade.SetFloat(MoveSpeed)              <span class="c">model 自驅自己的動畫參數</span>
-<span class="g">├─</span> _stateMachine.Tick(data, dt)                  <span class="c">順序 4</span>
-<span class="g">│  ├─</span> 目前狀態.OnTick(data, dt)
-<span class="g">│  ├─</span> EvaluateInterrupts  <span class="g">→</span> 命中則 TransitionTo
-<span class="g">│  ├─</span> EvaluateTransitions <span class="g">→</span> 白名單首個 CanEnter
-<span class="g">│  └─</span> <span class="k">finally:</span> _actionRequestTarget?.ClearAfterEvaluation()
-<span class="g">├─</span> _arbiterPipeline<span class="g">?.</span>Tick(data)                 <span class="c">順序 4.5 → 整體覆寫 Arbitration</span>
-<span class="g">│  └─</span> foreach source: Evaluate(data) <span class="g">→</span> OR 合併
-<span class="g">├─</span> _facingSource<span class="g">?.</span>Tick(data)                    <span class="c">順序 4.6 → 唯一 facing 仲裁</span>
-<span class="g">│  ├─</span> FSM.TryGetActiveFacingCommitment()
-<span class="g">│  └─</span> commitment ＞ MoveDirection <span class="g">→</span> MotionDriver.RequestFacing
-<span class="g">└─</span> SyncAnimation()                               <span class="c">順序 5</span>
-   <span class="g">└─</span> <span class="d">if (key != _lastPlayedKey)</span> facade.Play(key)  <span class="c">只在鍵改變時提交</span>
-
-<span class="c">⋯ Unity 評估 Animator ⋯</span>
-
-<span class="f">CharacterPipelineRunner.LateUpdate()</span>
-<span class="g">├─</span> 目前狀態.OnUpdateMotion(driver, facade, data)  <span class="c">順序 6</span>
-<span class="g">│  └─</span> <span class="f">MotionDriver.ExecuteBaseMovement / ExecuteBakedCurveMovement</span>
-<span class="g">│     └─</span> GetGravityThisFrame(data)
-<span class="g">│        ├─</span> CharacterController.Move(delta)
-<span class="g">│        └─</span> <span class="k">寫 IsGrounded / VerticalVelocity / JustLanded / JustLeftGround</span>
-<span class="g">├─</span> _presentationPipeline<span class="g">?.</span>Tick(data)            <span class="c">順序 6.5</span>
-<span class="g">│  ├─</span> ① foreach controller: Tick(data)          <span class="c">讀上一帧快照</span>
-<span class="g">│  └─</span> ② foreach source: Evaluate(data) <span class="g">→</span> OR <span class="g">→</span> <span class="k">整體覆寫 PresentationEvents</span>
-<span class="g">└─</span> data.ResetTransientState()                    <span class="c">順序 7　死守最末端</span>
-   <span class="g">├─</span> Intent.Reset()
-   <span class="g">└─</span> JustLanded = JustLeftGround = false</pre>
-    <div class="notes">
-      <div class="note self"><span class="lab">自我檢核</span><p class="bd">
-        遮住右邊註解，只看縮排，能不能說出每一層在寫黑板的哪一區？
-      </p></div>
-    </div>
-  </figure>
-
-  <!-- ---- 11 ---- -->
-  <figure id="f13">
-    <h3><span class="num">13</span>按下 Slot1 到打中東西</h3>
-    <p class="src">跨越 Input、FSM、Direction Authority 與世界效果；方向在段落邊界只決定一次</p>
-<pre class="tree"><span class="c">— 第 N 帧 —</span>
-<span class="f">順序 2</span>  ProcessIntents
-<span class="g">└─</span> input.Slot1ButtonDown <span class="g">→</span> Intent.ActionRequest = <span class="f">ActionSlot.Slot1</span>
-                                        <span class="c">（身分在這裡就決定，之後不再改）</span>
-<span class="f">順序 4</span>  FullBodyStateMachine.Tick
-<span class="g">├─</span> EvaluateInterrupts <span class="g">→</span> ActionState.CanEnter(data) <span class="g">→</span> true
-<span class="g">└─</span> TransitionTo(ActionState)
-   <span class="g">└─</span> <span class="f">ActionState.OnEnter</span>
-      <span class="g">├─</span> _activeSlot = Intent.ActionRequest        <span class="c">記住是第幾格</span>
-      <span class="g">├─</span> _definition = config.Resolve(_activeSlot) <span class="c">取那一格的 SO</span>
-      <span class="g">├─</span> <span class="f">CaptureReleaseContext(data)</span>
-      <span class="g">│  ├─</span> IAimSource.TryGetAimPoint()             <span class="c">相機幾何，只經 Core 介面</span>
-      <span class="g">│  ├─</span> Targeting == CameraConeSoftTarget ? TrySoftTarget() : camera forward
-      <span class="g">│  └─</span> <span class="k">凍結 ActionReleaseContext</span>             <span class="c">AimPoint／Direction／HasAim</span>
-      <span class="g">├─</span> <span class="k">ActiveLifecycleSink()?.Begin()</span>            <span class="c">只通知該格的 sink</span>
-      <span class="g">│  └─</span> MeleeHitboxSink.Begin()  <span class="c">清空本次揮擊的已命中名單</span>
-      <span class="g">└─</span> EnterPhase(Start) <span class="g">→</span> 失敗則立刻 Cleanup()
-
-<span class="f">順序 4.6</span>  CharacterFacingSource.Tick
-<span class="g">└─</span> FSM.TryGetActiveFacingCommitment() <span class="g">→</span> MotionDriver.RequestFacing(context.Direction)
-
-<span class="f">順序 5</span>  SyncAnimation <span class="g">→</span> facade.Play(Start 這一格的 AnimationKey)
-
-<span class="c">— 第 N+k 帧：phase 推進到命中窗 —</span>
-<span class="f">順序 4</span>  ActionState.OnTick
-<span class="g">├─</span> phase／連段推進 <span class="g">→</span> 下一個帶 release 的段落邊界重新 CaptureReleaseContext
-<span class="g">└─</span> TryEmitRelease()
-   <span class="g">└─</span> <span class="k">ActiveLifecycleSink()?.Release(in _releaseContext)</span>
-      <span class="g">├─</span> 若為 MeleeHitboxSink   <span class="g">→</span> 開啟 trigger collider（開窗）
-      <span class="g">│  └─</span> <span class="f">OnTriggerEnter(other)</span>  <span class="c">Unity 回呼，非管線</span>
-      <span class="g">│     └─</span> <span class="d">同一揮擊同一目標只送一次</span>
-      <span class="g">│        └─</span> ActionRequestTarget.Submit(<span class="f">ActionSlot.Reaction</span>)
-      <span class="g">│           └─</span> <span class="c">被擊者下一次 Tick 的 EvaluateInterrupts 仲裁</span>
-      <span class="g">└─</span> 若為 ThrowProjectileEmitter <span class="g">→</span> 依 context.Direction 生成 ThrownProjectile
-         <span class="g">└─</span> <span class="d">不持有 AimResolver，不重新解算方向</span>
-
-<span class="c">— 結束 —</span>
-<span class="f">順序 4</span>  EnterPhase(End) <span class="g">→</span> Complete()
-<span class="g">└─</span> <span class="k">ActiveLifecycleSink()?.Cleanup()</span>  <span class="c">關窗。Cancel 路徑也走這裡</span>
-   <span class="g">└─</span> CanTransitionAway 恢復 true <span class="g">→</span> 下一帧才可能離開 Action</pre>
-    <div class="notes">
-      <div class="note why"><span class="lab">為什麼</span><p class="bd">
-        命中窗由 <em>Action 生命週期</em>開關，不由粒子碰撞或動畫事件決定。
-        前者的時序真相在程式碼裡看得到、測得到；後者散落在美術資產裡，改一個 VFX 就會改變玩法。
-      </p></div>
-      <div class="note test"><span class="lab">守衛</span><p class="bd">
-        <code>A26</code> 鎖住這條紅線，<code>T25</code> 鎖住「Slot2 不得誤觸 Slot1／Slot3 的 sink」。
-      </p></div>
-      <div class="note self"><span class="lab">自我檢核</span><p class="bd">
-        「被打中的人，是怎麼從 <code>Reaction</code> 這個 slot 走回同一顆 <code>ActionState</code> 的？」
-      </p></div>
-    </div>
-  </figure>
-
-  <!-- ---- 12 ---- -->
-  <figure id="f14">
-    <h3><span class="num">14</span>落地：同一份物理快照供玩法與表現</h3>
-    <p class="src">跨兩幀：impact velocity、落地分類與單幀事件各自有正確生命週期</p>
-<pre class="tree"><span class="c">— 第 N 帧 LateUpdate —</span>
-<span class="f">順序 6</span>  MotionDriver.GetGravityThisFrame
-<span class="g">├─</span> CharacterController.Move(delta)
-<span class="g">├─</span> <span class="k">VerticalVelocity = impact velocity</span>  <span class="c">必須早於 reboundForce 貼地夾持</span>
-<span class="g">├─</span> 上一幀空中 &amp;&amp; 本幀觸地  <span class="g">→</span>  <span class="k">JustLanded = true</span>   <span class="c">生</span>
-<span class="g">└─</span> IsGrounded = true                         <span class="c">三者是同一瞬間的快照</span>
-
-<span class="f">順序 6.5</span> PresentationPipeline.Tick
-<span class="g">├─</span> ① AudioController.Tick(data)
-<span class="g">│     └─</span> <span class="k">if (data.JustLanded) Play(AudioEventId.Land)</span>          <span class="c">消費</span>
-<span class="g">├─</span> ① FootIKController.Tick(data)
-<span class="g">└─</span> ② FootstepDetector.Evaluate(data) <span class="g">→</span> PresentationEventData
-      <span class="g">└─</span> OR 合併 <span class="g">→</span> <span class="k">整體覆寫 data.PresentationEvents</span>            <span class="c">發布</span>
-
-<span class="f">順序 7</span>  ResetTransientState()
-<span class="g">└─</span> <span class="d">JustLanded = false</span>                                        <span class="c">死</span>
-
-<span class="c">— 第 N+1 帧 —</span>
-<span class="f">順序 4</span>   JumpState.OnTick
-<span class="g">└─</span> IsGrounded + VerticalVelocity <span class="g">→</span> Normal／Hard Landing <span class="c">主動跳與被動失地共用</span>
-
-<span class="f">順序 6.5</span> ① 各 controller 讀到的 PresentationEvents
-<span class="g">└─</span> <span class="c">＝上一帧②發布的快照。腳步聲因此固定晚一帧（約 16ms），這是設計。</span>
-
-<span class="c">兩種事件、兩套生命週期，別混用：</span>
-  <span class="k">JustLanded</span>          當幀生、當幀死　　由順序 7 統一復位
-  <span class="k">VerticalVelocity</span>    持續快照　　　　　下一次 Move 之前保持
-  <span class="k">PresentationEvents</span>  廣播快照　　　　　整體覆寫本身就是復位，順序 7 刻意不認識它</pre>
-    <div class="notes">
-      <div class="note self"><span class="lab">自我檢核</span><p class="bd">
-        「為什麼 <code>VerticalVelocity</code> 不能在 reboundForce 夾持之後才發布？」——那會讓所有重落地都只剩 −2 m/s。
-      </p></div>
-    </div>
-  </figure>
-
-  <!-- ---- 13 ---- -->
-  <figure id="f15">
-    <h3><span class="num">15</span>打開 UI：輸入封鎖與那一帧延遲</h3>
-    <p class="src">Core/Arbitration/ · App/CursorModeController.cs</p>
-<pre class="tree"><span class="c">— 第 N 帧 —</span>
-<span class="f">順序 4.5</span> ArbiterPipeline.Tick(data)
-<span class="g">└─</span> foreach IArbiterSource: Evaluate(data)
-   <span class="g">├─</span> UiModeArbiterSource <span class="g">→</span> <span class="k">{ BlockInput = true, ... }</span>
-   <span class="g">└─</span> OR 合併 <span class="g">→</span> 整體覆寫 data.Arbitration
-                                <span class="c">↑ 唯一寫入者，順序 4.5</span>
-<span class="c">同一帧內，來源自己的即時反應已經完成：</span>
-  CursorModeController  <span class="g">→</span> Cursor.lockState / visible   <span class="c">Cursor API 的唯一擁有者</span>
-  ThirdPersonCamera     <span class="g">→</span> 停止吃滑鼠
-
-<span class="c">— 第 N+1 帧 —</span>
-<span class="f">順序 2 閘門</span>
-<span class="g">└─</span> <span class="d">if (Arbitration.BlockInput) inputData = default</span>
-   <span class="g">├─</span> 順序 2   ProcessIntents 吃到全 false <span class="g">→</span> 不寫任何意圖
-   <span class="g">└─</span> 順序 2.5 producer 吃到零輸入
-      <span class="g">└─</span> DesiredSpeedNormalized = 0
-         <span class="g">└─</span> 順序 3 B9 平滑把速度收到 0  <span class="c">＝與放開 WASD 完全同款的滑行收步</span>
-
-<span class="c">為什麼不把 4.5 提前來消除這一帧：</span>
-  4.5 卡在狀態機之後，是為了讀到<span class="k">當帧更新後</span>的狀態。
-  提前 <span class="g">⇒</span> 延遲沒有消失，只是從「旗標晚一帧生效」
-       變成「旗標<span class="d">根據過期狀態計算</span>」——後者更難除錯。
-  真的不能忍受一帧（例如 frame-perfect 無敵幀取消）
-       <span class="g">⇒</span> 正解是讓它走 <span class="k">FSM 狀態</span>，而不是搬動仲裁順序。</pre>
-    <div class="notes">
-      <div class="note why"><span class="lab">為什麼</span><p class="bd">
-        歸零的是<em>輸入</em>而不是 <code>MovementIntent</code>：後者會需要第二個寫入者，
-        直接違反 <code>A5</code>。歸零輸入則讓 policy 仍是唯一寫入者，
-        而且 producer 完全不需要知道「封鎖」這個概念存在。
-      </p></div>
-      <div class="note no"><span class="lab">否決了</span><p class="bd">
-        「在每一步各補一個 <code>if (BlockInput)</code>」被否決——那是兩套規則，
-        而且每加一個新步驟就要記得補一次。定義成「本帧管線看不到任何輸入」則只需要一個地方。
-      </p></div>
-      <div class="note self"><span class="lab">自我檢核</span><p class="bd">
-        「開 UI 時角色會不會瞬間定住？為什麼是滑行停下而不是急停？」
-      </p></div>
-    </div>
-  </figure>
-
-  <!-- ---- 16 ---- -->
-  <figure id="f16">
-    <h3><span class="num">16</span>Action 收束：完成、取消、中斷都不能留下殘態</h3>
-    <p class="src">ActionState.cs · IActionLifecycleSink · ActionStateTests T17／T27 · A26</p>
-
-    <svg viewBox="0 0 860 540" role="img" aria-label="Action 生命週期分支：啟動失敗、取消、自然完成與 FSM 中斷最後都經 Cleanup、冷卻提交與狀態復位">
-      <rect class="boxf" x="280" y="20" width="300" height="70"></rect>
-      <text class="s m fl" x="430" y="45" text-anchor="middle">ActionState.OnEnter</text>
-      <text class="xs mu" x="430" y="64" text-anchor="middle">CaptureReleaseContext → sink.Begin()</text>
-      <text class="xs mu" x="430" y="80" text-anchor="middle">EnterPhase(Start)</text>
-
-      <line class="lnf" x1="430" y1="92" x2="430" y2="120" marker-end="url(#mk-f)"></line>
-      <rect class="box" x="270" y="124" width="320" height="82"></rect>
-      <text class="s m" x="430" y="149" text-anchor="middle">Active execution</text>
-      <text class="xs mu" x="430" y="168" text-anchor="middle">Start／Loop／End；每段至多 Release 一次</text>
-      <text class="xs gd" x="430" y="187" text-anchor="middle">只有 ActionState 擁有 phase 與 lifecycle 時序</text>
-
-      <path class="lnd" d="M278,56 L105,56 L105,254" marker-end="url(#mk-d)"></path>
-      <path class="lnf" d="M430,208 L430,232 L320,232 L320,254" marker-end="url(#mk-f)"></path>
-      <path class="lnf" d="M430,232 L535,232 L535,254" marker-end="url(#mk-f)"></path>
-      <path class="lnf" d="M430,232 L750,232 L750,254" marker-end="url(#mk-f)"></path>
-
-      <rect class="boxd" x="10" y="258" width="190" height="108"></rect>
-      <text class="s m dn" x="105" y="282" text-anchor="middle">啟動未成立</text>
-      <text class="xs mu" x="105" y="302" text-anchor="middle">request 消失：沒有 sink</text>
-      <text class="xs dn" x="105" y="323" text-anchor="middle">缺 Start：Begin 後 Cleanup</text>
-      <text class="xs mu" x="105" y="344" text-anchor="middle">phase=None，立刻放行</text>
-
-      <rect class="boxd" x="225" y="258" width="190" height="108"></rect>
-      <text class="s m dn" x="320" y="282" text-anchor="middle">動作內 Cancel</text>
-      <text class="xs mu" x="320" y="302" text-anchor="middle">Loop 讀到移動意圖</text>
-      <text class="xs dn" x="320" y="323" text-anchor="middle">入 Cancel 時先 Cleanup</text>
-      <text class="xs mu" x="320" y="344" text-anchor="middle">播收手動畫後 Complete</text>
-
-      <rect class="boxg" x="440" y="258" width="190" height="108"></rect>
-      <text class="s m gd" x="535" y="282" text-anchor="middle">自然完成</text>
-      <text class="xs mu" x="535" y="302" text-anchor="middle">Start-only／End 時長到</text>
-      <text class="xs gd" x="535" y="323" text-anchor="middle">Complete()</text>
-      <text class="xs mu" x="535" y="344" text-anchor="middle">或缺後續 phase 時保底</text>
-
-      <rect class="boxd" x="655" y="258" width="195" height="108"></rect>
-      <text class="s m dn" x="752" y="282" text-anchor="middle">FSM 中斷</text>
-      <text class="xs mu" x="752" y="302" text-anchor="middle">authored Interruptible 通過</text>
-      <text class="xs dn" x="752" y="323" text-anchor="middle">OnExit()</text>
-      <text class="xs mu" x="752" y="344" text-anchor="middle">不播放 Cancel phase</text>
-
-      <path class="ln" d="M105,368 L105,397 L430,397"></path>
-      <path class="ln" d="M320,368 L320,397"></path>
-      <path class="ln" d="M535,368 L535,397"></path>
-      <path class="ln" d="M752,368 L752,397 L430,397"></path>
-      <line class="lnf" x1="430" y1="397" x2="430" y2="425" marker-end="url(#mk-f)"></line>
-
-      <rect class="boxf" x="235" y="430" width="390" height="76"></rect>
-      <text class="s m fl" x="430" y="455" text-anchor="middle">共同收束</text>
-      <text class="xs mu" x="430" y="475" text-anchor="middle">Cleanup safety net → CommitCooldown → ResetExecutionState</text>
-      <text class="xs gd" x="430" y="494" text-anchor="middle">清空 active slot 後，後續 OnExit 自然成為 no-op</text>
-
-      <text class="xs dn m" x="430" y="528" text-anchor="middle">⚠ Cancel 會先關窗，Cleanup 契約因此必須可重複安全；不要把「被呼叫一次」當成生命週期保證。</text>
-    </svg>
-
-    <figcaption>
-      <strong>Interrupt 與 Cancel 是兩條不同路。</strong>Cancel 是 Action 內部的 authored 收手；Interrupt 是 FSM 換狀態。
-      兩者共同保證 sink 不留殘態、冷卻不被洗掉，但不承諾 Cleanup 只會被呼叫一次。
-    </figcaption>
-    <div class="notes">
-      <div class="note why"><span class="lab">為什麼</span><p class="bd">
-        Hitbox 或手持特效一旦漏掉 Cleanup，就會把一次性的命中窗變成永久玩法狀態；所以自然完成與 OnExit 都有 safety net。
-      </p></div>
-      <div class="note no"><span class="lab">否決了</span><p class="bd">
-        不讓各 sink 自己猜動畫播完了沒有，也不靠粒子／trigger 決定生命週期；sink 只執行 Begin／Release／Cleanup。
-      </p></div>
-      <div class="note test"><span class="lab">守衛</span><p class="bd">
-        <code>T17</code> 守自然完成仍 Cleanup，<code>T27</code> 守連段只 Begin 一次且最後收束，<code>A26</code> 守近戰開窗時機只能來自 Action lifecycle。
-      </p></div>
-      <div class="note self"><span class="lab">自我檢核</span><p class="bd">
-        「Cancel phase 剛進入就 Cleanup，之後 Complete 又走 safety net，sink 為什麼不能把第二次呼叫當錯誤？」
-      </p></div>
-    </div>
-  </figure>
-
-  <!-- ---- 17 ---- -->
-  <figure id="f17">
-    <h3><span class="num">17</span>Combat Context：進場、黏住、失效、離場</h3>
+  <figure id="f5">
+    <h3><span class="num">05</span>Combat Context：進場、黏住、失效、離場</h3>
     <p class="src">PlayerCombatContextSource.Tick() · CombatContextTests · docs/15 §4／§19</p>
 
     <svg viewBox="0 0 860 720" role="img" aria-label="Combat Context 生命週期：互動和威脅搜尋進場，合法目標保持黏性，失效後才重選，無目標且逾時才離場，最後發布值型別快照">
@@ -1892,10 +912,8 @@
       </p></div>
     </div>
   </figure>
-
-  <!-- ---- 18 ---- -->
-  <figure id="f18">
-    <h3><span class="num">18</span>Locomotion Stop：不是第六個 State 的承諾位移</h3>
+  <figure id="f6">
+    <h3><span class="num">06</span>Locomotion Stop：不是第六個 State 的承諾位移</h3>
     <p class="src">LocomotionModel／LocomotionStopRuntime／Selector · docs/07 §6／§9 · A12／A14／A15</p>
 
     <svg viewBox="0 0 860 744" role="img" aria-label="Locomotion Stop 流程：放開輸入形成邊沿，選 Walk 或 Run 停步，等待腳相或立即播放，Update 更新私有生命週期，LateUpdate 執行烘焙位移，完成或中斷後失效並回到一般移動">
@@ -1975,131 +993,36 @@
       </p></div>
     </div>
   </figure>
-
-  <!-- ---- 19 ---- -->
-  <figure id="f19">
-    <h3><span class="num">19</span>Traversal：從真實表面到單一主接觸，再到 Hand IK</h3>
-    <p class="src">TraversalProbe → Selection → Animation Fitting → TraversalPlan → Piecewise Root Warp → Contact → Hand IK · ADR-008 Trial · docs/22／24</p>
-
-    <svg viewBox="0 0 860 650" role="img" aria-label="Traversal 完整鏈路：Probe 擁有物理查詢，Selection 決定是否進入，Animation Fitting 決定播放速率，TraversalPlan 鎖存單一 primary root contact，Piecewise Root Warp 由 MotionDriver 執行，Contact 對 committed ledge surface 解 secondary hand，Hand IK 只修接觸殘差">
-      <rect class="boxg" x="18" y="24" width="246" height="104"></rect>
-      <text class="s m gd" x="34" y="49">1 · Probe</text>
-      <text class="xs mu" x="34" y="70">擁有全部 Physics query</text>
-      <text class="xs mu" x="34" y="88">commit ledge frame／interval／corridor</text>
-      <text class="xs gd" x="34" y="109">守衛：A39／Probe PlayMode corridor</text>
-
-      <line class="lnf" x1="266" y1="76" x2="296" y2="76" marker-end="url(#mk-f)"></line>
-      <rect class="box" x="300" y="24" width="246" height="104"></rect>
-      <text class="s m" x="316" y="49">2 · Selection</text>
-      <text class="xs mu" x="316" y="70">決定 Jump vs Traversal／kind enabled</text>
-      <text class="xs mu" x="316" y="88">只讀 candidate；拒絕時保留 reason</text>
-      <text class="xs gd" x="316" y="109">守衛：A45／J1–J5</text>
-
-      <line class="lnf" x1="548" y1="76" x2="578" y2="76" marker-end="url(#mk-f)"></line>
-      <rect class="boxf" x="582" y="24" width="260" height="104"></rect>
-      <text class="s m fl" x="598" y="49">3 · Animation Fitting</text>
-      <text class="xs mu" x="598" y="70">擁有 playback rate；不碰 Physics</text>
-      <text class="xs mu" x="598" y="88">先吸收時間域差，再交空間殘差</text>
-      <text class="xs gd" x="598" y="109">守衛：A50／TraversalAnimationFitTests</text>
-
-      <path class="lnf" d="M712,130 L712,160 L143,160 L143,190" marker-end="url(#mk-f)"></path>
-      <rect class="boxf" x="18" y="194" width="246" height="122"></rect>
-      <text class="s m fl" x="34" y="219">4 · TraversalPlan</text>
-      <text class="xs mu" x="34" y="240">CanEnter snapshot ＋ OnEnter 單次建立</text>
-      <text class="xs gd" x="34" y="258">root 只由 primary contact 決定</text>
-      <text class="xs mu" x="34" y="276">BothHands：Left 是 primary</text>
-      <text class="xs gd" x="34" y="297">守衛：HC4／M6</text>
-
-      <line class="lnf" x1="266" y1="255" x2="296" y2="255" marker-end="url(#mk-f)"></line>
-      <rect class="boxg" x="300" y="194" width="246" height="122"></rect>
-      <text class="s m gd" x="316" y="219">5 · Piecewise Root Warp</text>
-      <text class="xs mu" x="316" y="240">六 knot；root time ≡ animation time</text>
-      <text class="xs mu" x="316" y="258">contact→transfer correction 凍結</text>
-      <text class="xs gd" x="316" y="276">只有 MotionDriver 呼叫 Move</text>
-      <text class="xs gd" x="316" y="297">守衛：A46／B11</text>
-
-      <line class="lnf" x1="548" y1="255" x2="578" y2="255" marker-end="url(#mk-f)"></line>
-      <rect class="box" x="582" y="194" width="260" height="122"></rect>
-      <text class="s m" x="598" y="219">6 · Contact</text>
-      <text class="xs mu" x="598" y="240">primary：骨骼／grip fitting → root</text>
-      <text class="xs mu" x="598" y="258">secondary：查 committed ledge surface</text>
-      <text class="xs dn" x="598" y="276">無 surface 就 unavailable，不壓縮姿勢</text>
-      <text class="xs gd" x="598" y="297">守衛：HC6／M6／B14</text>
-
-      <path class="lnf" d="M712,318 L712,350 L430,350 L430,380" marker-end="url(#mk-f)"></path>
-      <rect class="boxf" x="220" y="384" width="420" height="118"></rect>
-      <text class="s m fl" x="430" y="410" text-anchor="middle">7 · Hand IK（Presentation residual only）</text>
-      <text class="xs mu" x="430" y="433" text-anchor="middle">只讀 committed wrist target ＋ bake-time weight window</text>
-      <text class="xs mu" x="430" y="453" text-anchor="middle">不查 Probe／Physics、不改 root／collision／blackboard</text>
-      <text class="xs gd" x="430" y="478" text-anchor="middle">守衛：A49／B15／PlayerPrefab_TraversalHandIK…</text>
-
-      <rect class="boxd" x="18" y="532" width="824" height="88"></rect>
-      <text class="xs dn m" x="34" y="557">⛔ 否決：雙手各解 absolute root 再平均；secondary 反向拉 root；IK 重查 Physics；authored offset 冒充 Probe geometry。</text>
-      <text class="xs mu" x="34" y="581">authored offset 的唯一語意：animation/contact fitting（例如 wrist↔grip、指尖 clearance）；真實表面仍由 Probe snapshot 定義。</text>
-      <text class="xs gd" x="34" y="605">失敗路徑：Entry／Selection reject → Jump fallback；plan 缺資料 → endpoint fallback；secondary 無 surface → 保留 authored pose。</text>
-    </svg>
-
-    <figcaption>
-      Traversal 的決策沿鏈路逐步收窄：<strong>Probe 決定世界裡有什麼，Selection 決定要不要進，
-      Fitting 決定動畫怎麼播，Plan 只用一個 primary contact 決定 root</strong>；secondary hand
-      只能查已提交的真實 ledge surface，再把公分級 residual 交給 Hand IK。
-    </figcaption>
-    <div class="notes">
-      <div class="note why"><span class="lab">為什麼</span><p class="bd">
-        Root 是單一剛體自由度；把兩隻手各當硬約束再平均，只會讓兩隻手都不準。單一 primary contact
-        對齊 Unity <code>MatchTarget</code> 與公開成熟實作，secondary contact 則保留真實表面證據與可觀測 residual。
-      </p></div>
-      <div class="note no"><span class="lab">否決了</span><p class="bd">
-        不再壓縮窄 ledge 上的 authored 雙手間距、不讓 PlanBuilder／Hand IK 發 Physics query，
-        也不把 <code>FingerContactClearance</code> 之類動畫 fitting 量寫成環境幾何。
-      </p></div>
-      <div class="note test"><span class="lab">守衛</span><p class="bd">
-        <code>A39／A45／A46／A49／A50</code> 守 owner 與禁止邊；<code>HC4</code> 守 primary-only root，
-        <code>HC6</code> 守 secondary surface query，<code>M6</code> 守窄 ledge 不偽造姿勢，<code>B11／B14／B15</code> 守 production bake 行為。
-      </p></div>
-      <div class="note self"><span class="lab">自我檢核</span><p class="bd">
-        「窄 ledge 只容得下一隻手時，誰可以改 root？」——只有 primary；secondary 沒有 surface contact 就停用 IK，不把動畫手距硬擠小。
-      </p></div>
-    </div>
-  </figure>
 </section>
 
 
 <!-- ============ 收尾 ============ -->
 <section class="closing" id="use">
-  <h2>怎麼用這頁把架構讀進腦子</h2>
-  <ol>
-    <li><strong>先只看 L1 的三張。</strong> 蓋住所有文字，只看圖，把 01 的六個方框、02 的十三個步驟、03 的七個寫入者念出來。念不順就再看一次——這三張是後面所有內容的座標系。</li>
-    <li><strong>每張圖回答它的「自我檢核」。</strong> 那些問題都刻意問「拿掉會壞在哪」，而不是「這是什麼」。答得出前者才算真的懂。</li>
-    <li><strong>讀「否決了」比讀「為什麼」更有用。</strong> 被否決的做法通常正是你直覺會採用的那個；知道它為什麼不行，比知道正確答案更能防止你下次寫錯。</li>
-    <li><strong>想確認某個欄位誰能寫，去讀測試不要讀實作。</strong> <code>ArchitectureRegressionTests</code> 裡的 <code>WriterRules</code> 大約十五行，等價資訊散在三個檔案六百行裡。測試不會過期——過期就會紅燈。</li>
-  </ol>
-
-  <h2 style="margin-top:32px">目前基線與尚未完成的邊界</h2>
+  <h2>目前基線與尚未完成的邊界</h2>
   <table class="mx">
     <thead><tr><th>項目</th><th>狀態</th><th>意思</th></tr></thead>
     <tbody>
-      <tr><td class="m">ADR-005 多 Action</td><td><span class="badge t">Accepted</span></td><td>三技能、per-slot 冷卻、Reaction 保留段、Play 與 Profiler 驗收已完成；圖 05 是凍結後的正式基線。</td></tr>
+      <tr><td class="m">ADR-005 多 Action</td><td><span class="badge t">Accepted</span></td><td>三技能、per-slot 冷卻、Reaction 保留段、Play 與 Profiler 驗收已完成。細節見 <code>action-combat.html</code>。</td></tr>
       <tr><td class="m">ADR-007 Direction Authority</td><td><span class="badge w">Trial</span></td><td>S1／S2／S3／F6 已落地：世界移動方向、ActionReleaseContext、唯一 CharacterFacingSource、IAimSource seam。A28–A32 已守住，但 ADR 尚未翻 Accepted。</td></tr>
-      <tr><td class="m">Action targeting</td><td><span class="badge t">已實作</span></td><td><code>CameraForward</code> 為預設；只有顯式 <code>CameraConeSoftTarget</code> 才會在角錐內使用 CombatContext target。不是 persistent lock-on。</td></tr>
-      <tr><td class="m">MAP Jump ＋ Walk-off Falling</td><td><span class="badge t">已驗收</span></td><td>主動跳與非主動失地共用 JumpState；落地分類統一讀 <code>VerticalVelocity</code>。EditMode／PlayMode 全綠，Play 無異常。</td></tr>
-      <tr><td class="m">敵人失地表現</td><td><span class="badge t">已接線</span></td><td>Y Bot 使用自己的精簡 JumpStateParams 與三個必要映射；W13 守所有 authored reachable state keys。</td></tr>
-      <tr><td class="m">Foot IK 斜坡抽搐</td><td><span class="badge t">已修正</span></td><td>已證實為 GroundY 不連續並改由實際腳底平面導出；診斷 probe 已移除，連續性測試留存。</td></tr>
-      <tr><td class="m">Persistent lock-on／正式 8-way</td><td><span class="badge w">未實作</span></td><td>現有 RunRing／FullRing 僅是量測 prototype。CombatContext 不等於 lock-on，也不等於進戰鬥就常駐 strafe。</td></tr>
-      <tr><td class="m">ADR-006 上半身層</td><td><span class="badge w">Trial</span></td><td>Spell＝Layer 1 upper-body mask；Layer 0 使用 Walk／Run 雙 8-way ring 並沿用 MoveX／MoveZ；Sprint directional presentation 延後。待 Play 驗收。</td></tr>
+      <tr><td class="m">ADR-006 上半身層</td><td><span class="badge w">Trial</span></td><td>Spell＝Layer 1 upper-body mask；Layer 0 使用 Walk／Run 雙 8-way ring。Sprint directional presentation 延後。待 Play 驗收。</td></tr>
+      <tr><td class="m">ADR-008 Traversal</td><td><span class="badge w">Trial</span></td><td>Probe→Selection→Fitting→Plan→root warp→Contact→Hand IK 已接通。自動測試已守，Climb2m 撐起自然度仍待人類 Play。細節見 <code>traversal.html</code>。</td></tr>
+      <tr><td class="m">Action targeting</td><td><span class="badge t">已實作</span></td><td><code>CameraForward</code> 為預設；只有顯式 <code>CameraConeSoftTarget</code> 才會在角錐內使用 CombatContext target。<strong>不是 persistent lock-on。</strong></td></tr>
+      <tr><td class="m">MAP Jump ＋ Walk-off Falling</td><td><span class="badge t">已驗收</span></td><td>主動跳與非主動失地共用 JumpState；落地分類統一讀 <code>VerticalVelocity</code>。EditMode／PlayMode 全綠。</td></tr>
+      <tr><td class="m">Foot IK 斜坡抽搐</td><td><span class="badge t">已修正</span></td><td>已證實為 GroundY 不連續並改由實際腳底平面導出；連續性測試留存。追因過程見 <code>failure-atlas.html</code>。</td></tr>
+      <tr><td class="m">Persistent lock-on／正式 8-way</td><td><span class="badge w">未實作</span></td><td>現有 RunRing／FullRing 僅是量測 prototype。CombatContext 不等於 lock-on。</td></tr>
       <tr><td class="m">敵人 AI</td><td><span class="badge t">已實作</span></td><td>只有一顆 <code>AIMovementSource</code>（距離帶＋遲滯）。它證明的是介面可換，不是「有 AI 系統」。</td></tr>
-      <tr><td class="m">ADR-008 Traversal</td><td><span class="badge w">Trial</span></td><td>Probe→Selection→Animation Fitting→Plan→root warp→Contact→Hand IK 已接通；root 改為單一 primary contact，secondary 只吃 committed surface residual。自動測試已守，Climb2m 撐起自然度仍待人類 Play。</td></tr>
+      <tr><td class="m">Footstep／Audio、敵人 AI、Grounding</td><td><span class="badge w">無深度頁</span></td><td>缺 <code>docs/NN-architecture-guide</code> 文字正本。要補深度頁得先補正本。</td></tr>
       <tr><td class="m">網路／存檔／UI 框架</td><td>—</td><td>不在 scope。被問到就直接這樣說。</td></tr>
     </tbody>
   </table>
 
   <p class="foot">
     原始檔：<code>docs/artifacts/architecture-tour.html</code>　·　規格細節以對應的 <code>docs/NN-*.md</code> 為準<br>
-    圖 01 §LayerRules　圖 02 dev-spec §2.1　圖 03 dev-spec §1.1　圖 04 dev-spec §3.3　圖 05 ADR-004／005 ＋ docs/08、docs/11<br>
-    圖 06 ADR-003　圖 07 dev-spec §3.2　圖 08 dev-spec §3.4　圖 09 dev-spec §4<br>
-    圖 10 docs/05-foot-ik.md §3.5　圖 11 ADR-007 ＋ docs/14、docs/15　圖 12–15 CharacterPipelineRunner.cs ＋ 各子系統實作<br>
-    圖 16 ActionState.cs ＋ docs/08、docs/11　圖 17 PlayerCombatContextSource.cs ＋ docs/15　圖 18 LocomotionModel.cs ＋ docs/07<br>
-    圖 19 ADR-008 ＋ docs/22、docs/24 ＋ TraversalWarpPlanTests
+    圖 01 <code>ArchitectureRegressionTests.LayerRules</code>　圖 02 dev-spec §3.3　圖 03 ADR-003<br>
+    圖 04 dev-spec §4　圖 05 <code>PlayerCombatContextSource.cs</code> ＋ docs/15　圖 06 <code>LocomotionModel.cs</code> ＋ docs/07<br>
+    <br>
+    <strong>深度頁</strong>：cross-system-contract ／ authority-timeline ／ failure-atlas ／
+    dynamic-capsule ／ foot-ik-architecture ／ traversal ／ jump-landing ／ action-combat ／ direction-authority
   </p>
 </section>
 

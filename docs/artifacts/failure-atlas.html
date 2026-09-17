@@ -1,0 +1,422 @@
+<title>失效模式圖鑑</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground:#EDEFF1; --surface:#F8F9FA; --sunken:#E0E3E6; --ink:#1E2126;
+    --muted:#646B73; --hair:#C6CBD0; --grid:#D8DCE0;
+    --measure:#0E6E6B; --measure-s:#D9ECEA;
+    --bind:#A8256A; --bind-s:#F6E0EC;
+    --wrong:#A33B1F; --wrong-s:#F5E2DA;
+    --sans:"Noto Sans TC",-apple-system,"Segoe UI","Microsoft JhengHei",sans-serif;
+    --mono:"IBM Plex Mono","Cascadia Mono",Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:#14161A; --surface:#1C1F24; --sunken:#262A30; --ink:#E3E6EA;
+      --muted:#969DA6; --hair:#363B42; --grid:#2C3036;
+      --measure:#5FC9C3; --measure-s:#10302F;
+      --bind:#F186BB; --bind-s:#35182A;
+      --wrong:#EE9070; --wrong-s:#381D14;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:#14161A; --surface:#1C1F24; --sunken:#262A30; --ink:#E3E6EA;
+    --muted:#969DA6; --hair:#363B42; --grid:#2C3036;
+    --measure:#5FC9C3; --measure-s:#10302F;
+    --bind:#F186BB; --bind-s:#35182A;
+    --wrong:#EE9070; --wrong-s:#381D14;
+  }
+  * { box-sizing: border-box; }
+  body { background:var(--ground); color:var(--ink); font-family:var(--sans);
+         font-size:15px; line-height:1.75; margin:0; -webkit-font-smoothing:antialiased; }
+  .shell { max-width:960px; margin:0 auto; padding:40px 28px 96px; }
+  .eyebrow { font-family:var(--mono); font-size:11px; letter-spacing:.16em;
+             text-transform:uppercase; color:var(--wrong); margin-bottom:10px; }
+  h1 { font-weight:900; font-size:38px; line-height:1.2; letter-spacing:-.01em; margin:0 0 16px; text-wrap:balance; }
+  .lede { font-size:16.5px; color:var(--muted); max-width:60ch; margin:0; }
+  .lede strong { color:var(--ink); font-weight:500; }
+  .keyfacts { display:grid; grid-template-columns:repeat(auto-fit,minmax(128px,1fr));
+              gap:1px; background:var(--hair); border:1px solid var(--hair); margin:28px 0 0; }
+  .keyfacts div { background:var(--surface); padding:12px 14px; }
+  .keyfacts .v { font-family:var(--mono); font-size:18px; font-weight:600;
+                 font-variant-numeric:tabular-nums; line-height:1.2; }
+  .keyfacts .k { font-size:11.5px; color:var(--muted); line-height:1.45; margin-top:4px; }
+  section { margin-top:54px; }
+  .sec-head { display:flex; align-items:baseline; gap:12px; padding-bottom:9px;
+              border-bottom:2px solid var(--ink); margin-bottom:6px; }
+  .sec-head .n { font-family:var(--mono); font-size:12px; font-weight:700; color:var(--wrong);
+                 background:var(--wrong-s); padding:1px 7px; letter-spacing:.06em; }
+  .sec-head h2 { font-size:21px; font-weight:700; margin:0; flex:1; letter-spacing:-.005em; }
+  .sec-head .tag { font-family:var(--mono); font-size:10.5px; color:var(--muted);
+                   border:1px solid var(--hair); padding:1px 6px; white-space:nowrap; }
+  .sec-intro { color:var(--muted); font-size:14px; margin:10px 0 0; max-width:62ch; }
+  figure { margin:22px 0 0; background:var(--surface); border:1px solid var(--hair); padding:18px 20px 6px; }
+  figure svg { display:block; width:100%; height:auto; }
+  figcaption { font-size:13.5px; color:var(--muted); padding:12px 0 14px;
+               border-top:1px solid var(--hair); margin-top:12px; }
+  figcaption strong { color:var(--ink); font-weight:500; }
+  svg text { font-family:var(--sans); fill:currentColor; }
+  svg .m { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  svg .t{font-size:13px;font-weight:700;} svg .s{font-size:11.5px;} svg .xs{font-size:10.5px;}
+  svg .mu{fill:var(--muted);} svg .me{fill:var(--measure);} svg .bd{fill:var(--bind);} svg .wr{fill:var(--wrong);}
+  svg .box{fill:var(--sunken);stroke:var(--hair);stroke-width:1;}
+  svg .boxm{fill:var(--measure-s);stroke:var(--measure);stroke-width:1.3;}
+  svg .boxb{fill:var(--bind-s);stroke:var(--bind);stroke-width:1.3;}
+  svg .boxw{fill:var(--wrong-s);stroke:var(--wrong);stroke-width:1.3;}
+  svg .ln{stroke:currentColor;stroke-width:1.4;fill:none;}
+  svg .lnm{stroke:var(--measure);stroke-width:1.6;fill:none;}
+  svg .lnb{stroke:var(--bind);stroke-width:1.8;fill:none;}
+  svg .lnw{stroke:var(--wrong);stroke-width:1.6;fill:none;}
+  svg .thin{stroke:var(--hair);stroke-width:1;fill:none;}
+  svg .dash{stroke:var(--muted);stroke-width:1.1;fill:none;stroke-dasharray:4 4;}
+  #ar path{fill:var(--ink);} #arm path{fill:var(--measure);}
+  #arb path{fill:var(--bind);} #arw path{fill:var(--wrong);}
+  .wrap { overflow-x:auto; margin:18px 0 0; }
+  table { width:100%; border-collapse:collapse; font-size:13px; min-width:620px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--hair); vertical-align:top; }
+  th { font-family:var(--mono); font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+       color:var(--muted); border-bottom:1px solid var(--ink); white-space:nowrap; }
+  td.m,th.m { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  td.c { text-align:center; }
+  tr.bind td { background:var(--bind-s); }
+  .card { border:1px solid var(--hair); background:var(--surface); margin:18px 0 0; }
+  .card .hd { display:flex; gap:10px; align-items:baseline; padding:12px 16px; border-bottom:1px solid var(--hair); }
+  .card .hd .id { font-family:var(--mono); font-size:11px; font-weight:700; color:var(--wrong);
+                  background:var(--wrong-s); padding:1px 7px; }
+  .card .hd .nm { font-weight:700; font-size:15.5px; flex:1; }
+  .card .bd { padding:4px 16px 14px; }
+  .row { display:grid; grid-template-columns:82px minmax(0,1fr); gap:14px; padding:10px 0;
+         border-top:1px dotted var(--hair); font-size:13.5px; line-height:1.7; }
+  .row:first-child { border-top:none; }
+  .row .k { font-family:var(--mono); font-size:10.5px; letter-spacing:.06em; color:var(--muted); padding-top:4px; }
+  .row.tell .k{color:var(--bind);} .row.rule .k{color:var(--measure);} .row.case .k{color:var(--wrong);}
+  .row p { margin:0; }
+  .row .rulebox { font-weight:700; color:var(--ink); }
+  .callout { border-left:3px solid var(--bind); background:var(--bind-s);
+             padding:14px 16px; margin:20px 0 0; font-size:14px; }
+  .callout .h { font-weight:700; margin-bottom:4px; }
+  code { font-family:var(--mono); font-size:.88em; background:var(--sunken); padding:1px 4px; }
+  .foot { font-family:var(--mono); font-size:11px; color:var(--muted); margin-top:56px;
+          padding-top:20px; border-top:2px solid var(--ink); line-height:1.9; }
+  @media (max-width:720px){ .shell{padding:26px 16px 70px;} h1{font-size:28px;}
+    .row{grid-template-columns:1fr;gap:2px;} }
+  @media (prefers-reduced-motion:reduce){ *{animation:none!important;transition:none!important;} }
+</style>
+
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+  </defs>
+</svg>
+
+<div class="shell">
+
+<header>
+  <div class="eyebrow">Cross-System · 依失效模式索引，不依子系統</div>
+  <h1>失效模式圖鑑</h1>
+  <p class="lede">
+    六個深度頁裡的 failure case，拆開重排。<strong>依「壞法」分類，不依「哪個系統」分類</strong>——
+    因為同一種壞法會在不同子系統重複出現，而你下次遇到的那次，多半在還沒寫出來的系統裡。<br>
+    每一類都給三樣東西：<strong>怎麼認出它</strong>、<strong>去哪裡找</strong>、<strong>可推廣的判準</strong>。
+  </p>
+
+  <div class="keyfacts">
+    <div><div class="v">8</div><div class="k">失效模式</div></div>
+    <div><div class="v">12</div><div class="k">實際發生過的案例</div></div>
+    <div><div class="v">5</div><div class="k">沒有任何錯誤訊息<br>的類別</div></div>
+    <div><div class="v">3</div><div class="k">根因在資產<br>不在程式</div></div>
+    <div><div class="v">0</div><div class="k">靠「再看一次程式碼」<br>找到的</div></div>
+  </div>
+</header>
+
+<!-- ═══ 分診 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">→</span>
+    <h2>分診：從症狀找到類別</h2>
+    <span class="tag">先問，再讀</span>
+  </div>
+  <p class="sec-intro">
+    這張圖的用法是：<strong>把你看到的症狀對到最左邊那一欄</strong>，然後回答中間那個問題。
+    答案會把你指到某一類——那一類的「去哪裡找」通常比再讀一次程式碼有效。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 840 460" role="img" aria-label="分診流程：由觀察到的症狀出發，各問一個判別問題，指向八個失效模式之一">
+      <text class="xs m mu" x="16" y="18">你看到的症狀</text>
+      <text class="xs m mu" x="330" y="18">先問這個</text>
+      <text class="xs m mu" x="700" y="18">多半是</text>
+
+      <g>
+        <rect class="box" x="16" y="30" width="248" height="42"></rect>
+        <text class="xs" x="28" y="48">兩態之間反覆跳動</text>
+        <text class="xs mu" x="28" y="64">（骨盆高低、動畫切來切去）</text>
+        <line class="ln" x1="268" y1="51" x2="322" y2="51" marker-end="url(#ar)"></line>
+        <rect class="boxb" x="326" y="30" width="330" height="42"></rect>
+        <text class="xs bd" x="338" y="48">退化情形（平地／兩值相等）正常嗎？</text>
+        <text class="xs mu" x="338" y="64">正常 ⇒ 不連續性是<tspan font-weight="700">你自己製造的</tspan></text>
+        <line class="lnw" x1="660" y1="51" x2="684" y2="51" marker-end="url(#arw)"></line>
+        <text class="s m wr" x="692" y="56">F1</text>
+      </g>
+
+      <g>
+        <rect class="box" x="16" y="82" width="248" height="42"></rect>
+        <text class="xs" x="28" y="100">一個功能從來沒觸發過</text>
+        <text class="xs mu" x="28" y="116">（重落地、受擊、連段）</text>
+        <line class="ln" x1="268" y1="103" x2="322" y2="103" marker-end="url(#ar)"></line>
+        <rect class="boxb" x="326" y="82" width="330" height="42"></rect>
+        <text class="xs bd" x="338" y="100">它的 gate 是<tspan font-weight="700">資料</tspan>還是<tspan font-weight="700">時機</tspan>？</text>
+        <text class="xs mu" x="338" y="116">資料 ⇒ F5　　時機（誰先誰後）⇒ F2</text>
+        <line class="lnw" x1="660" y1="103" x2="684" y2="103" marker-end="url(#arw)"></line>
+        <text class="s m wr" x="692" y="108">F5 / F2</text>
+      </g>
+
+      <g>
+        <rect class="box" x="16" y="134" width="248" height="42"></rect>
+        <text class="xs" x="28" y="152">「我已經關掉它了」</text>
+        <text class="xs mu" x="28" y="168">但它還在動</text>
+        <line class="ln" x1="268" y1="155" x2="322" y2="155" marker-end="url(#ar)"></line>
+        <rect class="boxb" x="326" y="134" width="330" height="42"></rect>
+        <text class="xs bd" x="338" y="152">那個行為的資料<tspan font-weight="700">經過你關掉的那條路</tspan>嗎？</text>
+        <text class="xs mu" x="338" y="168">直接寫黑板的 producer 不經過輸入</text>
+        <line class="lnw" x1="660" y1="155" x2="684" y2="155" marker-end="url(#arw)"></line>
+        <text class="s m wr" x="692" y="160">F6</text>
+      </g>
+
+      <g>
+        <rect class="box" x="16" y="186" width="248" height="42"></rect>
+        <text class="xs" x="28" y="204">離開某情境後要「慢慢恢復」</text>
+        <text class="xs mu" x="28" y="220">（離開牆邊之後怪怪的）</text>
+        <line class="ln" x1="268" y1="207" x2="322" y2="207" marker-end="url(#ar)"></line>
+        <rect class="boxb" x="326" y="186" width="330" height="42"></rect>
+        <text class="xs bd" x="338" y="204">有沒有一條回授邊，把「結果」餵回「狀態」？</text>
+        <text class="xs mu" x="338" y="220">有 ⇒ 環境偷偷變成了狀態的第二個擁有者</text>
+        <line class="lnw" x1="660" y1="207" x2="684" y2="207" marker-end="url(#arw)"></line>
+        <text class="s m wr" x="692" y="212">F7</text>
+      </g>
+
+      <g>
+        <rect class="box" x="16" y="238" width="248" height="42"></rect>
+        <text class="xs" x="28" y="256">每一層都對，合起來不 work</text>
+        <text class="xs mu" x="28" y="272">沒有任何一層說謊</text>
+        <line class="ln" x1="268" y1="259" x2="322" y2="259" marker-end="url(#ar)"></line>
+        <rect class="boxb" x="326" y="238" width="330" height="42"></rect>
+        <text class="xs bd" x="338" y="256">兩個常數之間的<tspan font-weight="700">關係</tspan>在程式裡存在嗎？</text>
+        <text class="xs mu" x="338" y="272">不存在 ⇒ 錯的是關係，不是任何一層</text>
+        <line class="lnw" x1="660" y1="259" x2="684" y2="259" marker-end="url(#arw)"></line>
+        <text class="s m wr" x="692" y="264">F4</text>
+      </g>
+
+      <g>
+        <rect class="box" x="16" y="290" width="248" height="42"></rect>
+        <text class="xs" x="28" y="308">某些情況準、某些情況完全無關</text>
+        <text class="xs mu" x="28" y="324">「開了看不出效果」但問題還在</text>
+        <line class="ln" x1="268" y1="311" x2="322" y2="311" marker-end="url(#ar)"></line>
+        <rect class="boxb" x="326" y="290" width="330" height="42"></rect>
+        <text class="xs bd" x="338" y="308">你量的東西，是你想回答的問題嗎？</text>
+        <text class="xs mu" x="338" y="324">代理量的<tspan font-weight="700">可信區間</tspan>比平均誤差重要</text>
+        <line class="lnw" x1="660" y1="311" x2="684" y2="311" marker-end="url(#arw)"></line>
+        <text class="s m wr" x="692" y="316">F3</text>
+      </g>
+
+      <g>
+        <rect class="box" x="16" y="342" width="248" height="42"></rect>
+        <text class="xs" x="28" y="360">沒有症狀，只是程式變醜</text>
+        <text class="xs mu" x="28" y="376">同一個 if 出現第二次</text>
+        <line class="ln" x1="268" y1="363" x2="322" y2="363" marker-end="url(#ar)"></line>
+        <rect class="boxb" x="326" y="342" width="330" height="42"></rect>
+        <text class="xs bd" x="338" y="360">兩個特例的註解是不是在說<tspan font-weight="700">同一句話</tspan>？</text>
+        <text class="xs mu" x="338" y="376">是 ⇒ 有個概念被放錯位置</text>
+        <line class="lnw" x1="660" y1="363" x2="684" y2="363" marker-end="url(#arw)"></line>
+        <text class="s m wr" x="692" y="368">F8</text>
+      </g>
+
+      <rect class="boxw" x="16" y="404" width="808" height="46"></rect>
+      <text class="xs wr m" x="28" y="424">📌 這八類裡，有五類<tspan font-weight="700">完全沒有錯誤訊息</tspan>，也不會讓任何測試變紅。</text>
+      <text class="xs mu" x="28" y="442">它們的共同點是：程式<tspan class="wr" font-weight="700">完全正確地</tspan>執行了一件不對的事。所以「再讀一次程式碼」對它們幾乎無效——要從症狀反推。</text>
+    </svg>
+
+    <figcaption>
+      注意最下面那一列：<strong>F8 沒有症狀</strong>。
+      它只有在你願意數「同一句話出現幾次」時才看得見——那是這八類裡唯一需要主動去找的。
+    </figcaption>
+  </figure>
+</section>
+
+<!-- ═══ F1 ═══ -->
+<section>
+  <div class="sec-head"><span class="n">F1</span><h2>不連續性憑空出現</h2><span class="tag">選擇型分支</span></div>
+  <div class="card">
+    <div class="hd"><span class="id">判準</span><span class="nm"><code>max()</code> 是連續的；「選出 argmax 之後<strong>改讀它的別的欄位</strong>」不是。</span></div>
+    <div class="bd">
+      <div class="row tell"><span class="k">怎麼認</span><p>兩態之間反覆跳動，<strong>而且退化情形（平地／兩值相等）完全正常</strong>。退化時正常正是關鍵線索——那代表跳幅在退化時是 0。</p></div>
+      <div class="row"><span class="k">去哪找</span><p>程式裡的<strong>硬分支</strong>：三元運算、<code>if/else</code> 選擇、<code>OrderBy().First()</code>。特別注意「用 A 比大小，卻回傳 B」的形狀。</p></div>
+      <div class="row case"><span class="k">實例</span><p><strong>Foot IK 斜坡骨盆震盪</strong>：<code>GroundY = heelPen &gt;= toePen ? heelHit.y : toeHit.y</code>。
+        兩個輸入都連續、<code>max()</code> 也連續，不連續是在「選了誰之後改讀它的另一個欄位」那一步憑空出現的。
+        跳幅 ＝ 跨距 0.195 × 坡度梯度。<span class="m">→ foot-ik-architecture §06</span></p></div>
+      <div class="row rule"><span class="k">紅線</span><p class="rulebox">由「不連續選擇」導出的量，不得餵給被當成連續量使用的下游。（Foot IK I10）</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ F2 ═══ -->
+<section>
+  <div class="sec-head"><span class="n">F2</span><h2>時機決定語意</h2><span class="tag">同一變數，兩個意思</span></div>
+  <div class="card">
+    <div class="hd"><span class="id">判準</span><span class="nm">一個變數在管線的不同時點代表<strong>不同的物理量</strong>，而發布時機決定下游拿到哪一個。</span></div>
+    <div class="bd">
+      <div class="row tell"><span class="k">怎麼認</span><p>一個功能「從來沒有觸發過」；或某個數值<strong>看起來合理但永遠是同一個值</strong>。你會很自然地以為「它本來就這樣」。</p></div>
+      <div class="row"><span class="k">去哪找</span><p><strong>發布點與夾持／覆寫點的相對順序。</strong>問：這個值在被發布之前，有沒有經過任何會改寫它的處理？</p></div>
+      <div class="row case"><span class="k">實例 ①</span><p><strong>重落地永遠判不出來</strong>：<code>VerticalVelocity</code> 若排在 <code>reboundForce</code> 貼地夾持<strong>之後</strong>發布，
+        落地幀的撞地速度（−12）就被貼地力（−2）取代，<code>|−2| &gt; 8</code> 永遠不成立。<span class="m">→ jump-landing §04</span></p></div>
+      <div class="row case"><span class="k">實例 ②</span><p><strong>膠囊進牆</strong>：V1 的順序是 <code>Clamp → Smooth</code>，夾持壓小的是<em>目標</em>，而平滑值還停在上一幀的大值
+        ⇒ 寫進 <code>center</code> 的數字<strong>大於安全值</strong>。<span class="m">→ dynamic-capsule §04</span></p></div>
+      <div class="row case"><span class="k">實例 ③</span><p><strong>樓梯上腳步聲的地面高度慢一幀</strong>：①②若對調，事件來源會讀到上一幀的地面觀測。</p></div>
+      <div class="row rule"><span class="k">紅線</span><p class="rulebox">認識外界約束的那一層之後，不能再有任何會改變數值的處理。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ F3 ═══ -->
+<section>
+  <div class="sec-head"><span class="n">F3</span><h2>量測代理不對題</h2><span class="tag">量了 A 去回答 B</span></div>
+  <div class="card">
+    <div class="hd"><span class="id">判準</span><span class="nm">代理量的<strong>可信區間</strong>比它的平均誤差重要。在某段相關、在另一段完全無關的代理，比一個一致偏差的代理更危險。</span></div>
+    <div class="bd">
+      <div class="row tell"><span class="k">怎麼認</span><p>「開了看不出效果」但原本的問題還在。或是同一個機制在某些情況過度反應、在另一些情況完全不反應。</p></div>
+      <div class="row"><span class="k">去哪找</span><p>問一句：<strong>我量的這個東西，和我想回答的問題，是同一件事嗎？</strong>兩者只要有一個情境下脫鉤，那個情境就會壞。</p></div>
+      <div class="row case"><span class="k">實例 ①</span><p><strong>用 MoveDirection 代理身體傾斜</strong>：純側移時身體實際往<em>反方向</em>傾 0.029，舊模型卻往移動方向推 0.12
+        ⇒ 在<strong>完全沒問題</strong>的地方製造了 0.149 m 的誤差；而真正需要 0.20–0.30 的前向跑步只給 0.12。
+        <strong>兩端都錯，方向還相反。</strong><span class="m">→ dynamic-capsule §07</span></p></div>
+      <div class="row case"><span class="k">實例 ②</span><p><strong>用骨骼點代理網格</strong>：Head 骨骼在顱底，只超出膠囊 8 cm，而臉與頭頂的網格超出 27 cm
+        ——低估 3–10 倍，於是得出「不需要 dynamic capsule」的錯誤結論。<span class="m">→ dynamic-capsule §06</span></p></div>
+      <div class="row rule"><span class="k">紅線</span><p class="rulebox">Play 觀察與推導衝突時，先懷疑判準，不要先懷疑觀察。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ F4 ═══ -->
+<section>
+  <div class="sec-head"><span class="n">F4</span><h2>關係不存在</h2><span class="tag">每一層都沒說謊</span></div>
+  <div class="card">
+    <div class="hd"><span class="id">判準</span><span class="nm">兩個常數之間<strong>應該有一個關係</strong>，而那個關係在程式裡不存在——它只存在於某個人的腦中。</span></div>
+    <div class="bd">
+      <div class="row tell"><span class="k">怎麼認</span><p>逐層追查之後<strong>每一層看起來都正確</strong>，但合起來就是不 work。沒有任何一層在說謊。</p></div>
+      <div class="row"><span class="k">去哪找</span><p>找那兩個「本來就該互相知道」的數字。通常一個在資產、一個在另一個資產，中間沒有任何程式把它們連起來。</p></div>
+      <div class="row case"><span class="k">實例</span><p><strong>站對了卻爬不上去</strong>：感測範圍是 authored 常數 1.25 m，而 Vault1m 由 bake 推導的理想進場距離是 1.4017 m
+        ——理想站位落在感測範圍<strong>之外</strong>，交集只剩 25 cm。<span class="m">→ traversal §05</span></p></div>
+      <div class="row rule"><span class="k">修法</span><p class="rulebox">讓需求從<strong>有資料的那一層</strong>推過來，不要改大某個常數。<br>
+        改常數只治這一支動畫；把關係寫進程式才治所有動畫，也治將來換動畫的那一天。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ F5 ═══ -->
+<section>
+  <div class="sec-head"><span class="n">F5</span><h2>Authored 值就是根因</h2><span class="tag">grep 永遠找不到</span></div>
+  <div class="card">
+    <div class="hd"><span class="id">判準</span><span class="nm">程式<strong>完全正確地</strong>執行了一份空的／錯的資料。根因在 Inspector，不在原始碼。</span></div>
+    <div class="bd">
+      <div class="row tell"><span class="k">怎麼認</span><p>「這個功能從來沒觸發過」，而且你已經確認程式邏輯是對的。read the code 讀十遍也不會發現。</p></div>
+      <div class="row"><span class="k">去哪找</span><p><strong>那個 gate 讀的是哪個 authored 欄位</strong>，然後去資產上看它的值。空清單、預設 <code>false</code>、未填的 enum 是三大常客。</p></div>
+      <div class="row case"><span class="k">實例 ①</span><p><strong>敵人打不斷</strong>：<code>EnemyPunchDefinition.Phases[0].Interruptible = 0</code>。
+        Super Armor <strong>零新程式</strong>——它是一個資產欄位。<span class="m">→ action-combat §04</span></p></div>
+      <div class="row case"><span class="k">實例 ②</span><p><strong>空中被打完全沒反應</strong>：<code>Jump</code> 的 <code>CanBeInterruptedBy</code> 是<strong>空清單</strong>——連死亡都擋掉。<span class="m">→ jump-landing §05</span></p></div>
+      <div class="row case"><span class="k">實例 ③</span><p><strong><code>ThrowDefinition</code> 沒有 <code>Slot</code> 值</strong>（序列化早於該欄位存在 ⇒ 實際為 <code>None</code>）。目前沒被註冊所以不出事，一旦加進 config 就會綁錯。</p></div>
+      <div class="row rule"><span class="k">守衛</span><p class="rulebox">這一類正是 <code>PrefabWiringTests</code>（Verification Ladder L1）存在的理由——
+        接線由人做，<strong>接線對不對由測試講</strong>。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ F6 ═══ -->
+<section>
+  <div class="sec-head"><span class="n">F6</span><h2>閘門管不到那條路徑</h2><span class="tag">關了但還在動</span></div>
+  <div class="card">
+    <div class="hd"><span class="id">判準</span><span class="nm">「封鎖輸入」只擋得住<strong>經過輸入</strong>的東西。任何直接寫黑板的 producer 都繞過它。</span></div>
+    <div class="bd">
+      <div class="row tell"><span class="k">怎麼認</span><p>「我已經關掉它了，為什麼還在動」。而且你檢查過那個開關<strong>確實生效了</strong>。</p></div>
+      <div class="row"><span class="k">去哪找</span><p>畫出那個行為的<strong>資料來源鏈</strong>，然後問：這條鏈有經過我關掉的那一環嗎？AI、網路、replay 這類 producer 通常不經過。</p></div>
+      <div class="row case"><span class="k">實例</span><p><strong>屍體會不斷面向玩家</strong>：<code>DeathArbiterSource</code> 封鎖的是 <code>BlockInput</code>，
+        但 facing 的第二順位讀的是 <code>CombatContext</code>，由 <code>AIMovementSource</code> 在順序 2.5 <strong>直接寫入黑板</strong>——根本不經過輸入。
+        <span class="m">→ direction-authority §02</span></p></div>
+      <div class="row rule"><span class="k">修法</span><p class="rulebox">修法是<strong>不送 request</strong>，讓既有的「沒有人要求 ⇒ 維持現狀」語意接手。<br>
+        ⛔ 不需要新增「凍結朝向」機制——那是在既有語意之外再造一個。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ F7 ═══ -->
+<section>
+  <div class="sec-head"><span class="n">F7</span><h2>回授邊讓外界擁有記憶</h2><span class="tag">離開後要慢慢恢復</span></div>
+  <div class="card">
+    <div class="hd"><span class="id">判準</span><span class="nm">平滑器該追<strong>意圖</strong>，不該追<strong>被環境修正後的結果</strong>——否則環境就偷偷變成了狀態的第二個擁有者。</span></div>
+    <div class="bd">
+      <div class="row tell"><span class="k">怎麼認</span><p>離開某個情境之後，行為要<strong>慢慢</strong>恢復，而那個延遲沒有任何設計理由。或是出現抽搐／自激震盪。</p></div>
+      <div class="row"><span class="k">去哪找</span><p>找<strong>回授邊</strong>：有沒有一條線把「輸出」或「被修正後的結果」接回「狀態」。畫成圖之後它會很明顯。</p></div>
+      <div class="row case"><span class="k">實例 ①</span><p><strong>離開牆邊後偏移要重新長回來</strong>：若把碰撞夾持的結果餵回平滑器，貼牆時平滑值被壓到接近 0，
+        牆消失後還要慢慢恢復。現行作法讓平滑器追 <code>CappedOffset</code>，<strong>牆消失的那一幀就恢復完整偏移</strong>。<span class="m">→ dynamic-capsule §03</span></p></div>
+      <div class="row case"><span class="k">實例 ②</span><p><strong>腳踝抽搐／腳黏地</strong>：<code>OnAnimatorIK</code> 若先套用再拍快照，快照就拍到自己剛套上去的 IK 結果
+        ⇒ output → input 迴路。<span class="m">→ foot-ik-architecture §04</span></p></div>
+      <div class="row rule"><span class="k">紅線</span><p class="rulebox">決策端的輸入永不來自自己輸出的結果。（Foot IK I1）</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ F8 ═══ -->
+<section>
+  <div class="sec-head"><span class="n">F8</span><h2>同一句話出現第二次</h2><span class="tag">沒有症狀</span></div>
+  <div class="card">
+    <div class="hd"><span class="id">判準</span><span class="nm">同一句話在程式裡出現第二次時，它就不再是特例，而是<strong>一個被放錯位置的概念</strong>。</span></div>
+    <div class="bd">
+      <div class="row tell"><span class="k">怎麼認</span><p><strong>沒有症狀。</strong>沒有閃爍、沒有卡住、沒有錯誤訊息。唯一的證據是兩個看起來無關的地方有同一個 <code>if (x == Special)</code>，
+        而且它們的<strong>註解在說同一句話</strong>。</p></div>
+      <div class="row"><span class="k">去哪找</span><p>數特例。<strong>數這種 if 的個數，就是在量這個概念被放錯位置的程度。</strong></p></div>
+      <div class="row case"><span class="k">實例</span><p><strong>「受擊」借住在 Action 裡</strong>：<code>ShouldFaceTargetOnEnter</code> 有 <code>&amp;&amp; slot != Reaction</code>
+        （註解：「受擊不是出手，被打的人不該自己轉去面對攻擊者」）；<code>AllowsSameSlotReentry</code> 只允許 <code>Reaction</code> 自我重入
+        （註解：「硬直中再被打要再踉蹌一次」）。<strong>程式自己說了兩次「受擊不是出手」。</strong><span class="m">→ action-combat §05</span></p></div>
+      <div class="row rule"><span class="k">紅線</span><p class="rulebox">正確的結論不是加第三個例外，而是<strong>把那個概念搬出去</strong>。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 交叉表 ═══ -->
+<section>
+  <div class="sec-head"><span class="n">×</span><h2>交叉表：哪個子系統出過哪一類</h2><span class="tag">空白 ≠ 安全</span></div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>子系統</th><th class="c">F1</th><th class="c">F2</th><th class="c">F3</th><th class="c">F4</th><th class="c">F5</th><th class="c">F6</th><th class="c">F7</th><th class="c">F8</th></tr></thead>
+      <tbody>
+        <tr><td class="m">Dynamic Capsule</td><td class="c">—</td><td class="c">●</td><td class="c">●●</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">●</td><td class="c">—</td></tr>
+        <tr><td class="m">Foot IK</td><td class="c">●</td><td class="c">●</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">●</td><td class="c">—</td></tr>
+        <tr><td class="m">Traversal</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">●</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td></tr>
+        <tr><td class="m">Jump／Landing</td><td class="c">—</td><td class="c">●</td><td class="c">—</td><td class="c">—</td><td class="c">●</td><td class="c">—</td><td class="c">—</td><td class="c">—</td></tr>
+        <tr><td class="m">Action／Combat</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">—</td><td class="c">●</td><td class="c">—</td><td class="c">—</td><td class="c">●</td></tr>
+        <tr><td class="m">Direction Authority</td><td class="c">—</td><td class="c">—</td><td class="c">●</td><td class="c">—</td><td class="c">—</td><td class="c">●</td><td class="c">—</td><td class="c">—</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout">
+    <div class="h">⚠️ 空白的格子不代表那裡安全</div>
+    它只代表<strong>那一類在那個子系統還沒被發現過</strong>。
+    這張表真正的用法是反過來讀：<strong>你正在動的那個子系統，哪幾類還沒出現過？那幾類就是你還沒檢查過的。</strong><br>
+    特別注意 <strong>F8 整張表只有一個點</strong>——不是因為它罕見，是因為它沒有症狀，只有主動去數才找得到。
+  </div>
+</section>
+
+<div class="foot">
+  原始檔：<code>docs/artifacts/failure-atlas.html</code><br>
+  案例出處：<code>docs/28</code>–<code>docs/33</code> 各自的 failure case 章節，以及 <code>docs/02-dev-spec.md</code> §7.3 架構張力表<br>
+  ⚠️ 本頁只收<strong>實際發生過並已追因完成</strong>的案例。推測性的風險不收——那會讓這頁從圖鑑退化成擔憂清單。<br>
+  姊妹頁：<code>cross-system-contract.html</code>（契約）· <code>authority-timeline.html</code>（時序）
+</div>
+
+</div>

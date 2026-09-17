@@ -1,0 +1,396 @@
+<title>Authority 時間軸</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground:#EDEFF1; --surface:#F8F9FA; --sunken:#E0E3E6; --ink:#1E2126;
+    --muted:#646B73; --hair:#C6CBD0; --grid:#D8DCE0;
+    --measure:#0E6E6B; --measure-s:#D9ECEA;
+    --bind:#A8256A; --bind-s:#F6E0EC;
+    --wrong:#A33B1F; --wrong-s:#F5E2DA;
+    --sans:"Noto Sans TC",-apple-system,"Segoe UI","Microsoft JhengHei",sans-serif;
+    --mono:"IBM Plex Mono","Cascadia Mono",Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:#14161A; --surface:#1C1F24; --sunken:#262A30; --ink:#E3E6EA;
+      --muted:#969DA6; --hair:#363B42; --grid:#2C3036;
+      --measure:#5FC9C3; --measure-s:#10302F;
+      --bind:#F186BB; --bind-s:#35182A;
+      --wrong:#EE9070; --wrong-s:#381D14;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:#14161A; --surface:#1C1F24; --sunken:#262A30; --ink:#E3E6EA;
+    --muted:#969DA6; --hair:#363B42; --grid:#2C3036;
+    --measure:#5FC9C3; --measure-s:#10302F;
+    --bind:#F186BB; --bind-s:#35182A;
+    --wrong:#EE9070; --wrong-s:#381D14;
+  }
+  * { box-sizing: border-box; }
+  body { background:var(--ground); color:var(--ink); font-family:var(--sans);
+         font-size:15px; line-height:1.75; margin:0; -webkit-font-smoothing:antialiased; }
+  .shell { max-width:980px; margin:0 auto; padding:40px 28px 96px; }
+  .eyebrow { font-family:var(--mono); font-size:11px; letter-spacing:.16em;
+             text-transform:uppercase; color:var(--measure); margin-bottom:10px; }
+  h1 { font-weight:900; font-size:38px; line-height:1.2; letter-spacing:-.01em; margin:0 0 16px; text-wrap:balance; }
+  .lede { font-size:16.5px; color:var(--muted); max-width:60ch; margin:0; }
+  .lede strong { color:var(--ink); font-weight:500; }
+  .keyfacts { display:grid; grid-template-columns:repeat(auto-fit,minmax(128px,1fr));
+              gap:1px; background:var(--hair); border:1px solid var(--hair); margin:28px 0 0; }
+  .keyfacts div { background:var(--surface); padding:12px 14px; }
+  .keyfacts .v { font-family:var(--mono); font-size:18px; font-weight:600;
+                 font-variant-numeric:tabular-nums; line-height:1.2; }
+  .keyfacts .k { font-size:11.5px; color:var(--muted); line-height:1.45; margin-top:4px; }
+  section { margin-top:54px; }
+  .sec-head { display:flex; align-items:baseline; gap:12px; padding-bottom:9px;
+              border-bottom:2px solid var(--ink); margin-bottom:6px; }
+  .sec-head .n { font-family:var(--mono); font-size:12px; font-weight:600; color:var(--measure); letter-spacing:.06em; }
+  .sec-head h2 { font-size:21px; font-weight:700; margin:0; flex:1; letter-spacing:-.005em; }
+  .sec-head .tag { font-family:var(--mono); font-size:10.5px; color:var(--muted);
+                   border:1px solid var(--hair); padding:1px 6px; white-space:nowrap; }
+  .sec-intro { color:var(--muted); font-size:14px; margin:10px 0 0; max-width:62ch; }
+  figure { margin:22px 0 0; background:var(--surface); border:1px solid var(--hair); padding:18px 20px 6px; }
+  figure svg { display:block; width:100%; height:auto; }
+  figcaption { font-size:13.5px; color:var(--muted); padding:12px 0 14px;
+               border-top:1px solid var(--hair); margin-top:12px; }
+  figcaption strong { color:var(--ink); font-weight:500; }
+  svg text { font-family:var(--sans); fill:currentColor; }
+  svg .m { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  svg .t{font-size:13px;font-weight:700;} svg .s{font-size:11.5px;} svg .xs{font-size:10.5px;} svg .xxs{font-size:9.5px;}
+  svg .mu{fill:var(--muted);} svg .me{fill:var(--measure);} svg .bd{fill:var(--bind);} svg .wr{fill:var(--wrong);}
+  svg .box{fill:var(--sunken);stroke:var(--hair);stroke-width:1;}
+  svg .boxm{fill:var(--measure-s);stroke:var(--measure);stroke-width:1.3;}
+  svg .boxb{fill:var(--bind-s);stroke:var(--bind);stroke-width:1.3;}
+  svg .boxw{fill:var(--wrong-s);stroke:var(--wrong);stroke-width:1.3;}
+  svg .ln{stroke:currentColor;stroke-width:1.4;fill:none;}
+  svg .lnm{stroke:var(--measure);stroke-width:1.6;fill:none;}
+  svg .lnb{stroke:var(--bind);stroke-width:1.8;fill:none;}
+  svg .lnw{stroke:var(--wrong);stroke-width:1.6;fill:none;stroke-dasharray:5 4;}
+  svg .thin{stroke:var(--hair);stroke-width:1;fill:none;}
+  svg .dash{stroke:var(--muted);stroke-width:1.1;fill:none;stroke-dasharray:4 4;}
+  svg .grid{stroke:var(--grid);stroke-width:1;fill:none;}
+  #ar path{fill:var(--ink);} #arm path{fill:var(--measure);}
+  #arb path{fill:var(--bind);} #arw path{fill:var(--wrong);}
+  .wrap { overflow-x:auto; margin:18px 0 0; }
+  table { width:100%; border-collapse:collapse; font-size:13px; min-width:640px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--hair); vertical-align:top; }
+  th { font-family:var(--mono); font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+       color:var(--muted); border-bottom:1px solid var(--ink); white-space:nowrap; }
+  td.m,th.m { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  td.num { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  td.no { color:var(--wrong); }
+  tr.bind td { background:var(--bind-s); }
+  tr.bind td:first-child { font-weight:700; }
+  .note { display:grid; grid-template-columns:74px minmax(0,1fr); gap:14px; padding:12px 0;
+          border-top:1px dotted var(--hair); font-size:13.5px; line-height:1.7; }
+  .note .lab { font-family:var(--mono); font-size:10.5px; letter-spacing:.06em; padding-top:4px; }
+  .note.why .lab{color:var(--measure);} .note.bad .lab{color:var(--wrong);} .note.key .lab{color:var(--bind);}
+  .note p { margin:0; }
+  .callout { border-left:3px solid var(--bind); background:var(--bind-s);
+             padding:14px 16px; margin:20px 0 0; font-size:14px; }
+  .callout .h { font-weight:700; margin-bottom:4px; }
+  code { font-family:var(--mono); font-size:.88em; background:var(--sunken); padding:1px 4px; }
+  .foot { font-family:var(--mono); font-size:11px; color:var(--muted); margin-top:56px;
+          padding-top:20px; border-top:2px solid var(--ink); line-height:1.9; }
+  @media (max-width:720px){ .shell{padding:26px 16px 70px;} h1{font-size:28px;}
+    .note{grid-template-columns:1fr;gap:2px;} }
+  @media (prefers-reduced-motion:reduce){ *{animation:none!important;transition:none!important;} }
+</style>
+
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+  </defs>
+</svg>
+
+<div class="shell">
+
+<header>
+  <div class="eyebrow">Cross-System · 視覺版 · 對應 dev-spec §2.1</div>
+  <h1>Authority 時間軸</h1>
+  <p class="lede">
+    六個深度頁的 Authority 表都有一欄叫「<strong>什麼時候</strong>」。
+    這頁把那一欄全部疊在同一條時間軸上——<strong>一帧之內，每個共用狀態在哪一步被寫、在哪一步被讀</strong>，
+    以及哪些交接<strong>跨到了下一帧</strong>。<br>
+    多數「為什麼會這樣」的問題，答案都在這張圖的橫軸上。
+  </p>
+
+  <div class="keyfacts">
+    <div><div class="v">16</div><div class="k">管線步驟<br>（順序 0.5–7）</div></div>
+    <div><div class="v">4</div><div class="k">跨幀交接</div></div>
+    <div><div class="v">3</div><div class="k">不可調換的<br>相對順序</div></div>
+    <div><div class="v">1 幀</div><div class="k">BlockInput 的<br>刻意延遲</div></div>
+    <div><div class="v">2</div><div class="k">時間上互斥的<br>寫入者</div></div>
+    <div><div class="v">6.5</div><div class="k">唯一「先讀後寫」<br>的那一步</div></div>
+  </div>
+</header>
+
+<!-- ═══ 1 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">01</span>
+    <h2>一帧之內：誰在哪一步動了什麼</h2>
+    <span class="tag">W ＝ 寫　R ＝ 讀</span>
+  </div>
+  <p class="sec-intro">
+    每一列是一個<strong>共用狀態</strong>，每一行是一個管線步驟。
+    看一列就知道那個值的完整生命週期；看一行就知道那一步碰了什麼。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 900 400" role="img" aria-label="一帧之內九個共用狀態在十七個管線步驟上的讀寫時間軸，含 Update 與 LateUpdate 分界以及 Animator 評估位置">
+      <rect class="boxm" x="140" y="16" width="460" height="18"></rect>
+      <text class="xxs m me" x="370" y="29" text-anchor="middle">Update</text>
+      <rect class="boxb" x="640" y="16" width="200" height="18"></rect>
+      <text class="xxs m bd" x="740" y="29" text-anchor="middle">LateUpdate</text>
+
+      <g class="xxs m mu">
+        <text x="150" y="50" text-anchor="middle">0.5</text>
+        <text x="190" y="50" text-anchor="middle">1</text>
+        <text x="230" y="50" text-anchor="middle">2⊘</text>
+        <text x="270" y="50" text-anchor="middle">2</text>
+        <text x="310" y="50" text-anchor="middle">2.5</text>
+        <text x="350" y="50" text-anchor="middle">2.6</text>
+        <text x="390" y="50" text-anchor="middle">2.7</text>
+        <text x="430" y="50" text-anchor="middle">3</text>
+        <text x="470" y="50" text-anchor="middle">4</text>
+        <text x="510" y="50" text-anchor="middle">4.5</text>
+        <text x="550" y="50" text-anchor="middle">4.6</text>
+        <text x="590" y="50" text-anchor="middle">5</text>
+        <text x="630" y="50" text-anchor="middle">IK</text>
+        <text x="670" y="50" text-anchor="middle">6</text>
+        <text x="710" y="50" text-anchor="middle">6.5①</text>
+        <text x="755" y="50" text-anchor="middle">6.5②</text>
+        <text x="800" y="50" text-anchor="middle">7</text>
+      </g>
+      <line class="thin" x1="140" y1="56" x2="830" y2="56"></line>
+      <line class="dash" x1="612" y1="40" x2="612" y2="348"></line>
+      <text class="xxs m mu" x="616" y="366">Animator 評估</text>
+
+      <g class="xs m mu">
+        <text x="132" y="78" text-anchor="end">InputData</text>
+        <text x="132" y="110" text-anchor="end">Intent</text>
+        <text x="132" y="142" text-anchor="end">MovementIntent</text>
+        <text x="132" y="174" text-anchor="end">Movement Output</text>
+        <text x="132" y="206" text-anchor="end">Arbitration</text>
+        <text x="132" y="238" text-anchor="end">transform.rotation</text>
+        <text x="132" y="270" text-anchor="end">position ／ IsGrounded</text>
+        <text x="132" y="302" text-anchor="end">CC.center</text>
+        <text x="132" y="334" text-anchor="end">PresentationEvents</text>
+      </g>
+
+      <g class="grid">
+        <line x1="140" y1="88" x2="830" y2="88"></line>
+        <line x1="140" y1="120" x2="830" y2="120"></line>
+        <line x1="140" y1="152" x2="830" y2="152"></line>
+        <line x1="140" y1="184" x2="830" y2="184"></line>
+        <line x1="140" y1="216" x2="830" y2="216"></line>
+        <line x1="140" y1="248" x2="830" y2="248"></line>
+        <line x1="140" y1="280" x2="830" y2="280"></line>
+        <line x1="140" y1="312" x2="830" y2="312"></line>
+        <line x1="140" y1="344" x2="830" y2="344"></line>
+      </g>
+
+      <rect x="180" y="66" width="130" height="14" fill="var(--sunken)" stroke="var(--hair)" stroke-width="1"></rect>
+      <rect x="182" y="66" width="16" height="14" fill="var(--measure)"></rect>
+      <text class="xxs m" x="190" y="77" text-anchor="middle" fill="var(--surface)">W</text>
+      <rect x="222" y="66" width="16" height="14" fill="var(--wrong)"></rect>
+      <text class="xxs m" x="230" y="77" text-anchor="middle" fill="var(--surface)">⊘</text>
+      <circle cx="270" cy="73" r="5" fill="none" stroke="var(--ink)" stroke-width="1.5"></circle>
+      <circle cx="310" cy="73" r="5" fill="none" stroke="var(--ink)" stroke-width="1.5"></circle>
+      <text class="xxs m mu" x="318" y="77">ref struct，用完即棄</text>
+
+      <rect x="262" y="98" width="216" height="14" fill="var(--bind-s)" stroke="var(--bind)" stroke-width="1"></rect>
+      <rect x="262" y="98" width="16" height="14" fill="var(--measure)"></rect>
+      <text class="xxs m" x="270" y="109" text-anchor="middle" fill="var(--surface)">W</text>
+      <circle cx="470" cy="105" r="5" fill="none" stroke="var(--ink)" stroke-width="1.5"></circle>
+      <rect x="792" y="98" width="16" height="14" fill="var(--wrong)"></rect>
+      <text class="xxs m" x="800" y="109" text-anchor="middle" fill="var(--surface)">✕</text>
+      <text class="xxs m wr" x="700" y="109" text-anchor="end">順序 7 清空 →</text>
+
+      <rect x="302" y="130" width="528" height="14" fill="var(--measure-s)" stroke="var(--measure)" stroke-width="1"></rect>
+      <rect x="302" y="130" width="16" height="14" fill="var(--measure)"></rect>
+      <text class="xxs m" x="310" y="141" text-anchor="middle" fill="var(--surface)">W</text>
+      <circle cx="430" cy="137" r="5" fill="none" stroke="var(--ink)" stroke-width="1.5"></circle>
+      <text class="xxs m me" x="620" y="141">連續型——順序 7 刻意不碰，值持續存在</text>
+
+      <rect x="422" y="162" width="264" height="14" fill="var(--sunken)" stroke="var(--hair)" stroke-width="1"></rect>
+      <rect x="422" y="162" width="16" height="14" fill="var(--measure)"></rect>
+      <text class="xxs m" x="430" y="173" text-anchor="middle" fill="var(--surface)">W</text>
+      <circle cx="550" cy="169" r="5" fill="none" stroke="var(--ink)" stroke-width="1.5"></circle>
+      <circle cx="670" cy="169" r="5" fill="none" stroke="var(--ink)" stroke-width="1.5"></circle>
+
+      <rect x="502" y="194" width="16" height="14" fill="var(--measure)"></rect>
+      <text class="xxs m" x="510" y="205" text-anchor="middle" fill="var(--surface)">W</text>
+      <path class="lnw" d="M518,201 L560,201 L560,186 L836,186" marker-end="url(#arw)"></path>
+      <text class="xxs m wr" x="700" y="198">→ 下一帧 2⊘ 才讀得到</text>
+
+      <rect x="542" y="226" width="16" height="14" fill="var(--bind)"></rect>
+      <text class="xxs m" x="550" y="237" text-anchor="middle" fill="var(--surface)">req</text>
+      <line class="lnb" x1="560" y1="233" x2="660" y2="233" marker-end="url(#arb)"></line>
+      <rect x="662" y="226" width="16" height="14" fill="var(--measure)"></rect>
+      <text class="xxs m" x="670" y="237" text-anchor="middle" fill="var(--surface)">W</text>
+      <text class="xxs m mu" x="686" y="237">4.6 決定 · 6 執行</text>
+
+      <rect x="662" y="258" width="16" height="14" fill="var(--measure)"></rect>
+      <text class="xxs m" x="670" y="269" text-anchor="middle" fill="var(--surface)">W</text>
+      <circle cx="710" cy="265" r="5" fill="none" stroke="var(--ink)" stroke-width="1.5"></circle>
+      <path class="lnw" d="M678,265 L690,265 L690,250 L836,250" marker-end="url(#arw)"></path>
+      <text class="xxs m wr" x="700" y="262">→ FSM 下一帧才讀到</text>
+
+      <rect x="662" y="290" width="16" height="14" fill="var(--measure)"></rect>
+      <text class="xxs m" x="670" y="301" text-anchor="middle" fill="var(--surface)">W</text>
+      <text class="xxs m mu" x="686" y="301">兩寫入者<tspan class="bd" font-weight="700">時間互斥</tspan></text>
+
+      <circle cx="710" cy="329" r="5" fill="none" stroke="var(--bind)" stroke-width="2"></circle>
+      <rect x="747" y="322" width="16" height="14" fill="var(--measure)"></rect>
+      <text class="xxs m" x="755" y="333" text-anchor="middle" fill="var(--surface)">W</text>
+      <text class="xxs m bd" x="772" y="333">⚠️ 讀在寫之前</text>
+      <text class="xxs m mu" x="140" y="366">⚠️ 6.5 是唯一「同一步之內先讀後寫」的環節：① 各 Controller 讀到的是<tspan class="bd" font-weight="700">上一帧</tspan>發布的快照，② 才發布本帧的。</text>
+    </svg>
+
+    <figcaption>
+      三種標記：<strong>實心 W</strong> ＝ 寫入（該步是它的唯一寫入者）、<strong>空心 R</strong> ＝ 讀取、
+      <strong>紅色虛線</strong> ＝ 跨到下一帧才被消費。橫條的長度就是那個值在這一帧內「有效」的區間。<br>
+      兩列值得單獨看：<code>transform.rotation</code> 由 <strong>4.6 決定方向、6 才執行</strong>——
+      決策與執行分屬兩步，而 <code>rotation</code> 的唯一寫入者始終是 <code>MotionDriver</code>；
+      <code>CC.center</code> 有兩個寫入者（pose offset 與 traversal profile），但它們<strong>時間上互斥</strong>，不是空間分工。
+    </figcaption>
+  </figure>
+
+  <div class="callout">
+    <div class="h">怎麼用這張圖除錯</div>
+    看到「某個值不對」時，先在圖上找到它那一列，然後問兩個問題：<br>
+    <strong>① 我讀它的那一步，排在它的 W 後面嗎？</strong>排在前面 ⇒ 讀到的是上一帧的值。<br>
+    <strong>② 它是紅色虛線嗎？</strong>是 ⇒ 一帧延遲是設計，不是 bug。
+  </div>
+</section>
+
+<!-- ═══ 2 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">02</span>
+    <h2>四個跨幀交接</h2>
+    <span class="tag">全部是刻意的</span>
+  </div>
+  <p class="sec-intro">
+    這四條是這個專案裡<strong>唯一</strong>會跨到下一帧的交接。
+    它們各有各的理由，而且每一條都曾經有人想「消掉延遲」——結論全是不可以。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 840 320" role="img" aria-label="四個跨幀交接：仲裁旗標、接地狀態、表現層事件、Foot IK 目標，各自從幀 N 的某一步跨到幀 N+1 的某一步">
+      <rect class="boxm" x="16" y="20" width="392" height="20"></rect>
+      <text class="xs m me" x="212" y="35" text-anchor="middle">幀 N</text>
+      <rect class="boxb" x="432" y="20" width="392" height="20"></rect>
+      <text class="xs m bd" x="628" y="35" text-anchor="middle">幀 N+1</text>
+
+      <g>
+        <text class="xs m" x="16" y="72">Arbitration.BlockInput</text>
+        <rect x="290" y="60" width="90" height="18" fill="var(--measure-s)" stroke="var(--measure)" stroke-width="1.2"></rect>
+        <text class="xxs m me" x="335" y="73" text-anchor="middle">4.5 寫</text>
+        <line class="lnw" x1="384" y1="69" x2="452" y2="69" marker-end="url(#arw)"></line>
+        <rect x="456" y="60" width="90" height="18" fill="var(--bind-s)" stroke="var(--bind)" stroke-width="1.2"></rect>
+        <text class="xxs m bd" x="501" y="73" text-anchor="middle">2⊘ 讀</text>
+        <text class="xxs mu" x="556" y="73">仲裁要讀當幀<tspan font-weight="700">更新後</tspan>的 state ⇒ 只能排在 FSM 之後</text>
+      </g>
+
+      <g>
+        <text class="xs m" x="16" y="128">IsGrounded</text>
+        <rect x="290" y="116" width="90" height="18" fill="var(--measure-s)" stroke="var(--measure)" stroke-width="1.2"></rect>
+        <text class="xxs m me" x="335" y="129" text-anchor="middle">6 寫</text>
+        <line class="lnw" x1="384" y1="125" x2="452" y2="125" marker-end="url(#arw)"></line>
+        <rect x="456" y="116" width="90" height="18" fill="var(--bind-s)" stroke="var(--bind)" stroke-width="1.2"></rect>
+        <text class="xxs m bd" x="501" y="129" text-anchor="middle">4 讀</text>
+        <text class="xxs mu" x="556" y="129">Unity 的 <tspan class="m">isGrounded</tspan> 只在 Move() 之後才更新</text>
+      </g>
+
+      <g>
+        <text class="xs m" x="16" y="184">PresentationEvents</text>
+        <rect x="290" y="172" width="90" height="18" fill="var(--measure-s)" stroke="var(--measure)" stroke-width="1.2"></rect>
+        <text class="xxs m me" x="335" y="185" text-anchor="middle">6.5② 發布</text>
+        <line class="lnw" x1="384" y1="181" x2="452" y2="181" marker-end="url(#arw)"></line>
+        <rect x="456" y="172" width="90" height="18" fill="var(--bind-s)" stroke="var(--bind)" stroke-width="1.2"></rect>
+        <text class="xxs m bd" x="501" y="185" text-anchor="middle">6.5① 讀</text>
+        <text class="xxs mu" x="556" y="185">換來「正確性與 Hierarchy 順序無關」</text>
+      </g>
+
+      <g>
+        <text class="xs m" x="16" y="240">FootIKTargetData</text>
+        <rect x="290" y="228" width="90" height="18" fill="var(--measure-s)" stroke="var(--measure)" stroke-width="1.2"></rect>
+        <text class="xxs m me" x="335" y="241" text-anchor="middle">6.5 寫</text>
+        <line class="lnw" x1="384" y1="237" x2="452" y2="237" marker-end="url(#arw)"></line>
+        <rect x="456" y="228" width="90" height="18" fill="var(--bind-s)" stroke="var(--bind)" stroke-width="1.2"></rect>
+        <text class="xxs m bd" x="501" y="241" text-anchor="middle">IK pass 套用</text>
+        <text class="xxs mu" x="556" y="241">Humanoid IK 快照架構的本質，60fps 不可察</text>
+      </g>
+
+      <rect class="boxw" x="16" y="268" width="808" height="44"></rect>
+      <text class="xs wr m" x="28" y="288">共同點：每一條都有人提過「把它提前來消掉延遲」</text>
+      <text class="xs mu" x="28" y="304">而四次的答案都是<tspan class="wr" font-weight="700">不行</tspan>——提前並不能消除延遲，只會把「值晚一帧生效」換成「值根據過期資料計算」。後者更難除錯。</text>
+    </svg>
+  </figure>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>交接</th><th>為什麼不能提前</th><th>真的不能忍受時怎麼辦</th></tr></thead>
+      <tbody>
+        <tr class="bind"><td class="m">BlockInput</td><td>4.5 卡在 FSM 之後，是為了讀到當幀<strong>更新後</strong>的 state。提前 ⇒ 旗標依過期狀態計算</td><td>讓那個情境走 <strong>FSM 狀態</strong>，而不是仲裁旗標</td></tr>
+        <tr><td class="m">IsGrounded</td><td>Unity 的 <code>isGrounded</code> 由「上次 <code>Move()</code> 有沒有向下撞到東西」決定——物理上就是事後才知道</td><td>接受它；<code>JumpState</code> 另有 <code>_airborneTimer</code> 保護</td></tr>
+        <tr><td class="m">PresentationEvents</td><td>若在迭代中途發布，同幀 consumer 讀不讀得到取決於 <code>GetComponentsInChildren</code> 的回傳順序</td><td>接受 16ms；它換來的是「拖動物件不會改變行為」</td></tr>
+        <tr><td class="m">FootIKTargetData</td><td>要消掉就得把決策搬進 <code>OnAnimatorIK</code>，那會讓決策端重新依賴 Animator ⇒ 反饋迴路</td><td>接受它（60fps 下不可察）</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══ 3 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">03</span>
+    <h2>三條不可調換的相對順序</h2>
+    <span class="tag">調換就有具體症狀</span>
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>順序</th><th>理由</th><th>調換後的具體症狀</th></tr></thead>
+      <tbody>
+        <tr class="bind"><td class="m">2.5 必須在 3 之前</td><td>model 的唯一輸入是本帧剛產出的 <code>MovementIntent</code></td><td>衍生值落後意圖一帧；「Output 可由 intent 重新導出」的單一真相紀律失效</td></tr>
+        <tr class="bind"><td class="m">6 必須在 6.5 之前</td><td>單幀事件由 6 觸發、7 復位，6.5 是唯一保證讀得到的窗口</td><td>落地音永遠不響（事件在被消費前就被清掉）</td></tr>
+        <tr class="bind"><td class="m">7 必須在最末</td><td>確保所有讀取方已消耗</td><td>當幀意圖與單幀事件在被讀之前就被清空</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout">
+    <div class="h">順序 3 為什麼必須留在 Update，而且每幀無條件執行</div>
+    <strong>不能移到 LateUpdate</strong>：Animator 的評估卡在 Update 與 LateUpdate 之間，
+    <code>SetFloat</code> 落到 LateUpdate 會讓動畫參數比位移<strong>晚一帧</strong>（動畫／位移分岔）。<br>
+    <strong>不能只在 ambient 狀態推進</strong>：<code>JumpState</code> 的空中控制吃的正是 Movement Output。
+    若 Jump／Roll 期間平滑凍結，落地會拿起跳時的殘值續走＝<strong>滑步</strong>。
+  </div>
+
+  <div class="note key"><span class="lab">互斥</span><p>
+    <code>CharacterController.center</code> 有<strong>兩個</strong>寫入者，但它們<strong>時間上互斥</strong>：
+    traversal 一開始，姿勢偏移就整個停寫；traversal 結束時還原成「它開始前記下的值」。<br>
+    ⚠️ 所以 <code>BeginTraversalCollisionProfile</code> 的第一件事，是把姿勢偏移<strong>收乾淨再記基準</strong>——
+    否則還原之後偏移會變成<strong>永久的</strong>，而那時已經沒有人會把它改回來。
+  </p></div>
+</section>
+
+<div class="foot">
+  原始檔：<code>docs/artifacts/authority-timeline.html</code><br>
+  文字正本：<code>docs/02-dev-spec.md</code> §2.1（順序表 ＋ 生命週期脆弱點警告）<br>
+  各子系統的 Authority 表：<code>dynamic-capsule</code> §02 ／ <code>foot-ik-architecture</code> §02 ／
+  <code>traversal</code> §02 ／ <code>jump-landing</code> §01 ／ <code>direction-authority</code> §02<br>
+  姊妹頁：<code>cross-system-contract.html</code>（契約本身）· <code>failure-atlas.html</code>（違反時序的症狀）
+</div>
+
+</div>
