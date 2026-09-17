@@ -7,6 +7,29 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # ✅ 2026-09-18 — **Subsystem Architecture 第二批完成**（Footstep＋Surface／Presentation Audio）
+>
+> 兩頁已寫入 `docs/artifacts/` 並發布；`architecture-tour` 路由表與 `docs/00-map.md` 已同步。
+> commit `43c8cc5`（第一批 Codex 六輪複審修正）＋ `d0a7441`（第二批）。
+> ⚠️ **本輪只動文件**——`Assets/Scripts` 改動 0、資產改動 0。
+>
+> ## 📌 過程中查到、與 `docs/` 不符的五件事（頁面內已逐條標記，**不是 bug**）
+>
+> | 發現 | 現況 | 影響 |
+> |---|---|---|
+> | **`docs/37` §12.1 的唯一 audio 待辦已經完成** | 13 顆 Combat 資產的 12 個 clip 參考**逐一對得上存在的 `.meta`**，沒有空槽也沒有死 GUID | ⇒ **不需要再跑 `WireClips.cs`**（見下方已劃掉的交辦） |
+> | `FootstepKind.Shuffle` **已無任何 runtime producer** | `Advance` 只回 `Normal`／`None`；Bank 四個材質的 Shuffle 槽全空；`shuffleVolume` ＝ 0 | 保留 enum 是對的（查表以 `(int)` 為索引），但**它不是還在運作的功能** |
+> | `AudioEventId` 0–3（Landing／Left／Right／Shuffle）**已無 runtime 呼叫端** | 腳步與落地全部改走 `FootstepAudioBankSO`；三顆 Library 資產也只登記 4／5／6 | 同上，化石層 |
+> | `docs/37` §4.2「Combat 不依賴 Footstep 由 A4 白名單維持」 | **事實成立（逐檔驗過），但沒有測試守**——A4 的 `Presentation` 規則整層遞迴且放行 `Project.Presentation` 前綴 | 想要真的守住，得為 `Presentation/Actions` 另開一條 LayerRule |
+> | `FootGroundContact.Collider` 的契約 vs `SurfaceResolver` | 契約寫「讀取方一律**只讀不存**，`Collider` 尤其不得留存」，而 `_cachedCollider` 跨幀持有它（僅用於 `ReferenceEquals`）；同段註解「本欄位目前沒有任何 runtime 讀取方」已過時 | 兩者只能有一個是對的，**目前沒有測試在守** |
+>
+> ⛔ 以上五條**都沒有動程式**。前三條是誠實記錄，後兩條若要收，是各自獨立的小工作包。
+>
+> ## ➡️ 優先事項不變
+>
+> 回到 gameplay ／ combat ／ animation ／ VFX。⛔ 不要因為這兩頁而重啟 audio（見下方結案交辦）。
+
+
 > # ⏹ 2026-09-17（五）— **平台邊緣 grounding：`Deferred / Accepted Limitation`**（使用者明確裁決）
 >
 > ## ⛔ 下一個會話：**不要再碰這個問題**
@@ -57,16 +80,15 @@
 > | **DSP buffer A/B** | ⛔ **不做**（推翻先前排隊項；`docs/35`§6・`docs/36`§7・`docs/37`§9 已就地標註撤銷） |
 > | 擴張 Audio Framework | ⛔ **不再擴張** |
 >
-> ## ✅ 唯一的 audio 待辦（一行，做完就結束）
+> ## ~~✅ 唯一的 audio 待辦（一行，做完就結束）~~ → **已完成，2026-09-18 磁碟驗證**
 >
-> Unity Editor 下次開啟時：
+> ~~`unity cmd eval_file --file Tools/audio-pipeline/WireClips.cs`~~
+> ~~清掉 10 個 `AudioDefinition` 因素材移除而留下的 **missing clip slot**。~~
 >
-> ```bash
-> unity cmd eval_file --file Tools/audio-pipeline/WireClips.cs
-> ```
->
-> 清掉 10 個 `AudioDefinition` 因素材移除而留下的 **missing clip slot**。
-> ⚠️ 這是**清理**不是修功能——目前行為已正確（池空 ⇒ 靜音 ⇒ 不報錯）。
+> 🔍 2026-09-18 逐檔掃過 `Assets/ScriptableObjects/Audio/Combat/*.asset`：
+> 13 顆資產共 12 個 clip 參考（`Melee_Hit` 10、`Fireball_Release` 1、`Ice_Cast` 1），
+> **每一個 GUID 都對得上存在的 `.meta`**，其餘 10 顆是乾淨的 `clips: []`，沒有空槽。
+> ⇒ **這條待辦可以結案，不需要再跑。**
 >
 > ## ➡️ 優先事項回到 gameplay ／ combat ／ animation ／ VFX
 >
