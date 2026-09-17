@@ -1,0 +1,1010 @@
+<title>動態膠囊解剖</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground:  #EDEFF1;
+    --surface: #F8F9FA;
+    --sunken:  #E0E3E6;
+    --ink:     #1E2126;
+    --muted:   #646B73;
+    --hair:    #C6CBD0;
+    --grid:    #D8DCE0;
+
+    --measure:   #0E6E6B;
+    --measure-s: #D9ECEA;
+    --bind:      #A8256A;
+    --bind-s:    #F6E0EC;
+    --wrong:     #A33B1F;
+    --wrong-s:   #F5E2DA;
+
+    --sans: "Noto Sans TC", -apple-system, "Segoe UI", "Microsoft JhengHei", sans-serif;
+    --mono: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:  #14161A;
+      --surface: #1C1F24;
+      --sunken:  #262A30;
+      --ink:     #E3E6EA;
+      --muted:   #969DA6;
+      --hair:    #363B42;
+      --grid:    #2C3036;
+
+      --measure:   #5FC9C3;
+      --measure-s: #10302F;
+      --bind:      #F186BB;
+      --bind-s:    #35182A;
+      --wrong:     #EE9070;
+      --wrong-s:   #381D14;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:  #14161A;
+    --surface: #1C1F24;
+    --sunken:  #262A30;
+    --ink:     #E3E6EA;
+    --muted:   #969DA6;
+    --hair:    #363B42;
+    --grid:    #2C3036;
+    --measure:   #5FC9C3;
+    --measure-s: #10302F;
+    --bind:      #F186BB;
+    --bind-s:    #35182A;
+    --wrong:     #EE9070;
+    --wrong-s:   #381D14;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.75;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .shell { max-width: 940px; margin: 0 auto; padding: 40px 28px 96px; }
+
+  /* ---------- 標頭 ---------- */
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--measure);
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-weight: 900;
+    font-size: 38px;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    margin: 0 0 16px;
+    text-wrap: balance;
+  }
+  .lede { font-size: 16.5px; color: var(--muted); max-width: 60ch; margin: 0; }
+  .lede strong { color: var(--ink); font-weight: 500; }
+
+  .keyfacts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+    gap: 1px;
+    background: var(--hair);
+    border: 1px solid var(--hair);
+    margin: 28px 0 0;
+  }
+  .keyfacts div { background: var(--surface); padding: 12px 14px; }
+  .keyfacts .v {
+    font-family: var(--mono);
+    font-size: 18px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+  }
+  .keyfacts .k { font-size: 11.5px; color: var(--muted); line-height: 1.45; margin-top: 4px; }
+
+  /* ---------- 節 ---------- */
+  section { margin-top: 54px; }
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding-bottom: 9px;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 6px;
+  }
+  .sec-head .n {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--measure);
+    letter-spacing: 0.06em;
+  }
+  .sec-head h2 { font-size: 21px; font-weight: 700; margin: 0; flex: 1; letter-spacing: -0.005em; }
+  .sec-head .tag {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--muted);
+    border: 1px solid var(--hair);
+    padding: 1px 6px;
+  }
+  .sec-intro { color: var(--muted); font-size: 14px; margin: 10px 0 0; max-width: 62ch; }
+
+  figure {
+    margin: 22px 0 0;
+    background: var(--surface);
+    border: 1px solid var(--hair);
+    padding: 18px 20px 6px;
+  }
+  figure svg { display: block; width: 100%; height: auto; }
+  figcaption {
+    font-size: 13.5px;
+    color: var(--muted);
+    padding: 12px 0 14px;
+    border-top: 1px solid var(--hair);
+    margin-top: 12px;
+  }
+  figcaption strong { color: var(--ink); font-weight: 500; }
+
+  svg text { font-family: var(--sans); fill: currentColor; }
+  svg .m { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  svg .t  { font-size: 13px; font-weight: 700; }
+  svg .s  { font-size: 11.5px; }
+  svg .xs { font-size: 10.5px; }
+  svg .mu { fill: var(--muted); }
+  svg .me { fill: var(--measure); }
+  svg .bd { fill: var(--bind); }
+  svg .wr { fill: var(--wrong); }
+  svg .box    { fill: var(--sunken); stroke: var(--hair); stroke-width: 1; }
+  svg .boxm   { fill: var(--measure-s); stroke: var(--measure); stroke-width: 1.3; }
+  svg .boxb   { fill: var(--bind-s); stroke: var(--bind); stroke-width: 1.3; }
+  svg .boxw   { fill: var(--wrong-s); stroke: var(--wrong); stroke-width: 1.3; }
+  svg .ln   { stroke: currentColor; stroke-width: 1.4; fill: none; }
+  svg .lnm  { stroke: var(--measure); stroke-width: 1.6; fill: none; }
+  svg .lnb  { stroke: var(--bind); stroke-width: 1.8; fill: none; }
+  svg .lnw  { stroke: var(--wrong); stroke-width: 1.6; fill: none; stroke-dasharray: 5 4; }
+  svg .thin { stroke: var(--hair); stroke-width: 1; fill: none; }
+  svg .dash { stroke: var(--muted); stroke-width: 1.1; fill: none; stroke-dasharray: 4 4; }
+  svg .grid { stroke: var(--grid); stroke-width: 1; fill: none; }
+  #ar path { fill: var(--ink); }
+  #arm path { fill: var(--measure); }
+  #arb path { fill: var(--bind); }
+  #arw path { fill: var(--wrong); }
+
+  /* ---------- 表 ---------- */
+  .wrap { overflow-x: auto; margin: 18px 0 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    min-width: 560px;
+  }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--hair); vertical-align: top; }
+  th {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--ink);
+    white-space: nowrap;
+  }
+  td.m, th.m { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  td.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  tr.bind td { background: var(--bind-s); }
+  tr.bind td:first-child { font-weight: 700; }
+
+  /* ---------- 註記 ---------- */
+  .note {
+    display: grid;
+    grid-template-columns: 74px minmax(0, 1fr);
+    gap: 14px;
+    padding: 12px 0;
+    border-top: 1px dotted var(--hair);
+    font-size: 13.5px;
+    line-height: 1.7;
+  }
+  .note .lab { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.06em; padding-top: 4px; }
+  .note.why .lab  { color: var(--measure); }
+  .note.bad .lab  { color: var(--wrong); }
+  .note.key .lab  { color: var(--bind); }
+  .note p { margin: 0; }
+
+  .callout {
+    border-left: 3px solid var(--bind);
+    background: var(--bind-s);
+    padding: 14px 16px;
+    margin: 20px 0 0;
+    font-size: 14px;
+  }
+  .callout .h { font-weight: 700; margin-bottom: 4px; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--sunken);
+    padding: 1px 4px;
+  }
+  .calc {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.9;
+    background: var(--sunken);
+    border: 1px solid var(--hair);
+    padding: 14px 16px;
+    margin: 16px 0 0;
+    overflow-x: auto;
+    white-space: pre;
+    font-variant-numeric: tabular-nums;
+  }
+  .calc .hl { color: var(--bind); font-weight: 600; }
+  .calc .me { color: var(--measure); }
+  .calc .c  { color: var(--muted); }
+
+  .speak {
+    margin: 22px 0 0;
+    padding: 16px 18px;
+    border: 1px dashed var(--measure);
+    background: var(--measure-s);
+    font-size: 14.5px;
+    line-height: 1.8;
+  }
+  .speak .h {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    color: var(--measure);
+    margin-bottom: 6px;
+  }
+
+  .foot {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 56px;
+    padding-top: 20px;
+    border-top: 2px solid var(--ink);
+    line-height: 1.9;
+  }
+
+  @media (max-width: 720px) {
+    .shell { padding: 26px 16px 70px; }
+    h1 { font-size: 28px; }
+    .note { grid-template-columns: 1fr; gap: 2px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+  </defs>
+</svg>
+
+<div class="shell">
+
+<header>
+  <div class="eyebrow">Architecture Deep-Dive · 視覺版 · 對應 docs/28</div>
+  <h1>動態膠囊解剖</h1>
+  <p class="lede">
+    角色跑起來身體會前傾，<strong>頭跑到碰撞膠囊外面 23 公分</strong>，於是貼牆時看得到頭穿進牆裡。
+    這套系統每一幀看一眼姿勢，算出膠囊該往哪移多少才能把身體包回去，
+    再在不把膠囊推進牆裡的前提下移過去。<br>
+    以下每個數字都是從 <code>X Bot</code> 的實際資產量出來的，<strong>你可以拿計算機驗算</strong>。
+  </p>
+
+  <div class="keyfacts">
+    <div><div class="v">0.3400</div><div class="k">RunFwd 這一幀<br>頭離膠囊軸心（m）</div></div>
+    <div><div class="v">0.1091</div><div class="k">頭被允許的<br>最大距離（m）</div></div>
+    <div><div class="v">0.2309</div><div class="k">solver 解出的<br>必要位移（m）</div></div>
+    <div><div class="v">0.1800</div><div class="k">Safety Cap<br>實際套用（m）</div></div>
+    <div><div class="v">88%</div><div class="k">上半身網格超出<br>改善幅度</div></div>
+    <div><div class="v">1</div><div class="k">整個子系統的<br>跨幀狀態數量</div></div>
+  </div>
+</header>
+
+<!-- ═══════════ 1 ═══════════ -->
+<section>
+  <div class="sec-head">
+    <span class="n">01</span>
+    <h2>資料流：每一條箭頭在傳什麼</h2>
+    <span class="tag">9 階段</span>
+  </div>
+  <p class="sec-intro">
+    這張圖跟一般的方塊圖差別在：<strong>每條箭頭都標了四件事</strong>——
+    資料是什麼、誰擁有它、多久更新一次、以及它是不是跨幀記憶。
+    箭頭沒有這四項，就只是「有關係」，不是架構。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 840 620" role="img" aria-label="動態膠囊九階段資料流：動畫姿勢經取樣、解算、安全上限、時間平滑、碰撞夾持，最後寫入 CharacterController.center，每條箭頭標註資料內容與擁有者">
+      <text class="xs m mu" x="16" y="18">輸入（唯讀來源）</text>
+
+      <rect class="box" x="16" y="28" width="168" height="58"></rect>
+      <text class="s t" x="28" y="50">Animation Pose</text>
+      <text class="xs mu" x="28" y="68">當幀動畫姿勢</text>
+      <text class="xs mu" x="28" y="81">擁有者：Animator</text>
+
+      <rect class="box" x="16" y="98" width="168" height="58"></rect>
+      <text class="s t" x="28" y="120">CapsulePoseProfileSO</text>
+      <text class="xs mu" x="28" y="138">flesh radius × 4</text>
+      <text class="xs me" x="28" y="151">載入時一次，執行期唯讀</text>
+
+      <rect class="box" x="16" y="168" width="168" height="58"></rect>
+      <text class="s t" x="28" y="190">Authored Capsule</text>
+      <text class="xs mu" x="28" y="208">center / radius / height</text>
+      <text class="xs me" x="28" y="221">Awake 快照一次，恆定</text>
+
+      <rect class="box" x="16" y="238" width="168" height="58"></rect>
+      <text class="s t" x="28" y="260">場景幾何</text>
+      <text class="xs mu" x="28" y="278">牆、柱子、其他角色</text>
+      <text class="xs mu" x="28" y="291">擁有者：Unity Physics</text>
+
+      <line class="ln" x1="188" y1="57" x2="246" y2="57" marker-end="url(#ar)"></line>
+      <text class="xs m mu" x="196" y="50">4 根骨頭世界座標</text>
+
+      <rect class="boxm" x="250" y="28" width="196" height="58"></rect>
+      <text class="s t me" x="262" y="50">① Landmark Sampling</text>
+      <text class="xs mu" x="262" y="68">轉成 root-local 座標</text>
+      <text class="xs mu" x="262" y="81">擁有者：MotionDriver ／ 每幀</text>
+
+      <line class="ln" x1="348" y1="90" x2="348" y2="120" marker-end="url(#ar)"></line>
+      <text class="xs m mu" x="356" y="108">4 個 root-local 座標</text>
+
+      <path class="ln" d="M188,127 L218,127 L218,146 L246,146" marker-end="url(#ar)"></path>
+      <path class="ln" d="M188,197 L230,197 L230,152 L246,152" marker-end="url(#ar)"></path>
+
+      <rect class="boxm" x="250" y="124" width="196" height="64"></rect>
+      <text class="s t me" x="262" y="146">② Pose Solver</text>
+      <text class="xs mu" x="262" y="164">四個圓盤約束取交集</text>
+      <text class="xs mu" x="262" y="177">取離原點最近的點</text>
+
+      <line class="lnm" x1="348" y1="192" x2="348" y2="222" marker-end="url(#arm)"></line>
+      <text class="xs m me" x="356" y="210">DesiredOffset</text>
+
+      <rect class="box" x="250" y="226" width="196" height="54"></rect>
+      <text class="s t" x="262" y="248">③ Safety Cap</text>
+      <text class="xs mu" x="262" y="266">只縮長度，⛔ 不轉方向</text>
+
+      <line class="lnm" x1="348" y1="284" x2="348" y2="314" marker-end="url(#arm)"></line>
+      <text class="xs m me" x="356" y="302">CappedOffset</text>
+
+      <rect class="boxb" x="250" y="318" width="196" height="66"></rect>
+      <text class="s t bd" x="262" y="340">④ Temporal Smoothing</text>
+      <text class="xs mu" x="262" y="358">SmoothDamp　伸 0.12s／收 0.06s</text>
+      <text class="xs bd" x="262" y="373">★ 唯一的跨幀記憶</text>
+
+      <line class="lnm" x1="348" y1="388" x2="348" y2="418" marker-end="url(#arm)"></line>
+      <text class="xs m me" x="356" y="406">SmoothedOffset</text>
+
+      <path class="ln" d="M188,267 L214,267 L214,448 L246,448" marker-end="url(#ar)"></path>
+      <text class="xs m mu" x="150" y="440">CapsuleCast</text>
+      <text class="xs m mu" x="150" y="453">每幀一次</text>
+
+      <rect class="box" x="250" y="422" width="196" height="64"></rect>
+      <text class="s t" x="262" y="444">⑤ Collision Clamp</text>
+      <text class="xs mu" x="262" y="462">唯一認識場景幾何的一層</text>
+      <text class="xs mu" x="262" y="476">cast 半徑縮一個 skinWidth</text>
+
+      <line class="lnm" x1="348" y1="490" x2="348" y2="520" marker-end="url(#arm)"></line>
+      <text class="xs m me" x="356" y="508">SafeOffset</text>
+
+      <rect class="boxm" x="250" y="524" width="196" height="58"></rect>
+      <text class="s t me" x="262" y="546">CharacterController</text>
+      <text class="s t me" x="262" y="563">.center</text>
+      <text class="xs mu" x="262" y="578">唯一寫入者：MotionDriver</text>
+
+      <text class="xs m mu" x="490" y="18">每條箭頭的資料契約</text>
+      <rect class="thin" x="490" y="28" width="334" height="554"></rect>
+
+      <text class="xs m me" x="502" y="52">① Pose → Sampling</text>
+      <text class="xs mu" x="502" y="68">4 根骨頭的世界座標 · Animator 擁有</text>
+      <text class="xs mu" x="502" y="82">每幀，Update 與 LateUpdate 之間</text>
+      <text class="xs mu" x="502" y="96">跨幀：❌</text>
+
+      <line class="thin" x1="502" y1="108" x2="812" y2="108"></line>
+      <text class="xs m me" x="502" y="128">Profile → Solver</text>
+      <text class="xs mu" x="502" y="144">每個參考點的 FleshRadius · 資產擁有</text>
+      <text class="xs mu" x="502" y="158">載入時固定 · 跨幀：常數</text>
+
+      <line class="thin" x1="502" y1="170" x2="812" y2="170"></line>
+      <text class="xs m me" x="502" y="190">Authored → Solver</text>
+      <text class="xs mu" x="502" y="206">基準 center/radius/height</text>
+      <text class="xs mu" x="502" y="220">Awake 快照一次 · 之後恆定</text>
+
+      <line class="thin" x1="502" y1="232" x2="812" y2="232"></line>
+      <text class="xs m me" x="502" y="252">② Solver → Cap</text>
+      <text class="xs mu" x="502" y="268">DesiredOffset：姿勢想要的最小修正</text>
+      <text class="xs mu" x="502" y="282">MotionDriver 擁有 · 每幀 · 跨幀：❌</text>
+
+      <line class="thin" x1="502" y1="294" x2="812" y2="294"></line>
+      <text class="xs m me" x="502" y="314">③ Cap → Smooth</text>
+      <text class="xs mu" x="502" y="330">CappedOffset：套 MaxOffset 之後</text>
+      <text class="xs mu" x="502" y="344">每幀 · 跨幀：❌</text>
+
+      <line class="thin" x1="502" y1="356" x2="812" y2="356"></line>
+      <text class="xs m bd" x="502" y="376">④ Smooth → Clamp</text>
+      <text class="xs mu" x="502" y="392">SmoothedOffset</text>
+      <text class="xs bd" x="502" y="406">跨幀：✅ 整條管線唯一的記憶</text>
+
+      <line class="thin" x1="502" y1="418" x2="812" y2="418"></line>
+      <text class="xs m me" x="502" y="438">場景 → Clamp</text>
+      <text class="xs mu" x="502" y="454">一次 CapsuleCast 的可行距離</text>
+      <text class="xs mu" x="502" y="468">Unity Physics · 每幀一次 · 不快取</text>
+
+      <line class="thin" x1="502" y1="480" x2="812" y2="480"></line>
+      <text class="xs m me" x="502" y="500">⑤ Clamp → center</text>
+      <text class="xs mu" x="502" y="516">SafeOffset · MotionDriver 唯一寫入者</text>
+      <text class="xs mu" x="502" y="530">每幀 · 恆為「基準 ＋ 偏移」</text>
+      <text class="xs wr" x="502" y="548">⛔ 不是「上一幀 ＋ 差值」——</text>
+      <text class="xs mu" x="502" y="564">　 那會讓浮點誤差累積成永久漂移</text>
+    </svg>
+
+    <figcaption>
+      九個階段，但只有 <strong>④ 有記憶</strong>、只有 <strong>⑤ 認識場景</strong>、只有終點能寫 <code>center</code>。
+      這三句話就是整條管線的全部約束。
+    </figcaption>
+  </figure>
+</section>
+
+<!-- ═══════════ 2 ═══════════ -->
+<section>
+  <div class="sec-head">
+    <span class="n">02</span>
+    <h2>Authority：誰可以動膠囊，什麼時候</h2>
+    <span class="tag">共用可變狀態</span>
+  </div>
+  <p class="sec-intro">
+    <code>CharacterController</code> 的 <code>center</code>／<code>radius</code>／<code>height</code> 是共用可變狀態。
+    三個角色想動它——所以必須講清楚誰、在什麼時候、有權力動哪一個欄位。
+    <strong>「什麼時候」這一欄是多數架構圖會漏掉的維度。</strong>
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 840 400" role="img" aria-label="Authority 圖：authored 幾何是常數，姿勢偏移只能寫 center 水平分量，traversal 碰撞形狀可寫全部但兩者互斥">
+      <rect class="box" x="250" y="16" width="340" height="62"></rect>
+      <text class="s t" x="420" y="40" text-anchor="middle">Authored Capsule Geometry</text>
+      <text class="xs mu" x="420" y="58" text-anchor="middle">作者在 prefab 上設定的 center / radius / height</text>
+      <text class="xs me" x="420" y="72" text-anchor="middle">🔒 執行期永不改變</text>
+
+      <path class="ln" d="M330,82 L200,82 L200,116" marker-end="url(#ar)"></path>
+      <text class="xs m mu" x="132" y="104">Awake 快照</text>
+      <path class="ln" d="M510,82 L648,82 L648,116" marker-end="url(#ar)"></path>
+      <text class="xs m mu" x="660" y="104">Awake 快照</text>
+
+      <rect class="box" x="60" y="120" width="280" height="54"></rect>
+      <text class="s t" x="72" y="142">MotionDriver</text>
+      <text class="xs mu" x="72" y="160">_capsuleBaseCenter / Radius / Height</text>
+
+      <rect class="box" x="520" y="120" width="256" height="54"></rect>
+      <text class="s t" x="532" y="142">TraversalProbe</text>
+      <text class="xs mu" x="532" y="160">AuthoredCenter / Radius / Height</text>
+
+      <line class="ln" x1="648" y1="178" x2="648" y2="210" marker-end="url(#ar)"></line>
+      <rect class="boxm" x="520" y="214" width="256" height="58"></rect>
+      <text class="s t me" x="532" y="236">環境查詢</text>
+      <text class="xs mu" x="532" y="254">corridor / clearance / destination</text>
+      <text class="xs me" x="532" y="268">只讀，永遠用 authored 值</text>
+
+      <line class="ln" x1="140" y1="178" x2="140" y2="210" marker-end="url(#ar)"></line>
+      <line class="ln" x1="270" y1="178" x2="270" y2="210" marker-end="url(#ar)"></line>
+
+      <rect class="boxm" x="40" y="214" width="196" height="80"></rect>
+      <text class="s t me" x="52" y="236">Pose Offset</text>
+      <text class="xs mu" x="52" y="254">✅ 只寫 center.x / center.z</text>
+      <text class="xs wr" x="52" y="270">⛔ 永不碰 center.y</text>
+      <text class="xs wr" x="52" y="286">⛔ 永不碰 radius / height</text>
+
+      <rect class="boxb" x="256" y="214" width="212" height="80"></rect>
+      <text class="s t bd" x="268" y="236">Traversal Collision Profile</text>
+      <text class="xs mu" x="268" y="254">✅ center / height / radius 全部</text>
+      <text class="xs mu" x="268" y="270">只在一次 traversal 執行期間</text>
+      <text class="xs bd" x="268" y="286">期間 Pose Offset 完全停寫</text>
+
+      <path class="lnb" d="M256,254 L240,254" marker-end="url(#arb)"></path>
+
+      <path class="ln" d="M138,298 L138,330 L300,330" marker-end="url(#ar)"></path>
+      <path class="ln" d="M362,298 L362,330" marker-end="url(#ar)"></path>
+
+      <rect class="box" x="300" y="334" width="240" height="50"></rect>
+      <text class="s t" x="420" y="356" text-anchor="middle">CharacterController.center</text>
+      <text class="xs mu" x="420" y="373" text-anchor="middle">同一幀內只准有一個寫入者</text>
+
+      <rect class="boxw" x="560" y="300" width="264" height="84"></rect>
+      <text class="xs wr m" x="572" y="320">為什麼不能有兩個寫入者</text>
+      <text class="xs mu" x="572" y="338">同幀兩人寫同一欄位 ⇒ 結果取決於誰後寫，</text>
+      <text class="xs mu" x="572" y="352">而元件執行順序在 Unity 裡沒有保證。</text>
+      <text class="xs wr" x="572" y="368">那不是「偶爾會錯」，</text>
+      <text class="xs wr" x="572" y="380">是「行為無法推理」。</text>
+    </svg>
+
+    <figcaption>
+      兩個寫入者之間是<strong>時間上互斥</strong>，不是空間上分工——
+      traversal 一開始，姿勢偏移就整個停寫。
+    </figcaption>
+  </figure>
+
+  <div class="wrap">
+    <table>
+      <thead>
+        <tr><th>角色</th><th>可以寫</th><th>不可以寫</th><th>什麼時候</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="m">Authored geometry</td><td>—</td><td>任何東西（它是常數）</td><td>永遠</td></tr>
+        <tr><td class="m">Pose offset</td><td class="m">center.x / center.z</td><td class="m">center.y、radius、height</td><td>traversal 沒在跑、功能開著、沒死</td></tr>
+        <tr><td class="m">Traversal profile</td><td class="m">center / height / radius 全部</td><td>—</td><td>只在一次 traversal 執行期間</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout">
+    <div class="h">🔴 為什麼 <code>center.y</code> 不准動</div>
+    改變膠囊底面高度，就改變了 Unity 判斷「有沒有踩到地」的結果。
+    而 <code>FootIKController</code> 的開關是<strong>二值、沒有淡入</strong>的——判斷錯一次，玩家就會看到腳彈一下。
+    所以本輪把 <code>center.y</code> 完全排除在外。膠囊高度確實是個真問題，但那是<strong>另一個決定</strong>。
+  </div>
+
+  <div class="note bad"><span class="lab">恢復陷阱</span><p>
+    traversal 結束時會把 <code>center</code> 還原成「它開始前記下的值」。若那個值裡混進了姿勢偏移，
+    還原之後偏移就變成<strong>永久的</strong>——而那時 traversal 已經結束，沒有任何人會把它改回來。
+    所以 <code>BeginTraversalCollisionProfile</code> 的第一件事，是把姿勢偏移<strong>收乾淨再記基準</strong>。
+  </p></div>
+</section>
+
+<!-- ═══════════ 3 ═══════════ -->
+<section>
+  <div class="sec-head">
+    <span class="n">03</span>
+    <h2>跨幀狀態：整個子系統只有一個</h2>
+    <span class="tag">記憶盤點</span>
+  </div>
+  <p class="sec-intro">
+    要判斷一個系統好不好推理，最快的方法是問：<strong>它記得多少事？</strong>
+    每一個跨幀狀態都是一個可能不同步、可能該重置而沒重置、可能在切場景時殘留的點。
+  </p>
+
+  <div class="wrap">
+    <table>
+      <thead>
+        <tr><th>跨幀的東西</th><th>持有者</th><th>為什麼需要跨幀</th><th>弄丟會怎樣</th></tr>
+      </thead>
+      <tbody>
+        <tr class="bind">
+          <td class="m">SmoothedOffset</td>
+          <td class="m">MotionDriver</td>
+          <td>偏移必須連續變化，否則膠囊瞬移</td>
+          <td>每幀跳變，貼牆判定忽大忽小</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="sec-intro" style="margin-top:14px">
+    就這一個。其餘全部每幀重算：landmark 每幀取樣、solver 每幀重解、cast 每幀重打、cap 是純函式。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 840 250" role="img" aria-label="平滑器追的是 CappedOffset 而不是夾持後的 SafeOffset，因此牆消失的那一幀就恢復完整偏移">
+      <text class="xs m mu" x="16" y="18">✅ 現在的作法：平滑器追 CappedOffset</text>
+      <rect class="boxm" x="16" y="28" width="386" height="92"></rect>
+      <rect class="box" x="30" y="44" width="106" height="40"></rect>
+      <text class="xs m" x="83" y="62" text-anchor="middle">CappedOffset</text>
+      <text class="xs mu" x="83" y="77" text-anchor="middle">純函式</text>
+      <line class="lnm" x1="140" y1="64" x2="166" y2="64" marker-end="url(#arm)"></line>
+      <rect class="boxb" x="170" y="44" width="106" height="40"></rect>
+      <text class="xs m bd" x="223" y="62" text-anchor="middle">Smoothed</text>
+      <text class="xs mu" x="223" y="77" text-anchor="middle">★ 跨幀</text>
+      <line class="lnm" x1="280" y1="64" x2="306" y2="64" marker-end="url(#arm)"></line>
+      <rect class="box" x="310" y="44" width="80" height="40"></rect>
+      <text class="xs m" x="350" y="62" text-anchor="middle">Safe</text>
+      <text class="xs mu" x="350" y="77" text-anchor="middle">夾持後</text>
+      <text class="xs me" x="30" y="105">牆消失的那一幀就恢復完整偏移（測試 CO4 守著）</text>
+
+      <text class="xs m wr" x="438" y="18">❌ 若把夾持結果餵回平滑器</text>
+      <rect class="boxw" x="438" y="28" width="386" height="92"></rect>
+      <rect class="box" x="452" y="44" width="106" height="40"></rect>
+      <text class="xs m" x="505" y="62" text-anchor="middle">CappedOffset</text>
+      <line class="lnw" x1="562" y1="64" x2="588" y2="64" marker-end="url(#arw)"></line>
+      <rect class="box" x="592" y="44" width="106" height="40"></rect>
+      <text class="xs m" x="645" y="62" text-anchor="middle">Smoothed</text>
+      <line class="lnw" x1="702" y1="64" x2="728" y2="64" marker-end="url(#arw)"></line>
+      <rect class="box" x="732" y="44" width="80" height="40"></rect>
+      <text class="xs m" x="772" y="62" text-anchor="middle">Safe</text>
+      <path class="lnw" d="M772,88 L772,104 L645,104 L645,88" marker-end="url(#arw)"></path>
+      <text class="xs wr" x="452" y="116">牆變成平滑狀態的第二個 authority</text>
+
+      <line class="dash" x1="16" y1="140" x2="824" y2="140"></line>
+      <text class="s" x="16" y="166">後果：貼牆時平滑值被壓到接近 0；等你離開牆邊，偏移還要<tspan class="wr" font-weight="700">重新慢慢長回來</tspan>。</text>
+      <text class="s mu" x="16" y="190">玩家感受到的是「離開牆之後角色有一段時間怪怪的」，而那個延遲沒有任何設計理由。</text>
+
+      <rect class="boxb" x="16" y="206" width="808" height="34"></rect>
+      <text class="xs bd m" x="28" y="227">📌 一般原則：平滑器該追「意圖」，不該追「被環境修正後的結果」——否則環境就偷偷變成了狀態的第二個擁有者。</text>
+    </svg>
+
+    <figcaption>
+      這是一個<strong>資料流方向</strong>的決定，不是參數調校。餵回去會多一條回授邊，而那條邊會讓環境擁有記憶。
+    </figcaption>
+  </figure>
+</section>
+
+<!-- ═══════════ 4 ═══════════ -->
+<section>
+  <div class="sec-head">
+    <span class="n">04</span>
+    <h2>順序：為什麼 Clamp 一定排在 Smoothing 後面</h2>
+    <span class="tag">V1 的真實 bug</span>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 840 300" role="img" aria-label="V1 的 Clamp 在 Smooth 之前導致寫入值大於安全值，V2 調換後寫入的永遠是剛夾過的值">
+      <text class="s t wr" x="16" y="20">V1（壞的）：Clamp → Smooth</text>
+      <rect class="boxw" x="16" y="30" width="386" height="120"></rect>
+
+      <rect class="box" x="30" y="46" width="86" height="36"></rect>
+      <text class="xs m" x="73" y="68" text-anchor="middle">Desired</text>
+      <line class="ln" x1="120" y1="64" x2="142" y2="64" marker-end="url(#ar)"></line>
+      <rect class="box" x="146" y="46" width="86" height="36"></rect>
+      <text class="xs m" x="189" y="68" text-anchor="middle">Clamp</text>
+      <line class="ln" x1="236" y1="64" x2="258" y2="64" marker-end="url(#ar)"></line>
+      <rect class="box" x="262" y="46" width="86" height="36"></rect>
+      <text class="xs m" x="305" y="68" text-anchor="middle">Smooth</text>
+      <line class="lnw" x1="352" y1="64" x2="378" y2="64" marker-end="url(#arw)"></line>
+
+      <text class="xs mu" x="30" y="102">夾持把<tspan class="wr">目標</tspan>壓小了，但平滑值還停在<tspan class="wr">上一幀的大值</tspan>。</text>
+      <text class="xs wr" x="30" y="122">⇒ 實際寫進 center 的數字<tspan font-weight="700">大於安全值</tspan></text>
+      <text class="xs wr" x="30" y="140">⇒ 膠囊進牆</text>
+
+      <text class="s t me" x="438" y="20">V2（現在）：Smooth → Clamp</text>
+      <rect class="boxm" x="438" y="30" width="386" height="120"></rect>
+
+      <rect class="box" x="452" y="46" width="86" height="36"></rect>
+      <text class="xs m" x="495" y="68" text-anchor="middle">Desired</text>
+      <line class="ln" x1="542" y1="64" x2="564" y2="64" marker-end="url(#ar)"></line>
+      <rect class="box" x="568" y="46" width="86" height="36"></rect>
+      <text class="xs m" x="611" y="68" text-anchor="middle">Smooth</text>
+      <line class="ln" x1="658" y1="64" x2="680" y2="64" marker-end="url(#ar)"></line>
+      <rect class="boxm" x="684" y="46" width="86" height="36"></rect>
+      <text class="xs m me" x="727" y="68" text-anchor="middle">Clamp</text>
+      <line class="lnm" x1="774" y1="64" x2="800" y2="64" marker-end="url(#arm)"></line>
+
+      <text class="xs mu" x="452" y="102">寫進 center 的永遠是<tspan class="me">剛剛夾過的那個值</tspan>。</text>
+      <text class="xs me" x="452" y="122">⇒ 不可能大於安全值</text>
+
+      <line class="dash" x1="16" y1="176" x2="824" y2="176"></line>
+
+      <rect class="boxb" x="16" y="196" width="808" height="88"></rect>
+      <text class="s t bd" x="28" y="220">可以推廣的判準</text>
+      <text class="s" x="28" y="244">Collision Clamp 是整條管線裡<tspan font-weight="700">唯一認識場景幾何的一層</tspan>。</text>
+      <text class="s mu" x="28" y="266">任何排在它後面的處理，都可能把已經夾好的值再推回牆裡 ——「認識外界的那一層必須是最後一層」。</text>
+    </svg>
+
+    <figcaption>
+      這條順序不是風格選擇。<strong>認識外界約束的那一層之後，不能再有任何會改變數值的處理。</strong>
+    </figcaption>
+  </figure>
+</section>
+
+<!-- ═══════════ 5 ═══════════ -->
+<section>
+  <div class="sec-head">
+    <span class="n">05</span>
+    <h2>用真實的 RunFwd 從頭算到尾</h2>
+    <span class="tag">Bake_RunFwdLoop · t = 0.198 s</span>
+  </div>
+  <p class="sec-intro">
+    以下每個數字都從 <code>X Bot</code> 的實際資產量出來，取的是偏移最大的那一幀。
+    <strong>這張圖是按真實比例畫的</strong>——圓的大小與位置就是資料本身。
+  </p>
+
+  <div class="calc"><span class="c">// 第 1 步：膠囊長什麼樣</span>
+radius R      = <span class="me">0.320</span>
+height        = 1.8266
+baseCenter.y  = 0.9134
+上半球中心 topC = 0.9134 + (1.8266/2 − 0.320) = <span class="me">1.5067</span>
+</div>
+
+  <div class="wrap">
+    <table>
+      <thead>
+        <tr><th>landmark（root-local）</th><th class="m">x</th><th class="m">z</th><th class="m">水平距離 |q|</th><th class="m">flesh r</th><th class="m">允許 R−r ＝ ρ</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Chest（Spine1）</td><td class="num">0.0048</td><td class="num">0.1440</td><td class="num">0.1441</td><td class="num">0.2038</td><td class="num">0.1162</td></tr>
+        <tr><td>UpperChest（Spine2）</td><td class="num">0.0137</td><td class="num">0.1867</td><td class="num">0.1872</td><td class="num">0.1867</td><td class="num">0.1333</td></tr>
+        <tr><td>Neck</td><td class="num">0.0302</td><td class="num">0.2679</td><td class="num">0.2696</td><td class="num">0.0952</td><td class="num">0.2248</td></tr>
+        <tr class="bind"><td>Head</td><td class="num">0.0412</td><td class="num">0.3375</td><td class="num">0.3400</td><td class="num">0.2109</td><td class="num">0.1091</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="sec-intro" style="margin-top:14px">
+    📌 跑步時整個軀幹是<strong>下沉</strong>的（頭在 1.475，站直時 1.599），
+    所以四個點全部低於 <code>topC = 1.5067</code>——膠囊在這些高度都還是完整的 0.32 寬，<code>dy = 0</code>，
+    於是 <code>ρ = √(allow² − dy²)</code> 直接等於 <code>allow</code>。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 840 448" role="img" aria-label="按真實比例繪製的俯視圖：四個 landmark 各自的可行圓盤，其交集中離原點最近的點就是解，本幀由 Head 單獨頂住">
+      <text class="xs m mu" x="16" y="18">俯視圖（root-local，比例尺 1 m = 400 px）　z ＝ 角色前方 ↑</text>
+
+      <line class="grid" x1="200" y1="60" x2="200" y2="330"></line>
+      <line class="grid" x1="80" y1="290" x2="330" y2="290"></line>
+      <text class="xs m mu" x="206" y="72">+z 前</text>
+      <text class="xs m mu" x="334" y="294">+x 右</text>
+
+      <circle class="thin" cx="200" cy="290" r="128" style="stroke-dasharray:4 4"></circle>
+      <text class="xs m mu" x="200" y="438" text-anchor="middle">膠囊 R = 0.320（虛線圓）</text>
+
+      <circle cx="212.08" cy="182.84" r="89.92" fill="none" stroke="var(--hair)" stroke-width="1.2"></circle>
+      <circle cx="205.48" cy="215.32" r="53.32" fill="none" stroke="var(--hair)" stroke-width="1.2"></circle>
+      <circle cx="201.92" cy="232.40" r="46.48" fill="none" stroke="var(--hair)" stroke-width="1.2"></circle>
+      <circle cx="216.48" cy="155.00" r="43.64" fill="none" stroke="var(--bind)" stroke-width="2"></circle>
+
+      <circle cx="201.92" cy="232.40" r="3" fill="var(--muted)"></circle>
+      <circle cx="205.48" cy="215.32" r="3" fill="var(--muted)"></circle>
+      <circle cx="212.08" cy="182.84" r="3" fill="var(--muted)"></circle>
+      <circle cx="216.48" cy="155.00" r="4" fill="var(--bind)"></circle>
+
+      <text class="xs m bd" x="226" y="150">Head</text>
+      <text class="xs m mu" x="222" y="180">Neck</text>
+      <text class="xs m mu" x="150" y="212" text-anchor="end">UpperChest</text>
+      <text class="xs m mu" x="150" y="236" text-anchor="end">Chest</text>
+
+      <circle cx="200" cy="290" r="4" fill="var(--ink)"></circle>
+      <text class="xs m" x="186" y="306" text-anchor="end">原點 c=(0,0)</text>
+
+      <line class="lnb" x1="200" y1="290" x2="211.2" y2="198.32" marker-end="url(#arb)"></line>
+      <circle cx="211.2" cy="198.32" r="4" fill="var(--bind)"></circle>
+
+      <line class="lnm" x1="200" y1="290" x2="208.72" y2="218.52" marker-end="url(#arm)"></line>
+      <circle cx="208.72" cy="218.52" r="4" fill="var(--measure)"></circle>
+
+      <text class="xs m bd" x="120" y="196" text-anchor="end">解 |c| = 0.2309</text>
+      <line class="thin" x1="124" y1="192" x2="206" y2="200"></line>
+      <text class="xs m me" x="120" y="252" text-anchor="end">夾持後 0.1800</text>
+      <line class="thin" x1="124" y1="248" x2="204" y2="220"></line>
+
+      <text class="xs m mu" x="420" y="40">每個灰圈 ＝ 一個 landmark 的<tspan class="me">可行圓盤</tspan></text>
+      <text class="xs mu" x="420" y="58">約束是「肉球要塞進膠囊」，等價於</text>
+      <text class="xs m me" x="420" y="76">|q − c| ≤ R − r ＝ ρ</text>
+      <text class="xs mu" x="420" y="94">⇒ c 必須落在以 q 為心、ρ 為半徑的圓盤內。</text>
+      <text class="xs mu" x="420" y="112">solver 要找<tspan font-weight="700">四個圓盤交集中離原點最近的點</tspan>。</text>
+
+      <line class="thin" x1="420" y1="128" x2="824" y2="128"></line>
+
+      <text class="xs m bd" x="420" y="150">這一幀只有 Head 頂住（slack ＝ 0）</text>
+      <text class="xs m mu" x="420" y="172">landmark        |q−c|      ρ      slack</text>
+      <text class="xs m mu" x="420" y="190">Chest          0.0883  0.1162   −0.0279</text>
+      <text class="xs m mu" x="420" y="206">UpperChest     0.0448  0.1333   −0.0885</text>
+      <text class="xs m mu" x="420" y="222">Neck           0.0387  0.2248   −0.1861</text>
+      <text class="xs m bd" x="420" y="238">Head           0.1091  0.1091   ±0.0000  ←</text>
+
+      <line class="thin" x1="420" y1="254" x2="824" y2="254"></line>
+
+      <text class="xs mu" x="420" y="276">所以這一幀的答案剛好可以口算：</text>
+      <text class="xs m me" x="420" y="296">|q_head| − ρ_head = 0.3400 − 0.1091 = 0.2309 ✓</text>
+
+      <rect class="boxw" x="420" y="312" width="404" height="74"></rect>
+      <text class="xs wr m" x="432" y="332">⚠️ 不要把這個簡化當成演算法</text>
+      <text class="xs mu" x="432" y="350">這一幀剛好只有一個約束在頂。別的姿勢會有兩個同時</text>
+      <text class="xs mu" x="432" y="366">頂住，那時答案<tspan font-weight="700">不在任何單一 landmark 的方向上</tspan>。</text>
+      <text class="xs mu" x="432" y="380">「四個圓盤的交集、取離原點最近的點」才是通則。</text>
+    </svg>
+
+    <figcaption>
+      圖是按比例畫的：<strong>Head 的圓最小（ρ=0.1091）而且離原點最遠（|q|=0.3400）</strong>，
+      所以它是唯一頂住的約束——粉紅箭頭的終點正好落在它的圓周上。
+    </figcaption>
+  </figure>
+
+  <div class="calc"><span class="c">// 第 6 步：Safety Cap —— profile 的 MaxOffset = 0.18，解出 0.2309 ⇒ 超過，要夾</span>
+c_capped = c × (0.18 / 0.2309) = (0.0218, 0.1787)   |c| = <span class="me">0.1800</span>
+<span class="c">⚠️ 只縮長度，不轉方向。方向是姿勢決定的；上限只能少給，不能改變意圖。</span>
+
+<span class="c">// 夾完之後頭還露多少？</span>
+0.3400 − 0.18 − 0.1091 ≈ <span class="hl">0.05</span>   <span class="c">← cap 不是「完全解決」，是「拿掉大部分」</span>
+<span class="c">實測整支 RunFwd 的上半身網格超出：0.204 → 0.024（改善 88%）</span>
+
+<span class="c">// 第 7 步：Temporal Smoothing</span>
+SmoothDamp(上一幀 SmoothedOffset → c_capped)
+smoothTime = <span class="me">0.12 s</span>（伸出去）／<span class="me">0.06 s</span>（收回來）
+<span class="c">伸慢收快：伸出去是把碰撞體推向可能有東西的地方（要保守），收回來是脫困（要快）。</span>
+
+<span class="c">// 第 8 步：Collision Clamp —— 假設前方 0.10 m 有牆</span>
+想走 0.180，掃到 0.100 ⇒ SafeOffset = c_smoothed × (0.100 / 0.180)
+<span class="c">⚠️ cast 半徑刻意縮一個 skinWidth（0.32 → 0.29）——否則貼牆站定時起點就已重疊，</span>
+<span class="c">   Unity 回 distance = 0 ⇒ 偏移歸零 ⇒ 退化回「貼牆就沒有偏移」，正是我們要修的東西。</span>
+
+<span class="c">// 第 9 步：寫入</span>
+characterController.center = new Vector3(
+    baseCenter.x + safeOffset.x,
+    <span class="hl">baseCenter.y</span>,                 <span class="c">// ⛔ 永遠是基準值</span>
+    baseCenter.z + safeOffset.z);
+</div>
+
+  <div class="speak">
+    <div class="h">你現在應該能口頭講一次</div>
+    「跑步時頭跑到膠囊前面 23 公分。系統看四個身體參考點各自代表的肉球，
+    算出膠囊中心要移到哪裡才能把它們都包住——這一幀是頭在頂住，要移 23 公分。
+    但安全上限是 18 公分，所以夾到 18。再平滑、再確認前面沒有牆，最後寫進 center。」
+  </div>
+</section>
+
+<!-- ═══════════ 6 ═══════════ -->
+<section>
+  <div class="sec-head">
+    <span class="n">06</span>
+    <h2>Flesh Radius：最容易誤會的一個概念</h2>
+    <span class="tag">量測代理陷阱</span>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 840 330" role="img" aria-label="骨骼點、網格表面與肉體半徑是三個不同的東西；Head 骨骼位於顱底，所以骨骼只超出 8 公分而網格超出 27 公分">
+      <text class="xs m mu" x="16" y="18">三個不同的東西</text>
+
+      <circle cx="110" cy="130" r="4" fill="var(--ink)"></circle>
+      <text class="xs m" x="110" y="196" text-anchor="middle">① bone point</text>
+      <text class="xs mu" x="110" y="212" text-anchor="middle">關節位置</text>
+      <text class="xs wr" x="110" y="228" text-anchor="middle">沒有厚度</text>
+
+      <path class="ln" d="M256,92 C296,88 320,110 318,134 C316,160 292,180 256,178 C222,176 200,156 202,132 C204,108 224,96 256,92 Z"></path>
+      <circle cx="258" cy="134" r="4" fill="var(--ink)"></circle>
+      <text class="xs m" x="260" y="196" text-anchor="middle">② mesh surface</text>
+      <text class="xs mu" x="260" y="212" text-anchor="middle">蒙皮後的頂點</text>
+      <text class="xs me" x="260" y="228" text-anchor="middle">玩家看到的是這個</text>
+
+      <circle cx="430" cy="134" r="62" fill="none" stroke="var(--bind)" stroke-width="2"></circle>
+      <path class="thin" d="M430,134 C470,130 494,152 492,176 C490,202 466,222 430,220 C396,218 374,198 376,174 C378,150 398,138 430,134 Z" style="opacity:.5"></path>
+      <circle cx="430" cy="134" r="4" fill="var(--bind)"></circle>
+      <line class="lnb" x1="430" y1="134" x2="492" y2="134" marker-end="url(#arb)"></line>
+      <text class="xs m bd" x="462" y="128" text-anchor="middle">r</text>
+      <text class="xs m bd" x="430" y="240" text-anchor="middle">③ flesh radius</text>
+      <text class="xs mu" x="430" y="256" text-anchor="middle">把這團肉近似成一顆球</text>
+      <text class="xs mu" x="430" y="272" text-anchor="middle">球要多大才包得住</text>
+
+      <line class="thin" x1="16" y1="290" x2="530" y2="290"></line>
+      <text class="xs mu" x="16" y="312">從骨骼點到「以它為 dominant bone 的所有網格頂點」的<tspan class="bd" font-weight="700">最大距離</tspan>。離線量一次，寫進 profile 資產。</text>
+
+      <text class="xs m mu" x="560" y="18">為什麼 Head 骨骼只超 8 cm，網格卻超 27 cm</text>
+      <rect class="thin" x="560" y="28" width="264" height="180"></rect>
+
+      <path class="ln" d="M660,58 C700,54 724,74 722,98 C720,124 696,142 662,140 C630,138 610,120 612,96 C614,72 632,62 660,58 Z"></path>
+      <circle cx="648" cy="76" r="3" fill="var(--ink)"></circle>
+      <circle cx="678" cy="76" r="3" fill="var(--ink)"></circle>
+      <line class="thin" x1="612" y1="60" x2="722" y2="60" style="stroke-dasharray:3 3"></line>
+      <text class="xs m mu" x="732" y="62">頭頂</text>
+      <circle cx="666" cy="132" r="4" fill="var(--bind)"></circle>
+      <text class="xs m bd" x="732" y="136">Head 骨骼</text>
+      <text class="xs mu" x="732" y="150">在顱底</text>
+      <line class="thin" x1="666" y1="140" x2="666" y2="164"></line>
+      <text class="xs m mu" x="674" y="162">Neck</text>
+
+      <text class="xs m bd" x="572" y="190">r[Head] = 0.2109</text>
+      <text class="xs mu" x="572" y="204">這顆球要把整個頭骨包住，所以半徑很大</text>
+
+      <rect class="boxw" x="560" y="218" width="264" height="94"></rect>
+      <text class="xs wr m" x="572" y="238">🔴 2026-09-15 錯誤結論的根因</text>
+      <text class="xs mu" x="572" y="256">只看骨骼點 ⇒「Head 在膠囊裡，沒問題」</text>
+      <text class="xs mu" x="572" y="272">看網格　　 ⇒「臉和頭頂在膠囊外 27 公分」</text>
+      <text class="xs wr" x="572" y="292">用骨骼點當代理量去回答一個網格問題，</text>
+      <text class="xs wr" x="572" y="306">低估了 3–10 倍 ⇒「不需要 dynamic capsule」。</text>
+    </svg>
+
+    <figcaption>
+      蒙皮是剛性的——<code>Head</code> 的頂點相對 <code>Head</code> 骨骼的位置<strong>不隨姿勢改變</strong>。
+      所以這是一個姿勢無關的常數，離線量一次就對一輩子；<strong>換模型就要重量</strong>，
+      這就是它必須是資產而不是硬寫死的原因。
+    </figcaption>
+  </figure>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>landmark</th><th class="m">X Bot（Beta 網格）</th><th class="m">Y Bot（Alpha 網格）</th><th>差異</th></tr></thead>
+      <tbody>
+        <tr><td>Chest（Spine1）</td><td class="num">0.2038</td><td class="num">0.2902</td><td>＋42%</td></tr>
+        <tr><td>UpperChest（Spine2）</td><td class="num">0.1867</td><td class="num">0.2095</td><td>＋12%</td></tr>
+        <tr><td>Neck</td><td class="num">0.0952</td><td class="num">0.1028</td><td>＋8%</td></tr>
+        <tr><td>Head</td><td class="num">0.2109</td><td class="num">0.2060</td><td>−2%</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="sec-intro" style="margin-top:12px">
+    ⚠️ 兩隻差很多（Chest 差 42%）——<strong>所以它們各有一份 profile，不能共用。</strong>
+  </p>
+</section>
+
+<!-- ═══════════ 7 ═══════════ -->
+<section>
+  <div class="sec-head">
+    <span class="n">07</span>
+    <h2>Failure case：舊模型在沒問題的地方製造了 15 公分的問題</h2>
+    <span class="tag">V1 → V2</span>
+  </div>
+  <p class="sec-intro">
+    V1 的模型是 <code>offset = normalize(MoveDirection) × MaxOffset × speed</code>——
+    白話是<strong>「角色往哪走，膠囊就往哪偏」</strong>。聽起來很合理，實測錯得很離譜。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 840 340" role="img" aria-label="純側移時舊模型把膠囊推向移動方向，但實際軀幹往反方向微傾，製造約 0.149 公尺的誤差">
+      <text class="s t" x="200" y="22" text-anchor="middle">純側移（StrafeLeftLoop）</text>
+      <text class="xs mu" x="200" y="40" text-anchor="middle">角色面向 ↑ 螢幕上方，實際移動 ← 往左</text>
+
+      <text class="xs m wr" x="110" y="70" text-anchor="middle">舊模型認為</text>
+      <ellipse cx="110" cy="130" rx="34" ry="46" fill="none" stroke="var(--hair)" stroke-width="1.4"></ellipse>
+      <ellipse cx="86" cy="130" rx="34" ry="46" fill="none" stroke="var(--wrong)" stroke-width="2" style="stroke-dasharray:5 4"></ellipse>
+      <line class="lnw" x1="110" y1="130" x2="80" y2="130" marker-end="url(#arw)"></line>
+      <text class="xs m wr" x="110" y="196" text-anchor="middle">推 0.12 m</text>
+      <text class="xs mu" x="110" y="212" text-anchor="middle">往左</text>
+
+      <text class="xs m me" x="290" y="70" text-anchor="middle">實際姿勢</text>
+      <ellipse cx="290" cy="130" rx="34" ry="46" fill="none" stroke="var(--hair)" stroke-width="1.4"></ellipse>
+      <ellipse cx="297" cy="130" rx="34" ry="46" fill="none" stroke="var(--measure)" stroke-width="2"></ellipse>
+      <line class="lnm" x1="290" y1="130" x2="304" y2="130" marker-end="url(#arm)"></line>
+      <text class="xs m me" x="290" y="196" text-anchor="middle">實際偏 0.029 m</text>
+      <text class="xs mu" x="290" y="212" text-anchor="middle">往<tspan font-weight="700">右</tspan>（反方向）</text>
+
+      <text class="xs mu" x="200" y="248" text-anchor="middle">身體的傾斜是<tspan class="bd" font-weight="700">動畫自己的力學</tspan>（為了平衡橫跨的腳），</text>
+      <text class="xs mu" x="200" y="266" text-anchor="middle">不是世界移動方向的函數。</text>
+
+      <line class="thin" x1="410" y1="16" x2="410" y2="320"></line>
+
+      <text class="s t" x="440" y="36">錯誤的代價</text>
+      <text class="xs m mu" x="440" y="66">純側移時上半身實際超出膠囊的量</text>
+      <text class="xs m me" x="812" y="66" text-anchor="end">0.000</text>
+      <line class="thin" x1="440" y1="76" x2="812" y2="76"></line>
+      <text class="xs m mu" x="440" y="96">舊模型推的量（且方向相反）</text>
+      <text class="xs m wr" x="812" y="96" text-anchor="end">0.120</text>
+      <line class="thin" x1="440" y1="106" x2="812" y2="106"></line>
+      <text class="xs m mu" x="440" y="126">實際傾斜（反方向）</text>
+      <text class="xs m wr" x="812" y="126" text-anchor="end">0.029</text>
+      <line class="ln" x1="440" y1="136" x2="812" y2="136"></line>
+      <text class="xs m wr" x="440" y="158" font-weight="700">⇒ 舊模型製造的誤差</text>
+      <text class="s m wr" x="812" y="158" text-anchor="end" font-weight="700">≈ 0.149 m</text>
+
+      <rect class="boxw" x="440" y="176" width="384" height="62"></rect>
+      <text class="s wr" x="452" y="198">它在<tspan font-weight="700">完全沒有問題</tspan>的地方，製造了一個 15 公分的問題。</text>
+      <text class="xs mu" x="452" y="220">而在真正有問題的地方（前向跑步需要 0.20–0.30），它只給 0.12。</text>
+
+      <rect class="boxm" x="440" y="250" width="384" height="70"></rect>
+      <text class="s t me" x="452" y="272">V2 怎麼避開</text>
+      <text class="xs mu" x="452" y="292">V2 不看 MoveDirection，它看骨頭在哪裡。</text>
+      <text class="xs mu" x="452" y="310">純側移的骨頭是站直的 ⇒ 解出來就是 0 ⇒ <tspan class="me" font-weight="700">不需要任何特例</tspan>。</text>
+    </svg>
+
+    <figcaption>
+      <strong>兩端都錯，而且錯的方向相反</strong>——這就是為什麼玩家的感受是
+      「開了看不出效果」但「頭還是穿牆」。
+    </figcaption>
+  </figure>
+
+  <div class="note key"><span class="lab">可推廣</span><p>
+    這是一個<strong>量測代理不對題</strong>的典型：用「角色往哪移動」去代理「身體往哪傾」。
+    兩者在前進時剛好相關，在側移時完全無關——而它在相關的那一段給得太少、在無關的那一段給得太多。
+    <strong>代理量的可信區間比它的平均誤差重要。</strong>
+  </p></div>
+
+  <div class="note why"><span class="lab">殘留</span><p>
+    <code>MoveDirection</code> 在 V2 只剩一個用途：Scene view 的 gizmo 會把舊模型的目標畫成<strong>紅色虛線</strong>，
+    讓你親眼看到它指向哪裡。它不參與任何計算。
+  </p></div>
+</section>
+
+<div class="foot">
+  原始檔：<code>docs/artifacts/dynamic-capsule.html</code>　·　文字正本：<code>docs/28-dynamic-capsule-architecture-guide.md</code><br>
+  量測證據與決策紀錄：<code>docs/27-pose-driven-capsule-study.md</code>（篇幅是正本的數倍，考古才開）<br>
+  數值來源：<code>X Bot</code> ＋ <code>Bake_RunFwdLoop</code> t=0.198s　·　profile：<code>CapsulePoseProfileSO</code><br>
+  ⚠️ 本頁是 <code>docs/28</code> 的<strong>視覺版</strong>，不是替代品——類別責任表、欄位中文對照、
+  已知邊界與重跑量測的步驟仍以 <code>docs/28</code> 為準。
+</div>
+
+</div>
