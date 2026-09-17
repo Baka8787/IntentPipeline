@@ -399,8 +399,7 @@
     <li><a href="#f2"><span class="n">02</span>狀態機仲裁</a></li>
     <li><a href="#f3"><span class="n">03</span>Movement 三段</a></li>
     <li><a href="#f4"><span class="n">04</span>離線烘焙鏈</a></li>
-    <li><a href="#f5"><span class="n">05</span>Combat Context</a></li>
-    <li><a href="#f6"><span class="n">06</span>Locomotion Stop</a></li>
+    <li><a href="#f5"><span class="n">05</span>Locomotion Stop</a></li>
     <li class="grp">收尾</li>
     <li><a href="#use">目前基線</a></li>
   </ol>
@@ -458,6 +457,9 @@
       <tr><td>跳躍物理、落地分類、滯空相位</td><td class="m">jump-landing.html</td><td class="m">docs/31</td></tr>
       <tr><td>Action／連段／中斷授權</td><td class="m">action-combat.html</td><td class="m">docs/32</td></tr>
       <tr><td>移動方向、朝向、瞄準三者的分工</td><td class="m">direction-authority.html</td><td class="m">docs/33</td></tr>
+      <tr><td>生命值、受擊、死亡、重生與 HUD</td><td class="m">survivability.html</td><td class="m">ADR-009／docs/25／26</td></tr>
+      <tr><td>「在跟誰打、對方在哪」的單一語境真相</td><td class="m">combat-context.html</td><td class="m">docs/15</td></tr>
+      <tr><td>敵人如何用兩個 seam 接進同一條管線</td><td class="m">enemy-ai.html</td><td class="m">docs/19／20／21</td></tr>
       <tr><td>Level 1 剛體腳底的幾何近似</td><td class="m">foot-ik.html</td><td class="m">docs/05 §3.5.5</td></tr>
     </tbody>
   </table>
@@ -571,9 +573,9 @@
     <span class="zoom">暫住在這裡</span>
   </div>
   <p class="tier-intro">
-    這五張留在索引頁，<strong>不是因為它們比較不重要，而是因為它們還沒有對應的 <code>docs/NN-architecture-guide</code> 文字正本</strong>。
+    這四張留在索引頁，<strong>不是因為它們比較不重要，而是因為它們還沒有對應的 <code>docs/NN-architecture-guide</code> 文字正本</strong>。
     沒有正本就做子系統架構頁，等於在發明內容而不是視覺化既有結論——所以它們暫時維持索引層的深度。
-    <br>⚠️ 這五張只有「為什麼／否決了什麼／哪條測試守著」，<strong>沒有</strong>資料契約表、authority 時間軸與數值驗算。
+    <br>⚠️ 這四張只有「為什麼／否決了什麼／哪條測試守著」，<strong>沒有</strong>資料契約表、authority 時間軸與數值驗算。
   </p>
 
   <figure id="f2">
@@ -821,99 +823,7 @@
     </div>
   </figure>
   <figure id="f5">
-    <h3><span class="num">05</span>Combat Context：進場、黏住、失效、離場</h3>
-    <p class="src">PlayerCombatContextSource.Tick() · CombatContextTests · docs/15 §4／§19</p>
-
-    <svg viewBox="0 0 860 720" role="img" aria-label="Combat Context 生命週期：互動和威脅搜尋進場，合法目標保持黏性，失效後才重選，無目標且逾時才離場，最後發布值型別快照">
-      <rect class="box" x="20" y="20" width="245" height="64"></rect>
-      <text class="s m" x="142" y="44" text-anchor="middle">玩家 Action intent</text>
-      <text class="xs mu" x="142" y="64" text-anchor="middle">RequestedActionSlot != None</text>
-
-      <rect class="box" x="307" y="20" width="245" height="64"></rect>
-      <text class="s m" x="430" y="44" text-anchor="middle">受到敵對 Action</text>
-      <text class="xs mu" x="430" y="64" text-anchor="middle">self request target 有 pending</text>
-
-      <rect class="box" x="595" y="20" width="245" height="64"></rect>
-      <text class="s m" x="718" y="44" text-anchor="middle">威脅半徑候選</text>
-      <text class="xs mu" x="718" y="64" text-anchor="middle">ActionRequestTarget marker</text>
-
-      <path class="lnf" d="M142,86 L142,106 L430,106 L430,124" marker-end="url(#mk-f)"></path>
-      <path class="lnf" d="M430,86 L430,124" marker-end="url(#mk-f)"></path>
-      <path class="lnf" d="M718,86 L718,106 L430,106"></path>
-
-      <rect class="boxf" x="245" y="128" width="370" height="66"></rect>
-      <text class="s m fl" x="430" y="153" text-anchor="middle">PlayerCombatContextSource.Tick（順序 2.6）</text>
-      <text class="xs mu" x="430" y="174" text-anchor="middle">先記 interaction time，再驗證保留中的 target</text>
-
-      <path class="lnf" d="M430,196 L430,220 L200,220 L200,242" marker-end="url(#mk-f)"></path>
-      <path class="lnf" d="M430,220 L660,220 L660,242" marker-end="url(#mk-f)"></path>
-
-      <rect class="boxg" x="20" y="246" width="360" height="100"></rect>
-      <text class="s m gd" x="200" y="272" text-anchor="middle">既有 target 仍合法</text>
-      <text class="xs mu" x="200" y="294" text-anchor="middle">active ＋ 非自己 ＋ 未超出 leaveRadius</text>
-      <text class="xs gd" x="200" y="318" text-anchor="middle">直接保留，完全不重新掃描</text>
-      <text class="xs mu" x="200" y="336" text-anchor="middle">更近的敵人不會偷走目標</text>
-
-      <rect class="box" x="480" y="246" width="360" height="100"></rect>
-      <text class="s m" x="660" y="272" text-anchor="middle">沒有 target／target 已失效</text>
-      <text class="xs mu" x="660" y="294" text-anchor="middle">Clear → OverlapSphereNonAlloc</text>
-      <text class="xs fl" x="660" y="318" text-anchor="middle">相機錐內 alignment → 距離</text>
-      <text class="xs mu" x="660" y="336" text-anchor="middle">只在此時選一次新候選</text>
-
-      <path class="ln" d="M200,348 L200,374 L430,374"></path>
-      <path class="ln" d="M660,348 L660,374 L430,374"></path>
-      <line class="lnf" x1="430" y1="374" x2="430" y2="400" marker-end="url(#mk-f)"></line>
-
-      <rect class="boxf" x="230" y="404" width="400" height="66"></rect>
-      <text class="s m fl" x="430" y="430" text-anchor="middle">InCombat = 先前已在場 ∨ 本幀互動 ∨ 有 target</text>
-      <text class="xs mu" x="430" y="451" text-anchor="middle">純半徑進場也會以進場時刻啟動 disengage 計時</text>
-
-      <line class="lnf" x1="430" y1="472" x2="430" y2="498" marker-end="url(#mk-f)"></line>
-      <rect class="boxd" x="205" y="502" width="450" height="58"></rect>
-      <text class="s m dn" x="430" y="527" text-anchor="middle">離場閘門：沒有合法 target ＋ disengageSeconds 已到</text>
-      <text class="xs mu" x="430" y="548" text-anchor="middle">兩者同時成立才 Exit；否則保持目前語境</text>
-
-      <path class="lnd" d="M205,532 L95,532 L95,586" marker-end="url(#mk-d)"></path>
-      <path class="lng" d="M655,532 L765,532 L765,586" marker-end="url(#mk-g)"></path>
-      <text class="xs dn m" x="126" y="522">成立</text>
-      <text class="xs gd m" x="704" y="522">未成立</text>
-
-      <rect class="boxd" x="20" y="590" width="250" height="54"></rect>
-      <text class="s m dn" x="145" y="613" text-anchor="middle">Exit ＋ ClearTarget</text>
-      <text class="xs mu" x="145" y="632" text-anchor="middle">InCombat=false</text>
-
-      <rect class="boxg" x="590" y="590" width="250" height="54"></rect>
-      <text class="s m gd" x="715" y="613" text-anchor="middle">保持語境</text>
-      <text class="xs mu" x="715" y="632" text-anchor="middle">更新 target position 快照</text>
-
-      <path class="lnf" d="M145,646 L145,681 L241,681" marker-end="url(#mk-f)"></path>
-      <path class="lnf" d="M715,646 L715,681 L619,681" marker-end="url(#mk-f)"></path>
-      <rect class="boxf" x="245" y="654" width="370" height="54"></rect>
-      <text class="s m fl" x="430" y="678" text-anchor="middle">發布 CombatContextData 值快照</text>
-      <text class="xs mu" x="430" y="697" text-anchor="middle">HeadLook／Action soft target 只讀；root facing 不讀</text>
-    </svg>
-
-    <figcaption>
-      黏性不等於每幀找最近敵人：<strong>合法 target 存在時完全不重選</strong>；只有失效才重新掃描。
-      黑板保存的是位置快照，不是 Transform，也不把 Combat Context 升格成常駐 facing 模式。
-    </figcaption>
-    <div class="notes">
-      <div class="note why"><span class="lab">為什麼</span><p class="bd">
-        距離遲滯避免邊界抖動，時間閘門避免剛離開半徑就瞬間脫戰；兩者共同處理「黏住但不能永遠黏住」。
-      </p></div>
-      <div class="note no"><span class="lab">否決了</span><p class="bd">
-        不每幀 soft-lock 最近敵人、不把 Transform 放進黑板，也不因為 <code>InCombat</code> 就持續旋轉角色 root。
-      </p></div>
-      <div class="note test"><span class="lab">守衛</span><p class="bd">
-        <code>CombatContextTests</code> 守距離＋時間離場、黏性與失效重選；<code>A5</code> 守唯一寫入者，<code>A31</code> 守它不能變成第二個 facing sender。
-      </p></div>
-      <div class="note self"><span class="lab">自我檢核</span><p class="bd">
-        「第二個敵人更靠近玩家，但目前目標仍合法，這一幀會不會換目標？」——不會，連掃描都不做。
-      </p></div>
-    </div>
-  </figure>
-  <figure id="f6">
-    <h3><span class="num">06</span>Locomotion Stop：不是第六個 State 的承諾位移</h3>
+    <h3><span class="num">05</span>Locomotion Stop：不是第六個 State 的承諾位移</h3>
     <p class="src">LocomotionModel／LocomotionStopRuntime／Selector · docs/07 §6／§9 · A12／A14／A15</p>
 
     <svg viewBox="0 0 860 744" role="img" aria-label="Locomotion Stop 流程：放開輸入形成邊沿，選 Walk 或 Run 停步，等待腳相或立即播放，Update 更新私有生命週期，LateUpdate 執行烘焙位移，完成或中斷後失效並回到一般移動">
@@ -1011,7 +921,10 @@
       <tr><td class="m">Foot IK 斜坡抽搐</td><td><span class="badge t">已修正</span></td><td>已證實為 GroundY 不連續並改由實際腳底平面導出；連續性測試留存。追因過程見 <code>failure-atlas.html</code>。</td></tr>
       <tr><td class="m">Persistent lock-on／正式 8-way</td><td><span class="badge w">未實作</span></td><td>現有 RunRing／FullRing 僅是量測 prototype。CombatContext 不等於 lock-on。</td></tr>
       <tr><td class="m">敵人 AI</td><td><span class="badge t">已實作</span></td><td>只有一顆 <code>AIMovementSource</code>（距離帶＋遲滯）。它證明的是介面可換，不是「有 AI 系統」。</td></tr>
-      <tr><td class="m">Footstep／Audio、敵人 AI、Grounding</td><td><span class="badge w">無子系統架構頁</span></td><td>缺 <code>docs/NN-architecture-guide</code> 文字正本。要補子系統架構頁得先補正本。</td></tr>
+      <tr><td class="m">Footstep＋Surface、Presentation Audio</td><td><span class="badge w">第二批</span></td><td>已列入 inventory 的 READY，頁面尚未產出。</td></tr>
+      <tr><td class="m">Upper Body Layer（ADR-006）</td><td><span class="badge w">DEFER</span></td><td>ADR 仍 Trial 且待 Play 驗收；缺 architecture-guide 級文字正本。</td></tr>
+      <tr><td class="m">Editor Bake Toolchain</td><td><span class="badge w">另一類</span></td><td>4,545 行但形狀不同（資產生產管線，非執行期 authority）。保留為未來的 <strong>Authoring Pipeline / Toolchain Architecture</strong>，⛔ 不硬套 Subsystem Architecture 格式。</td></tr>
+      <tr><td class="m">Grounding、HeadLook</td><td><span class="badge w">不獨立成頁</span></td><td>Grounding 的 runtime 實驗已全數撤回，其 authority 已由 foot-ik／authority-timeline／jump-landing 三頁涵蓋；HeadLook 是 CombatContext 的消費者實例。</td></tr>
       <tr><td class="m">網路／存檔／UI 框架</td><td>—</td><td>不在 scope。被問到就直接這樣說。</td></tr>
     </tbody>
   </table>
@@ -1019,7 +932,7 @@
   <p class="foot">
     原始檔：<code>docs/artifacts/architecture-tour.html</code>　·　規格細節以對應的 <code>docs/NN-*.md</code> 為準<br>
     圖 01 <code>ArchitectureRegressionTests.LayerRules</code>　圖 02 dev-spec §3.3　圖 03 ADR-003<br>
-    圖 04 dev-spec §4　圖 05 <code>PlayerCombatContextSource.cs</code> ＋ docs/15　圖 06 <code>LocomotionModel.cs</code> ＋ docs/07<br>
+    圖 04 dev-spec §4　圖 05 <code>LocomotionModel.cs</code> ＋ docs/07<br>
     <br>
     <strong>子系統架構頁</strong>：cross-system-contract ／ authority-timeline ／ failure-atlas ／
     dynamic-capsule ／ foot-ik-architecture ／ traversal ／ jump-landing ／ action-combat ／ direction-authority

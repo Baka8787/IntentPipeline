@@ -1,0 +1,422 @@
+<title>戰鬥語境解剖</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground:#EDEFF1; --surface:#F8F9FA; --sunken:#E0E3E6; --ink:#1E2126;
+    --muted:#646B73; --hair:#C6CBD0; --grid:#D8DCE0;
+    --measure:#0E6E6B; --measure-s:#D9ECEA;
+    --bind:#A8256A; --bind-s:#F6E0EC;
+    --wrong:#A33B1F; --wrong-s:#F5E2DA;
+    --sans:"Noto Sans TC",-apple-system,"Segoe UI","Microsoft JhengHei",sans-serif;
+    --mono:"IBM Plex Mono","Cascadia Mono",Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:#14161A; --surface:#1C1F24; --sunken:#262A30; --ink:#E3E6EA;
+      --muted:#969DA6; --hair:#363B42; --grid:#2C3036;
+      --measure:#5FC9C3; --measure-s:#10302F;
+      --bind:#F186BB; --bind-s:#35182A;
+      --wrong:#EE9070; --wrong-s:#381D14;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:#14161A; --surface:#1C1F24; --sunken:#262A30; --ink:#E3E6EA;
+    --muted:#969DA6; --hair:#363B42; --grid:#2C3036;
+    --measure:#5FC9C3; --measure-s:#10302F;
+    --bind:#F186BB; --bind-s:#35182A;
+    --wrong:#EE9070; --wrong-s:#381D14;
+  }
+  * { box-sizing: border-box; }
+  body { background:var(--ground); color:var(--ink); font-family:var(--sans);
+         font-size:15px; line-height:1.75; margin:0; -webkit-font-smoothing:antialiased; }
+  .shell { max-width:960px; margin:0 auto; padding:40px 28px 96px; }
+  .eyebrow { font-family:var(--mono); font-size:11px; letter-spacing:.16em;
+             text-transform:uppercase; color:var(--measure); margin-bottom:10px; }
+  h1 { font-weight:900; font-size:38px; line-height:1.2; letter-spacing:-.01em; margin:0 0 16px; text-wrap:balance; }
+  .lede { font-size:16.5px; color:var(--muted); max-width:60ch; margin:0; }
+  .lede strong { color:var(--ink); font-weight:500; }
+  .keyfacts { display:grid; grid-template-columns:repeat(auto-fit,minmax(128px,1fr));
+              gap:1px; background:var(--hair); border:1px solid var(--hair); margin:28px 0 0; }
+  .keyfacts div { background:var(--surface); padding:12px 14px; }
+  .keyfacts .v { font-family:var(--mono); font-size:18px; font-weight:600;
+                 font-variant-numeric:tabular-nums; line-height:1.2; }
+  .keyfacts .k { font-size:11.5px; color:var(--muted); line-height:1.45; margin-top:4px; }
+  section { margin-top:54px; }
+  .sec-head { display:flex; align-items:baseline; gap:12px; padding-bottom:9px;
+              border-bottom:2px solid var(--ink); margin-bottom:6px; }
+  .sec-head .n { font-family:var(--mono); font-size:12px; font-weight:600; color:var(--measure); letter-spacing:.06em; }
+  .sec-head h2 { font-size:21px; font-weight:700; margin:0; flex:1; letter-spacing:-.005em; }
+  .sec-head .tag { font-family:var(--mono); font-size:10.5px; color:var(--muted);
+                   border:1px solid var(--hair); padding:1px 6px; white-space:nowrap; }
+  .sec-intro { color:var(--muted); font-size:14px; margin:10px 0 0; max-width:62ch; }
+  figure { margin:22px 0 0; background:var(--surface); border:1px solid var(--hair); padding:18px 20px 6px; }
+  figure svg { display:block; width:100%; height:auto; }
+  figcaption { font-size:13.5px; color:var(--muted); padding:12px 0 14px;
+               border-top:1px solid var(--hair); margin-top:12px; }
+  figcaption strong { color:var(--ink); font-weight:500; }
+  svg text { font-family:var(--sans); fill:currentColor; }
+  svg .m { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  svg .t{font-size:13px;font-weight:700;} svg .s{font-size:11.5px;} svg .xs{font-size:10.5px;}
+  svg .mu{fill:var(--muted);} svg .me{fill:var(--measure);} svg .bd{fill:var(--bind);} svg .wr{fill:var(--wrong);}
+  svg .box{fill:var(--sunken);stroke:var(--hair);stroke-width:1;}
+  svg .boxm{fill:var(--measure-s);stroke:var(--measure);stroke-width:1.3;}
+  svg .boxb{fill:var(--bind-s);stroke:var(--bind);stroke-width:1.3;}
+  svg .boxw{fill:var(--wrong-s);stroke:var(--wrong);stroke-width:1.3;}
+  svg .ln{stroke:currentColor;stroke-width:1.4;fill:none;}
+  svg .lnm{stroke:var(--measure);stroke-width:1.6;fill:none;}
+  svg .lnb{stroke:var(--bind);stroke-width:1.8;fill:none;}
+  svg .lnw{stroke:var(--wrong);stroke-width:1.6;fill:none;stroke-dasharray:5 4;}
+  svg .thin{stroke:var(--hair);stroke-width:1;fill:none;}
+  svg .dash{stroke:var(--muted);stroke-width:1.1;fill:none;stroke-dasharray:4 4;}
+  svg .grid{stroke:var(--grid);stroke-width:1;fill:none;}
+  #ar path{fill:var(--ink);} #arm path{fill:var(--measure);}
+  #arb path{fill:var(--bind);} #arw path{fill:var(--wrong);}
+  .wrap { overflow-x:auto; margin:18px 0 0; }
+  table { width:100%; border-collapse:collapse; font-size:13px; min-width:620px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--hair); vertical-align:top; }
+  th { font-family:var(--mono); font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+       color:var(--muted); border-bottom:1px solid var(--ink); white-space:nowrap; }
+  td.m,th.m { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  td.num { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  td.no { color:var(--wrong); }
+  tr.bind td { background:var(--bind-s); }
+  tr.bind td:first-child { font-weight:700; }
+  .note { display:grid; grid-template-columns:74px minmax(0,1fr); gap:14px; padding:12px 0;
+          border-top:1px dotted var(--hair); font-size:13.5px; line-height:1.7; }
+  .note .lab { font-family:var(--mono); font-size:10.5px; letter-spacing:.06em; padding-top:4px; }
+  .note.why .lab{color:var(--measure);} .note.bad .lab{color:var(--wrong);} .note.key .lab{color:var(--bind);}
+  .note p { margin:0; }
+  .callout { border-left:3px solid var(--bind); background:var(--bind-s);
+             padding:14px 16px; margin:20px 0 0; font-size:14px; }
+  .callout.warn { border-left-color:var(--wrong); background:var(--wrong-s); }
+  .callout .h { font-weight:700; margin-bottom:4px; }
+  code { font-family:var(--mono); font-size:.88em; background:var(--sunken); padding:1px 4px; }
+  .calc { font-family:var(--mono); font-size:12.5px; line-height:1.9; background:var(--sunken);
+          border:1px solid var(--hair); padding:14px 16px; margin:16px 0 0; overflow-x:auto;
+          white-space:pre; font-variant-numeric:tabular-nums; }
+  .calc .hl{color:var(--bind);font-weight:600;} .calc .me{color:var(--measure);} .calc .c{color:var(--muted);}
+  .foot { font-family:var(--mono); font-size:11px; color:var(--muted); margin-top:56px;
+          padding-top:20px; border-top:2px solid var(--ink); line-height:1.9; }
+  @media (max-width:720px){ .shell{padding:26px 16px 70px;} h1{font-size:28px;}
+    .note{grid-template-columns:1fr;gap:2px;} }
+  @media (prefers-reduced-motion:reduce){ *{animation:none!important;transition:none!important;} }
+</style>
+
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+  </defs>
+</svg>
+
+<div class="shell">
+
+<header>
+  <div class="eyebrow">Subsystem Architecture · 對應 docs/15 ／ ADR-007 S3a</div>
+  <h1>戰鬥語境解剖</h1>
+  <p class="lede">
+    「現在在跟誰打、對方在哪」——這件事有<strong>七個消費者</strong>，橫跨 Core、Presentation 與 App。
+    這頁講的不是一個黑板欄位的欄位表，而是<strong>為什麼那七個消費者都只消費語境，
+    而不各自重新判斷戰鬥關係</strong>，以及那份語境為什麼只能在順序 2.6 產生。
+  </p>
+
+  <div class="keyfacts">
+    <div><div class="v">7</div><div class="k">消費者<br>（Core／Presentation／App）</div></div>
+    <div><div class="v">2</div><div class="k">per-actor writer<br>（玩家 2.6／敵人 2.5）</div></div>
+    <div><div class="v">5</div><div class="k">欄位</div></div>
+    <div><div class="v">6 / 9</div><div class="k">玩家進／離場半徑<br>（遲滯）</div></div>
+    <div><div class="v">8 / 12</div><div class="k">敵人 aggro<br>進／離場半徑</div></div>
+    <div><div class="v">5 s</div><div class="k">脫離戰鬥<br>倒數</div></div>
+  </div>
+</header>
+
+<!-- ═══ 1 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">01</span>
+    <h2>單一真相：七個消費者，零重新判斷</h2>
+    <span class="tag">語境不是每個人自己算的</span>
+  </div>
+  <p class="sec-intro">
+    <code>CombatContextData</code> 只有五個欄位，但它的價值不在欄位，
+    在於<strong>「誰在跟誰打」這個判斷只做一次</strong>。
+    七個消費者各取所需，沒有任何一個重新查詢距離、角度或目標關係。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 860 400" role="img" aria-label="CombatContext 由 per-actor 的兩個 writer 產生，七個消費者分別取用 InCombat、HasTarget、TargetPosition 或 SoftTarget">
+      <text class="xs m mu" x="16" y="18">Writer —— 每個 actor 只有一個</text>
+
+      <rect class="boxm" x="16" y="28" width="230" height="72"></rect>
+      <text class="s t me" x="28" y="50">玩家　順序 2.6</text>
+      <text class="xs mu" x="28" y="70">PlayerCombatContextSource</text>
+      <text class="xs mu" x="28" y="86">enter 6 ／ leave 9 ／ 5 s 倒數</text>
+
+      <rect class="boxb" x="16" y="108" width="230" height="72"></rect>
+      <text class="s t bd" x="28" y="130">敵人　順序 2.5</text>
+      <text class="xs mu" x="28" y="150">AIMovementSource（同一步一併發布）</text>
+      <text class="xs mu" x="28" y="166">aggroEnter 8 ／ aggroLeave 12</text>
+
+      <path class="lnm" d="M250,64 L292,64 L292,100" marker-end="url(#arm)"></path>
+      <path class="lnb" d="M250,144 L292,144 L292,112" marker-end="url(#arb)"></path>
+
+      <rect class="boxb" x="296" y="104" width="250" height="96"></rect>
+      <text class="s t bd" x="308" y="126">CombatContextData</text>
+      <text class="xs mu" x="308" y="146">InCombat　　　　　bool</text>
+      <text class="xs mu" x="308" y="162">HasTarget　　　　 bool</text>
+      <text class="xs mu" x="308" y="178">TargetPosition　　Vector3</text>
+      <text class="xs mu" x="308" y="194">HasSoftTarget ／ SoftTargetPosition</text>
+
+      <text class="xs m mu" x="580" y="18">七個消費者 —— 全部只讀</text>
+
+      <g class="xs">
+        <rect class="box" x="580" y="28" width="264" height="34"></rect>
+        <text class="m" x="592" y="42">CharacterFacingSource</text>
+        <text class="mu" x="592" y="56" style="font-size:9.5px">InCombat ＋ HasTarget ＋ TargetPosition</text>
+
+        <rect class="box" x="580" y="66" width="264" height="34"></rect>
+        <text class="m" x="592" y="80">ActionState</text>
+        <text class="mu" x="592" y="94" style="font-size:9.5px">整份 context 傳進 targeting 解算</text>
+
+        <rect class="box" x="580" y="104" width="264" height="34"></rect>
+        <text class="m" x="592" y="118">LocomotionModel</text>
+        <text class="mu" x="592" y="132" style="font-size:9.5px">InCombat（切 directional speed profile）</text>
+
+        <rect class="box" x="580" y="142" width="264" height="34"></rect>
+        <text class="m" x="592" y="156">AIMovementSource</text>
+        <text class="mu" x="592" y="170" style="font-size:9.5px">InCombat（自己寫也自己讀）</text>
+
+        <rect class="box" x="580" y="180" width="264" height="34"></rect>
+        <text class="m" x="592" y="194">HeadLookController</text>
+        <text class="mu" x="592" y="208" style="font-size:9.5px">InCombat ＋ HasTarget ＋ TargetPosition</text>
+
+        <rect class="box" x="580" y="218" width="264" height="34"></rect>
+        <text class="m" x="592" y="232">WorldSpaceHealthBar</text>
+        <text class="mu" x="592" y="246" style="font-size:9.5px">InCombat（血條可見性）</text>
+
+        <rect class="box" x="580" y="256" width="264" height="34"></rect>
+        <text class="m" x="592" y="270">CharacterPipelineRunner</text>
+        <text class="mu" x="592" y="284" style="font-size:9.5px">排程 producer，不解讀內容</text>
+      </g>
+
+      <path class="lnm" d="M550,120 L566,120 L566,45 L576,45" marker-end="url(#arm)"></path>
+      <path class="lnm" d="M550,132 L566,132 L566,83 L576,83" marker-end="url(#arm)"></path>
+      <path class="lnm" d="M550,144 L576,144" marker-end="url(#arm)"></path>
+      <path class="lnm" d="M550,156 L566,156 L566,121 L576,121" marker-end="url(#arm)"></path>
+      <path class="lnm" d="M550,168 L566,168 L566,197 L576,197" marker-end="url(#arm)"></path>
+      <path class="lnm" d="M550,180 L566,180 L566,235 L576,235" marker-end="url(#arm)"></path>
+      <path class="lnm" d="M550,190 L566,190 L566,273 L576,273" marker-end="url(#arm)"></path>
+
+      <rect class="boxw" x="16" y="308" width="828" height="80"></rect>
+      <text class="s t wr" x="28" y="332">🔴 如果沒有這一層會怎樣</text>
+      <text class="xs mu" x="28" y="354">七個消費者各自查一次距離與角度 ⇒ 七份可能互相矛盾的「在不在戰鬥中」。</text>
+      <text class="xs mu" x="28" y="372">更糟的是<tspan class="wr" font-weight="700">遲滯</tspan>：每個人自己算進離場門檻，就會出現「血條顯示脫戰、但 facing 還黏著目標」這種沒有人寫錯卻明顯不對的狀態。</text>
+    </svg>
+
+    <figcaption>
+      注意 <code>AIMovementSource</code> 同時是 <strong>writer 與 reader</strong>——
+      它在順序 2.5 寫出語境，然後在同一步用它決定移動模式。
+      那不是循環依賴，是<strong>「先判斷語境，再依語境行動」的同步兩段</strong>。
+    </figcaption>
+  </figure>
+</section>
+
+<!-- ═══ 2 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">02</span>
+    <h2>順序 2.6：一個只有三格寬的夾縫</h2>
+    <span class="tag">玩家 producer 的時序約束</span>
+  </div>
+  <p class="sec-intro">
+    敵人的語境可以在 2.5 產生，因為它不需要看玩家的輸入。
+    <strong>玩家的不行</strong>——它有兩個方向的硬約束，把它夾在一個很窄的位置。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 860 300" role="img" aria-label="順序 2.6 的兩個時序約束：必須在順序 2 之後讀到 Action intent，且必須在順序 4 之前，否則 external ActionRequestTarget 已被清除">
+      <line class="grid" x1="60" y1="150" x2="800" y2="150"></line>
+      <g class="xs m mu">
+        <text x="110" y="142" text-anchor="middle">2</text>
+        <text x="260" y="142" text-anchor="middle">2.5</text>
+        <text x="410" y="142" text-anchor="middle">2.6</text>
+        <text x="560" y="142" text-anchor="middle">2.7</text>
+        <text x="710" y="142" text-anchor="middle">4</text>
+      </g>
+      <g class="grid">
+        <line x1="110" y1="146" x2="110" y2="154"></line>
+        <line x1="260" y1="146" x2="260" y2="154"></line>
+        <line x1="410" y1="146" x2="410" y2="154"></line>
+        <line x1="560" y1="146" x2="560" y2="154"></line>
+        <line x1="710" y1="146" x2="710" y2="154"></line>
+      </g>
+
+      <rect class="boxm" x="60" y="60" width="100" height="40"></rect>
+      <text class="xs m me" x="110" y="78" text-anchor="middle">Intent 寫好</text>
+      <text class="xs mu" x="110" y="93" text-anchor="middle">Action intent</text>
+      <path class="lnm" d="M110,104 L110,124 L396,124 L396,144" marker-end="url(#arm)"></path>
+      <text class="xs m me" x="250" y="120" text-anchor="middle">① 必須在這之後 —— 要讀本幀的 Action intent</text>
+
+      <rect class="boxb" x="360" y="162" width="100" height="40"></rect>
+      <text class="xs m bd" x="410" y="180" text-anchor="middle">2.6</text>
+      <text class="xs mu" x="410" y="195" text-anchor="middle">玩家語境</text>
+
+      <rect class="boxw" x="660" y="60" width="140" height="40"></rect>
+      <text class="xs m wr" x="730" y="78" text-anchor="middle">FSM 評估後</text>
+      <text class="xs mu" x="730" y="93" text-anchor="middle">清除 external request</text>
+      <path class="lnw" d="M700,104 L700,124 L424,124 L424,144" marker-end="url(#arw)"></path>
+      <text class="xs m wr" x="570" y="120" text-anchor="middle">② 必須在這之前 —— 否則 mailbox 已空</text>
+
+      <rect class="boxb" x="330" y="216" width="160" height="26"></rect>
+      <text class="xs m bd" x="410" y="234" text-anchor="middle">可用區間就只有這裡</text>
+
+      <rect class="boxm" x="16" y="256" width="828" height="36"></rect>
+      <text class="xs me m" x="28" y="278">📌 敵人沒有這兩個約束：它不讀順序 2 的 Action intent，也不依賴 external target ⇒ 所以可以併進 2.5 的同一步。</text>
+    </svg>
+
+    <figcaption>
+      這是<strong>由資料依賴推導出來的位置</strong>，不是編號上的美觀安排。
+      把它移到 2.5 會讀到上一幀的 Action intent；移到 4 之後 external mailbox 已經被清空。
+    </figcaption>
+  </figure>
+
+  <div class="callout warn">
+    <div class="h">🔴 這條依賴曾經差點被切斷</div>
+    <code>docs/26</code> §I 記錄：受擊 seam 從 <code>ActionRequestTarget</code> 遷出時，
+    <strong><code>docs/15</code> §4.1 明文把 <code>ActionRequestTarget.PendingSlot</code> 當成戰鬥語境的進入條件</strong>——
+    離開 mailbox 必須<strong>同步遷移</strong> <code>PlayerCombatContextSource</code>，
+    否則會出現「<strong>被圍毆時反而提早脫離戰鬥</strong>」，而且<strong>沒有任何錯誤訊息</strong>。<br>
+    這是 failure-atlas <strong>F4（關係不存在）</strong>的近親：兩個子系統共用一個欄位當判準，而那個共用關係只寫在文件裡。
+  </div>
+</section>
+
+<!-- ═══ 3 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">03</span>
+    <h2>進場、黏住、脫離</h2>
+    <span class="tag">遲滯 ＋ 倒數</span>
+  </div>
+
+  <div class="calc"><span class="c">// 玩家（PlayerCombatContextSource，X Bot.prefab authored）</span>
+enterRadius      = <span class="me">6</span>      <span class="c">// 尚未交戰時的搜尋半徑</span>
+leaveRadius      = <span class="me">9</span>      <span class="c">// 已在交戰時的搜尋半徑 —— 進去比出來難</span>
+disengageSeconds = <span class="me">5</span>      <span class="c">// 沒有互動就開始倒數</span>
+
+<span class="c">// 判準（逐字）</span>
+searchRadius = wasInCombat ? leaveRadius : enterRadius
+inCombat     = wasInCombat || interactionThisFrame || hasTarget
+
+<span class="c">// 敵人（AIMovementSource，Y Bot.prefab authored）</span>
+aggroEnterRadius = <span class="me">8</span>      aggroLeaveRadius = <span class="me">12</span>
+<span class="c">⚠️ 這組門檻與 EngagementMovement 的近戰帶（1.25–1.6）是</span><span class="hl">兩套獨立的東西</span>
+</div>
+
+  <div class="note key"><span class="lab">遲滯</span><p>
+    搜尋半徑<strong>隨狀態切換</strong>（6 ↔ 9）就是遲滯本身——不需要額外的遲滯欄位。
+    進戰鬥要靠近到 6 m，脫離要拉開到 9 m 之外，中間 3 m 是不會抖動的緩衝帶。
+  </p></div>
+
+  <div class="note why"><span class="lab">邊界情形</span><p>
+    「純半徑進場」沒有「上次互動」可量。程式在那一刻<strong>以進場時刻作為 disengage 計時基準</strong>——
+    否則第一次走近再離開會<strong>永久卡在 InCombat</strong>（<code>_hasInteractionTime</code> 永遠是 false，倒數永遠不開始）。
+  </p></div>
+
+  <div class="callout">
+    <div class="h">⛔ 兩個層次不得混為一談（2026-09-10 使用者裁決）</div>
+    <strong>①<code>CombatContext</code>＝接戰語境真相</strong>，由目標關係（黏性 enter／leave 半徑）決定，
+    <strong>與 NavMesh 可用性無關</strong>。<br>
+    <strong>②<code>EngagementMovement</code>（Approach／Retreat／Hold）＝可導航前提下的移動模式</strong>。<br>
+    ⛔ <strong>「NavMesh 無效」不等於「沒有 target／脫離戰鬥」</strong>——語境真相要保留。
+    細節見 <code>enemy-ai.html</code>。
+  </div>
+</section>
+
+<!-- ═══ 4 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">04</span>
+    <h2>Target ／ Soft Target ／ Interaction</h2>
+    <span class="tag">三個不同的東西</span>
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>概念</th><th>回答什麼</th><th>誰消費</th><th class="no">⚠️ 常見誤解</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Target</strong><br><code>HasTarget</code>／<code>TargetPosition</code></td><td>「我現在在跟<strong>誰</strong>打」</td><td>Facing（Priority 2）、HeadLook</td><td class="no">不是 lock-on——它不鎖定，只是語境</td></tr>
+        <tr class="bind"><td><strong>Soft Target</strong><br><code>HasSoftTarget</code>／<code>SoftTargetPosition</code></td><td>「這一擊<strong>該往哪</strong>」</td><td>ActionState 的 targeting 解算</td><td class="no">只有顯式 <code>CameraConeSoftTarget</code> 的 Action 才吃；預設是 <code>CameraForward</code></td></tr>
+        <tr><td><strong>Interaction</strong><br>（內部 <code>_lastInteractionTime</code>）</td><td>「我最近<strong>有沒有在打</strong>」</td><td>只有 producer 自己（倒數基準）</td><td class="no">不進黑板——它是判準的中間量，不是語境</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note key"><span class="lab">為什麼分開</span><p>
+    <strong>Target 是關係，Soft Target 是意圖。</strong>
+    「我在跟這隻打」與「這一發火球往哪飛」可以不同——例如你正在跟 A 交戰，但準心掃過 B。
+    合成一個欄位會讓 facing 跟著準心跑，那正是 <code>direction-authority</code> 要拆開的三個方向概念之一。
+  </p></div>
+</section>
+
+<!-- ═══ 5 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">05</span>
+    <h2>跨幀狀態</h2>
+    <span class="tag">全部在 producer 內，不在黑板</span>
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>跨幀的東西</th><th>持有者</th><th>為什麼需要</th><th>弄丟會怎樣</th></tr></thead>
+      <tbody>
+        <tr class="bind"><td class="m">_lastInteractionTime<br>_hasInteractionTime</td><td class="m">PlayerCombatContextSource</td><td>5 秒脫戰倒數的基準</td><td>永久卡在 InCombat，或一停手就立刻脫戰</td></tr>
+        <tr><td class="m">_targetMarker<br>_targetCollider</td><td class="m">PlayerCombatContextSource</td><td>維持「同一個目標」而不是每幀重選最近的</td><td>兩個敵人等距時目標每幀跳動</td></tr>
+        <tr><td class="m">上一幀的 <code>InCombat</code></td><td>黑板（讀回自己上一幀的值）</td><td>遲滯需要知道「我原本在不在戰鬥中」</td><td>搜尋半徑無法切換 ⇒ 遲滯消失</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note why"><span class="lab">零配置</span><p>
+    候選搜尋用固定容量的 <code>_candidateBuffer</code>（建構期一次配置）＋ 非配置 overlap 查詢。
+    這與 <code>AimResolver</code> 的 <code>_hitBuffer</code> 是同一個模式：
+    <strong>熱路徑只需要當幀最優候選，不保存列表</strong>，溢出的候選直接忽略。
+  </p></div>
+</section>
+
+<!-- ═══ 6 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">06</span>
+    <h2>與其他頁面的交界</h2>
+    <span class="tag">不重複，只指路</span>
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>交界</th><th>那一頁負責什麼</th><th>本頁負責什麼</th></tr></thead>
+      <tbody>
+        <tr><td class="m">direction-authority</td><td>Facing 四段優先序；Priority 2 為什麼不吃死區</td><td>Priority 2 讀的那份語境<strong>從哪來、何時產生</strong></td></tr>
+        <tr><td class="m">action-combat</td><td>targeting 模式（<code>CameraForward</code> vs <code>CameraConeSoftTarget</code>）</td><td>soft target 本身的產生與黏性</td></tr>
+        <tr><td class="m">enemy-ai</td><td><code>EngagementMovement</code> 的三模式與 NavMesh 退回</td><td>aggro 語境與移動模式<strong>為什麼是兩層</strong></td></tr>
+        <tr><td class="m">authority-timeline</td><td>2.5／2.6 在時間軸上的位置</td><td>2.6 <strong>為什麼</strong>只能在那個夾縫</td></tr>
+        <tr><td class="m">survivability</td><td><code>WorldSpaceHealthBar</code> 讀的血量真相</td><td>那條血條的<strong>可見性</strong>判準（<code>InCombat</code>）</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<div class="foot">
+  原始檔：<code>docs/artifacts/combat-context.html</code>　·　分類：<strong>Subsystem Architecture</strong><br>
+  文字正本：<code>docs/15-combat-context.md</code>　·　治理：<strong>ADR-007 S3a</strong>（🟡 Trial）<br>
+  測試：<code>CombatContextTests</code>（含 TC6C 守 HeadLook 的 clamp 行為）<br>
+  authored 值來源：<code>X Bot.prefab</code>（enter 6／leave 9／disengage 5）·
+  <code>Y Bot.prefab</code>（aggroEnter 8／aggroLeave 12）
+</div>
+
+</div>

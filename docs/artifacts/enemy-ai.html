@@ -1,0 +1,430 @@
+<title>敵人 AI 解剖</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground:#EDEFF1; --surface:#F8F9FA; --sunken:#E0E3E6; --ink:#1E2126;
+    --muted:#646B73; --hair:#C6CBD0; --grid:#D8DCE0;
+    --measure:#0E6E6B; --measure-s:#D9ECEA;
+    --bind:#A8256A; --bind-s:#F6E0EC;
+    --wrong:#A33B1F; --wrong-s:#F5E2DA;
+    --sans:"Noto Sans TC",-apple-system,"Segoe UI","Microsoft JhengHei",sans-serif;
+    --mono:"IBM Plex Mono","Cascadia Mono",Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:#14161A; --surface:#1C1F24; --sunken:#262A30; --ink:#E3E6EA;
+      --muted:#969DA6; --hair:#363B42; --grid:#2C3036;
+      --measure:#5FC9C3; --measure-s:#10302F;
+      --bind:#F186BB; --bind-s:#35182A;
+      --wrong:#EE9070; --wrong-s:#381D14;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:#14161A; --surface:#1C1F24; --sunken:#262A30; --ink:#E3E6EA;
+    --muted:#969DA6; --hair:#363B42; --grid:#2C3036;
+    --measure:#5FC9C3; --measure-s:#10302F;
+    --bind:#F186BB; --bind-s:#35182A;
+    --wrong:#EE9070; --wrong-s:#381D14;
+  }
+  * { box-sizing: border-box; }
+  body { background:var(--ground); color:var(--ink); font-family:var(--sans);
+         font-size:15px; line-height:1.75; margin:0; -webkit-font-smoothing:antialiased; }
+  .shell { max-width:960px; margin:0 auto; padding:40px 28px 96px; }
+  .eyebrow { font-family:var(--mono); font-size:11px; letter-spacing:.16em;
+             text-transform:uppercase; color:var(--measure); margin-bottom:10px; }
+  h1 { font-weight:900; font-size:38px; line-height:1.2; letter-spacing:-.01em; margin:0 0 16px; text-wrap:balance; }
+  .lede { font-size:16.5px; color:var(--muted); max-width:60ch; margin:0; }
+  .lede strong { color:var(--ink); font-weight:500; }
+  .keyfacts { display:grid; grid-template-columns:repeat(auto-fit,minmax(128px,1fr));
+              gap:1px; background:var(--hair); border:1px solid var(--hair); margin:28px 0 0; }
+  .keyfacts div { background:var(--surface); padding:12px 14px; }
+  .keyfacts .v { font-family:var(--mono); font-size:18px; font-weight:600;
+                 font-variant-numeric:tabular-nums; line-height:1.2; }
+  .keyfacts .k { font-size:11.5px; color:var(--muted); line-height:1.45; margin-top:4px; }
+  section { margin-top:54px; }
+  .sec-head { display:flex; align-items:baseline; gap:12px; padding-bottom:9px;
+              border-bottom:2px solid var(--ink); margin-bottom:6px; }
+  .sec-head .n { font-family:var(--mono); font-size:12px; font-weight:600; color:var(--measure); letter-spacing:.06em; }
+  .sec-head h2 { font-size:21px; font-weight:700; margin:0; flex:1; letter-spacing:-.005em; }
+  .sec-head .tag { font-family:var(--mono); font-size:10.5px; color:var(--muted);
+                   border:1px solid var(--hair); padding:1px 6px; white-space:nowrap; }
+  .sec-intro { color:var(--muted); font-size:14px; margin:10px 0 0; max-width:62ch; }
+  figure { margin:22px 0 0; background:var(--surface); border:1px solid var(--hair); padding:18px 20px 6px; }
+  figure svg { display:block; width:100%; height:auto; }
+  figcaption { font-size:13.5px; color:var(--muted); padding:12px 0 14px;
+               border-top:1px solid var(--hair); margin-top:12px; }
+  figcaption strong { color:var(--ink); font-weight:500; }
+  svg text { font-family:var(--sans); fill:currentColor; }
+  svg .m { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  svg .t{font-size:13px;font-weight:700;} svg .s{font-size:11.5px;} svg .xs{font-size:10.5px;}
+  svg .mu{fill:var(--muted);} svg .me{fill:var(--measure);} svg .bd{fill:var(--bind);} svg .wr{fill:var(--wrong);}
+  svg .box{fill:var(--sunken);stroke:var(--hair);stroke-width:1;}
+  svg .boxm{fill:var(--measure-s);stroke:var(--measure);stroke-width:1.3;}
+  svg .boxb{fill:var(--bind-s);stroke:var(--bind);stroke-width:1.3;}
+  svg .boxw{fill:var(--wrong-s);stroke:var(--wrong);stroke-width:1.3;}
+  svg .ln{stroke:currentColor;stroke-width:1.4;fill:none;}
+  svg .lnm{stroke:var(--measure);stroke-width:1.6;fill:none;}
+  svg .lnb{stroke:var(--bind);stroke-width:1.8;fill:none;}
+  svg .lnw{stroke:var(--wrong);stroke-width:1.6;fill:none;stroke-dasharray:5 4;}
+  svg .thin{stroke:var(--hair);stroke-width:1;fill:none;}
+  svg .dash{stroke:var(--muted);stroke-width:1.1;fill:none;stroke-dasharray:4 4;}
+  svg .grid{stroke:var(--grid);stroke-width:1;fill:none;}
+  #ar path{fill:var(--ink);} #arm path{fill:var(--measure);}
+  #arb path{fill:var(--bind);} #arw path{fill:var(--wrong);}
+  .wrap { overflow-x:auto; margin:18px 0 0; }
+  table { width:100%; border-collapse:collapse; font-size:13px; min-width:620px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--hair); vertical-align:top; }
+  th { font-family:var(--mono); font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+       color:var(--muted); border-bottom:1px solid var(--ink); white-space:nowrap; }
+  td.m,th.m { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  td.num { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  td.no { color:var(--wrong); }
+  tr.bind td { background:var(--bind-s); }
+  tr.bind td:first-child { font-weight:700; }
+  .note { display:grid; grid-template-columns:74px minmax(0,1fr); gap:14px; padding:12px 0;
+          border-top:1px dotted var(--hair); font-size:13.5px; line-height:1.7; }
+  .note .lab { font-family:var(--mono); font-size:10.5px; letter-spacing:.06em; padding-top:4px; }
+  .note.why .lab{color:var(--measure);} .note.bad .lab{color:var(--wrong);} .note.key .lab{color:var(--bind);}
+  .note p { margin:0; }
+  .callout { border-left:3px solid var(--bind); background:var(--bind-s);
+             padding:14px 16px; margin:20px 0 0; font-size:14px; }
+  .callout.warn { border-left-color:var(--wrong); background:var(--wrong-s); }
+  .callout .h { font-weight:700; margin-bottom:4px; }
+  code { font-family:var(--mono); font-size:.88em; background:var(--sunken); padding:1px 4px; }
+  .calc { font-family:var(--mono); font-size:12.5px; line-height:1.9; background:var(--sunken);
+          border:1px solid var(--hair); padding:14px 16px; margin:16px 0 0; overflow-x:auto;
+          white-space:pre; font-variant-numeric:tabular-nums; }
+  .calc .hl{color:var(--bind);font-weight:600;} .calc .me{color:var(--measure);} .calc .c{color:var(--muted);}
+  .foot { font-family:var(--mono); font-size:11px; color:var(--muted); margin-top:56px;
+          padding-top:20px; border-top:2px solid var(--ink); line-height:1.9; }
+  @media (max-width:720px){ .shell{padding:26px 16px 70px;} h1{font-size:28px;}
+    .note{grid-template-columns:1fr;gap:2px;} }
+  @media (prefers-reduced-motion:reduce){ *{animation:none!important;transition:none!important;} }
+</style>
+
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+  </defs>
+</svg>
+
+<div class="shell">
+
+<header>
+  <div class="eyebrow">Subsystem Architecture · 對應 docs/19 ／ docs/20 ／ docs/21</div>
+  <h1>敵人 AI 解剖</h1>
+  <p class="lede">
+    這頁不教 AI。它講的是<strong>一個架構命題的實證</strong>：
+    敵人沒有任何屬於自己的管線——它只是在<strong>兩個既有的 seam</strong> 上填值，
+    順序 3 之後與玩家<strong>逐字共用同一條管線</strong>。<br>
+    「介面可換」這句話在其他頁只是宣稱，在這裡是可驗證的事實。
+  </p>
+
+  <div class="keyfacts">
+    <div><div class="v">2</div><div class="k">接入 seam<br>（順序 1 與 2.5）</div></div>
+    <div><div class="v">0</div><div class="k">敵人專屬的<br>管線步驟</div></div>
+    <div><div class="v">3</div><div class="k">不得混為一談<br>的層次</div></div>
+    <div><div class="v">5</div><div class="k">EngagementMovement<br>模式</div></div>
+    <div><div class="v">6</div><div class="k">跨幀狀態</div></div>
+    <div><div class="v">11 s</div><div class="k">Recover 模式修掉的<br>零位移時長</div></div>
+  </div>
+</header>
+
+<!-- ═══ 1 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">01</span>
+    <h2>兩個 seam，零個專屬步驟</h2>
+    <span class="tag">順序 3 之後完全共用</span>
+  </div>
+  <p class="sec-intro">
+    <code>cross-system-contract</code> 說「<code>IInputSource</code> 可缺席 ＝ AI 角色」——
+    但那只說了一半。敵人其實<strong>有</strong>一個 <code>IInputSource</code>，
+    它只是不讀鍵盤。真正的關鍵是<strong>兩個 seam 之後，管線一個字都不知道自己在跑誰</strong>。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 860 400" role="img" aria-label="玩家與敵人各自在順序 1 與 2.5 填入不同的 producer，順序 3 之後共用同一條管線">
+      <text class="xs m me" x="16" y="18">玩家</text>
+      <rect class="boxm" x="16" y="28" width="200" height="50"></rect>
+      <text class="xs m me" x="28" y="48">PlayerInputSource</text>
+      <text class="xs mu" x="28" y="66">讀鍵盤／滑鼠</text>
+
+      <rect class="boxm" x="16" y="88" width="200" height="50"></rect>
+      <text class="xs m me" x="28" y="108">PlayerLocomotionPolicy</text>
+      <text class="xs mu" x="28" y="126">Shift=Sprint 等規則</text>
+
+      <rect class="boxm" x="16" y="148" width="200" height="50"></rect>
+      <text class="xs m me" x="28" y="168">PlayerCombatContextSource</text>
+      <text class="xs mu" x="28" y="186">順序 2.6（獨立一步）</text>
+
+      <text class="xs m bd" x="16" y="228">敵人</text>
+      <rect class="boxb" x="16" y="238" width="200" height="50"></rect>
+      <text class="xs m bd" x="28" y="258">AIInputSource</text>
+      <text class="xs mu" x="28" y="276">距離帶 ⇒ Action intent</text>
+
+      <rect class="boxb" x="16" y="298" width="200" height="72"></rect>
+      <text class="xs m bd" x="28" y="318">AIMovementSource</text>
+      <text class="xs mu" x="28" y="336">NavMesh ⇒ MovementIntent</text>
+      <text class="xs mu" x="28" y="352">＋ CombatContext（同一步）</text>
+      <text class="xs bd" x="28" y="366" style="font-size:9.5px">敵人沒有 2.6</text>
+
+      <path class="lnm" d="M220,53 L262,53 L262,150 L300,150" marker-end="url(#arm)"></path>
+      <path class="lnm" d="M220,113 L250,113 L250,158 L300,158" marker-end="url(#arm)"></path>
+      <path class="lnm" d="M220,173 L238,173 L238,166 L300,166" marker-end="url(#arm)"></path>
+      <path class="lnb" d="M220,263 L262,263 L262,182 L300,182" marker-end="url(#arb)"></path>
+      <path class="lnb" d="M220,334 L250,334 L250,190 L300,190" marker-end="url(#arb)"></path>
+
+      <rect class="box" x="304" y="130" width="180" height="76"></rect>
+      <text class="xs m" x="316" y="150">黑板</text>
+      <text class="xs mu" x="316" y="168">InputData（順序 1）</text>
+      <text class="xs mu" x="316" y="184">MovementIntent（2.5）</text>
+      <text class="xs mu" x="316" y="200">CombatContext（2.5／2.6）</text>
+
+      <line class="ln" x1="488" y1="168" x2="524" y2="168" marker-end="url(#ar)"></line>
+
+      <rect class="boxm" x="528" y="88" width="316" height="160"></rect>
+      <text class="s t me" x="686" y="112" text-anchor="middle">順序 3 之後：完全共用</text>
+      <text class="xs mu" x="544" y="136">3　 IMovementModel（LocomotionModel）</text>
+      <text class="xs mu" x="544" y="154">4　 FullBodyStateMachine（同一套 states）</text>
+      <text class="xs mu" x="544" y="172">4.5 ArbiterPipeline</text>
+      <text class="xs mu" x="544" y="190">4.6 CharacterFacingSource</text>
+      <text class="xs mu" x="544" y="208">6　 MotionDriver</text>
+      <text class="xs mu" x="544" y="226">6.5 PresentationPipeline（Foot IK／音效）</text>
+      <text class="xs me" x="544" y="242" style="font-size:9.5px">兩隻角色掛的是同一批元件，只是 config 資產不同</text>
+
+      <rect class="boxb" x="528" y="268" width="316" height="52"></rect>
+      <text class="xs bd m" x="540" y="288">⭐ 這就是「介面可換」的實證</text>
+      <text class="xs mu" x="540" y="306">Runner 不知道自己在跑玩家還是敵人——它只呼叫介面。</text>
+
+      <text class="xs mu" x="16" y="392">⚠️ 唯一的結構差異：玩家多一個順序 2.6；敵人把 CombatContext 併進 2.5。理由見 <tspan class="m">combat-context.html</tspan> §02。</text>
+    </svg>
+
+    <figcaption>
+      敵人 prefab（<code>Y Bot</code>）掛的是<strong>同一顆 <code>CharacterPipelineRunner</code>、
+      同一顆 <code>LocomotionModel</code>、同一顆 <code>MotionDriver</code>、同一顆 <code>CharacterHealth</code></strong>。
+      差別只在第一與第二格填了不同的 producer，以及指向不同的 <code>StateMachineConfig</code> 資產。
+    </figcaption>
+  </figure>
+</section>
+
+<!-- ═══ 2 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">02</span>
+    <h2>三個層次不得混為一談</h2>
+    <span class="tag">2026-09-10 使用者裁決</span>
+  </div>
+  <p class="sec-intro">
+    這是本子系統最重要的一節。三件事聽起來都像「敵人現在在幹嘛」，
+    但它們<strong>回答不同的問題、由不同的東西決定、失效時後果也不同</strong>。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 860 340" role="img" aria-label="三層：接戰語境與導航無關、移動模式需要可導航前提、NavMesh 只提供路徑不提供位移授權">
+      <rect class="boxm" x="16" y="30" width="270" height="180"></rect>
+      <text class="xs m me" x="28" y="22">① 接戰語境</text>
+      <text class="s t" x="28" y="54">CombatContext</text>
+      <text class="xs mu" x="28" y="76">回答：「還在不在跟這個目標交戰」</text>
+      <text class="xs mu" x="28" y="98">由<tspan class="me" font-weight="700">目標關係</tspan>決定</text>
+      <text class="xs mu" x="28" y="114">（aggro 8／12 黏性半徑）</text>
+      <text class="xs wr" x="28" y="140">⛔ 與 NavMesh 可用性<tspan font-weight="700">完全無關</tspan></text>
+      <text class="xs mu" x="28" y="164">所以它必須在 NavMesh 守衛</text>
+      <text class="xs mu" x="28" y="180"><tspan class="me" font-weight="700">之前</tspan>結算</text>
+      <text class="xs mu" x="28" y="202">寫進黑板，7 個消費者共用</text>
+
+      <rect class="boxb" x="296" y="30" width="270" height="180"></rect>
+      <text class="xs m bd" x="308" y="22">② 移動模式</text>
+      <text class="s t" x="308" y="54">EngagementMovement</text>
+      <text class="xs mu" x="308" y="76">回答：「這一幀該往哪移動」</text>
+      <text class="xs mu" x="308" y="98">Hold／Approach／Strafe／</text>
+      <text class="xs mu" x="308" y="114">Retreat／Recover</text>
+      <text class="xs bd" x="308" y="140">前提：<tspan font-weight="700">可導航</tspan></text>
+      <text class="xs mu" x="308" y="164">由近戰距離帶決定</text>
+      <text class="xs mu" x="308" y="180">（1.25–1.6，遲滯 0.15）</text>
+      <text class="xs mu" x="308" y="202">元件私有，<tspan class="bd">不進黑板</tspan></text>
+
+      <rect class="box" x="576" y="30" width="268" height="180"></rect>
+      <text class="xs m mu" x="588" y="22">③ 導航</text>
+      <text class="s t" x="588" y="54">NavMeshAgent</text>
+      <text class="xs mu" x="588" y="76">回答：「往那個方向走得通嗎」</text>
+      <text class="xs me" x="588" y="102">✅ 只查路</text>
+      <text class="xs wr" x="588" y="126">⛔ 不取得位移 authority</text>
+      <text class="xs wr" x="588" y="142">⛔ 不取得旋轉 authority</text>
+      <text class="xs mu" x="588" y="166">updatePosition ／ updateRotation</text>
+      <text class="xs mu" x="588" y="182">兩者皆 <tspan class="m">false</tspan></text>
+      <text class="xs me" x="588" y="202">A16 測試守著</text>
+
+      <rect class="boxw" x="16" y="228" width="828" height="100"></rect>
+      <text class="s t wr" x="28" y="252">⛔ 混在一起會怎樣</text>
+      <text class="xs mu" x="28" y="276">把 ③ 的失效當成 ① 的結束 ⇒「<tspan class="wr" font-weight="700">NavMesh 無效」被讀成「脫離戰鬥」</tspan>——敵人掉出導航網就忘記自己在打架。</text>
+      <text class="xs mu" x="28" y="294">把 ② 的遲滯狀態機在 ③ 失效時繼續推進 ⇒ 回到 NavMesh 的那一幀，會拿到一個<tspan class="wr" font-weight="700">沒有任何一幀推導過的模式</tspan>。</text>
+      <text class="xs mu" x="28" y="314">讓 ③ 取得位移權 ⇒ 角色位置出現第二個寫入者，<tspan class="m">MotionDriver</tspan> 不再是唯一出海口。</text>
+    </svg>
+
+    <figcaption>
+      程式裡的註解逐字寫著：「<strong><code>CombatContext</code> 回答的是『還在不在跟這個目標交戰』——
+      那是目標關係的性質，不是導航的性質</strong>。agent 掉出 NavMesh 不代表敵人脫離戰鬥，
+      所以這一層必須在 NavMesh 守衛之前結算。」
+    </figcaption>
+  </figure>
+
+  <div class="callout">
+    <div class="h">為什麼敵人不另建一個 combat context source</div>
+    敵人的移動與戰鬥語境<strong>共用同一個 target 真相</strong>。
+    另建 context source 只會複製 target reference ⇒ 目標會出現<strong>第二份真相</strong>。<br>
+    ADR-007 D3 補充條款明文禁止「任何其他系統自建 <code>isInCombat</code> 旗標或第二份 target 清單」。
+  </div>
+</section>
+
+<!-- ═══ 3 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">03</span>
+    <h2>EngagementMovement：五個模式與遲滯</h2>
+    <span class="tag">元件私有，不進黑板</span>
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>模式</th><th>什麼時候</th><th>輸出</th><th>推進遲滯？</th></tr></thead>
+      <tbody>
+        <tr><td class="m">Approach</td><td>距離 &gt; 近戰帶上緣</td><td>朝目標移動，speed = 1</td><td>✅</td></tr>
+        <tr><td class="m">Hold</td><td>在近戰帶內</td><td>原地或小幅側移（0.35）</td><td>✅</td></tr>
+        <tr><td class="m">Strafe</td><td>帶內且可側移</td><td>橫向移動，週期換向</td><td>✅</td></tr>
+        <tr><td class="m">Retreat</td><td>距離 &lt; 近戰帶下緣</td><td>後退拉開</td><td>✅</td></tr>
+        <tr class="bind"><td class="m">Recover</td><td><strong>agent 離開 NavMesh</strong></td><td>往回得去的方向走（speed 0.5）</td><td class="no">⛔ <strong>刻意不推進</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout warn">
+    <div class="h">🔴 Recover 是為了修一個「沒有出口的終態」</div>
+    舊版離網時直接 <code>Hold; return;</code>——而<strong>全 repo 沒有任何一行</strong>會把 agent 放回可導航區
+    （<code>isOnNavMesh</code> 全專案只有 <code>AIMovementSource</code> 這一個檔案讀）。<br>
+    ⇒ <code>Hold</code> 變成一個<strong>沒有出口的終態</strong>，敵人永久靜止。
+    2026-09-15 錄影：<strong>連續 11 秒零位移</strong>，期間玩家跑遠也不追。<br>
+    <strong>失效模式分類</strong>：這是 failure-atlas <strong>F6（閘門管不到那條路徑）</strong>的變體——
+    不是「閘門擋錯了」，而是「<strong>擋住之後沒有人負責放行</strong>」。
+  </div>
+
+  <div class="note key"><span class="lab">為什麼不推進遲滯</span><p>
+    <code>Recover</code> 刻意不推進遲滯狀態機，維持原設計的意圖：
+    <strong>離網期間的距離變化不得污染遲滯記憶</strong>。
+    它只回答一個問題：<strong>往哪走才回得去</strong>。<br>
+    若讓它照常推進，回到 NavMesh 的那一幀就會拿到一個
+    「<strong>沒有任何一幀推導過的模式</strong>」——因為那段期間的距離是在無效導航下量的。
+  </p></div>
+
+  <div class="note why"><span class="lab">死亡</span><p>
+    <strong>屍體不產生移動意圖。</strong><code>DeathState</code> 是吸收態、確實不會走路，
+    所以這條在畫面上看不出差別——但決策層繼續每幀解 Approach／Strafe／NavMesh 查詢是
+    <strong>沒有讀者的計算</strong>，而且會讓 gizmo 報告一個屍體「正在側移」。<br>
+    與 <code>CharacterFacingSource</code> 的死亡否決層同一個模式：
+    <strong>死亡由各自的消費者明確收手，不靠下游剛好擋住。</strong>
+  </p></div>
+</section>
+
+<!-- ═══ 4 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">04</span>
+    <h2>跨幀狀態：六項</h2>
+    <span class="tag">全部在元件內</span>
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>跨幀的東西</th><th>持有者</th><th>為什麼需要</th><th>弄丟會怎樣</th></tr></thead>
+      <tbody>
+        <tr class="bind"><td class="m">_engagementMovement</td><td class="m">AIMovementSource</td><td>距離帶遲滯的記憶</td><td>在帶邊緣進退抖動</td></tr>
+        <tr><td class="m">_strafeDirectionSign</td><td class="m">AIMovementSource</td><td>現在往左還是往右繞</td><td>每幀換向 ⇒ 原地抽搐</td></tr>
+        <tr><td class="m">_nextStrafeDirectionFlipTime</td><td class="m">AIMovementSource</td><td>2.5 s 週期換向</td><td>換向時機失控</td></tr>
+        <tr><td class="m">_strafeBlocked</td><td class="m">AIMovementSource</td><td>側移方向被牆擋住</td><td>持續往牆裡側移</td></tr>
+        <tr class="bind"><td class="m">_wasWithinAttackRange</td><td class="m">AIInputSource</td><td>進入攻擊距離的<strong>邊沿</strong></td><td>每幀重複請求出手</td></tr>
+        <tr><td class="m">_nextAttackRequestTime</td><td class="m">AIInputSource</td><td>0.5 s 重試間隔</td><td>被拒絕後瘋狂重送</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note why"><span class="lab">分工</span><p>
+    注意兩個元件的跨幀狀態<strong>沒有重疊</strong>：
+    <code>AIInputSource</code> 只記「該不該出手」，<code>AIMovementSource</code> 只記「該怎麼移動」。
+    它們<strong>不互相引用</strong>，各自獨立地讀同一個 <code>target</code> Transform。
+  </p></div>
+</section>
+
+<!-- ═══ 5 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">05</span>
+    <h2>實測數值</h2>
+    <span class="tag">Y Bot.prefab authored</span>
+  </div>
+
+  <div class="calc"><span class="c">// AIInputSource（順序 1 —— 出手決策）</span>
+attackRange                 = <span class="me">1.6</span>
+attackRequestRetryInterval  = 0.5
+
+<span class="c">// AIMovementSource（順序 2.5 —— 移動與語境）</span>
+desiredSpeedNormalized      = 1
+aggroEnterRadius            = <span class="me">8</span>        aggroLeaveRadius = <span class="me">12</span>
+minimumEngagementDistance   = <span class="hl">1.25</span>     maximumEngagementDistance = <span class="hl">1.6</span>
+distanceHysteresis          = 0.15
+holdStrafeSpeedNormalized   = 0.35     strafeDirectionFlipInterval = 2.5
+strafeWalkableProbeDistance = 0.6
+offMeshRecoverSampleRadius  = 3        recoverSpeedNormalized = 0.5
+
+<span class="c">// ⭐ 一個值得注意的關係</span>
+attackRange (1.6) == maximumEngagementDistance (1.6)
+<span class="c">⇒ 「站到近戰帶上緣」與「可以出手」是同一條線。</span>
+<span class="c">⚠️ 這是 authored 巧合，不是程式強制的——程式預設值是 2.0，是 prefab 把它調成 1.6。</span>
+<span class="c">   兩者若分家（例如調 attackRange 不調 engagement），敵人會站在打不到的地方揮拳。</span>
+</div>
+
+  <div class="note bad"><span class="lab">F4 風險</span><p>
+    上面那條「關係」目前<strong>只存在於 authored 值裡，程式沒有任何一行把它們連起來</strong>。
+    這正是 failure-atlas <strong>F4（關係不存在）</strong>的形狀——
+    和 traversal 的「感測 1.25 &lt; 理想站位 1.4017」同一類。<br>
+    ⚠️ 目前沒有測試守這條。要守的話，它屬於 Verification Ladder <strong>L1（prefab 接線契約）</strong>。
+  </p></div>
+</section>
+
+<!-- ═══ 6 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">06</span>
+    <h2>與其他頁面的交界</h2>
+    <span class="tag">不重複，只指路</span>
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>交界</th><th>那一頁負責什麼</th><th>本頁負責什麼</th></tr></thead>
+      <tbody>
+        <tr><td class="m">cross-system-contract</td><td><code>IInputSource</code>／<code>IMovementIntentSource</code> 的介面契約與缺席語意</td><td>那兩個 seam 被<strong>真的填上不同實作</strong>之後的樣子</td></tr>
+        <tr><td class="m">combat-context</td><td>語境的五個欄位與七個消費者</td><td>敵人側的 writer，以及<strong>語境與移動模式為什麼是兩層</strong></td></tr>
+        <tr><td class="m">direction-authority</td><td>Facing 四段優先序；死亡否決層</td><td>敵人 producer 為什麼也要自己收手（不靠下游擋）</td></tr>
+        <tr><td class="m">survivability</td><td><code>IsDead</code> 的產生與發布</td><td><code>AIMovementSource</code> 是<strong>唯一直接讀 <code>IsDead</code></strong> 的 producer</td></tr>
+        <tr><td class="m">action-combat</td><td>Action 的 slot／phase／release</td><td>敵人如何<strong>從順序 1</strong> 送出 Action intent</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<div class="foot">
+  原始檔：<code>docs/artifacts/enemy-ai.html</code>　·　分類：<strong>Subsystem Architecture</strong><br>
+  文字正本：<code>docs/21-enemy-ai-baseline.md</code>（基線）／<code>docs/19-enemy-combat-facing-slice.md</code>（切片規格）／
+  <code>docs/20-enemy-combat-mvp-pass.md</code>（MVP pass）<br>
+  測試：<code>AIInputSourceTests</code>／<code>EnemyEngagementMovementTests</code>／<code>EnemyPunchMotionWiringTests</code>　·
+  架構不變量：<strong>A16</strong>（NavMesh 只查路，不取得位移／旋轉 authority）<br>
+  authored 值來源：<code>Y Bot.prefab</code>
+</div>
+
+</div>

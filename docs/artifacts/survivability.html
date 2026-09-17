@@ -1,0 +1,508 @@
+<title>生存與致死解剖</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground:#EDEFF1; --surface:#F8F9FA; --sunken:#E0E3E6; --ink:#1E2126;
+    --muted:#646B73; --hair:#C6CBD0; --grid:#D8DCE0;
+    --measure:#0E6E6B; --measure-s:#D9ECEA;
+    --bind:#A8256A; --bind-s:#F6E0EC;
+    --wrong:#A33B1F; --wrong-s:#F5E2DA;
+    --sans:"Noto Sans TC",-apple-system,"Segoe UI","Microsoft JhengHei",sans-serif;
+    --mono:"IBM Plex Mono","Cascadia Mono",Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:#14161A; --surface:#1C1F24; --sunken:#262A30; --ink:#E3E6EA;
+      --muted:#969DA6; --hair:#363B42; --grid:#2C3036;
+      --measure:#5FC9C3; --measure-s:#10302F;
+      --bind:#F186BB; --bind-s:#35182A;
+      --wrong:#EE9070; --wrong-s:#381D14;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:#14161A; --surface:#1C1F24; --sunken:#262A30; --ink:#E3E6EA;
+    --muted:#969DA6; --hair:#363B42; --grid:#2C3036;
+    --measure:#5FC9C3; --measure-s:#10302F;
+    --bind:#F186BB; --bind-s:#35182A;
+    --wrong:#EE9070; --wrong-s:#381D14;
+  }
+  * { box-sizing: border-box; }
+  body { background:var(--ground); color:var(--ink); font-family:var(--sans);
+         font-size:15px; line-height:1.75; margin:0; -webkit-font-smoothing:antialiased; }
+  .shell { max-width:960px; margin:0 auto; padding:40px 28px 96px; }
+  .eyebrow { font-family:var(--mono); font-size:11px; letter-spacing:.16em;
+             text-transform:uppercase; color:var(--measure); margin-bottom:10px; }
+  h1 { font-weight:900; font-size:38px; line-height:1.2; letter-spacing:-.01em; margin:0 0 16px; text-wrap:balance; }
+  .lede { font-size:16.5px; color:var(--muted); max-width:60ch; margin:0; }
+  .lede strong { color:var(--ink); font-weight:500; }
+  .trial { display:inline-block; font-family:var(--mono); font-size:11px; font-weight:600;
+           color:var(--wrong); background:var(--wrong-s); border:1px solid var(--wrong);
+           padding:2px 8px; margin:14px 0 0; }
+  .keyfacts { display:grid; grid-template-columns:repeat(auto-fit,minmax(128px,1fr));
+              gap:1px; background:var(--hair); border:1px solid var(--hair); margin:24px 0 0; }
+  .keyfacts div { background:var(--surface); padding:12px 14px; }
+  .keyfacts .v { font-family:var(--mono); font-size:18px; font-weight:600;
+                 font-variant-numeric:tabular-nums; line-height:1.2; }
+  .keyfacts .k { font-size:11.5px; color:var(--muted); line-height:1.45; margin-top:4px; }
+  section { margin-top:54px; }
+  .sec-head { display:flex; align-items:baseline; gap:12px; padding-bottom:9px;
+              border-bottom:2px solid var(--ink); margin-bottom:6px; }
+  .sec-head .n { font-family:var(--mono); font-size:12px; font-weight:600; color:var(--measure); letter-spacing:.06em; }
+  .sec-head h2 { font-size:21px; font-weight:700; margin:0; flex:1; letter-spacing:-.005em; }
+  .sec-head .tag { font-family:var(--mono); font-size:10.5px; color:var(--muted);
+                   border:1px solid var(--hair); padding:1px 6px; white-space:nowrap; }
+  .sec-intro { color:var(--muted); font-size:14px; margin:10px 0 0; max-width:62ch; }
+  figure { margin:22px 0 0; background:var(--surface); border:1px solid var(--hair); padding:18px 20px 6px; }
+  figure svg { display:block; width:100%; height:auto; }
+  figcaption { font-size:13.5px; color:var(--muted); padding:12px 0 14px;
+               border-top:1px solid var(--hair); margin-top:12px; }
+  figcaption strong { color:var(--ink); font-weight:500; }
+  svg text { font-family:var(--sans); fill:currentColor; }
+  svg .m { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  svg .t{font-size:13px;font-weight:700;} svg .s{font-size:11.5px;} svg .xs{font-size:10.5px;}
+  svg .mu{fill:var(--muted);} svg .me{fill:var(--measure);} svg .bd{fill:var(--bind);} svg .wr{fill:var(--wrong);}
+  svg .box{fill:var(--sunken);stroke:var(--hair);stroke-width:1;}
+  svg .boxm{fill:var(--measure-s);stroke:var(--measure);stroke-width:1.3;}
+  svg .boxb{fill:var(--bind-s);stroke:var(--bind);stroke-width:1.3;}
+  svg .boxw{fill:var(--wrong-s);stroke:var(--wrong);stroke-width:1.3;}
+  svg .ln{stroke:currentColor;stroke-width:1.4;fill:none;}
+  svg .lnm{stroke:var(--measure);stroke-width:1.6;fill:none;}
+  svg .lnb{stroke:var(--bind);stroke-width:1.8;fill:none;}
+  svg .lnw{stroke:var(--wrong);stroke-width:1.6;fill:none;stroke-dasharray:5 4;}
+  svg .thin{stroke:var(--hair);stroke-width:1;fill:none;}
+  svg .dash{stroke:var(--muted);stroke-width:1.1;fill:none;stroke-dasharray:4 4;}
+  svg .grid{stroke:var(--grid);stroke-width:1;fill:none;}
+  #ar path{fill:var(--ink);} #arm path{fill:var(--measure);}
+  #arb path{fill:var(--bind);} #arw path{fill:var(--wrong);}
+  .wrap { overflow-x:auto; margin:18px 0 0; }
+  table { width:100%; border-collapse:collapse; font-size:13px; min-width:620px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--hair); vertical-align:top; }
+  th { font-family:var(--mono); font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+       color:var(--muted); border-bottom:1px solid var(--ink); white-space:nowrap; }
+  td.m,th.m { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  td.num { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  td.no { color:var(--wrong); }
+  tr.bind td { background:var(--bind-s); }
+  tr.bind td:first-child { font-weight:700; }
+  .note { display:grid; grid-template-columns:74px minmax(0,1fr); gap:14px; padding:12px 0;
+          border-top:1px dotted var(--hair); font-size:13.5px; line-height:1.7; }
+  .note .lab { font-family:var(--mono); font-size:10.5px; letter-spacing:.06em; padding-top:4px; }
+  .note.why .lab{color:var(--measure);} .note.bad .lab{color:var(--wrong);} .note.key .lab{color:var(--bind);}
+  .note p { margin:0; }
+  .callout { border-left:3px solid var(--bind); background:var(--bind-s);
+             padding:14px 16px; margin:20px 0 0; font-size:14px; }
+  .callout.warn { border-left-color:var(--wrong); background:var(--wrong-s); }
+  .callout .h { font-weight:700; margin-bottom:4px; }
+  code { font-family:var(--mono); font-size:.88em; background:var(--sunken); padding:1px 4px; }
+  .calc { font-family:var(--mono); font-size:12.5px; line-height:1.9; background:var(--sunken);
+          border:1px solid var(--hair); padding:14px 16px; margin:16px 0 0; overflow-x:auto;
+          white-space:pre; font-variant-numeric:tabular-nums; }
+  .calc .hl{color:var(--bind);font-weight:600;} .calc .me{color:var(--measure);} .calc .c{color:var(--muted);}
+  .foot { font-family:var(--mono); font-size:11px; color:var(--muted); margin-top:56px;
+          padding-top:20px; border-top:2px solid var(--ink); line-height:1.9; }
+  @media (max-width:720px){ .shell{padding:26px 16px 70px;} h1{font-size:28px;}
+    .note{grid-template-columns:1fr;gap:2px;} }
+  @media (prefers-reduced-motion:reduce){ *{animation:none!important;transition:none!important;} }
+</style>
+
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+  </defs>
+</svg>
+
+<div class="shell">
+
+<header>
+  <div class="eyebrow">Subsystem Architecture · 對應 ADR-009 ／ docs/25 ／ docs/26 §I–§K</div>
+  <h1>生存與致死解剖</h1>
+  <p class="lede">
+    這個子系統的核心不是「HP 數字」，而是<strong>一個決定要在哪一幀被做出、被誰做出、以及被誰消費</strong>。
+    傷害在 Physics 階段結算，而 FSM、仲裁、HUD、重生四個下游都需要<strong>同一份</strong>真相——
+    所以它必須排在整條管線的最前面。
+  </p>
+  <div class="trial">⚠️ ADR-009 目前是 Trial —— AC1–AC4 已由自動測試驗證，AC5／AC6 待人類 Play。本頁描述的是「目前的實作基線」，不是已驗收的成品。</div>
+
+  <div class="keyfacts">
+    <div><div class="v">0.5</div><div class="k">管線順序<br>（全管線最早）</div></div>
+    <div><div class="v">1</div><div class="k">唯一寫入者<br>CharacterHealth</div></div>
+    <div><div class="v">2</div><div class="k">單幀邊沿<br>且不走順序 7</div></div>
+    <div><div class="v">100</div><div class="k">雙方 maxHealth<br>（authored）</div></div>
+    <div><div class="v">4</div><div class="k">近戰 25 傷害<br>⇒ 致死下數</div></div>
+    <div><div class="v">6</div><div class="k">測試檔<br>含 1 個 PlayMode</div></div>
+  </div>
+</header>
+
+<!-- ═══ 1 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">01</span>
+    <h2>責任邊界：五個環節，一個決定</h2>
+    <span class="tag">誰決定「被打之後會發生什麼」</span>
+  </div>
+  <p class="sec-intro">
+    這個子系統橫跨 Core 與 App，但它只做<strong>一個決定</strong>：
+    這一下打下去，是「踉蹌一下」還是「倒地不起」。其餘四個環節都只是那個決定的下游。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 860 440" role="img" aria-label="Survivability 的五個環節：傷害結算、黑板發布、FSM 接管、仲裁封鎖、重生與 HUD 消費">
+      <text class="xs m mu" x="16" y="18">① 傷害真相（Physics 階段，早於 Update）</text>
+      <rect class="box" x="16" y="28" width="250" height="76"></rect>
+      <text class="s t" x="28" y="50">三個攻擊 sink</text>
+      <text class="xs mu" x="28" y="70">MeleeHitboxSink</text>
+      <text class="xs mu" x="28" y="85">ThrownProjectile</text>
+      <text class="xs mu" x="28" y="100">GroundEffectSink</text>
+
+      <line class="ln" x1="270" y1="66" x2="300" y2="66" marker-end="url(#ar)"></line>
+      <text class="xs m mu" x="274" y="58">damage</text>
+
+      <rect class="boxb" x="304" y="28" width="266" height="76"></rect>
+      <text class="s t bd" x="316" y="50">CharacterHealth.ApplyDamage</text>
+      <text class="xs mu" x="316" y="70">已死亡 ⇒ 直接 return，不再結算</text>
+      <text class="xs bd" x="316" y="86">⭐ 這裡是唯一做決定的地方</text>
+      <text class="xs mu" x="316" y="100">攻擊方不知道這一下會不會致死</text>
+
+      <path class="lnb" d="M437,108 L437,128 L200,128 L200,150" marker-end="url(#arb)"></path>
+      <path class="lnb" d="M437,128 L660,128 L660,150" marker-end="url(#arb)"></path>
+
+      <rect class="boxm" x="60" y="154" width="280" height="56"></rect>
+      <text class="s t me" x="72" y="176">未致死</text>
+      <text class="xs mu" x="72" y="196">_pendingHurt = true　⇒ JustTookDamage</text>
+
+      <rect class="boxw" x="530" y="154" width="280" height="56"></rect>
+      <text class="s t wr" x="542" y="176">致死</text>
+      <text class="xs mu" x="542" y="196">_isDead = true　＋ _pendingDeath = true</text>
+      <text class="xs wr" x="542" y="210" style="font-size:9.5px">⛔ 刻意不抬 _pendingHurt</text>
+
+      <text class="xs m mu" x="16" y="244">② 黑板發布（順序 0.5）</text>
+      <line class="lnb" x1="200" y1="214" x2="200" y2="252" marker-end="url(#arb)"></line>
+      <line class="lnb" x1="660" y1="214" x2="660" y2="252" marker-end="url(#arb)"></line>
+
+      <rect class="boxb" x="16" y="256" width="828" height="52"></rect>
+      <text class="s t bd" x="430" y="278" text-anchor="middle">PublishTo(data) —— SurvivabilityData 的唯一寫入者</text>
+      <text class="xs mu" x="430" y="296" text-anchor="middle">CurrentHealth ／ MaxHealth ／ IsDead ／ JustTookDamage ／ JustDied　整區覆寫</text>
+
+      <text class="xs m mu" x="16" y="334">③④⑤ 四個下游，全部只讀</text>
+
+      <rect class="box" x="16" y="344" width="196" height="76"></rect>
+      <text class="xs m" x="28" y="364">FSM（順序 4）</text>
+      <text class="xs mu" x="28" y="382">HurtState ← JustTookDamage</text>
+      <text class="xs mu" x="28" y="397">DeathState ← IsDead</text>
+      <text class="xs me" x="28" y="413">同一幀就接管</text>
+
+      <rect class="box" x="224" y="344" width="196" height="76"></rect>
+      <text class="xs m" x="236" y="364">仲裁（順序 4.5）</text>
+      <text class="xs mu" x="236" y="382">DeathArbiterSource</text>
+      <text class="xs mu" x="236" y="397">BlockInput = IsDead</text>
+      <text class="xs wr" x="236" y="413">⚠️ 下一幀才生效</text>
+
+      <rect class="box" x="432" y="344" width="196" height="76"></rect>
+      <text class="xs m" x="444" y="364">重生</text>
+      <text class="xs mu" x="444" y="382">RespawnController</text>
+      <text class="xs mu" x="444" y="397">先協調，再呼 Revive()</text>
+      <text class="xs me" x="444" y="413">Teleport 是唯一瞬移入口</text>
+
+      <rect class="box" x="640" y="344" width="204" height="76"></rect>
+      <text class="xs m" x="652" y="364">HUD（只讀只畫）</text>
+      <text class="xs mu" x="652" y="382">PlayerHud</text>
+      <text class="xs mu" x="652" y="397">WorldSpaceHealthBar</text>
+      <text class="xs me" x="652" y="413">零決策、零新欄位</text>
+
+      <line class="ln" x1="114" y1="312" x2="114" y2="340" marker-end="url(#ar)"></line>
+      <line class="ln" x1="322" y1="312" x2="322" y2="340" marker-end="url(#ar)"></line>
+      <line class="ln" x1="530" y1="312" x2="530" y2="340" marker-end="url(#ar)"></line>
+      <line class="ln" x1="742" y1="312" x2="742" y2="340" marker-end="url(#ar)"></line>
+    </svg>
+
+    <figcaption>
+      <strong>ADR-009 D2</strong>：攻擊方知道「我打中了、打多少」，<strong>不知道</strong>「這一下會不會致死」。
+      讓 sink 同時送傷害與受擊請求 ＝ 讓不掌握資訊的一方做決定 ＝ 致死幀的動畫競爭。
+    </figcaption>
+  </figure>
+
+  <div class="callout">
+    <div class="h">⭐ <code>IsDead</code> 是 commit 的決定，不是讓讀者算 <code>CurrentHealth &lt;= 0</code></div>
+    死亡是 <code>CharacterHealth</code> 做出的<strong>決定</strong>（含「已經死了就不再重複結算」這條規則），讀者只消費結果。<br>
+    讓下游重新推導已 commit 的狀態，正是 <code>docs/16-review-protocol.md</code> 點名的本專案<strong>加重缺陷</strong>之一。
+  </div>
+</section>
+
+<!-- ═══ 2 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">02</span>
+    <h2>為什麼順序 0.5 必須存在</h2>
+    <span class="tag">整條管線最早的一步</span>
+  </div>
+  <p class="sec-intro">
+    順序 0.5 不是「插在前面比較保險」。它有一個可以逐項驗證的時序論證，
+    而且<strong>三個下游各自依賴它的不同性質</strong>。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 860 340" role="img" aria-label="死亡幀的時序：傷害在 Physics 階段結算，順序 0.5 發布，順序 4 FSM 同幀接管，順序 6 水平速度消失，而 BlockInput 要下一幀才到">
+      <rect class="boxw" x="16" y="26" width="150" height="40"></rect>
+      <text class="xs m wr" x="91" y="44" text-anchor="middle">Physics 階段</text>
+      <text class="xs mu" x="91" y="59" text-anchor="middle">OnTriggerEnter</text>
+      <text class="xs m mu" x="16" y="18">早於 Update</text>
+
+      <line class="lnw" x1="170" y1="46" x2="196" y2="46" marker-end="url(#arw)"></line>
+
+      <line class="grid" x1="200" y1="80" x2="844" y2="80"></line>
+      <g class="xs m mu">
+        <text x="230" y="72" text-anchor="middle">0.5</text>
+        <text x="330" y="72" text-anchor="middle">1</text>
+        <text x="420" y="72" text-anchor="middle">2⊘</text>
+        <text x="510" y="72" text-anchor="middle">2.5</text>
+        <text x="600" y="72" text-anchor="middle">4</text>
+        <text x="690" y="72" text-anchor="middle">4.5</text>
+        <text x="790" y="72" text-anchor="middle">6</text>
+      </g>
+
+      <rect class="boxb" x="204" y="92" width="52" height="24"></rect>
+      <text class="xs m bd" x="230" y="108" text-anchor="middle">W</text>
+      <text class="xs m bd" x="204" y="134">IsDead = true</text>
+
+      <circle cx="600" cy="104" r="7" fill="none" stroke="var(--measure)" stroke-width="2"></circle>
+      <text class="xs m me" x="600" y="108" text-anchor="middle" style="font-size:9px">R</text>
+      <text class="xs m me" x="566" y="134">DeathState</text>
+      <text class="xs m me" x="566" y="148">同幀接管</text>
+
+      <rect class="boxm" x="764" y="92" width="52" height="24"></rect>
+      <text class="xs m me" x="790" y="108" text-anchor="middle">M</text>
+      <text class="xs m me" x="744" y="134">水平速度</text>
+      <text class="xs m me" x="744" y="148">同幀消失</text>
+
+      <rect class="box" x="664" y="92" width="52" height="24"></rect>
+      <text class="xs m" x="690" y="108" text-anchor="middle">W</text>
+      <path class="lnw" d="M718,104 L740,104 L740,182 L200,182 L200,196" marker-end="url(#arw)"></path>
+      <text class="xs m wr" x="430" y="176" text-anchor="middle">BlockInput ⇒ 下一帧的順序 2⊘ 才讀得到</text>
+
+      <line class="dash" x1="16" y1="210" x2="844" y2="210"></line>
+
+      <text class="s t" x="16" y="236">🔴 所以「同一幀停下來」靠的不是 BlockInput</text>
+      <text class="xs mu" x="16" y="258">程式註解逐字寫著：「只有重力與接地。水平速度在進入 Death 的那一幀就消失——<tspan class="wr" font-weight="700">不等 BlockInput 的一幀延遲</tspan>，</text>
+      <text class="xs mu" x="16" y="274">也不等 B9 減速把 MoveSpeed 收到 0。」機制是 <tspan class="me" font-weight="700">DeathState.OnUpdateMotion 走 ExecuteVerticalOnlyMovement</tspan>。</text>
+
+      <rect class="boxm" x="16" y="288" width="410" height="42"></rect>
+      <text class="xs me m" x="28" y="306">同幀成立的三件事</text>
+      <text class="xs mu" x="28" y="322">①FSM 接管（Death priority 100）②水平速度消失 ③AI producer 停產意圖</text>
+
+      <rect class="boxw" x="434" y="288" width="410" height="42"></rect>
+      <text class="xs wr m" x="446" y="306">下一幀才成立的一件事</text>
+      <text class="xs mu" x="446" y="322">BlockInput 歸零輸入——它是<tspan class="wr" font-weight="700">補強</tspan>，不是主要機制</text>
+    </svg>
+
+    <figcaption>
+      <strong>Death 的 priority 是 100</strong>（config 資產 authored），高於所有其他狀態，
+      而 <code>CanBeInterruptedBy</code> 是空清單——它是<strong>吸收態</strong>。
+      唯一出口是 <code>CharacterHealth.Revive()</code> 把 <code>IsDead</code> commit 回 false。
+    </figcaption>
+  </figure>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>依賴 0.5 的下游</th><th>依賴它的什麼性質</th><th>放在 0.5 之後會怎樣</th></tr></thead>
+      <tbody>
+        <tr class="bind"><td class="m">DeathState.CanEnter（順序 4）</td><td>本幀的 <code>IsDead</code> 是<strong>最新真相</strong></td><td>死了還走一幀</td></tr>
+        <tr><td class="m">AIMovementSource（順序 2.5）</td><td>同上——它<strong>直接讀 <code>IsDead</code></strong> 停止產生意圖</td><td>屍體繼續走向玩家</td></tr>
+        <tr><td class="m">HurtState.CanEnter（順序 4）</td><td><code>JustTookDamage</code> 這一幀有效</td><td>受擊反應晚一幀或整個漏掉</td></tr>
+        <tr><td class="m">DeathArbiterSource（順序 4.5）</td><td>只需要 <code>IsDead</code>，不要求同幀</td><td>（本來就是下一幀生效）</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout warn">
+    <div class="h">⚠️ 文件與程式的一處落差（以程式為準）</div>
+    ADR-009 D1 把讀者列為「<code>DeathState.CanEnter</code>、<code>AIInputSource</code>、<code>PlayerInputSource</code>（死後停止產生 intent）」。
+    <strong>但目前程式裡 <code>PlayerInputSource</code> 與 <code>AIInputSource</code> 都沒有讀 <code>Survivability</code></strong>——
+    grep 確認只有 <code>AIMovementSource</code>（順序 2.5）直接讀 <code>IsDead</code>。<br>
+    玩家死亡幀的行為因此是靠 <strong>FSM 接管 ＋ <code>ExecuteVerticalOnlyMovement</code></strong> 成立的，不是靠輸入被擋。
+    功能上正確，但 ADR 的那一句描述的是意圖而非現況。
+  </div>
+</section>
+
+<!-- ═══ 3 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">03</span>
+    <h2>兩個單幀邊沿：第四種復位語意</h2>
+    <span class="tag">整體覆寫即復位</span>
+  </div>
+  <p class="sec-intro">
+    <code>JustTookDamage</code> 與 <code>JustDied</code> 是單幀事件，
+    但它們<strong>不走順序 7 的 <code>ResetTransientState</code></strong>——
+    這是 <code>cross-system-contract</code> 那三種語意之外的第四種組合：<strong>邊沿語意 ＋ 覆寫式復位</strong>。
+  </p>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>欄位</th><th>什麼時候抬起</th><th>怎麼復位</th><th class="no">⛔ 不會發生的事</th></tr></thead>
+      <tbody>
+        <tr class="bind"><td class="m">JustTookDamage</td><td><code>ApplyDamage</code> 未致死時 <code>_pendingHurt = true</code></td><td><code>PublishTo</code> 寫出後<strong>立即清除</strong>；下一幀整區覆寫自然回 false</td><td class="no">不排隊、不補播</td></tr>
+        <tr class="bind"><td class="m">JustDied</td><td><code>ApplyDamage</code> 致死那一行 <code>_pendingDeath = true</code></td><td>同上，逐字同構</td><td class="no">不讓下游各自快取上一幀 <code>IsDead</code> 去猜</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout">
+    <div class="h">⭐「不排隊、不補播」是語意，不是簡化</div>
+    被 Roll／Traversal 擋掉的那一次受擊反應<strong>就是要被丟棄</strong>——翻滾的無敵幀結束後補播一次踉蹌是錯的。
+    傷害與扣血照常成立（那是 <code>CharacterHealth</code> 的事），<strong>只有表現被丟棄</strong>。<br>
+    若改用單調計數器，<code>CanEnter</code> 會在 Roll 結束後才變真 ⇒ <strong>正好做出錯的行為</strong>。
+  </div>
+
+  <div class="note key"><span class="lab">對稱性</span><p>
+    <code>JustTookDamage → HurtState</code> 與 <code>IsDead → DeathState</code> 是<strong>完全對稱</strong>的：
+    同一個寫入者、同一區、同一個發布點。<code>docs/26</code> §I 比較過四種 seam（<code>Intent</code>／注入／
+    <code>PresentationEvents</code>／<code>Survivability</code>）後選了這一條，正是因為它讓兩條路徑<strong>形狀一致</strong>。
+  </p></div>
+
+  <div class="note why"><span class="lab">互斥</span><p>
+    致死時<strong>刻意不抬 <code>JustTookDamage</code></strong>。抬了會讓 Hurt 與 Death
+    <strong>在同一幀爭同一顆 FSM</strong>——那正是 ADR-009 D2 要消除的決策擁有權問題。
+  </p></div>
+
+  <div class="note why"><span class="lab">重生</span><p>
+    <code>Revive()</code> 一併清掉 <code>_pendingHurt</code> 與 <code>_pendingDeath</code>：
+    若在「pending 尚未發布」與「死亡」之間重生，殘留旗標會讓角色<strong>一復活就踉蹌一下</strong>或<strong>播一次死亡音</strong>。
+  </p></div>
+</section>
+
+<!-- ═══ 4 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">04</span>
+    <h2>Authority：三條分離線</h2>
+    <span class="tag">誰決定什麼</span>
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>角色</th><th>可以寫</th><th class="no">⛔ 不可以</th></tr></thead>
+      <tbody>
+        <tr class="bind"><td class="m">CharacterHealth</td><td><code>SurvivabilityData</code> 全區（唯一，A5 守）</td><td class="no">不知道重生點、傳送、collider——那些是 <code>RespawnController</code> 的事</td></tr>
+        <tr><td class="m">攻擊方 sink</td><td>呼叫 <code>ApplyDamage(amount)</code></td><td class="no">不得直接送受擊請求（D2）——它不知道會不會致死</td></tr>
+        <tr><td class="m">RespawnController</td><td>協調：先傳送、歸零、還原，<strong>再</strong>呼 <code>Revive()</code></td><td class="no">不寫 <code>transform.position</code>——<code>MotionDriver.Teleport()</code> 是唯一瞬移入口</td></tr>
+        <tr><td class="m">DeathArbiterSource</td><td>回報 <code>BlockInput = IsDead</code></td><td class="no">不寫黑板（由 <code>ArbiterPipeline</code> OR 合併後整體覆寫）</td></tr>
+        <tr><td class="m">PlayerHud／WorldSpaceHealthBar</td><td>—</td><td class="no"><strong>只讀、只畫、零決策、零新增黑板欄位</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout">
+    <div class="h">authority ／ orchestration 分離</div>
+    <code>Revive()</code> <strong>只負責 survivability</strong>：血量與死亡旗標。
+    它不知道「重生」這個概念存在。<br>
+    而 FSM 怎麼知道角色復活了？<strong>它不被通知，它只是照常讀黑板</strong>——
+    下一次順序 0.5 的 <code>PublishTo</code> 把 <code>IsDead = false</code> 發布出去，
+    <code>DeathState</code> 於同一幀的順序 4 看到後自然放行（<code>CanTransitionAway =&gt; !IsDead</code>）。
+    ⛔ <code>Revive()</code> 不呼叫 FSM、不送事件、不認識 <code>StateType</code>。
+  </div>
+</section>
+
+<!-- ═══ 5 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">05</span>
+    <h2>實測數值</h2>
+    <span class="tag">磁碟 authored 值</span>
+  </div>
+
+  <div class="calc"><span class="c">// 兩隻角色的 CharacterHealth（X Bot / Y Bot 皆同）</span>
+maxHealth = <span class="me">100</span>
+
+<span class="c">// 傷害量值（prefab authored）</span>
+玩家近戰 MeleeHitboxSink       damage = <span class="hl">25</span>   ⇒ 100 / 25 = <span class="hl">4 下致死</span>
+玩家投擲 ThrownProjectile      damage = 15
+玩家火球 Projectile_Fireball   damage = 20
+敵人近戰                       damage = <span class="hl">25</span>   ⇒ 對玩家同樣 4 下致死
+
+<span class="c">// FSM（PlayerStateMachineConfig 資產）</span>
+StateType.Death = 7   Priority = <span class="me">100</span>   CanBeInterruptedBy = <span class="hl">（空）</span>  ← 吸收態
+StateType.Hurt  = 8
+</div>
+
+  <div class="note why"><span class="lab">對稱</span><p>
+    雙方 HP 與近戰傷害都是 100／25 ⇒ <strong>四下互相致死</strong>。
+    這是刻意的對稱起手值（<code>docs/26</code> §K 的第一版數值），不是平衡設計。
+  </p></div>
+</section>
+
+<!-- ═══ 6 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">06</span>
+    <h2>Failure case：三個同時存在的靜默缺陷</h2>
+    <span class="tag">docs/26 §K</span>
+  </div>
+  <p class="sec-intro">
+    這個切片收尾時，一次修掉三個<strong>各自獨立、但都沒有任何錯誤訊息</strong>的缺陷。
+    它們的共同點是「一個功能從來沒有觸發過」——而那最容易被當成「還沒做」。
+  </p>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>缺陷</th><th>為什麼沒人發現</th><th>失效模式</th></tr></thead>
+      <tbody>
+        <tr><td><strong>玩家從來沒有受擊反應</strong></td><td>敵人的拳頭從來不造成傷害（下一列），所以沒有輸入可以觸發它</td><td class="m">F5 authored</td></tr>
+        <tr><td><strong>敵人拳頭從來不造成傷害</strong></td><td>命中鏈接線缺一環，而動畫照播、特效照出</td><td class="m">F5 authored</td></tr>
+        <tr class="bind"><td><strong>兩隻角色都沒掛 <code>CharacterHealth</code></strong></td><td>程式完全正確地在一個不存在的元件上什麼都沒做——<code>_characterHealth?.PublishTo()</code> 是 null-safe</td><td class="m">F5 authored</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout warn">
+    <div class="h">🔴 可推廣：<code>?.</code> 讓「缺件」與「正常」長得一模一樣</div>
+    順序 0.5 寫的是 <code>_characterHealth?.PublishTo(_runtimeData)</code>——
+    這個 null-safe 是<strong>刻意的</strong>（`CharacterHealth` 是可缺席能力，見 <code>cross-system-contract</code>）。<br>
+    但它的代價是：<strong>沒掛元件</strong>與<strong>掛了但沒受傷</strong>在執行期無法區分，兩者都是「什麼都沒發生」。
+    這正是 <code>PrefabWiringTests</code>（Verification Ladder L1）要在 EditMode 先擋一層的理由。
+  </div>
+
+  <div class="note bad"><span class="lab">另一條</span><p>
+    <strong>Hurt 的 bake 不可驅動 gameplay</strong>：受擊動畫的 root motion 是無號速度，
+    乘上 forward 會讓<strong>受擊把角色往前推 1.13 m</strong>——被打反而衝向攻擊者。
+    所以 <code>HurtState.OnUpdateMotion</code> 走 <code>ExecuteVerticalOnlyMovement</code>，與 Death 同一條路徑。
+  </p></div>
+</section>
+
+<!-- ═══ 7 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">07</span>
+    <h2>與其他頁面的交界</h2>
+    <span class="tag">不重複，只指路</span>
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>交界</th><th>那一頁負責什麼</th><th>本頁負責什麼</th></tr></thead>
+      <tbody>
+        <tr><td class="m">action-combat</td><td>中斷授權的兩層（config 狀態層 ＋ 資產段落層）＋ lethal 例外；「受擊不該是 Action」的推導</td><td>受擊<strong>遷出 Action 之後</strong>的新形狀：<code>JustTookDamage → HurtState</code></td></tr>
+        <tr><td class="m">authority-timeline</td><td>順序 0.5 在時間軸上的位置；跨幀交接總表</td><td>0.5 <strong>為什麼</strong>必須存在的完整論證</td></tr>
+        <tr><td class="m">cross-system-contract</td><td>三種 intent 復位語意；可缺席能力清單</td><td>第四種組合：<strong>邊沿語意 ＋ 覆寫式復位</strong></td></tr>
+        <tr><td class="m">direction-authority</td><td>Facing 的死亡否決層（屍體不再轉頭）</td><td>那個否決層讀的 <code>IsDead</code> 從哪裡來</td></tr>
+        <tr><td class="m">failure-atlas</td><td>F5「authored 值就是根因」的一般形狀</td><td>本子系統的三個 F5 實例</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<div class="foot">
+  原始檔：<code>docs/artifacts/survivability.html</code>　·　分類：<strong>Subsystem Architecture</strong><br>
+  治理：<code>docs/ADR/009-survivability-and-lethal-interrupt.md</code>（🟡 <strong>Trial</strong>）<br>
+  文字正本：<code>docs/25-survivability-and-dynamic-collider.md</code>（切片規格）／<code>docs/26-fsm-interruption-review.md</code> §I–§K（Model B 遷移與收尾）<br>
+  測試：<code>SurvivabilityTests</code>／<code>HurtAndDeathStateTests</code>／<code>RespawnControllerTests</code>／
+  <code>PlayerHudTests</code>／<code>WorldSpaceHealthBarTests</code>／<code>HurtDeathMotionPlayModeTests</code><br>
+  ⚠️ AC5（攻擊中被打要中斷）與 AC6（致死後不再回 locomotion）<strong>仍待人類 Play 驗收</strong>。
+</div>
+
+</div>
