@@ -417,8 +417,8 @@
     都住在它自己的<strong>子系統架構頁</strong>——那裡有這頁放不下的東西。
   </p>
   <p class="src">
-    瘦身於 2026-09-18：原本 19 張圖中，已有子系統架構頁承接的 13 張全部移出，避免同一件事有兩份會漂移的說法。
-    留在這裡的 6 張，是<strong>目前還沒有子系統架構頁的那些</strong>。
+    瘦身於 2026-09-18：原本 19 張圖中，已有子系統架構頁承接的 14 張全部移出，避免同一件事有兩份會漂移的說法。
+    留在這裡的 5 張，是<strong>一張全域座標系 ＋ 目前還沒有子系統架構頁的四張</strong>。
   </p>
 
   <div class="stats">
@@ -460,6 +460,8 @@
       <tr><td>生命值、受擊、死亡、重生與 HUD</td><td class="m">survivability.html</td><td class="m">ADR-009／docs/25／26</td></tr>
       <tr><td>「在跟誰打、對方在哪」的單一語境真相</td><td class="m">combat-context.html</td><td class="m">docs/15</td></tr>
       <tr><td>敵人如何用兩個 seam 接進同一條管線</td><td class="m">enemy-ai.html</td><td class="m">docs/19／20／21</td></tr>
+      <tr><td>落腳怎麼被偵測出來、材質怎麼被解析</td><td class="m">footstep-surface.html</td><td class="m">docs/34／35／36</td></tr>
+      <tr><td>兩種觸發語意怎麼收束到同一個音效 authority</td><td class="m">presentation-audio.html</td><td class="m">docs/36 §5–6／docs/37</td></tr>
       <tr><td>Level 1 剛體腳底的幾何近似</td><td class="m">foot-ik.html</td><td class="m">docs/05 §3.5.5</td></tr>
     </tbody>
   </table>
@@ -921,7 +923,8 @@
       <tr><td class="m">Foot IK 斜坡抽搐</td><td><span class="badge t">已修正</span></td><td>已證實為 GroundY 不連續並改由實際腳底平面導出；連續性測試留存。追因過程見 <code>failure-atlas.html</code>。</td></tr>
       <tr><td class="m">Persistent lock-on／正式 8-way</td><td><span class="badge w">未實作</span></td><td>現有 RunRing／FullRing 僅是量測 prototype。CombatContext 不等於 lock-on。</td></tr>
       <tr><td class="m">敵人 AI</td><td><span class="badge t">已實作</span></td><td>只有一顆 <code>AIMovementSource</code>（距離帶＋遲滯）。它證明的是介面可換，不是「有 AI 系統」。</td></tr>
-      <tr><td class="m">Footstep＋Surface、Presentation Audio</td><td><span class="badge w">第二批</span></td><td>已列入 inventory 的 READY，頁面尚未產出。</td></tr>
+      <tr><td class="m">Footstep＋Surface</td><td><span class="badge t">已實作</span></td><td>八個偵測參數全部來自對真實動畫的量測；材質五層優先級 ＋ per-foot 記憶化。<code>FootstepKind.Shuffle</code> 已無 runtime producer。細節見 <code>footstep-surface.html</code>。</td></tr>
+      <tr><td class="m">Presentation Audio</td><td><span class="badge t">已實作</span></td><td>程式與接線完整；<strong>素材刻意不完整</strong>（13 個 Combat 池只有 3 個有 clip，使用者裁決「不為了有聲音硬塞」）。細節見 <code>presentation-audio.html</code>。</td></tr>
       <tr><td class="m">Upper Body Layer（ADR-006）</td><td><span class="badge w">DEFER</span></td><td>ADR 仍 Trial 且待 Play 驗收；缺 architecture-guide 級文字正本。</td></tr>
       <tr><td class="m">Editor Bake Toolchain</td><td><span class="badge w">另一類</span></td><td>4,545 行但形狀不同（資產生產管線，非執行期 authority）。保留為未來的 <strong>Authoring Pipeline / Toolchain Architecture</strong>，⛔ 不硬套 Subsystem Architecture 格式。</td></tr>
       <tr><td class="m">Grounding、HeadLook</td><td><span class="badge w">不獨立成頁</span></td><td>Grounding 的 runtime 實驗已全數撤回，其 authority 已由 foot-ik／authority-timeline／jump-landing 三頁涵蓋；HeadLook 是 CombatContext 的消費者實例。</td></tr>
@@ -934,8 +937,10 @@
     圖 01 <code>ArchitectureRegressionTests.LayerRules</code>　圖 02 dev-spec §3.3　圖 03 ADR-003<br>
     圖 04 dev-spec §4　圖 05 <code>LocomotionModel.cs</code> ＋ docs/07<br>
     <br>
-    <strong>子系統架構頁</strong>：cross-system-contract ／ authority-timeline ／ failure-atlas ／
-    dynamic-capsule ／ foot-ik-architecture ／ traversal ／ jump-landing ／ action-combat ／ direction-authority
+    <strong>跨系統層</strong>：cross-system-contract ／ authority-timeline ／ failure-atlas<br>
+    <strong>子系統架構頁</strong>：dynamic-capsule ／ foot-ik-architecture ／ traversal ／ jump-landing ／
+    action-combat ／ direction-authority ／ survivability ／ combat-context ／ enemy-ai ／
+    footstep-surface ／ presentation-audio
   </p>
 </section>
 

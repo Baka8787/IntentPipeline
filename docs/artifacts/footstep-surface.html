@@ -1,0 +1,842 @@
+<title>落腳與材質解剖</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground:#EDEFF1; --surface:#F8F9FA; --sunken:#E0E3E6; --ink:#1E2126;
+    --muted:#646B73; --hair:#C6CBD0; --grid:#D8DCE0;
+    --measure:#0E6E6B; --measure-s:#D9ECEA;
+    --bind:#A8256A; --bind-s:#F6E0EC;
+    --wrong:#A33B1F; --wrong-s:#F5E2DA;
+    --sans:"Noto Sans TC",-apple-system,"Segoe UI","Microsoft JhengHei",sans-serif;
+    --mono:"IBM Plex Mono","Cascadia Mono",Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:#14161A; --surface:#1C1F24; --sunken:#262A30; --ink:#E3E6EA;
+      --muted:#969DA6; --hair:#363B42; --grid:#2C3036;
+      --measure:#5FC9C3; --measure-s:#10302F;
+      --bind:#F186BB; --bind-s:#35182A;
+      --wrong:#EE9070; --wrong-s:#381D14;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:#14161A; --surface:#1C1F24; --sunken:#262A30; --ink:#E3E6EA;
+    --muted:#969DA6; --hair:#363B42; --grid:#2C3036;
+    --measure:#5FC9C3; --measure-s:#10302F;
+    --bind:#F186BB; --bind-s:#35182A;
+    --wrong:#EE9070; --wrong-s:#381D14;
+  }
+  * { box-sizing: border-box; }
+  body { background:var(--ground); color:var(--ink); font-family:var(--sans);
+         font-size:15px; line-height:1.75; margin:0; -webkit-font-smoothing:antialiased; }
+  .shell { max-width:960px; margin:0 auto; padding:40px 28px 96px; }
+  .eyebrow { font-family:var(--mono); font-size:11px; letter-spacing:.16em;
+             text-transform:uppercase; color:var(--measure); margin-bottom:10px; }
+  h1 { font-weight:900; font-size:38px; line-height:1.2; letter-spacing:-.01em; margin:0 0 16px; text-wrap:balance; }
+  .lede { font-size:16.5px; color:var(--muted); max-width:60ch; margin:0; }
+  .lede strong { color:var(--ink); font-weight:500; }
+  .keyfacts { display:grid; grid-template-columns:repeat(auto-fit,minmax(128px,1fr));
+              gap:1px; background:var(--hair); border:1px solid var(--hair); margin:28px 0 0; }
+  .keyfacts div { background:var(--surface); padding:12px 14px; }
+  .keyfacts .v { font-family:var(--mono); font-size:18px; font-weight:600;
+                 font-variant-numeric:tabular-nums; line-height:1.2; }
+  .keyfacts .k { font-size:11.5px; color:var(--muted); line-height:1.45; margin-top:4px; }
+  section { margin-top:54px; }
+  .sec-head { display:flex; align-items:baseline; gap:12px; padding-bottom:9px;
+              border-bottom:2px solid var(--ink); margin-bottom:6px; }
+  .sec-head .n { font-family:var(--mono); font-size:12px; font-weight:600; color:var(--measure); letter-spacing:.06em; }
+  .sec-head h2 { font-size:21px; font-weight:700; margin:0; flex:1; letter-spacing:-.005em; }
+  .sec-head .tag { font-family:var(--mono); font-size:10.5px; color:var(--muted);
+                   border:1px solid var(--hair); padding:1px 6px; white-space:nowrap; }
+  .sec-intro { color:var(--muted); font-size:14px; margin:10px 0 0; max-width:62ch; }
+  figure { margin:22px 0 0; background:var(--surface); border:1px solid var(--hair); padding:18px 20px 6px; }
+  figure svg { display:block; width:100%; height:auto; }
+  figcaption { font-size:13.5px; color:var(--muted); padding:12px 0 14px;
+               border-top:1px solid var(--hair); margin-top:12px; }
+  figcaption strong { color:var(--ink); font-weight:500; }
+  svg text { font-family:var(--sans); fill:currentColor; }
+  svg .m { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  svg .t{font-size:13px;font-weight:700;} svg .s{font-size:11.5px;} svg .xs{font-size:10.5px;}
+  svg .mu{fill:var(--muted);} svg .me{fill:var(--measure);} svg .bd{fill:var(--bind);} svg .wr{fill:var(--wrong);}
+  svg .box{fill:var(--sunken);stroke:var(--hair);stroke-width:1;}
+  svg .boxm{fill:var(--measure-s);stroke:var(--measure);stroke-width:1.3;}
+  svg .boxb{fill:var(--bind-s);stroke:var(--bind);stroke-width:1.3;}
+  svg .boxw{fill:var(--wrong-s);stroke:var(--wrong);stroke-width:1.3;}
+  svg .ln{stroke:currentColor;stroke-width:1.4;fill:none;}
+  svg .lnm{stroke:var(--measure);stroke-width:1.6;fill:none;}
+  svg .lnb{stroke:var(--bind);stroke-width:1.8;fill:none;}
+  svg .lnw{stroke:var(--wrong);stroke-width:1.6;fill:none;stroke-dasharray:5 4;}
+  svg .thin{stroke:var(--hair);stroke-width:1;fill:none;}
+  svg .dash{stroke:var(--muted);stroke-width:1.1;fill:none;stroke-dasharray:4 4;}
+  svg .grid{stroke:var(--grid);stroke-width:1;fill:none;}
+  #ar path{fill:var(--ink);} #arm path{fill:var(--measure);}
+  #arb path{fill:var(--bind);} #arw path{fill:var(--wrong);}
+  .wrap { overflow-x:auto; margin:18px 0 0; }
+  table { width:100%; border-collapse:collapse; font-size:13px; min-width:620px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--hair); vertical-align:top; }
+  th { font-family:var(--mono); font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+       color:var(--muted); border-bottom:1px solid var(--ink); white-space:nowrap; }
+  td.m,th.m { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  td.num { text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  td.no { color:var(--wrong); }
+  tr.bind td { background:var(--bind-s); }
+  tr.bind td:first-child { font-weight:700; }
+  .note { display:grid; grid-template-columns:74px minmax(0,1fr); gap:14px; padding:12px 0;
+          border-top:1px dotted var(--hair); font-size:13.5px; line-height:1.7; }
+  .note .lab { font-family:var(--mono); font-size:10.5px; letter-spacing:.06em; padding-top:4px; }
+  .note.why .lab{color:var(--measure);} .note.bad .lab{color:var(--wrong);} .note.key .lab{color:var(--bind);}
+  .note p { margin:0; }
+  .callout { border-left:3px solid var(--bind); background:var(--bind-s);
+             padding:14px 16px; margin:20px 0 0; font-size:14px; }
+  .callout.warn { border-left-color:var(--wrong); background:var(--wrong-s); }
+  .callout .h { font-weight:700; margin-bottom:4px; }
+  code { font-family:var(--mono); font-size:.88em; background:var(--sunken); padding:1px 4px; }
+  .calc { font-family:var(--mono); font-size:12.5px; line-height:1.9; background:var(--sunken);
+          border:1px solid var(--hair); padding:14px 16px; margin:16px 0 0; overflow-x:auto;
+          white-space:pre; font-variant-numeric:tabular-nums; }
+  .calc .hl{color:var(--bind);font-weight:600;} .calc .me{color:var(--measure);} .calc .c{color:var(--muted);}
+  .foot { font-family:var(--mono); font-size:11px; color:var(--muted); margin-top:56px;
+          padding-top:20px; border-top:2px solid var(--ink); line-height:1.9; }
+  @media (max-width:720px){ .shell{padding:26px 16px 70px;} h1{font-size:28px;}
+    .note{grid-template-columns:1fr;gap:2px;} }
+  @media (prefers-reduced-motion:reduce){ *{animation:none!important;transition:none!important;} }
+</style>
+
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"></path></marker>
+  </defs>
+</svg>
+
+<div class="shell">
+
+<header>
+  <div class="eyebrow">Subsystem Architecture · 對應 docs/34 ／ 35 ／ 36</div>
+  <h1>落腳與材質解剖</h1>
+  <p class="lede">
+    「腳踩到地板了」這句話在這個專案裡不是一個事件，而是<strong>一條五段的鏈</strong>：
+    Foot IK 的地面觀測 → 落腳偵測 → Schmitt 上膛 → 每腳一份的材質解析 → 黑板事件快照。
+    這頁講的是<strong>這條鏈上的擁有權怎麼被切開</strong>——
+    誰有跨幀狀態、誰不准寫黑板、哪一段只是別人的內部策略而不是一個子系統，
+    以及那八個門檻為什麼<strong>每一個都來自量測而不是手感</strong>。
+  </p>
+
+  <div class="keyfacts">
+    <div><div class="v">5</div><div class="k">段鏈<br>（觀測→偵測→上膛→材質→快照）</div></div>
+    <div><div class="v">8</div><div class="k">校準參數<br>全部有量測依據</div></div>
+    <div><div class="v">4</div><div class="k">道落腳判準<br>缺一不可</div></div>
+    <div><div class="v">5</div><div class="k">層材質優先級</div></div>
+    <div><div class="v">0</div><div class="k">額外 raycast<br>（複用 Foot IK 的）</div></div>
+    <div><div class="v">41</div><div class="k">EditMode 測試<br>（26 偵測 ＋ 15 材質）</div></div>
+  </div>
+</header>
+
+<!-- ═══ 1 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">01</span>
+    <h2>一條鏈，四個擁有者，只有一個能寫黑板</h2>
+    <span class="tag">型別層的保證，不是紀律</span>
+  </div>
+  <p class="sec-intro">
+    這條鏈上有跨幀狀態的有兩個（tracker、resolver），有 Unity 生命週期的有兩個
+    （<code>FootIKController</code>、<code>FootstepDetector</code>），
+    而<strong>能寫黑板的只有 <code>PresentationPipeline</code> 一個</strong>——
+    而且那不是靠誰記得，是因為偵測端的方法簽章<strong>回傳值</strong>，結構上沒有寫入的機會。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 880 452" role="img" aria-label="落腳鏈的五個階段：FootIKController 產出地面觀測，FootstepDetector 內部同時推進左右腳的 FootPlantTracker 與 SurfaceResolver，回傳值交給 PresentationPipeline 合併後整體覆寫黑板，AudioController 於下一幀讀取">
+
+      <text class="xs m me" x="16" y="16">管線順序 6.5 ─ 步驟① 驅動所有 IPresentationController</text>
+      <text class="xs m bd" x="196" y="36">管線順序 6.5 ─ 步驟② 詢問所有 IPresentationEventSource</text>
+
+      <!-- stage 1 -->
+      <rect class="boxm" x="16" y="48" width="160" height="180"></rect>
+      <text class="s t me" x="28" y="70">① 地面觀測</text>
+      <text class="xs mu" x="28" y="90">FootIKController</text>
+      <text class="xs mu" x="28" y="106">每幀雙腳各 1～3 次</text>
+      <text class="xs mu" x="28" y="122">Physics.Raycast</text>
+      <rect class="box" x="28" y="136" width="136" height="76"></rect>
+      <text class="xs m" x="38" y="154">FootIKGroundData</text>
+      <text class="xs mu" x="38" y="170">HasGround / GroundY</text>
+      <text class="xs mu" x="38" y="184">Point / Normal</text>
+      <text class="xs mu" x="38" y="198">Collider / IsWarm</text>
+
+      <!-- detector container -->
+      <rect class="boxb" x="196" y="48" width="352" height="180"></rect>
+      <text class="s t bd" x="208" y="70">FootstepDetector</text>
+      <text class="xs mu" x="208" y="86">IPresentationEventSource ─ 不實作 IPresentationController</text>
+
+      <rect class="box" x="208" y="96" width="160" height="120"></rect>
+      <text class="xs m" x="218" y="114">② FootPlantTracker</text>
+      <text class="xs mu" x="218" y="130">struct ×2（左／右）</text>
+      <text class="xs mu" x="218" y="146">③ Schmitt 上膛</text>
+      <text class="xs mu" x="218" y="162">跨幀：相位／上膛／</text>
+      <text class="xs mu" x="218" y="176">行程基準／前幀採樣</text>
+      <text class="xs me" x="218" y="196">回傳 FootstepKind</text>
+      <text class="xs me" x="218" y="210">─ 不寫黑板</text>
+
+      <rect class="box" x="376" y="96" width="160" height="120"></rect>
+      <text class="xs m" x="386" y="114">④ SurfaceResolver</text>
+      <text class="xs mu" x="386" y="130">struct ×2（左／右）</text>
+      <text class="xs mu" x="386" y="146">跨幀：collider 記憶化</text>
+      <text class="xs mu" x="386" y="162">每幀都解，不是只在</text>
+      <text class="xs mu" x="386" y="176">擊發時解</text>
+      <text class="xs me" x="386" y="196">回傳 SurfaceId</text>
+      <text class="xs me" x="386" y="210">─ 不寫黑板</text>
+
+      <!-- stage 5 -->
+      <rect class="boxm" x="568" y="48" width="150" height="180"></rect>
+      <text class="s t me" x="580" y="70">⑤ 合併與發布</text>
+      <text class="xs mu" x="580" y="90">PresentationPipeline</text>
+      <text class="xs mu" x="580" y="106">合併：max／OR／</text>
+      <text class="xs mu" x="580" y="122">先表態者勝</text>
+      <text class="xs bd" x="580" y="146">黑板唯一 Writer</text>
+      <text class="xs mu" x="580" y="162">A5 WriterRule 守</text>
+      <rect class="box" x="580" y="174" width="126" height="40"></rect>
+      <text class="xs m" x="590" y="190">PresentationEvents</text>
+      <text class="xs mu" x="590" y="204">整體覆寫＝復位</text>
+
+      <!-- consumer -->
+      <rect class="box" x="738" y="48" width="126" height="180"></rect>
+      <text class="s t" x="750" y="70">消費</text>
+      <text class="xs mu" x="750" y="90">AudioController</text>
+      <text class="xs mu" x="750" y="106">IPresentation-</text>
+      <text class="xs mu" x="750" y="120">Controller</text>
+      <text class="xs wr" x="750" y="146">下一幀 步驟①</text>
+      <text class="xs mu" x="750" y="162">讀到的恆為</text>
+      <text class="xs mu" x="750" y="176">上一幀的快照</text>
+      <text class="xs mu" x="750" y="196">只讀，不清除</text>
+
+      <!-- arrows -->
+      <path class="lnm" d="M176,138 L196,138" marker-end="url(#arm)"></path>
+      <path class="lnb" d="M548,138 L568,138" marker-end="url(#arb)"></path>
+      <path class="lnw" d="M718,232 L718,252 L802,252 L802,232" marker-end="url(#arw)"></path>
+      <text class="xs m wr" x="700" y="270">跨越一個 frame 邊界</text>
+
+      <!-- ownership band -->
+      <line class="thin" x1="16" y1="292" x2="864" y2="292"></line>
+      <text class="xs m mu" x="16" y="312">擁有權切法 ── 三種東西刻意分屬三個擁有者</text>
+
+      <rect class="box" x="16" y="322" width="272" height="112"></rect>
+      <text class="xs t" x="28" y="342">跨幀偵測狀態</text>
+      <text class="xs mu" x="28" y="360">擁有者：tracker／resolver 自己</text>
+      <text class="xs mu" x="28" y="376">以值型別欄位持有 ⇒ 擁有者在</text>
+      <text class="xs mu" x="28" y="390">型別層就看得見，執行期零配置</text>
+      <text class="xs mu" x="28" y="410">⚠️ 它有跨幀狀態，</text>
+      <text class="xs mu" x="28" y="424">但那不代表它能對外發布</text>
+
+      <rect class="box" x="300" y="322" width="272" height="112"></rect>
+      <text class="xs t" x="312" y="342">黑板事件的發布與生命週期</text>
+      <text class="xs mu" x="312" y="360">擁有者：PresentationPipeline</text>
+      <text class="xs mu" x="312" y="376">每幀從 default 重算、整體覆寫</text>
+      <text class="xs mu" x="312" y="390">⇒ 覆寫本身就是復位機制</text>
+      <text class="xs mu" x="312" y="410">ResetTransientState（順序 7）</text>
+      <text class="xs mu" x="312" y="424">刻意不認識這一區</text>
+
+      <rect class="box" x="584" y="322" width="280" height="112"></rect>
+      <text class="xs t" x="596" y="342">地面觀測的生命週期</text>
+      <text class="xs mu" x="596" y="360">擁有者：FootIKController</text>
+      <text class="xs mu" x="596" y="376">（＝它的唯一 Writer；</text>
+      <text class="xs mu" x="596" y="390">擁有權跟著寫入權走）</text>
+      <text class="xs mu" x="596" y="410">偵測器向 owner 取引用，</text>
+      <text class="xs mu" x="596" y="424">不向其他 Controller 要</text>
+    </svg>
+    <figcaption>
+      <strong>這張圖真正要說的是最右邊那條虛線</strong>：發布固定在所有 Controller Tick <strong>之後</strong>，
+      消費固定在下一幀 Tick <strong>之中</strong>——兩者永遠隔著一個 frame 邊界。
+      這就是「每個事件恰好被每個 consumer 看到一次」的結構依據，
+      代價是固定一幀延遲。⚠️ 若改成在迭代中途發布，同一個窗口內誰讀得到就取決於
+      <code>GetComponentsInChildren</code> 的回傳順序（＝ Hierarchy 誰在上面）——
+      <strong>把拖動物件變成正確性條件</strong>。
+    </figcaption>
+  </figure>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>邊</th><th>資料</th><th>唯一 Writer</th><th>座標空間</th><th>更新時機</th><th>跨幀？</th></tr></thead>
+      <tbody>
+        <tr><td class="m">①→②</td><td class="m">FootIKGroundData</td><td class="m">FootIKController</td><td>世界</td><td>6.5 步驟①</td><td class="no">否（每幀整體覆寫）</td></tr>
+        <tr><td class="m">Rig→②</td><td class="m">FootIKPoseData</td><td class="m">FootIKRig</td><td>世界（pre-IK）</td><td>Animator IK pass</td><td class="no">否</td></tr>
+        <tr><td class="m">②內部</td><td class="m">FootPlantTracker</td><td>tracker 自己</td><td>相對地面（純量）</td><td>6.5 步驟②</td><td>✅ 是</td></tr>
+        <tr><td class="m">④內部</td><td class="m">SurfaceResolver</td><td>resolver 自己</td><td>—（collider 參考）</td><td>6.5 步驟②</td><td>✅ 是</td></tr>
+        <tr class="bind"><td class="m">②→⑤</td><td class="m">PresentationEventData</td><td>—（<strong>回傳值</strong>）</td><td>世界（腳部位置）</td><td>6.5 步驟②</td><td class="no">否</td></tr>
+        <tr class="bind"><td class="m">⑤→黑板</td><td class="m">data.PresentationEvents</td><td class="m">PresentationPipeline</td><td>世界</td><td>6.5 末尾</td><td>✅ 是（供下一幀讀）</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note key"><span class="lab">邊界</span><p>
+    <code>SurfaceResolver</code> <strong>不是一個子系統</strong>——它是 <code>FootstepDetector</code> 的內部策略。
+    判準很具體：它沒有 <code>MonoBehaviour</code>、沒有介面、沒有自己的生命週期、
+    不出現在任何 <code>GetComponentsInChildren</code> 的掃描裡，
+    也<strong>沒有第二個使用者</strong>——全 repo 只有 <code>FootstepDetector</code> 的兩個欄位持有它。
+    它是一個 <code>struct</code>，跟 <code>FootPlantTracker</code> 同樣是「被偵測器持有的值」。
+  </p></div>
+
+  <div class="note why"><span class="lab">零 raycast</span><p>
+    偵測器<strong>不自己問地面</strong>。<code>FootIKController</code> 每幀本來就對雙腳各發至少一次
+    <code>Physics.Raycast</code>（開啟兩點取樣時三次），而腳步需要的「腳底離地多高」正是同一份資料。
+    複用之後成本從「每步多 1～2 次 raycast」變成 <strong>0</strong>。
+    ⚠️ 這條管道能成立的唯一依據是時序：步驟①<strong>必定</strong>在步驟②之前跑完，
+    因此讀到的恆為本幀剛算出的觀測——<strong>而且與 Hierarchy 順序無關</strong>，
+    兩個步驟之間隔著的是管線的結構，不是元件的排列。
+  </p></div>
+
+  <div class="note bad"><span class="lab">退化</span><p>
+    三條防禦線的方向刻意不同：<strong>找不到 <code>FootIKRig</code> ⇒ <code>LogError</code>，全程靜默</strong>
+    （沒有 pose 就沒有可量的東西）；
+    <strong>找不到 <code>FootIKController</code> ⇒ <code>LogWarning</code>，退回以角色 Root 平面為地面基準</strong>
+    （平地正常，樓梯與斜坡退步）；
+    <strong>沒綁 <code>SurfaceMapSO</code> ⇒ <code>LogWarning</code>，所有事件的 Surface 為 <code>Unknown</code></strong>
+    （消費端退回它自己的 default）。
+    ⚠️ 還有一條藏在 <code>Evaluate</code> 裡：<code>data</code> 為 <code>null</code> 時<strong>視為 grounded</strong>——
+    退化方向必須是「什麼都不做、照常出聲」，而不是把整個角色的腳步靜音。
+  </p></div>
+</section>
+
+<!-- ═══ 2 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">02</span>
+    <h2>四道判準：為什麼不是一道，也不是一個時間閘</h2>
+    <span class="tag">選對訊號比調對門檻重要</span>
+  </div>
+  <p class="sec-intro">
+    八個門檻沒有一個是手感試出來的——全部來自對磁碟上真實動畫的量測。
+    下面四條數線<strong>按真實比例</strong>畫：每一條上面是量到的兩個 band，中間那一格是取的門檻。
+    看它們之間的距離，就知道哪一道判準真的有分辨力。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 880 420" role="img" aria-label="四條按比例的數線，分別是下降速度、抬腳行程、腳部世界水平速度、腳底離地高度，各自標出量測到的兩個區間與取用的門檻">
+      <!-- (a) descent speed 0..5.0 -->
+      <text class="xs m me" x="16" y="20">① 下降速度（m/s）　Schmitt 的兩個門檻</text>
+      <line class="grid" x1="60" y1="52" x2="840" y2="52"></line>
+      <text class="xs m mu" x="52" y="68">0</text>
+      <text class="xs m mu" x="828" y="68">5.0</text>
+      <rect class="boxw" x="64.7" y="36" width="57.7" height="16"></rect>
+      <text class="xs wr" x="128" y="48">停步 settling 峰值 0.03–0.40</text>
+      <rect class="boxm" x="192.6" y="20" width="539.8" height="16"></rect>
+      <text class="xs me" x="300" y="32">真實跨步峰值 0.85–4.31（Walk 收步 → Sprint）</text>
+      <line class="lnb" x1="99" y1="30" x2="99" y2="62"></line>
+      <text class="xs m bd" x="103" y="80">上膛 0.25</text>
+      <line class="lnb" x1="67.8" y1="44" x2="67.8" y2="74"></line>
+      <text class="xs m bd" x="16" y="92">擊發 0.05</text>
+
+      <!-- (b) lift 0..0.20 -->
+      <text class="xs m me" x="16" y="128">② 抬腳行程（m，相對地面）　per-foot，刻意不是時間閘</text>
+      <line class="grid" x1="60" y1="160" x2="840" y2="160"></line>
+      <text class="xs m mu" x="52" y="176">0</text>
+      <text class="xs m mu" x="822" y="176">0.20</text>
+      <rect class="boxw" x="60" y="144" width="66.3" height="16"></rect>
+      <text class="xs wr" x="132" y="156">純 settling／骨骼微震 ≤ 0.017</text>
+      <rect class="boxm" x="528" y="128" width="312" height="16"></rect>
+      <text class="xs me" x="360" y="140">真實跨步最小 0.12（Walk 收步）</text>
+      <line class="lnb" x1="157.5" y1="138" x2="157.5" y2="170"></line>
+      <text class="xs m bd" x="161" y="188">重新上膛 0.025</text>
+      <line class="lnb" x1="294" y1="152" x2="294" y2="182"></line>
+      <text class="xs m bd" x="298" y="200">正常步 0.060</text>
+      <line class="dash" x1="188.7" y1="154" x2="188.7" y2="166"></line>
+      <text class="xs mu" x="193" y="176">最大停步調整 0.033</text>
+
+      <!-- (c) horizontal speed 0..8 -->
+      <text class="xs m me" x="16" y="236">③ 腳部世界水平速度（m/s）　⭐ 最乾淨的那一個訊號</text>
+      <line class="grid" x1="60" y1="268" x2="840" y2="268"></line>
+      <text class="xs m mu" x="52" y="284">0</text>
+      <text class="xs m mu" x="832" y="284">8.0</text>
+      <rect class="boxm" x="61" y="252" width="87.7" height="16"></rect>
+      <text class="xs me" x="154" y="264">真實落腳 0.01–0.91（踩住的腳在世界空間幾乎不動）</text>
+      <rect class="boxw" x="450" y="236" width="303.2" height="16"></rect>
+      <text class="xs wr" x="458" y="248">擺盪中掠過 4.00–7.11（約兩倍角色速度）</text>
+      <line class="lnb" x1="255" y1="246" x2="255" y2="278"></line>
+      <text class="xs m bd" x="259" y="296">落腳上限 2.0 ── 兩側各約 2 倍餘裕</text>
+
+      <!-- (d) clearance 0..0.06 -->
+      <text class="xs m me" x="16" y="344">④ 腳底離地高度（m）　接觸帶——兩個 band 幾乎貼在一起</text>
+      <line class="grid" x1="60" y1="376" x2="840" y2="376"></line>
+      <text class="xs m mu" x="52" y="392">0</text>
+      <text class="xs m mu" x="822" y="392">0.06</text>
+      <rect class="boxm" x="60" y="360" width="390" height="16"></rect>
+      <text class="xs me" x="72" y="372">真實落腳時離地 ≤ 0.030</text>
+      <rect class="boxw" x="632" y="344" width="208" height="16"></rect>
+      <text class="xs wr" x="640" y="356">擺盪中低點最低 0.044</text>
+      <line class="lnb" x1="645" y1="354" x2="645" y2="386"></line>
+      <text class="xs m bd" x="500" y="404">接觸帶 0.045 ── 與擺盪低點只差 0.001 m</text>
+    </svg>
+    <figcaption>
+      <strong>③ 與 ④ 放在一起看，就是這套判準的核心論證。</strong>
+      同樣要分辨「真實落腳」與「擺盪中低點」：用<strong>高度</strong>量，兩個 band 之間只隔 0.014 m，
+      而門檻只能塞在 0.045 這個縫裡；用<strong>水平速度</strong>量，兩個 band 之間隔著 3.09 m/s，
+      門檻放在 2.0 對上下各有約 2 倍餘裕。
+      ⇒ <strong>選對訊號比調對門檻重要</strong>——這也是為什麼 Stage 1 之前「只看下降停止」的舊版
+      會在錯的相位上出聲。
+    </figcaption>
+  </figure>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>參數</th><th class="num">值</th><th>它在問什麼</th><th>量測依據</th></tr></thead>
+      <tbody>
+        <tr><td class="m">ArmDescentSpeed</td><td class="num">0.25</td><td>腳確實在快速下降嗎</td><td>真實跨步峰值 ≥ 0.85；settling 峰值僅 0.03–0.40</td></tr>
+        <tr><td class="m">FireDescentSpeed</td><td class="num">0.05</td><td>下降結束了嗎</td><td>必須明顯小於上膛值，兩者構成 Schmitt trigger</td></tr>
+        <tr><td class="m">ReArmLift</td><td class="num">0.025</td><td>這是新的一步嗎</td><td>settling 行程 ≤ 0.017；最小真實腳部調整 0.033</td></tr>
+        <tr><td class="m">NormalStepLift</td><td class="num">0.060</td><td>這是完整跨步嗎</td><td>最小真實跨步 0.12；最大停步調整 0.033（取幾何中位）</td></tr>
+        <tr><td class="m">ContactClearance</td><td class="num">0.045</td><td>腳真的貼著地嗎</td><td>真實落腳 ≤ 0.030；擺盪低點最低 0.044</td></tr>
+        <tr class="bind"><td class="m">PlantHorizontalSpeedMax</td><td class="num">2.0</td><td>這是踩住還是掠過</td><td>落腳 0.01–0.91；擺盪 4.00–7.11</td></tr>
+        <tr><td class="m">SwingGateMinRootSpeed</td><td class="num">0.5</td><td>上面那道閘現在有效嗎</td><td>行走世界速度約 2.2、跑步 4.7 ⇒ 正常移動恆生效</td></tr>
+        <tr><td class="m">GroundStepTolerance</td><td class="num">0.06</td><td>量腳的尺跳了嗎</td><td>場景樓梯級高 0.194；45° 斜坡單幀僅 0.033</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note key"><span class="lab">authored</span><p>
+    以上八個值<strong>兩個 prefab 逐條相同</strong>，且與 <code>FootstepDetectionSettings</code> 的程式預設完全一致
+    （<code>X Bot.prefab</code> ／ <code>Y Bot.prefab</code> 皆為 0.25／0.05／0.025／0.060／0.045／2／0.5／0.06）。
+    ⇒ 目前<strong>沒有任何一隻角色在覆寫偵測參數</strong>。
+  </p></div>
+
+  <div class="note bad"><span class="lab">不做</span><p>
+    <strong>沒有時間閘，也沒有 cooldown。</strong> 兩個參考實作（<code>dropecho/unity_footstep</code>、
+    <code>ThirdPersonFootsteps</code>）都用固定 cooldown（0.33 s／0.3 s）掩蓋偵測問題，
+    代價是把步頻鎖上限——本專案 sprint 的步頻會直接被吃掉。
+    這裡改用 <strong>per-foot 的高度判準</strong>（<code>ReArmLift</code>）：它不需要依最快步頻反推門檻，
+    因此估錯的失敗模式根本不存在。
+  </p></div>
+</section>
+
+<!-- ═══ 3 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">03</span>
+    <h2>參考系不連續：量腳的那把尺自己跳了</h2>
+    <span class="tag">兩個來源，都不是腳的運動</span>
+  </div>
+  <p class="sec-intro">
+    「離地高度」是相對量，前後兩幀要能相減的前提是<strong>兩幀的參考系一樣</strong>。
+    樓梯上有兩件事會讓這個前提失效——而且第二件是實測抓到的，只擋第一件修不好。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 880 320" role="img" aria-label="兩種參考系不連續：其一 ray 跨過階梯級緣導致 groundY 單幀跳一整個級高，其二 CharacterController 的 step offset 把整個 Root 平面抬高一階">
+      <text class="xs m wr" x="16" y="18">① 腳下的地面換了一階 ── ray 跨過級緣</text>
+
+      <path class="thin" d="M40,150 L160,150 L160,110 L280,110 L280,70 L400,70"></path>
+      <text class="xs m mu" x="44" y="166">級高 0.194 m（場景實測）</text>
+      <circle cx="140" cy="132" r="4" fill="var(--measure)"></circle>
+      <text class="xs me" x="120" y="124">腳 t</text>
+      <circle cx="184" cy="92" r="4" fill="var(--wrong)"></circle>
+      <text class="xs wr" x="190" y="88">腳 t+1</text>
+      <line class="lnw" x1="160" y1="150" x2="160" y2="110"></line>
+      <text class="xs m wr" x="166" y="140">groundY 單幀跳一整階</text>
+      <text class="xs mu" x="44" y="186">⇒ 差分算出巨大假速度</text>
+
+      <text class="xs m wr" x="480" y="18">② 角色自己被抬上一階 ── CharacterController step offset</text>
+      <path class="thin" d="M504,150 L624,150 L624,110 L744,110 L744,70 L864,70"></path>
+      <rect class="box" x="540" y="86" width="44" height="64"></rect>
+      <text class="xs mu" x="544" y="106">Root</text>
+      <text class="xs mu" x="544" y="122">平面</text>
+      <text class="xs mu" x="544" y="138">t</text>
+      <rect class="boxw" x="640" y="46" width="44" height="64"></rect>
+      <text class="xs wr" x="644" y="66">Root</text>
+      <text class="xs wr" x="644" y="82">平面</text>
+      <text class="xs wr" x="644" y="98">t+1</text>
+      <path class="lnw" d="M592,100 L632,60" marker-end="url(#arw)"></path>
+      <text class="xs m wr" x="700" y="140">整包上移 ⇒ 腳相對角色</text>
+      <text class="xs m wr" x="700" y="156">根本沒動，差分仍算出假速度</text>
+
+      <line class="thin" x1="16" y1="206" x2="864" y2="206"></line>
+      <text class="xs m me" x="16" y="228">處置 ── 三件事一起停，不是只停擊發</text>
+      <rect class="box" x="16" y="238" width="272" height="66"></rect>
+      <text class="xs t" x="28" y="258">不計速度</text>
+      <text class="xs mu" x="28" y="276">verticalSpeed 當幀直接設 0，</text>
+      <text class="xs mu" x="28" y="292">不讓假值進 Schmitt</text>
+      <rect class="box" x="300" y="238" width="272" height="66"></rect>
+      <text class="xs t" x="312" y="258">不擊發</text>
+      <text class="xs mu" x="312" y="276">即使已上膛也擋在資格檢查，</text>
+      <text class="xs mu" x="312" y="292">理由記為 GroundDiscontinuity</text>
+      <rect class="box" x="584" y="238" width="280" height="66"></rect>
+      <text class="xs t" x="596" y="258">不累計行程</text>
+      <text class="xs mu" x="596" y="276">否則跨級緣會憑空灌進</text>
+      <text class="xs mu" x="596" y="292">一整個級高的抬腳行程</text>
+    </svg>
+    <figcaption>
+      <strong>②是實測抓到的，不是推導出來的。</strong> 只擋①的時候，上樓每隔 8～9 幀就會多擊發一次——
+      而正常步距是 26～34 幀。那正是使用者回報的「樓梯腳步過密」。
+      ⚠️ 上膛狀態在這裡<strong>刻意保留</strong>：這一段下降確實發生過，只是還沒到真正的接觸點；
+      清掉上膛會讓稍後真正踩地的那一幀無法擊發。
+    </figcaption>
+  </figure>
+
+  <div class="note why"><span class="lab">向下修正</span><p>
+    還有一條不屬於不連續、但同樣是「基準錯了」的修正：<strong>落腳基準必須能向下修正</strong>。
+    行程是「相對上次落腳的高度」量的，但一開始那個基準只是「當下腳在哪」——
+    若此時腳正懸在半空，基準就被錨在空中，之後永遠量不到足夠行程。
+    實例：<code>RunRtLoop</code> 的右腳全程離地 0.030–0.280 m，以第一幀的 0.272 當基準時
+    最大行程只有 0.008 m ⇒ <strong>整隻腳永久靜音</strong>（實測證實）。
+    修法是<strong>只在仍為 <code>Planted</code> 時</strong>把基準與行程一起拉到新低點；
+    一旦進入 <code>Lifted</code> 就凍結，否則下降途中會邊走邊吃掉自己的行程。
+  </p></div>
+</section>
+
+<!-- ═══ 4 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">04</span>
+    <h2>抑制不等於沒發生</h2>
+    <span class="tag">三個否決點，全部在推進之後</span>
+  </div>
+  <p class="sec-intro">
+    有三種情況會讓本幀不回報事件，但它們<strong>都發生在 tracker 推進之後</strong>——
+    跨幀狀態照常前進。「不報告」與「沒發生」是兩件事，這裡只做前者。
+    這條紀律不是潔癖：漏掉它，下一步的行程基準與上膛狀態就會錯亂。
+  </p>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>否決點</th><th>誰判</th><th>條件</th><th>對跨幀狀態做什麼</th></tr></thead>
+      <tbody>
+        <tr><td class="m">BelowNormalStep</td><td class="m">FootPlantTracker</td><td>行程 &lt; <code>NormalStepLift</code>（收步／起步微調）</td><td><strong>照常 MarkPlanted</strong>，只壓掉回報</td></tr>
+        <tr><td class="m">Airborne</td><td class="m">FootstepDetector</td><td><code>!isGrounded</code> <strong>且</strong>該腳沒有地面觀測</td><td>tracker 已推進，只把 <code>Kind</code> 改回 <code>None</code></td></tr>
+        <tr class="bind"><td class="m">justLanded</td><td class="m">FootstepDetector</td><td>本幀剛落地</td><td><strong>額外</strong>呼叫 <code>ForcePlanted()</code>，雙腳強制收束</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note key"><span class="lab">Airborne</span><p>
+    這條的論證方向很重要：<strong>它不是「把判準調嚴」，是原本的量測在空中沒有意義。</strong>
+    <code>FootIKController</code> 的閘門是 <code>data.IsGrounded</code> ⇒ 離地時整段關閉
+    ⇒ 偵測器拿不到地面觀測 ⇒ 基準退回 Root 平面。
+    Root 平面在地上是腳底基準，在空中只是<strong>一個跟著角色一起飛的參考點</strong>——
+    腳相對它的起落純粹是動畫內容。
+    ⭐ 觸發它的實例是 ledge climb：整段 traversal 的 <code>isGrounded</code> 都是 <code>false</code>
+    （exit knot 之後位置凍結 ⇒ <code>Move(Vector3.zero)</code> 不回報觸地），
+    攀爬動畫的腳因此在「離地 0」附近反覆進出接觸帶 ⇒ <strong>攀爬途中出現腳步聲</strong>。
+    ⛔ 修法刻意<strong>不</strong>讓偵測器認識 traversal／jump／任何狀態——本元件不該知道有哪些狀態存在。
+    ⚠️ 退化方向：<code>hasGround</code> 為真時完全不介入 ⇒ 沒有 Foot IK 的退化配置在地上仍照常出聲。
+  </p></div>
+
+  <div class="note why"><span class="lab">ForcePlanted</span><p>
+    落地是更高階的語意，已由 Landing 音表達，所以該幀不再額外報一次腳步。
+    但若<strong>只是</strong>「本幀不回報」，雙腳的上膛狀態會留到下一幀，
+    導致落地後立刻多播一兩聲普通腳步。
+    <code>ThirdPersonFootsteps</code> 為此要把雙腳一起設 cooldown；這裡改成<strong>收束相位</strong>
+    （行程基準同時重設 ⇒ 落地之後的下一步必須是真正重新抬腳），<strong>不引入時間閘</strong>。
+  </p></div>
+
+  <div class="callout warn">
+    <div class="h">⚠️ <code>FootstepKind.Shuffle</code> 目前沒有任何 runtime producer</div>
+    詞彙還在，但已經沒有人說它。證據三條，缺一不可地互相印證：
+    ① <code>FootPlantTracker.Advance</code> 的回傳只有 <code>Normal</code> 與 <code>None</code>——
+    行程不足以構成完整跨步者<strong>一律靜音</strong>（使用者實測裁決：收步／起步冒出的聲音「突兀且聽感很怪」）；
+    ② <code>FootstepAudioBank.asset</code> 四個材質的 <code>Shuffle</code> 槽<strong>全部為空</strong>；
+    ③ 同一顆資產的 <code>shuffleVolume</code> 是 <strong>0</strong>。<br>
+    仍然存在的只有三處：enum 值本身、<code>FootstepAudioBankSO</code> 的 Shuffle fallback 分支、
+    以及 Editor trace 面板的顏色判斷。
+    ⇒ 這是<strong>刻意保留的擴充點</strong>（enum 只增不改不重排，因為 Bank 以 <code>(int)</code> 值為索引），
+    <strong>不是</strong>還在運作的功能。讀這份程式時不要把它當成現況的一部分。
+  </div>
+</section>
+
+<!-- ═══ 5 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">05</span>
+    <h2>材質：五層優先級，一個記憶化，兩隻腳各一份</h2>
+    <span class="tag">建議與權威是兩回事</span>
+  </div>
+  <p class="sec-intro">
+    材質解析<strong>每幀都做</strong>，不是只在擊發時做——因為落地事件那一瞬間就必須已經有值。
+    成本由 collider 記憶化吸收：腳在同一塊地板上停留數十幀，這段期間只是一次 <code>ReferenceEquals</code>。
+  </p>
+
+  <figure>
+    <svg viewBox="0 0 880 396" role="img" aria-label="材質解析的五層優先級階梯，由 SurfaceOverride 到 SurfaceMapSO 的 DefaultSurface，右側為記憶化與 PickSurface 的單一決策">
+      <text class="xs m me" x="16" y="18">解析階梯 ── 由高到低，任一層表態就停</text>
+
+      <rect class="boxb" x="16" y="30" width="470" height="44"></rect>
+      <text class="s t bd" x="28" y="50">① SurfaceOverride（GetComponentInParent）</text>
+      <text class="xs mu" x="28" y="66">顯式指定。掛在父層即可涵蓋其下所有子 collider。Unknown 視同沒設定，繼續往下</text>
+
+      <rect class="box" x="16" y="80" width="470" height="44"></rect>
+      <text class="s t" x="28" y="100">② Collider.sharedMaterial（PhysicsMaterial）</text>
+      <text class="xs mu" x="28" y="116">描述的是物理表面，故比 Renderer 優先。⚠️ demo map 一個都沒有</text>
+
+      <rect class="box" x="16" y="130" width="470" height="44"></rect>
+      <text class="s t" x="28" y="150">③ TerrainLayer（僅 TerrainCollider）</text>
+      <text class="xs mu" x="28" y="166">先把對應同一材質的 layer 權重相加再取最大。⚠️ 目前場景 0 個 Terrain</text>
+
+      <rect class="boxm" x="16" y="180" width="470" height="44"></rect>
+      <text class="s t me" x="28" y="200">④ Renderer.sharedMaterial[0]（self → parent → child）</text>
+      <text class="xs mu" x="28" y="216">⭐ 主要配置管道。一顆 Material 設定一次，用到它的所有物件自動生效</text>
+
+      <rect class="box" x="16" y="230" width="470" height="44"></rect>
+      <text class="s t" x="28" y="250">⑤ SurfaceMapSO.DefaultSurface</text>
+      <text class="xs mu" x="28" y="266">保證有聲音。本專案為 Stone ＝「泛用硬地板」</text>
+
+      <path class="ln" d="M251,74 L251,80" marker-end="url(#ar)"></path>
+      <path class="ln" d="M251,124 L251,130" marker-end="url(#ar)"></path>
+      <path class="ln" d="M251,174 L251,180" marker-end="url(#ar)"></path>
+      <path class="ln" d="M251,224 L251,230" marker-end="url(#ar)"></path>
+
+      <!-- right column -->
+      <text class="xs m me" x="510" y="18">記憶化 ── key 是 collider 參考，不是位置</text>
+      <rect class="box" x="510" y="30" width="354" height="94"></rect>
+      <text class="xs mu" x="522" y="50">同一個 collider ⇒ 直接回上次的答案</text>
+      <text class="xs mu" x="522" y="68">換了 collider ⇒ 重算；同 collider 換位置 ⇒ 不重算</text>
+      <text class="xs wr" x="522" y="88">⚠️ TerrainCollider 例外：同一顆上不同位置是不同 layer</text>
+      <text class="xs wr" x="522" y="108">⚠️ 空中／無觀測 ⇒ 回 Unknown 並清快取，不沿用上一次</text>
+
+      <text class="xs m me" x="510" y="150">PickSurface ── 一幀只出一個決策</text>
+      <rect class="box" x="510" y="162" width="354" height="112"></rect>
+      <text class="xs mu" x="522" y="182">有事件的那一隻腳優先（左 → 右）</text>
+      <text class="xs mu" x="522" y="200">都沒事件 ⇒ 取任一已解析的</text>
+      <text class="xs mu" x="522" y="218">⇒ 這一格描述的是「角色現在站在什麼上面」</text>
+      <text class="xs bd" x="522" y="240">⛔ 刻意不做「左右各自一個材質」</text>
+      <text class="xs mu" x="522" y="258">否則 Landing 無所適從，交界處還會左右交替變聲</text>
+
+      <line class="thin" x1="16" y1="296" x2="864" y2="296"></line>
+      <text class="xs m me" x="16" y="316">場景實況（掃出來的，不是假設）</text>
+      <text class="xs mu" x="16" y="338">地面 collider 39 個　·　Terrain 0 個　·　PhysicsMaterial 0 個　·　多材質 Renderer 0 個</text>
+      <text class="xs mu" x="16" y="358">SceneSurfaceMap 共 9 筆 Material 對應：6 → Stone、1 → Wood、1 → Grass、1 → Dirt</text>
+      <text class="xs mu" x="16" y="378">⇒ 43 個地面物件、9 筆設定。26 個箱子共用一顆 Material ⇒ 設定一次，26 個全部生效</text>
+    </svg>
+    <figcaption>
+      <strong>⛔ runtime 不做名稱比對。</strong> <code>SurfaceMapSO</code> 的 key 是 Material／PhysicsMaterial／
+      TerrainLayer 的<strong>資產參考</strong>，不是字串。名稱只在
+      <code>Tools ▸ Project ▸ Scene Surface Audit</code> 這個 Editor 審計工具裡當「建議」，
+      由人確認後才寫進表。理由有二：名稱會改、會被美術換規則、會本地化，失效時<strong>完全無聲</strong>
+      （地板仍有聲音，只是錯的）；而且「叫什麼」本來就不等於「聽起來像什麼」——
+      貼石紋貼圖的木橋是常見美術做法。
+    </figcaption>
+  </figure>
+
+  <div class="note bad"><span class="lab">已知張力</span><p>
+    <code>FootGroundContact.Collider</code> 的契約寫得很明確：
+    「讀取方一律<strong>只讀不存</strong>（跨幀持有 <code>Collider</code> 參考會擋住物件銷毀）」，
+    <code>FootIKGroundData</code> 的讀取方契約也重申「<strong>不得跨幀快取內容</strong>，<code>Collider</code> 尤其不得留存」。
+    而 <code>SurfaceResolver._cachedCollider</code> <strong>正是跨幀持有它</strong>——
+    雖然只用於 <code>ReferenceEquals</code>、從不解參照。
+    同一段註解還寫著「本欄位目前<strong>沒有任何 runtime 讀取方</strong>」，那句已經過時（Stage 2 起就有了）。
+    📌 這是<strong>文件與程式的分歧，不是推測中的 bug</strong>；記在這裡是因為
+    兩者只能有一個是對的，而目前沒有測試在守這條。
+  </p></div>
+
+  <div class="note why"><span class="lab">Override</span><p>
+    <code>SurfaceOverride</code> 是<strong>例外機制，不是主要配置方式</strong>。
+    合理用途只有四種：美術 Material ≠ 聲學材質、一個 Mesh 含多材質而第一槽取不到正確資訊、
+    純碰撞代理（有 collider 沒 Renderer）、以及開一筆 Material 對應反而更難維護的單一特例。
+    ⚠️ 判斷準則寫在元件註解裡：<strong>如果你發現自己在掛第 5 個 Override，
+    代表 Material 對應沒設好，該回去補對應而不是繼續掛。</strong>
+  </p></div>
+</section>
+
+<!-- ═══ 6 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">06</span>
+    <h2>為什麼材質要放進事件裡</h2>
+    <span class="tag">型別層保證，不是紀律</span>
+  </div>
+  <p class="sec-intro">
+    使用者回報的首要問題不是「素材不夠」，而是<strong>「Walk 播 Stone，收步卻冒出草地感」</strong>——
+    同一塊地面上，不同事件用了不同材質。這不是調音量能修的，是結構問題。
+  </p>
+
+  <div class="calc"><span class="c">// 舊：三個事件各自指向自己的 clip 池，而那些池子是憑素材命名接上去的</span>
+Normal  ──▶ <span class="hl">Audio_LeftFootstep</span>   <span class="c">← 沒有任何機制保證三者同材質</span>
+Shuffle ──▶ <span class="hl">Audio_Shuffle</span>
+Landing ──▶ <span class="hl">Audio_Landing</span>
+
+<span class="c">// 新：材質成為事件的一部分，三者讀黑板上同一個欄位</span>
+FootstepDetector.Detect
+  ├─ 解析左腳材質（記憶化）  ─┐
+  ├─ 解析右腳材質（記憶化）  ─┤
+  └─ PickSurface() ──────────┴──▶ <span class="me">PresentationEventData.Surface</span>   <span class="c">← 單一欄位</span>
+                                  <span class="me">PresentationEventData.Landed</span>    <span class="c">← 落地也由此轉報</span>
+        ▼ 下一幀
+AudioController.Tick
+  ├─ Landed        ──▶ Bank(<span class="me">Surface</span>, Landing)
+  ├─ LeftFootstep  ──▶ Bank(<span class="me">Surface</span>, Kind, Gait)
+  └─ RightFootstep ──▶ Bank(<span class="me">Surface</span>, Kind, Gait)   <span class="c">← 三者讀同一個 Surface</span></div>
+
+  <div class="note key"><span class="lab">為什麼轉報</span><p>
+    落地<strong>改由偵測器轉報</strong>，而不是讓消費端自己讀黑板的 <code>JustLanded</code>。
+    唯一理由是<strong>材質必須同源</strong>：消費端讀到的事件快照慢一幀，而 <code>JustLanded</code> 是<strong>當幀值</strong>——
+    混用會讓落地那一瞬間拿到「上一幀還在空中、沒有地面觀測」的材質，<strong>必然錯</strong>。
+    ⚠️ 代價：落地音也承擔了那一幀（約 16 ms）。落地是較重較慢的聲音，這個代價可接受，
+    而且<strong>材質正確比早 16 ms 重要得多</strong>。
+  </p></div>
+
+  <div class="note why"><span class="lab">fallback</span><p>
+    素材缺漏時<strong>寧可換 kind，也不換 surface</strong>：
+    <code>(surface, kind)</code> → <code>(surface, 較通用的 kind)</code> → <code>(default, kind)</code> → <code>(default, Walk)</code>。
+    音色類別不精準只是不夠細緻；<strong>材質跑掉會直接出戲</strong>——那正是這一輪要修的問題。
+    ⛔ 絕不靜默挑一個不相干的材質。
+  </p></div>
+
+  <div class="note key"><span class="lab">合併律</span><p>
+    <code>PresentationPipeline</code> 對三種欄位用三種合併，但它們有同一個性質：
+    <strong>可交換、可結合、有單位元 ⇒ 合併結果與來源順序無關</strong>。
+    <code>FootstepKind</code> 取較重者（單位元 <code>None</code>，數值大小即優先序）；
+    <code>Landed</code> 取 OR（單位元 <code>false</code>）；
+    <code>Surface</code> 取<strong>第一個表態者</strong>（單位元 <code>Unknown</code>）。
+    ⇒ 來源只回報自己，看不見也改不掉別人的結果。目前只有一個來源，但這條律不是為了現在。
+  </p></div>
+</section>
+
+<!-- ═══ 7 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">07</span>
+    <h2>三個 failure case 的資料流追因</h2>
+    <span class="tag">全部是實測回報，不是假想</span>
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>症狀</th><th>錯在哪一段</th><th>為什麼會這樣</th><th>修法</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>貼著牆跑完全沒有腳步聲</strong></td>
+          <td class="m">水平速度閘</td>
+          <td>被牆擋住時 root 不前進、動畫照跑 ⇒ 踩住的腳以動畫速度往後滑，擺盪的腳以差不多速度往前。
+              <strong>兩者的世界速度幾乎一樣，這個量裡已經沒有可分辨的資訊</strong> ⇒ 每一步都被判成擺盪</td>
+          <td>加 <code>SwingGateMinRootSpeed</code>：角色實際世界速度低於 0.5 就<strong>關掉這道閘</strong>，
+              由接觸帶／行程／下降三道接手</td>
+        </tr>
+        <tr>
+          <td><strong>上樓時腳步過密</strong></td>
+          <td class="m">參考系不連續</td>
+          <td>只擋「ray 跨級緣」不夠——<code>CharacterController</code> 的 step offset 會在單幀內把整個
+              Root 平面抬高一階，腳跟著整包上移，差分算出巨大假速度</td>
+          <td>把 <code>rootPlaneJumped</code> 也列為不連續。修正前每 8～9 幀多擊發一次，正常步距是 26～34 幀</td>
+        </tr>
+        <tr class="bind">
+          <td><strong>攀爬途中出現腳步聲</strong></td>
+          <td class="m">地面基準退化</td>
+          <td>ledge climb 全程 <code>isGrounded == false</code> ⇒ Foot IK 閘門關閉 ⇒ 無地面觀測 ⇒
+              基準退回 Root 平面，而那只是一個<strong>跟著角色一起飛的參考點</strong></td>
+          <td>離地<strong>且</strong>該腳無地面觀測時不回報（<code>Airborne</code>）。
+              ⛔ 不讓偵測器認識 traversal 狀態</td>
+        </tr>
+        <tr>
+          <td><strong>整隻右腳永久靜音</strong></td>
+          <td class="m">行程基準錨在空中</td>
+          <td><code>RunRtLoop</code> 右腳全程離地 0.030–0.280 m；以第一幀的 0.272 當基準
+              ⇒ 最大行程只有 0.008 m，永遠打不到 <code>ReArmLift</code></td>
+          <td>仍為 <code>Planted</code> 時允許基準向下修正（進 <code>Lifted</code> 後凍結）</td>
+        </tr>
+        <tr>
+          <td><strong>走路時每一聲都在錯的相位</strong></td>
+          <td class="m">舊版判準（Stage 1 前）</td>
+          <td>舊版只看「下降停止」。但一次跨步的垂直軌跡<strong>不是單調的</strong>：
+              <code>WalkFwdLoop</code> 左腳 t=0.43 抬到 0.179 → t=0.63 降到 0.044 → <strong>再抬回 0.059</strong>
+              → t≈1.00 才真正踩地。舊版在 t=0.63 就擊發，而真正的踩地反被行程門檻吃掉</td>
+          <td>四道判準（行程／上膛／接觸帶／水平速度）全數成立才擊發</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note why"><span class="lab">測試</span><p>
+    上表五條全部有回歸鎖：<code>BlockedAgainstWall_StillProducesSteps</code>、
+    <code>RootPlaneJump_IsTreatedAsDiscontinuity</code> ＋ <code>StairEdgeCrossing_DoesNotFireOrInflateLift</code>、
+    <code>Airborne_WithoutGroundObservation_ProducesNothing</code>（配一條
+    <code>Airborne_WithGroundObservation_StillReports</code> 守退化方向）、
+    <code>FootStartingAirborne_StillProducesSteps</code>、
+    <code>MidSwingDip_IsNotAPlant_AndTheRealPlantStillFires</code>。
+    ⭐ 注意最後一條的命名——它<strong>同時</strong>斷言「假的不響」與「真的仍要響」。
+    只測前半的話，把門檻調到全部靜音也會綠。
+  </p></div>
+</section>
+
+<!-- ═══ 8 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">08</span>
+    <h2>跨幀狀態盤點與 Authority 矩陣</h2>
+    <span class="tag">誰能寫什麼 × 什麼時候</span>
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>跨幀狀態</th><th>住在哪</th><th>擁有者</th><th>什麼時候被推進</th><th>怎麼收束</th></tr></thead>
+      <tbody>
+        <tr><td class="m">相位／上膛</td><td><code>FootPlantTracker</code>（struct）</td><td>偵測器的欄位 ×2</td><td>6.5 步驟② 每幀</td><td><code>MarkPlanted</code>／<code>ForcePlanted</code></td></tr>
+        <tr><td class="m">行程基準與最大值</td><td>同上</td><td>同上</td><td>同上</td><td>落腳時拉齊到當前 clearance</td></tr>
+        <tr><td class="m">前一幀採樣</td><td>同上</td><td>同上</td><td>同上</td><td><strong>無論走哪條分支都前進</strong></td></tr>
+        <tr><td class="m">collider 記憶</td><td><code>SurfaceResolver</code>（struct）</td><td>偵測器的欄位 ×2</td><td>同上</td><td>無觀測時清空</td></tr>
+        <tr><td class="m">Root 位置前值</td><td><code>FootstepDetector</code></td><td>偵測器自己</td><td>同上</td><td>每幀覆寫</td></tr>
+        <tr class="bind"><td class="m">事件快照</td><td>黑板 <code>PresentationEvents</code></td><td class="m">PresentationPipeline</td><td>6.5 末尾</td><td><strong>整體覆寫即復位</strong></td></tr>
+        <tr><td class="m">trace 環形緩衝</td><td><code>FootstepDetector</code>（64 筆）</td><td>偵測器自己</td><td>僅 Editor／Dev Build</td><td>面板手動清空</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>誰</th><th>能寫黑板？</th><th>能寫什麼</th><th>守門的是</th></tr></thead>
+      <tbody>
+        <tr><td class="m">FootPlantTracker</td><td class="no">⛔ 不能</td><td>只回傳 <code>FootstepKind</code></td><td><strong>方法簽章</strong>（純推進函式，顯式收 deltaTime）</td></tr>
+        <tr><td class="m">SurfaceResolver</td><td class="no">⛔ 不能</td><td>只回傳 <code>SurfaceId</code></td><td>同上</td></tr>
+        <tr><td class="m">FootstepDetector</td><td class="no">⛔ 不能</td><td>只回傳 <code>PresentationEventData</code></td><td><code>IPresentationEventSource</code> 的<strong>回傳值</strong>設計</td></tr>
+        <tr><td class="m">FootIKController</td><td class="no">⛔ 不能</td><td>寫自己擁有的 <code>FootIKGroundData</code></td><td><code>IPresentationController</code>「對黑板只讀不寫」契約</td></tr>
+        <tr class="bind"><td class="m">PresentationPipeline</td><td>✅ 能</td><td><strong>只有</strong> <code>PresentationEvents</code> 這一區</td><td><code>A5_BlackboardMembers_HaveSingleDocumentedWriter</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note key"><span class="lab">A5 的用意</span><p>
+    <code>PresentationEvents</code> 這條 WriterRule 同時是
+    <code>IPresentationController</code>「對黑板只讀不寫」契約的<strong>機器化守衛</strong>：
+    任何 Controller 想寫這一區都會在此變紅，<strong>契約不需要靠人記得</strong>。
+    ⭐ 而且來源進場不會讓白名單變長——因為來源根本不寫，合併與寫入由管線獨佔。
+  </p></div>
+</section>
+
+<!-- ═══ 9 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">09</span>
+    <h2>與其他頁的交界</h2>
+    <span class="tag">不重複，只指路</span>
+  </div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>交界</th><th>那一頁負責什麼</th><th>本頁負責什麼</th></tr></thead>
+      <tbody>
+        <tr><td class="m">foot-ik-architecture</td><td>三種「接地」的分野、兩條資料管道、權重解算</td><td>第三條管道（<code>FootIKGroundData</code>）<strong>被誰消費、消費成什麼</strong></td></tr>
+        <tr><td class="m">presentation-audio</td><td>事件快照被誰、怎麼變成聲音</td><td>那份快照<strong>怎麼產生</strong>、材質決策從哪來</td></tr>
+        <tr><td class="m">authority-timeline</td><td>6.5 在一幀裡的位置、順序 7 的復位</td><td>6.5 <strong>內部</strong>兩個步驟的分界為什麼不能調換</td></tr>
+        <tr><td class="m">jump-landing</td><td><code>JustLanded</code> 的產生與落地分類</td><td>落地為什麼要由偵測器<strong>轉報</strong>而不是直接讀</td></tr>
+        <tr><td class="m">traversal</td><td>攀爬八階段與 <code>isGrounded</code> 為何全程 false</td><td>那個 false <strong>怎麼變成腳步 bug</strong>，以及修在哪一層</td></tr>
+        <tr><td class="m">cross-system-contract</td><td>廣播快照的語意（第三種 intent 復位語意）</td><td>這個子系統<strong>如何實例化</strong>那個語意</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<div class="foot">
+  原始檔：<code>docs/artifacts/footstep-surface.html</code>　·　分類：<strong>Subsystem Architecture</strong><br>
+  文字正本：<code>docs/34</code>（參考實作研究）／<code>docs/35</code>（Stage 0／1 偵測判準）／<code>docs/36</code>（Stage 2 材質與音效）<br>
+  程式：<code>Presentation/Footstep/</code>（<code>FootPlantTracker</code>／<code>FootstepDetector</code>／<code>SurfaceResolver</code>／<code>SurfaceMapSO</code>／<code>SurfaceOverride</code>）·
+  <code>Core/Blackboard/PresentationEventData.cs</code> · <code>Presentation/PresentationPipeline.cs</code><br>
+  測試：<code>FootstepDetectorTests</code>（26）· <code>FootstepSurfaceTests</code>（15）· <code>PresentationEventTests</code>（8）·
+  <code>A5_BlackboardMembers_HaveSingleDocumentedWriter</code><br>
+  authored 值來源：<code>X Bot.prefab</code> ／ <code>Y Bot.prefab</code>（八個偵測參數逐條相同）·
+  <code>SceneSurfaceMap.asset</code>（9 筆 Material 對應）· <code>FootstepAudioBank.asset</code>（Shuffle 四槽皆空）<br>
+  ⚠️ 本頁只描述 repo／docs／tests 已能證明的現況。
+  <code>docs/36</code> §9.2 記為 13 條材質測試、§6 記為 6 顆 AudioSource——磁碟現況是 <strong>15 條</strong>與
+  <strong>10 顆</strong>（後者的變更記在 <code>docs/37</code> §3.1）。以程式與資產為準。
+</div>
+
+</div>
