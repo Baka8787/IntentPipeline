@@ -395,7 +395,7 @@
     <li><a href="#route"><span class="n">→</span>深度在哪裡</a></li>
     <li class="grp">全域座標系</li>
     <li><a href="#f1"><span class="n">01</span>分層與禁止邊</a></li>
-    <li class="grp">尚無深度頁</li>
+    <li class="grp">尚無子系統架構頁</li>
     <li><a href="#f2"><span class="n">02</span>狀態機仲裁</a></li>
     <li><a href="#f3"><span class="n">03</span>Movement 三段</a></li>
     <li><a href="#f4"><span class="n">04</span>離線烘焙鏈</a></li>
@@ -415,11 +415,11 @@
     <strong>這頁是索引，不是教材。</strong>
     它只做兩件事：給你一張全域座標系，然後告訴你深度在哪一頁。<br>
     每個子系統的資料契約、authority 時間軸、真實數值與 failure case，
-    都住在它自己的<strong>深度頁</strong>——那裡有這頁放不下的東西。
+    都住在它自己的<strong>子系統架構頁</strong>——那裡有這頁放不下的東西。
   </p>
   <p class="src">
-    瘦身於 2026-09-18：原本 19 張圖中，已有深度頁承接的 13 張全部移出，避免同一件事有兩份會漂移的說法。
-    留在這裡的 6 張，是<strong>目前還沒有深度頁的那些</strong>。
+    瘦身於 2026-09-18：原本 19 張圖中，已有子系統架構頁承接的 13 張全部移出，避免同一件事有兩份會漂移的說法。
+    留在這裡的 6 張，是<strong>目前還沒有子系統架構頁的那些</strong>。
   </p>
 
   <div class="stats">
@@ -441,7 +441,7 @@
     <span class="zoom">先找頁，再讀圖</span>
   </div>
   <p class="tier-intro">
-    深度頁固定含五種這頁沒有的東西：<strong>①標註式資料流</strong>（每條箭頭帶 資料／唯一 Writer／座標空間／更新時機／跨幀？）
+    子系統架構頁固定含五種這頁沒有的東西：<strong>①標註式資料流</strong>（每條箭頭帶 資料／唯一 Writer／座標空間／更新時機／跨幀？）
     <strong>②Authority 矩陣</strong>（誰能寫什麼 × <strong>什麼時候</strong>）<strong>③跨幀狀態盤點</strong>
     <strong>④按真實比例的數值計算鏈</strong>（磁碟實測值，可拿計算機驗算）<strong>⑤failure case 資料流追因</strong>。
   </p>
@@ -451,7 +451,7 @@
     <tbody>
       <tr><td><strong>跨子系統的契約</strong>——黑板 schema、三種 intent 語意、驅動介面、可選能力</td><td class="m">cross-system-contract.html</td><td class="m">dev-spec §1／§2／§3.1</td></tr>
       <tr><td><strong>一帧之內誰在什麼時候擁有什麼</strong>——含跨幀交接與一帧延遲</td><td class="m">authority-timeline.html</td><td class="m">dev-spec §2.1</td></tr>
-      <tr><td><strong>這個 bug 屬於哪一類</strong>——依失效模式索引，不依子系統</td><td class="m">failure-atlas.html</td><td class="m">各深度頁的 failure case</td></tr>
+      <tr><td><strong>這個 bug 屬於哪一類</strong>——依失效模式索引，不依子系統</td><td class="m">failure-atlas.html</td><td class="m">各子系統架構頁的 failure case</td></tr>
       <tr><td>膠囊為什麼要動、solver 怎麼解</td><td class="m">dynamic-capsule.html</td><td class="m">docs/28</td></tr>
       <tr><td>Foot IK 的兩條管道、三個「接地」</td><td class="m">foot-ik-architecture.html</td><td class="m">docs/29</td></tr>
       <tr><td>翻越的八個階段與 commit 分界</td><td class="m">traversal.html</td><td class="m">docs/30</td></tr>
@@ -465,7 +465,7 @@
   <div class="notes">
     <div class="note why"><span class="lab">為什麼瘦身</span><p class="bd">
       同一件事有兩份說明，遲早會漂移成兩份<strong>不一樣</strong>的說明——而且你不會知道哪一份是對的。
-      深度頁出現之後，這頁再留一份淺版就不是「方便」，是<strong>負債</strong>。
+      子系統架構頁出現之後，這頁再留一份淺版就不是「方便」，是<strong>負債</strong>。
     </p></div>
     <div class="note self"><span class="lab">怎麼用</span><p class="bd">
       新會話／新的人：讀完圖 01，再照上表跳到要動的那個子系統。
@@ -563,16 +563,16 @@
 </section>
 
 
-<!-- ============ 尚無深度頁 ============ -->
+<!-- ============ 尚無子系統架構頁 ============ -->
 <section class="tier">
   <div class="tier-head">
     <span class="code">L2</span>
-    <h2>尚無深度頁的子系統</h2>
+    <h2>尚無子系統架構頁的子系統</h2>
     <span class="zoom">暫住在這裡</span>
   </div>
   <p class="tier-intro">
     這五張留在索引頁，<strong>不是因為它們比較不重要，而是因為它們還沒有對應的 <code>docs/NN-architecture-guide</code> 文字正本</strong>。
-    沒有正本就做深度頁，等於在發明內容而不是視覺化既有結論——所以它們暫時維持索引層的深度。
+    沒有正本就做子系統架構頁，等於在發明內容而不是視覺化既有結論——所以它們暫時維持索引層的深度。
     <br>⚠️ 這五張只有「為什麼／否決了什麼／哪條測試守著」，<strong>沒有</strong>資料契約表、authority 時間軸與數值驗算。
   </p>
 
@@ -1011,7 +1011,7 @@
       <tr><td class="m">Foot IK 斜坡抽搐</td><td><span class="badge t">已修正</span></td><td>已證實為 GroundY 不連續並改由實際腳底平面導出；連續性測試留存。追因過程見 <code>failure-atlas.html</code>。</td></tr>
       <tr><td class="m">Persistent lock-on／正式 8-way</td><td><span class="badge w">未實作</span></td><td>現有 RunRing／FullRing 僅是量測 prototype。CombatContext 不等於 lock-on。</td></tr>
       <tr><td class="m">敵人 AI</td><td><span class="badge t">已實作</span></td><td>只有一顆 <code>AIMovementSource</code>（距離帶＋遲滯）。它證明的是介面可換，不是「有 AI 系統」。</td></tr>
-      <tr><td class="m">Footstep／Audio、敵人 AI、Grounding</td><td><span class="badge w">無深度頁</span></td><td>缺 <code>docs/NN-architecture-guide</code> 文字正本。要補深度頁得先補正本。</td></tr>
+      <tr><td class="m">Footstep／Audio、敵人 AI、Grounding</td><td><span class="badge w">無子系統架構頁</span></td><td>缺 <code>docs/NN-architecture-guide</code> 文字正本。要補子系統架構頁得先補正本。</td></tr>
       <tr><td class="m">網路／存檔／UI 框架</td><td>—</td><td>不在 scope。被問到就直接這樣說。</td></tr>
     </tbody>
   </table>
@@ -1021,7 +1021,7 @@
     圖 01 <code>ArchitectureRegressionTests.LayerRules</code>　圖 02 dev-spec §3.3　圖 03 ADR-003<br>
     圖 04 dev-spec §4　圖 05 <code>PlayerCombatContextSource.cs</code> ＋ docs/15　圖 06 <code>LocomotionModel.cs</code> ＋ docs/07<br>
     <br>
-    <strong>深度頁</strong>：cross-system-contract ／ authority-timeline ／ failure-atlas ／
+    <strong>子系統架構頁</strong>：cross-system-contract ／ authority-timeline ／ failure-atlas ／
     dynamic-capsule ／ foot-ik-architecture ／ traversal ／ jump-landing ／ action-combat ／ direction-authority
   </p>
 </section>
