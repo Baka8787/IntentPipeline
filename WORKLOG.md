@@ -7,6 +7,373 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # ✅ 2026-09-21 — **Debug 一鍵開關（F6）＋ 作品集面板文字**
+>
+> ## F6 ＝ 全部可視化一鍵開／關
+>
+> ```
+> `      工程面板開關（不變）
+> F1     作品集面板 Basic/Off（不變）
+> F2–F5  個別頻道（不變，仍需面板開著）
+> F6     🆕 全部可視化一鍵開／關 —— 不需要開面板
+> ```
+>
+> 放在 `_engineeringOpen` 閘門**之前**，與 backquote 同層級：backquote 開的是**面板**、
+> F6 開的是**畫面上的可視化**，兩者互不依賴。
+>
+> ⭐ 語意刻意**不是**「記一個 master bool 再翻它」——那在使用者用 F2–F5 個別調過之後會與畫面脫節。
+> 改成由**當下實際狀態**推導：**任一頻道開著 ⇒ 全部關；全部關著 ⇒ 全部開**。
+> 不論先前怎麼調，按一下的結果都可預測。涵蓋 Capsule Offset／Foot IK／Traversal 線＋Hand Targets／Scene Gizmos。
+> F6 本來就空著（2026-09-15 拔掉文字頻道後無擁有者），無衝突。
+>
+> ## 作品集面板文字：「小」與「糊」是兩個不同的原因
+>
+> 量測（Play 中讀實際值）：
+>
+> ```
+> CanvasScaler ScaleWithScreenSize，參考 1920×1080
+> 實際 Game view 783×440 ⇒ scaleFactor 0.4077
+> Text: LegacyRuntime, fontSize 17   ⇒  17 × 0.4077 ≈ 6.9 px
+> ```
+>
+> legacy `UI.Text` 是**先用 fontSize 17 烘成點陣、再縮到 0.41** ⇒ 降採樣 ⇒ 不是「銳利的小字」而是糊字。
+>
+> | 症狀 | 根因 | 修法 |
+> |---|---|---|
+> | **糊** | `dynamicPixelsPerUnit = 1` ⇒ 動態字型以 ~7 px rasterize | **1 → 3** |
+> | **小** | fontSize 17 | **17 → 22**；`LayoutElement.preferredHeight` 22 → 28；面板高 132 → **148**（＝4×28 ＋ spacing 4×3 ＋ padding 24，算出來的不是猜的） |
+>
+> ⛔ **未導入 TextMeshPro**：Unity 6 雖隨 `com.unity.ugui` 附帶，但本專案零使用、asmdef 未引用、
+> 也沒匯入 TMP Essentials 字型資產。為四行字導入整套 TMP 不划算。
+> 🔓 日後 HUD 文字變多時才值得——SDF 在任何縮放下都銳利，那才是根治。
+>
+> ## ⚠️ 資產改動（無測試保護）
+>
+> `PortfolioDebugPanel` 屬於 **`X Bot.prefab`**，不是純場景物件 ⇒ 直接改會變成場景 instance override
+> （prefab 仍是舊值，重新 instantiate 就打回原形）。
+> 已用**逐屬性** `PrefabUtility.ApplyPropertyOverride` 推回 prefab（只推動過的 10 個屬性，
+> ⛔ **沒有**用 `ApplyPrefabInstance` 把其他不相干的 override 一起掃進去）。prefab ＋ 場景已存檔。
+>
+> 還原：`git checkout -- "Assets/Prefabs/X Bot.prefab" Assets/Scenes/SampleScene.unity`
+> ⚠️ 但這兩個檔**本來就有其他未 commit 的改動**，還原會一起丟掉。
+>
+> ## 📌 這個子系統第三次「可觀測性說了謊」
+>
+> ①`blocked displacement` 被 post-exit 貼地力污染（三個高度同一個數字）
+> ②`arm ratio max` 在 contact window 外累加（回報 2.8，實際 1.07）
+> ③`NoForwardHit` 把「掃描提前放棄」說成「前方沒東西」
+>
+> **三次都不是「沒有可觀測性」，而是「可觀測性說了謊」。**
+> ⇒ 加 reject reason／量測欄位時要問的是「**這個值在所有情況下都是真的嗎**」，
+> 不是「有沒有這個值」。
+
+> # 🟠 2026-09-20（三）— **Animation Coverage 上下限 ＋ Climb1m 啟用**（程式已落地，待人工 Play）
+>
+> ## 做了什麼
+>
+> **Climb1m 不需要任何新執行路徑。** 它沒有 `Traversal` block ⇒ `TryBuild` piecewise 失敗
+> ⇒ `TraversalState` 既有的 **EndpointFallback（V2）** 自動接手；Hand IK 因 `!IsPiecewise`
+> 也自動關閉。轉場資產 `Animation/Climb1m.asset` 與 binding 早就接好了。⇒ **只缺覆蓋範圍與一個 bool。**
+>
+> | 改動 | 檔案 |
+> |---|---|
+> | `TraversalMotionBinding` 新增 `coverageMinHeight` ／ `coverageMaxHeight`（0 ＝ 不限制） | `TraversalStateParamsSO.cs` |
+> | 新 reason `OutsideAnimationCoverage` ＋ 六參數 `Evaluate` 多載（舊四參數多載保留） | `TraversalSelectionPolicy.cs` |
+> | 決策邊界取 binding 覆蓋值並傳入；覆蓋帶單向推給 Probe | `States/TraversalState.cs` |
+> | Debug 環改畫**四個覆蓋界線**（藍＝Climb1m、橘＝Climb2m；小半徑＝下限、大半徑＝上限） | `TraversalProbe.cs` |
+> | `S7` ／ `S8` 覆蓋閘門測試（含閉區間邊界） | `TraversalSelectionPolicyTests.cs` |
+>
+> ## 🔑 為什麼上下限放在 binding 而不是 `TraversalProbeSettings`
+>
+> 這是**這支 clip** 的性質，不是環境幾何的性質。Probe 回答「障礙物多高」；binding 回答
+> 「我這支動畫撐得住多高」。放進 ProbeSettings 會讓 Core/Environment 開始擁有內容決策，撞 §F **I10**。
+> Debug 環沿用 **I9 的 `SetDerivedRangeRequirements` 先例**：推四個 float 過去，Probe 不認識 binding。
+> ⛔ 推過去的值**不參與判定**，只決定畫哪幾個環——畫面是決策的投影，不是第二份真相。
+>
+> 閘門位置在 `KindDisabled` **之後**、jump-vs-climb 仲裁**之前**：兩者同屬內容決策。
+> 覆蓋範圍外 ⇒ 讓給普通 Jump ⇒ Jump 也搆不到就什麼都不發生。**那是已知限制，不是 bug，而且有 reason 可查。**
+>
+> ## 📐 已 author 的值（`TraversalStateParams.asset`）
+>
+> | | min | max | 依據 |
+> |---|---|---|---|
+> | **Climb1m** | **1.00** | 1.20 | 下限由 **apex** 決定（見下方修正）；上限 ⚠️ **推導起點，零 Play 驗證**（clip 升 1.0134 m） |
+> | **Climb2m** | **1.65** | 2.05 | ✅ **實測推導**：pre-IK 殘差隨牆高 1:1，guard 0.35 m 的交叉點 ≈1.62 m，取 1.65 留餘裕 |
+>
+> `climb1mEnabled: false → true`。
+>
+> ## ⚠️ 誠實標記
+>
+> - **Climb1m 的 0.90／1.20 沒有任何 Play 證據**，只是「clip 升 1.01 m」的合理起點。第一次 Play 就可能要調。
+> - 兩段覆蓋之間仍有 **1.20 – 1.65 m 的缺口**（先前是 0.80–1.62）。缺口沒有消失，只是**從「硬爬但難看」變成「明確拒絕且說得出理由」**。
+> - 資產改動（覆蓋值 ＋ enable）**只有 Unity 匯入成功，沒有測試保護**。還原：`git checkout -- Assets/ScriptableObjects/StateMachine/TraversalStateParams.asset`。
+>
+> ## 🔧 修正：`climb1m` 下限 0.90 → **1.00**（「有時 jump 有時 climb」的根因）
+>
+> live 實測（`TraversalSelectionEvaluation`）：**`TheoreticalApex = 0.9535` ／ `SafeReach = 0.8035`**。
+> policy 判 `height > SafeReach → climb`，所以 **0.8035–0.9535 是模糊帶**：
+> 跳躍**物理上搆得到**，但 policy 判給 climb；climb 還要過 entry legality，過不了又退回 jump
+> ⇒ **同一面牆、站位差一點就換行為**。原本設的 0.90 正好落在帶內。
+>
+> ⚠️ 先前把「下限比 jump 高度要高」理解成 `SafeReach`，**正確的基準是 apex**。
+> 新的高度地圖（可一句話講完，適合作品集敘事）：
+>
+> ```
+> ≤0.95 jump ／ 0.95–1.00 死區(4.6cm) ／ 1.00–1.20 Climb1m
+> ／ 1.20–1.65 ⚠已知缺口 ／ 1.65–2.05 Climb2m ／ >2.05 無
+> ```
+>
+> ## 🐛 簍空結構攀爬不了 —— **已定案並修復**（現場量測，非推測）
+>
+> ⚠️ 本檔稍早列的 A／B／C 三個假設（橫向缺口／縱向缺口終止掃描／corridor 擋路）**全部不成立**，已刪除。
+>
+> ### 現場量測（Play 中以相同參數重打射線）
+>
+> ```
+> off  0.000 | hits=4   1.40:Cube (2)@0.34  1.50  1.60  1.70
+> off ±0.175 | hits=4   同一個 collider、距離一致
+> off ±0.350 | hits=4   同上
+> ```
+>
+> 橫向 ±0.35 m 結果完全一致 ⇒ **不是橫向缺口**。
+> `Cube (2)` ＝ bounds **y ∈ [1.425, 1.820]**、size 4.77 × **0.40** × 3.26 的**懸空厚板，底下全空**。
+> 只有 1.40–1.70 四根命中，**0.30–1.30 全部落空**。
+>
+> ### 根因：`break` 同時表達了兩件不同的事
+>
+> `TraversalProbe.cs` 前掃迴圈：
+>
+> | 狀態 | 應該 | 舊版實際 |
+> |---|---|---|
+> | 打到過牆、現在沒打到 ⇒ **牆面到頂** | 記 `firstClearHeight` 後 `break` | `break` ✅ |
+> | **還沒打到任何東西** ⇒ 障礙物還在上面 | 繼續往上掃 | **也 `break`** ❌ |
+>
+> 第一根射線在 `stepOffset = 0.30 m`，那裡是空的 ⇒ 直接 break ⇒ 迴圈**爬不到 1.40**
+> ⇒ `NoForwardHit`、height 0.00。
+>
+> ⇒ 掃描把前提寫死成「障礙物是一面從地面長上來的實心牆」。
+> **任何懸空板／桌面／欄杆／突出的簷都因此隱形**——比簍空結構廣得多。**這是 bug，不是限制。**
+>
+> ### 修法
+>
+> `if (!hasForwardHit) continue;` —— 一行。
+> ✅ **對既有內容零行為差異**（實心牆第一根必命中，走原路徑）。
+> ⚠️ **代價**：面向空曠處時由 1 根射線變成掃滿 ceiling（0.3→2.7，24 根）。命中後成本不變。
+> 若日後量到這是熱點，正解是先用一次 BoxCast／CapsuleCast 涵蓋整個柱體當 early-out，**本輪刻意不做**
+> （同時改兩件事會無法歸因）。
+>
+> ### 這塊板修完會變成什麼
+>
+> 板頂 1.820 − capsuleBottom 0.030 ＝ **height 1.79 m** ⇒ 落在 Climb2m band (1.25, 2.1] 且在
+> coverage [1.65, 2.05] 內 ⇒ 走 Climb2m。**1.79 m 正好是先前 Play 驗過品質良好的高度**
+> （pre-IK 18.12 cm、IK 權重 1.00）。
+>
+> ### 測試
+>
+> `TraversalProbePlayModeTests`：
+> `FloatingSlabWithOpenSpaceBelow_IsStillDetected`（守不變量）＋
+> `SolidWall_ScanBehaviourIsUnchangedByFloatingSlabFix`（守零回歸）。
+>
+> ---
+>
+> # ✅ 2026-09-20（二）— **Traversal Clip Coverage Spike：已結案，零 Play**
+>
+> ## 🔴 結論：Climb1m **不能**當低段 clip —— 它整段沒有手部接觸
+>
+> `TraversalContactDerivation.Measure(Bake_Climb1m, X Bot)` 回：
+> **「測不到任何手部接觸（整段動畫沒有『先動再停』的手）」**，`IsValid = false`。
+>
+> **陽性對照**（同一次呼叫，證明偵測器是好的，不是門檻問題）：
+>
+> | Bake | valid | report |
+> |---|---|---|
+> | `Bake_Climb1m` | ❌ | 測不到任何手部接觸 |
+> | `Bake_Climb2m` | ✅ | `BothHands  L=0.065-0.269  R=0.065-0.259  transfer=0.269  exit=0.833` |
+> | `Bake_Vault1m` | ✅ | `LeftHand  L=0.207-0.253  transfer=0.253  exit=0.460` |
+>
+> ⇒ Climb1m **無法產生 contact plan**，不能參與 contact／Transfer／Hand-IK 任何一層。
+> ⇒ **方案 (a)「clip coverage 分工」以現有資產不成立。** 答案是 **(b)**。
+> ⇒ 順帶驗證：Climb2m 的 `contact 0.0648 / transfer 0.2685` **就是**量到的 plant 起訖，烘焙鏈路正確。
+>
+> ## 📐 Climb2m 的 validated coverage（由數據推導，非猜測）
+>
+> `pre-IK residual` 隨牆高以 **1:1** 下降（實測 1.79 m → 18.12 cm、1.58 m → 39.47 cm）。
+> guard 門檻 0.35 m ⇒ 交叉點 `1.79 − (0.35 − 0.1812) = ` **≈ 1.62 m**。
+>
+> | 區間 | 狀態 |
+> |---|---|
+> | **1.8 – 2.05 m** | ✅ 已驗證良好（2.0 最佳，僅極小瑕疵） |
+> | **1.62 – 1.8 m** | 🟡 可用但 IK 拉伸遞增，無跳動 |
+> | **< 1.62 m** | ❌ guard 跳閘 ⇒ contact 當幀手不受控（「抓空氣」）再瞬移 |
+>
+> ## ⚠️ 因此暴露的真實缺口
+>
+> classifier band 是 **(1.25, 2.1]**，normal jump safeReach **0.8035 m**
+> ⇒ **0.80 – 1.62 m 這一段沒有任何合適的動畫**（band 下緣 0.37 m 在 coverage 外）。
+> ⛔ 本輪**未**改 band（使用者明確要求先不切）。
+>
+> ## ➡️ 待裁決（三選一，都不急）
+>
+> ① 接受並寫進作品集敘事（使用者原本的傾向）
+> ② 找一支**有手部接觸**的 1–1.5 m 攀爬 clip（記憶指出 Kubold 素材庫可能有）
+> ③ 讓 Climb1m 走**無手部接觸**的 V2 endpoint 路徑（不進 piecewise、不掛 Hand IK）——**新提案，未評估**
+>
+> ---
+>
+> # ⏹ 2026-09-20（二）— 原工作包（已被上方結果取代）
+>
+> **這是 spike，不是實作。成功條件不是「所有高度都能爬」**，而是：
+> 支援範圍內穩定 ／ 超出範圍有明確可解釋的限制 ／ **不靠極端 IK 或 warp 把不適合的動畫硬塞進去**。
+> 產出是一張 `Height | Climb1m quality | Climb2m quality | reason` 決策表，**不預先切 band**。
+>
+> ## 🔴 為什麼上一個提案（support-aware Y clamp）被撤回
+>
+> `Bake_Climb2m.asset:4980` → `leftGripEdgeInRoot.y = 1.9176`（primary hand）。
+> ⇒ `desiredContactRoot.y ≈ ledgeY − 1.9176`。對照三次 Play 的 `dY applied`
+> （2.02→+0.05、1.79→−0.19、1.58→−0.40）：**高度每降 0.21 m，dY 就降 0.21 m，斜率 1:1**。
+> ⇒ **ledge < ~1.98 m 時 grip solve 一律落在地板以下**，而 Climb2m band 是 (1.25, 2.1]
+> ⇒ `max(solvedY, floor)` 在 band 的 **86%** 飽和成 floor ＝ 現行 baked-delta policy 的結果
+> ⇒ **39 cm 殘差不會有任何改善**。病根是 **pose 不匹配**（動畫 grip 在 root 上方 1.92 m），
+> 不是 root 放錯位置，任何 root 平移都補不了。
+>
+> ## 📌 已查明的起點（Codex 不必重查）
+>
+> | 事實 | 出處 |
+> |---|---|
+> | `Bake_Climb1m.asset` **完全沒有 `Traversal:` 區塊**（頂層鍵只到 `BakedDuration`） | 該資產 |
+> | Climb1m **binding 早已接好** —— bake 引用／warp 窗 0.8／recover 0.85／corrections 1.5・0.75 | `TraversalStateParams.asset:58-71` |
+> | `climb1mEnabled: 0` | 同上 `:154` |
+> | Climb1m 垂直位移 **1.0134 m**、`BakedDuration 2.1667`、`AutoApexHeight 1.172` | `docs/30` 附錄 B ＋ 資產 |
+> | 烘焙入口 `TraversalContactDerivation.Apply(bake, rigPrefab, out report)` | `Assets/Scripts/Editor/Stages/` |
+>
+> ## 🎯 本輪的核心假說（要被證實或推翻）
+>
+> Climb1m 只升 1.01 m ⇒ grip edge 高度約 1.0–1.1 m ⇒ **適用帶約 0.95–1.15 m**；
+> 在 1.3 m 以上它會往**反方向**壞（root 被抬離地面 ＝ 浮空），不是變矮。
+> ⇒ **預測真正的 gap 是 ~1.15–1.9 m，兩支 clip 都不適合。**
+> 若成立，那就是答案 —— 使用者已明確接受「幾何上可攀爬 ≠ 當前 clip 一定適用」作為正式限制。
+>
+> ## ⚠️ 我改了測試高度清單（並已說明理由）
+>
+> 原清單 1.3–2.0 **對 Climb1m 不公平** —— 它的甜蜜點很可能在 1.3 以下，只測 ≥1.3 會得到
+> 「Climb1m 到處都爛」這個錯誤結論。**加測 1.0 / 1.15 / 1.2。**
+> 並建議先跑 8 次夾出兩條邊界（Climb1m: 1.0・1.15・1.3・1.5；Climb2m: 1.5・1.7・1.9・2.0），
+> 而不是 2 passes × 10 heights ＝ 20 次人工 Play。
+>
+> ## ⛔ 本輪不做
+>
+> contact-time scrubbing（方案 B，留作未來且**僅在仍有明顯 gap 時**才值得）／改 baker 本身／
+> 永久改 selection band 或 classifier／調 residual guard／動 execution model／commit。
+>
+> ## 🔧 路由用的暫時資產改動（必須還原）
+>
+> pass 1 把 `climb1mMaxHeight` 設為 2.15 ＋ `climb1mEnabled: 1`（全部路由到 Climb1m）；
+> pass 2 還原。**還原值：`climb1mMaxHeight 1.25` ／ `climb2mMaxHeight 2.1` ／ `climb1mEnabled 0`。**
+> 障礙 depth 必須 > `vault1mMaxDepth 0.6`，否則低段會被 Vault1m 接走。
+>
+> ---
+>
+> # 🟠 2026-09-20 — **工作包：Climb2m segment-warp 驗證輪（A–D）**
+>
+> ## 📌 程式已落地，⏳ **卡在人工 Play**（2026-09-20 實測驗證）
+>
+> | 項 | 狀態 |
+> |---|---|
+> | **A** blocked 量測分離 | ✅ 已落地 —— `LastTraversalMaxWarpBlockedDisplacement` ／ `…MaxReboundBlockedDisplacement` |
+> | **B** reach constraint 接回 | ✅ 已落地 —— 新增 `TraversalSegmentWarpPrototypeSegment.TryEvaluateBasis`，**兩個呼叫點都用它** |
+> | **C** 刪 0.5 guard | ⚠️ **已刪，但 precondition 未驗** —— 見下方風險 |
+> | **D** window override 保留 | ✅ 未動（`EvaluateClimb2mPrototypeWindow` 原樣） |
+>
+> **測試（本會話實跑，非 Codex 回報）**：EditMode **608 total／607 passed／0 failed／1 skipped**；
+> PlayMode **62／62 passed**。`unity cmd recompile` 0 errors。
+> ⚠️ 第一次跑出 607 是**舊組件**——`run_tests` 前必須先 `recompile` ＋ poll `recompile_status`。
+>
+> ## 🔴 唯一的風險：C 的 precondition 沒被驗證就執行了
+>
+> 工作包寫的是「**先用 0.35 重跑 2.0／1.8／1.6，全過才刪**」。Codex 的沙箱連不到 Editor，
+> **沒跑那一步就直接刪了 override**。⇒ 目前工作樹處於 C 的**樂觀分支**。
+> 🎯 好處是這變成一個乾淨的單變因實驗：**1.6 m 的 Play 就是判決**。
+> 若 1.6 m 掉 IK（`docs/39` F8 預測過），revert ＝ 把 `0.5f` 的 `Mathf.Max` 與 root-error 閘門加回
+> `TraversalHandIKController.cs`，一處。
+>
+> ## ⚠️ A 的已知近似（不是 bug，但要記著）
+>
+> **prototype path 的拆分是精確的**（rebound 是獨立 Move）；
+> **production path 是投影推估**——rebound 併在同一個 `movementDelta` 裡，只能把 blocked 向量
+> 投影到 rebound 方向再夾持。同一帧若 warp 本身也被向下擋住，那部分會被**誤記到 rebound**
+> ⇒ production post-exit 幀的 warp blocked 會**低報**。本輪量測目標不在那裡，但別讓它變成下一個 F1。
+>
+> ---
+>
+> ## 原始工作包（發給 Codex 的內容）
+>
+> **正本 ＝ `docs/39-traversal-segment-warp-review.md`。** 本輪**不是**重構、**不是**正式升格，
+> 目標是「**移除主要 hack 之後，prototype 的改善是否仍成立**」。
+>
+> ## 使用者人工觀察（本輪的真正驗收基準）
+>
+> | 高度 | 現況 |
+> |---|---|
+> | **2.0 m** | prototype 比原版多一點**很小**的瑕疵，不容易察覺 |
+> | **1.6 m** | 比原版**好很多**，方向正確，但**仍看得到較大偏差** |
+>
+> ⇒ **本輪成功 ＝ 降低 1.6 m 的 visible drift ＋ 不明顯惡化 2.0 m。⛔ 不追求零誤差。**
+>
+> ## 只做四件事
+>
+> | | 內容 | 對應 finding |
+> |---|---|---|
+> | **A** | 分離 warp 與 rebound 的 blocked 記錄（`⛔ 不改 movement 行為`） | `docs/39` F1 |
+> | **B** | 把 `RootReachConstraint` 接回 segment path（⛔ 不重新設計、不調 curve、不改 `maximumReachRatio`） | `docs/39` F2 |
+> | **C** | B 完成後用**正式** guard `0.35` 重跑；過了就刪 `0.5` override，沒過**只記錄原始數據、不設計新門檻** | `docs/39` F8／Q6 |
+> | **D** | **保留** IK window runtime override 不動（避免三個變因同時改） | `docs/39` Q5 留下一包 |
+>
+> ## ⛔ 本輪不做
+>
+> Y support clamp／`TransferRootTarget`／`executionModel` config／改 ADR 或 docs invariant／
+> 動 Climb1m・Vault1m／重 author bake／調動畫／新增 coverage gate／**commit**。
+>
+> ## 重測矩陣（同場景同 rig：2.0／1.8／1.6）
+>
+> 每組七項：pre-IK hand residual、post-IK hand residual、max arm reach ratio、max root divergence、
+> **true** warp blocked displacement、segment boundary velocity delta、completion。
+> 取樣點：`Contact` ／ `Contact midpoint` ／ `Transfer − 1 frame` ／ `Transfer`。
+>
+> ⚠️ **真實 rig 的數字只有人工 Play 拿得到**——Codex 交付的是**可信的量測管道**與 Play checklist，
+> ⛔ 不得自行編造矩陣數值。人工要看的四件事：2.0 m 是否更差／1.6 m 肩肘是否仍被拉長／
+> Contact→Transfer 是否滑手／Transfer boundary 有無速度跳變。
+>
+> ## 回報七項
+>
+> ①改了哪些檔 ②reach constraint 如何接回 ③2.0／1.8／1.6 新舊對照 ④`0.5` 能否移除
+> ⑤1.6 m 剩餘 visible error 主因 ⑥2.0 m 新瑕疵屬 compensation／IK／reach 哪一類
+> ⑦下一包選 **Y support policy ／ authored IK window ／ TransferRootTarget** 之一
+>
+
+> # ✅ 2026-09-19 — **Portfolio Runtime Debug UI ＋ Traversal L/R Hand Target 可視化**
+>
+> - `RuntimeDebugPanel` 新增 **F1 = Basic / Off** 的 uGUI 作品集面板（右上，4 行）：
+>   `State` 只讀 `CharacterPipelineRunner.CurrentState`；`Anim State` 只讀
+>   `AnimancerFacade` 已成功接受的 key；`Clip` 只讀該 state／mixer 當下 dominant leaf clip；
+>   `Gait` 只讀 `PlayerRuntimeData.Gait`。缺資料顯示 `—`，不由字串反推 gameplay。
+> - 工程用 IMGUI 面板改為 **backquote (`)** 開關；F2–F5 不變。F4 現在同時開關
+>   traversal probe 線與 hand targets。
+> - `TraversalHandIKController` 新增 Game View runtime-visible 雙手可視化：
+>   actual L/R hand bone → committed L/R target 線、target ring、rotation forward 短線，以及
+>   `L Hand Target` / `R Hand Target` world-space label。只讀
+>   `MotionDriver.ActiveTraversalPlan.ContactTargets`，不重查 Physics、不重算 placement、不改 IK/root/collider。
+> - 現況確認：L/R target **本來就是獨立 committed data**；舊的中心球／共通點是
+>   `candidate.TopPoint` shared ledge anchor，不是 Hand IK 唯一目標；保留作環境參考，
+>   但球半徑已由 0.11 m 降為 0.04 m，低於具名 L/R target 的視覺優先級。
+> - 驗證：Unity compile 0 errors；EditMode **606 passed / 0 failed / 1 existing skipped**；
+>   PlayMode **61 / 61 passed**。Game View 實測 Idle =
+>   `Idle / Idle / Idle / Run`，Walk 移動 = `Move / Move / WalkFwdLoop / Walk`；
+>   Basic→Off 後 panel inactive，State 切換前後均為 Idle。
+> - 尚待人眼 Play：Walk/Run Stop 短暫選片、Jump→Land 過場的文字可讀性，
+>   以及 traversal 真正 Active 時 L/R marker 的視覺尺寸。這三項屬短暫時序／畫面品質，
+>   不是資料流或接線未完成。
+>
+
 > # ✅ 2026-09-18 — **Subsystem Architecture 第二批完成**（Footstep＋Surface／Presentation Audio）
 >
 > 兩頁已寫入 `docs/artifacts/` 並發布；`architecture-tour` 路由表與 `docs/00-map.md` 已同步。
