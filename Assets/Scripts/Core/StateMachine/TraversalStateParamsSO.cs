@@ -516,7 +516,30 @@ namespace Project.Core.StateMachine
         [SerializeField, Min(0f)] private float maxVerticalCorrection;
         [SerializeField] private TraversalCollisionProfile collisionProfile;
 
+        // ⭐ 2026-09-20：**動畫覆蓋範圍（上下限）。**
+        //
+        // 為什麼放在 binding 而不是 TraversalProbeSettings：這是**這支 clip** 的性質，
+        // 不是環境幾何的性質。Probe 回答「這個障礙物多高」；binding 回答「我這支動畫撐得住多高」。
+        // 放進 ProbeSettings 會讓 Core/Environment 開始擁有內容決策，撞 §F I10。
+        //
+        // 為什麼需要它：`docs/39` §2 Q7 量到 Climb2m 的 classifier band 是 (1.25, 2.1]，
+        // 但動畫實際只在約 1.62–2.05 m 成立——低於 1.62 m 時 contact 殘差超過 IK guard，
+        // 手會在接觸當幀失控再瞬移。**幾何上可攀爬 ≠ 這支動畫適用。**
+        // 超出範圍時**不硬 warp**，讓給普通 Jump，並留下可觀測的理由（§F I8）。
+        //
+        // 0 ＝ 不限制（維持舊行為）。下限與 jump safeReach 的關係由 selection policy 疊加：
+        // 兩者都要過，所以 authored 下限低於 jump 搆得到的高度時不會有害，只是不生效。
+        [Header("Animation coverage — 這支 clip 實際撐得住的高度帶（0 ＝ 不限制）")]
+        [SerializeField, Min(0f)] private float coverageMinHeight;
+        [SerializeField, Min(0f)] private float coverageMaxHeight;
+
         public string AnimationKey => animationKey;
+        /// <summary>動畫覆蓋下限（m）。0 或非有限值 ＝ 不限制。</summary>
+        public float CoverageMinHeight =>
+            IsFinite(coverageMinHeight) && coverageMinHeight > 0f ? coverageMinHeight : 0f;
+        /// <summary>動畫覆蓋上限（m）。0 或非有限值 ＝ 不限制。</summary>
+        public float CoverageMaxHeight =>
+            IsFinite(coverageMaxHeight) && coverageMaxHeight > 0f ? coverageMaxHeight : 0f;
         public MotionBakeData Bake => bake;
         public float WarpStartNormalizedTime => IsFinite(warpStartNormalizedTime)
             ? Mathf.Clamp01(warpStartNormalizedTime)
@@ -576,6 +599,8 @@ namespace Project.Core.StateMachine
             maxHorizontalCorrection = DefaultMaxHorizontalCorrection;
             maxVerticalCorrection = DefaultMaxVerticalCorrection;
             collisionProfile = default;
+            coverageMinHeight = 0f;
+            coverageMaxHeight = 0f;
         }
 
         public TraversalMotionBinding(
@@ -597,6 +622,8 @@ namespace Project.Core.StateMachine
             this.maxHorizontalCorrection = maxHorizontalCorrection;
             this.maxVerticalCorrection = maxVerticalCorrection;
             collisionProfile = default;
+            coverageMinHeight = 0f;
+            coverageMaxHeight = 0f;
         }
 
         public TraversalMotionBinding(

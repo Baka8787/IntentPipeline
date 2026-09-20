@@ -95,6 +95,16 @@ namespace Project.Core.StateMachine
             _probe.SetDerivedRangeRequirements(
                 _params.GetRequiredSensingReach(),
                 _params.GetRequiredLandingDepth());
+
+            // 🆕 2026-09-20：動畫覆蓋帶同樣單向推給 Probe，**只供畫環**。
+            //    與上面同一個理由：Probe 收 float，不認識 binding。
+            TraversalMotionBinding climb1m = _params.GetBinding(TraversalKind.Climb1m);
+            TraversalMotionBinding climb2m = _params.GetBinding(TraversalKind.Climb2m);
+            _probe.SetDerivedCoverageBands(
+                _params.IsKindEnabled(TraversalKind.Climb1m) ? climb1m.CoverageMinHeight : 0f,
+                _params.IsKindEnabled(TraversalKind.Climb1m) ? climb1m.CoverageMaxHeight : 0f,
+                _params.IsKindEnabled(TraversalKind.Climb2m) ? climb2m.CoverageMinHeight : 0f,
+                _params.IsKindEnabled(TraversalKind.Climb2m) ? climb2m.CoverageMaxHeight : 0f);
         }
 
         public override bool CanEnter(PlayerRuntimeData data)
@@ -132,8 +142,19 @@ namespace Project.Core.StateMachine
             // 🆕（docs/23 §A10／R1）Selection 的否決過去完全靜默——畫面顯示 `Climb1m` ＋ `Entry: Accept`
             //    卻什麼都不發生。現在無論接受或否決都把理由推給 Probe 顯示。
             bool kindEnabled = _params == null || _params.IsKindEnabled(candidate.Kind);
+            // 🆕 2026-09-20：動畫覆蓋範圍與 kindEnabled 在同一個決策邊界取值。
+            //    ⚠️ 取的是 candidate 自己那格 binding，不是 candidateBinding 變數——
+            //    兩者在此刻相同，但取錯會在未來多 kind 時變成靜默錯誤。
+            float coverageMin = 0f;
+            float coverageMax = 0f;
+            if (_params != null)
+            {
+                TraversalMotionBinding coverageBinding = _params.GetBinding(candidate.Kind);
+                coverageMin = coverageBinding.CoverageMinHeight;
+                coverageMax = coverageBinding.CoverageMaxHeight;
+            }
             TraversalSelectionEvaluation selection = TraversalSelectionPolicy.Evaluate(
-                in candidate, _jumpParams, safetyMargin, kindEnabled);
+                in candidate, _jumpParams, safetyMargin, kindEnabled, coverageMin, coverageMax);
             _probe.RecordSelectionEvaluation(in selection);
             if (!selection.PreferTraversal) return false;
 
@@ -335,7 +356,15 @@ namespace Project.Core.StateMachine
                 warpEndIsDataDerived);
 
             _executionMotionDriver = motionDriver;
-            motionDriver.BeginTraversalPresentation(in _warpPlan, in diagnostics);
+            // PROTOTYPE ONLY: MotionDriver derives three segments from this already committed
+            // plan.  Entry→Contact ignores the grip-derived absolute root Y, Contact→Transfer
+            // applies the committed height correction from the actual floor-safe contact root,
+            // and Transfer→Exit re-bases from actual root.
+            bool enableClimb2mPrototype = _committedCandidate.Kind == TraversalKind.Climb2m;
+            motionDriver.BeginTraversalPresentation(
+                in _warpPlan,
+                in diagnostics,
+                enableClimb2mPrototype);
             if (_warpPlan.IsValid)
             {
                 TraversalCollisionProfile collisionProfile = _currentBinding.CollisionProfile;

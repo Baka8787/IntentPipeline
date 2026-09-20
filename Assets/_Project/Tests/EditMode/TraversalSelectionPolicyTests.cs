@@ -132,6 +132,66 @@ namespace Project.Tests.EditMode
             Assert.AreNotEqual(TraversalSelectionReason.KindDisabled, enabled.Reason);
         }
 
+        /// <summary>
+        /// 🆕 2026-09-20：**動畫覆蓋範圍是內容決策，必須明講，且不得偽裝成幾何否決。**
+        ///
+        /// 由來（`docs/39` §2 Q7 ＋ 2026-09-20 實測）：Climb2m 的 classifier band 是 (1.25, 2.1]，
+        /// 但該支動畫實際只在約 1.62–2.05 m 成立。低於 1.62 m 時 contact 殘差超過 IK guard，
+        /// 手會在接觸當幀失控再瞬移。舊行為是照爬不誤；現在必須讓給普通 Jump 並說明理由。
+        /// </summary>
+        [Test]
+        public void S7_HeightOutsideAnimationCoverage_YieldsToNormalJumpAndSaysSo()
+        {
+            // 高度 1.0 m：在 Climb2m 的 classifier band 內，但在覆蓋範圍 [1.62, 2.05] 之外。
+            TraversalCandidate candidate = CoverageCandidate(TraversalKind.Climb2m, 1.0f);
+
+            TraversalSelectionEvaluation outside = TraversalSelectionPolicy.Evaluate(
+                in candidate, null, 0.15f, true, 1.62f, 2.05f);
+            Assert.IsFalse(outside.PreferTraversal);
+            Assert.AreEqual(
+                TraversalSelectionReason.OutsideAnimationCoverage, outside.Reason,
+                "覆蓋範圍外必須是自己的 reason——混進 ClimbWithinJumpReach 會讓「缺動畫」" +
+                "看起來像「跳得到」，那是兩個完全不同的修法");
+
+            // 同一個 candidate，不設覆蓋範圍（0 ＝ 不限制）⇒ 必須恢復舊行為。
+            TraversalSelectionEvaluation unbounded = TraversalSelectionPolicy.Evaluate(
+                in candidate, null, 0.15f, true, 0f, 0f);
+            Assert.AreNotEqual(
+                TraversalSelectionReason.OutsideAnimationCoverage, unbounded.Reason,
+                "0 必須代表『不限制』，否則舊資產會在升級當下全部靜默失效");
+        }
+
+        [TestCase(1.61f, false)]
+        [TestCase(1.62f, true)]   // 邊界是閉區間
+        [TestCase(1.90f, true)]
+        [TestCase(2.05f, true)]   // 邊界是閉區間
+        [TestCase(2.06f, false)]
+        public void S8_CoverageBoundsAreInclusive(float height, bool expectedInside)
+        {
+            TraversalCandidate candidate = CoverageCandidate(TraversalKind.Climb2m, height);
+
+            TraversalSelectionEvaluation evaluation = TraversalSelectionPolicy.Evaluate(
+                in candidate, null, 0.15f, true, 1.62f, 2.05f);
+
+            Assert.AreEqual(
+                expectedInside,
+                evaluation.Reason != TraversalSelectionReason.OutsideAnimationCoverage,
+                $"高度 {height} 的覆蓋判定不符預期");
+        }
+
+        private static TraversalCandidate CoverageCandidate(TraversalKind kind, float height) =>
+            new TraversalCandidate(
+                kind,
+                TraversalRejectReason.None,
+                Vector3.forward * 0.5f,
+                -Vector3.forward,
+                new Vector3(0f, height, 1f),
+                Vector3.up,
+                height,
+                1f,
+                new Vector3(0f, height, 1.6f),
+                Vector3.forward);
+
         private static TraversalCandidate DisabledKindCandidate(TraversalKind kind) =>
             new TraversalCandidate(
                 kind,

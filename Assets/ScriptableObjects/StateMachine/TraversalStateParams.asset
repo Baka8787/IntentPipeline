@@ -55,6 +55,8 @@ MonoBehaviour:
         m_PreInfinity: 2
         m_PostInfinity: 2
         m_RotationOrder: 4
+    coverageMinHeight: 0
+    coverageMaxHeight: 0
   climb1m:
     animationKey: Climb1m
     bake: {fileID: 11400000, guid: 66bc1e5b0a8244a4ab75b263f128c5c7, type: 2}
@@ -98,6 +100,8 @@ MonoBehaviour:
         m_PreInfinity: 2
         m_PostInfinity: 2
         m_RotationOrder: 4
+    coverageMinHeight: 1
+    coverageMaxHeight: 1.2
   climb2m:
     animationKey: Climb2m
     bake: {fileID: 11400000, guid: b5363b77d07e1ba42a4b0bdf28851722, type: 2}
@@ -141,6 +145,8 @@ MonoBehaviour:
         m_PreInfinity: 2
         m_PostInfinity: 2
         m_RotationOrder: 4
+    coverageMinHeight: 1.65
+    coverageMaxHeight: 2.05
   normalJumpReachSafetyMargin: 0.15
   entryPolicy:
     desiredWallDistance: 0.45
@@ -150,6 +156,10 @@ MonoBehaviour:
     maximumLateralError: 0.2
     maximumFacingAngle: 35
     ledgeEndMargin: 0.08
+  animationFit:
+    enabled: 1
+    minimumPlaybackRate: 0.6
+    maximumPlaybackRate: 1.6
   vault1mEnabled: 1
-  climb1mEnabled: 0
+  climb1mEnabled: 1
   climb2mEnabled: 1

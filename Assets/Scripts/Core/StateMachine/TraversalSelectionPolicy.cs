@@ -30,11 +30,25 @@ namespace Project.Core.StateMachine
         /// 並以 <see cref="TraversalSelectionReason.KindDisabled"/> 說明——
         /// **停用是內容決策，但不得因此變成看不見的否決。**
         /// </param>
+        /// <summary>
+        /// 舊四參數多載：不套用動畫覆蓋範圍（維持既有呼叫端與測試行為）。
+        /// </summary>
         public static TraversalSelectionEvaluation Evaluate(
             in TraversalCandidate candidate,
             JumpStateParams jumpParams,
             float jumpReachSafetyMargin,
-            bool kindEnabled)
+            bool kindEnabled) =>
+            Evaluate(in candidate, jumpParams, jumpReachSafetyMargin, kindEnabled, 0f, 0f);
+
+        /// <param name="coverageMinHeight">該 kind 動畫覆蓋下限（m）；0 ＝ 不限制。</param>
+        /// <param name="coverageMaxHeight">該 kind 動畫覆蓋上限（m）；0 ＝ 不限制。</param>
+        public static TraversalSelectionEvaluation Evaluate(
+            in TraversalCandidate candidate,
+            JumpStateParams jumpParams,
+            float jumpReachSafetyMargin,
+            bool kindEnabled,
+            float coverageMinHeight,
+            float coverageMaxHeight)
         {
             if (!candidate.IsValid)
             {
@@ -46,6 +60,23 @@ namespace Project.Core.StateMachine
             {
                 return TraversalSelectionEvaluation.Rejected(
                     candidate.Kind, TraversalSelectionReason.KindDisabled, candidate.Height);
+            }
+
+            // ⭐ 2026-09-20：**動畫覆蓋範圍閘門。**
+            //
+            // 與 KindDisabled 同一層級——兩者都是「內容決策」，不是幾何判斷，所以放在
+            // jump-vs-climb 仲裁**之前**：覆蓋範圍外就讓給普通 Jump，由既有的 fallback 決定結果。
+            // 若 Jump 也搆不到，結果就是「什麼都不發生」——那是**已知且被接受的限制**
+            // （`docs/39` §2 Q7），不是 bug，而且有 reason 可查（§F I8）。
+            //
+            // ⛔ 刻意不在這裡做任何 warp 補償或 clamp：本專案已經量過，
+            //    把不適合的動畫硬塞進去只會換成手臂過度拉伸與接觸當幀的跳動。
+            if (!IsWithinAnimationCoverage(candidate.Height, coverageMinHeight, coverageMaxHeight))
+            {
+                return TraversalSelectionEvaluation.Rejected(
+                    candidate.Kind,
+                    TraversalSelectionReason.OutsideAnimationCoverage,
+                    candidate.Height);
             }
 
             if (!TryGetGroundJumpLaunch(jumpParams, out float initialVelocity, out float gravity))
@@ -114,6 +145,19 @@ namespace Project.Core.StateMachine
                 : TraversalSelectionEvaluation.RejectedWithReach(
                     kind, TraversalSelectionReason.ClimbWithinJumpReach,
                     candidateHeight, theoreticalApex, safeReach);
+        }
+
+        /// <summary>
+        /// 覆蓋範圍檢查。任一界線為 0（或非有限）代表該側不限制。
+        /// 邊界採**閉區間**：剛好等於上下限視為在範圍內。
+        /// </summary>
+        private static bool IsWithinAnimationCoverage(
+            float height, float minHeight, float maxHeight)
+        {
+            if (!IsFinite(height)) return true;
+            if (IsFinite(minHeight) && minHeight > 0f && height < minHeight) return false;
+            if (IsFinite(maxHeight) && maxHeight > 0f && height > maxHeight) return false;
+            return true;
         }
 
         public static bool PreferTraversal(
@@ -194,6 +238,11 @@ namespace Project.Core.Environment
         /// 這是**刻意的內容決策**，不是失敗——但仍然要說出口，否則又變成另一個靜默否決。
         /// </summary>
         KindDisabled,
+        /// <summary>
+        /// 高度落在該 kind 的**動畫覆蓋範圍**之外。⚠️ 這不是幾何否決——
+        /// 障礙物本身可能完全可攀爬，只是**目前 authored 的那支 clip 不適用**。
+        /// </summary>
+        OutsideAnimationCoverage,
     }
 
     /// <summary>
