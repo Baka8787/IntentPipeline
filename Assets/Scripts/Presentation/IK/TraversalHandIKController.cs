@@ -5,6 +5,46 @@ using Project.Presentation.Motion;
 
 namespace Project.Presentation.IK
 {
+    public readonly struct TraversalPrototypeMeasurementSample
+    {
+        public readonly bool HasSample;
+        public readonly float NormalizedTime;
+        public readonly float PreIKHandResidual;
+        public readonly float PostIKHandResidual;
+        public readonly float RawWristReach;
+        public readonly float ArmReachRatio;
+        public readonly float RootDivergence;
+        public readonly float WarpBlockedDisplacement;
+        public readonly float SegmentBoundaryVelocityDelta;
+        public readonly float LeftIKWeight;
+        public readonly float RightIKWeight;
+
+        public TraversalPrototypeMeasurementSample(
+            float normalizedTime,
+            float preIKHandResidual,
+            float postIKHandResidual,
+            float rawWristReach,
+            float armReachRatio,
+            float rootDivergence,
+            float warpBlockedDisplacement,
+            float segmentBoundaryVelocityDelta,
+            float leftIKWeight,
+            float rightIKWeight)
+        {
+            HasSample = true;
+            NormalizedTime = normalizedTime;
+            PreIKHandResidual = preIKHandResidual;
+            PostIKHandResidual = postIKHandResidual;
+            RawWristReach = rawWristReach;
+            ArmReachRatio = armReachRatio;
+            RootDivergence = rootDivergence;
+            WarpBlockedDisplacement = warpBlockedDisplacement;
+            SegmentBoundaryVelocityDelta = segmentBoundaryVelocityDelta;
+            LeftIKWeight = leftIKWeight;
+            RightIKWeight = rightIKWeight;
+        }
+    }
+
     public enum TraversalHandIKStatus
     {
         NotBound = 0,
@@ -35,6 +75,30 @@ namespace Project.Presentation.IK
         /// <summary>Game View 文字面板，預設關閉（見 MotionDriver 的同名欄位）。</summary>
         [SerializeField] private bool drawTraversalPanelText = false;
         private TextMesh _debugRuntimeLabel;
+
+        private const int TargetRingSegments = 18;
+        private const float TargetMarkerRadius = 0.055f;
+        private const float TargetDirectionLength = 0.14f;
+        private const float TargetLineWidth = 0.012f;
+
+        private readonly LineRenderer[] _debugHandVectors = new LineRenderer[2];
+        private readonly LineRenderer[] _debugTargetRings = new LineRenderer[2];
+        private readonly TextMesh[] _debugTargetLabels = new TextMesh[2];
+        private readonly Vector3[] _debugTargetRingBuffer = new Vector3[TargetRingSegments];
+
+        // ⭐ 2026-09-20：**解算後手腕的結構球。**
+        // 原本只有「手骨→target 連線」與 target 環，看不出**解完之後手實際落在哪**——
+        // 而 1.6 m 的 39.47 cm contact 殘差正是要靠這個才看得出來。
+        // 用三個正交圓（世界 XY／XZ／YZ）而不是單一環：單環從側面看會塌成一條線，
+        // 正交球從任何視角都讀得出球心。三段圓首尾相接，只有一條 (r,0,0)→(0,r,0) 的弦。
+        private const int SolvedBallSegments = 14;
+        private const float SolvedBallRadius = 0.035f;
+        private readonly LineRenderer[] _debugSolvedBalls = new LineRenderer[2];
+        private readonly Vector3[] _debugSolvedBallBuffer =
+            new Vector3[(SolvedBallSegments + 1) * 3];
+        private Transform _debugHandRoot;
+        private Material _debugHandMaterial;
+        private Camera _debugCamera;
 #endif
 
 
@@ -42,6 +106,12 @@ namespace Project.Presentation.IK
         private TraversalHandIKPoseData _poseData;
         private Transform _leftHandBone;
         private Transform _rightHandBone;
+        private Transform _leftUpperArmBone;
+        private Transform _leftLowerArmBone;
+        private Transform _rightUpperArmBone;
+        private Transform _rightLowerArmBone;
+        private bool _measurementWasActive;
+        private float _lastMeasurementNormalizedTime;
 
         public TraversalHandIKTargetData TargetData => _targetData;
         public TraversalHandIKPoseData PoseData => _poseData;
@@ -53,6 +123,33 @@ namespace Project.Presentation.IK
         public float RightResidualError { get; private set; }
         public float LeftSolvedResidualError { get; private set; }
         public float RightSolvedResidualError { get; private set; }
+        public float LeftRawWristReach { get; private set; }
+        public float RightRawWristReach { get; private set; }
+        public float LeftArmReachRatio { get; private set; }
+        public float RightArmReachRatio { get; private set; }
+        public float MaxArmReachRatio { get; private set; }
+        public float MaxPreIKResidual { get; private set; }
+        public float MaxPostIKResidual { get; private set; }
+        public TraversalPrototypeMeasurementSample ContactSample { get; private set; }
+        public TraversalPrototypeMeasurementSample ContactMidpointSample { get; private set; }
+        public TraversalPrototypeMeasurementSample TransferPreviousFrameSample { get; private set; }
+        public TraversalPrototypeMeasurementSample TransferSample { get; private set; }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        /// <summary>
+        /// Game View target visualization switch. It only controls runtime renderers; IK weights,
+        /// committed targets, root motion, and every gameplay value remain untouched.
+        /// </summary>
+        public bool DebugDrawRuntimeTargets
+        {
+            get => drawTraversalHandIKDebug;
+            set
+            {
+                drawTraversalHandIKDebug = value;
+                if (!value) DisableRuntimeHandTargets();
+            }
+        }
+#endif
 
         private void Awake()
         {
@@ -73,6 +170,10 @@ namespace Project.Presentation.IK
             {
                 _leftHandBone = animator.GetBoneTransform(HumanBodyBones.LeftHand);
                 _rightHandBone = animator.GetBoneTransform(HumanBodyBones.RightHand);
+                _leftUpperArmBone = animator.GetBoneTransform(HumanBodyBones.LeftUpperArm);
+                _leftLowerArmBone = animator.GetBoneTransform(HumanBodyBones.LeftLowerArm);
+                _rightUpperArmBone = animator.GetBoneTransform(HumanBodyBones.RightUpperArm);
+                _rightLowerArmBone = animator.GetBoneTransform(HumanBodyBones.RightLowerArm);
             }
         }
 
@@ -80,6 +181,14 @@ namespace Project.Presentation.IK
         {
             AnimationFacadeBase facade = GetComponent<AnimationFacadeBase>();
             if (facade != null) facade.SetApplyAnimatorIK(0, true);
+        }
+
+        private void OnDisable()
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            DisableRuntimeHandTargets();
+            if (_debugRuntimeLabel != null) _debugRuntimeLabel.gameObject.SetActive(false);
+#endif
         }
 
         public void Tick(PlayerRuntimeData data)
@@ -98,6 +207,7 @@ namespace Project.Presentation.IK
             }
             if (!motionDriver.HasActiveTraversalPlan)
             {
+                _measurementWasActive = false;
                 Status = TraversalHandIKStatus.Inactive;
                 UpdateDebug();
                 return;
@@ -137,12 +247,24 @@ namespace Project.Presentation.IK
             }
 
             float normalizedTime = motionDriver.ActiveTraversalNormalizedTime;
+            if (!_measurementWasActive || normalizedTime + 0.0001f < _lastMeasurementNormalizedTime)
+                ResetPrototypeMeasurements();
+            _measurementWasActive = true;
+            _lastMeasurementNormalizedTime = normalizedTime;
             float exitTime = plan.ExitKnot.NormalizedTime;
+            bool useClimb2mPrototypeWindow = motionDriver.IsClimb2mSegmentPrototypeActive;
+            float transferTime = plan.TransferKnot.NormalizedTime;
             float leftWeight = contacts.HasLeftHand
-                ? contacts.LeftHandIKWindow.Evaluate(normalizedTime, exitTime)
+                ? useClimb2mPrototypeWindow
+                    ? EvaluateClimb2mPrototypeWindow(
+                        contacts.LeftHandIKWindow, normalizedTime, transferTime, exitTime)
+                    : contacts.LeftHandIKWindow.Evaluate(normalizedTime, exitTime)
                 : 0f;
             float rightWeight = contacts.HasRightHand
-                ? contacts.RightHandIKWindow.Evaluate(normalizedTime, exitTime)
+                ? useClimb2mPrototypeWindow
+                    ? EvaluateClimb2mPrototypeWindow(
+                        contacts.RightHandIKWindow, normalizedTime, transferTime, exitTime)
+                    : contacts.RightHandIKWindow.Evaluate(normalizedTime, exitTime)
                 : 0f;
             float maxResidual = IsFinite(maximumResidualDistance) && maximumResidualDistance > 0f
                 ? maximumResidualDistance
@@ -166,6 +288,7 @@ namespace Project.Presentation.IK
             RightSolvedResidualError = contacts.HasRightHand
                 ? Vector3.Distance(RightSolvedPosition, contacts.RightHandWorldTarget)
                 : 0f;
+            UpdateArmReachMetrics(in contacts);
 
             if (leftWeight <= 0f && rightWeight <= 0f)
             {
@@ -173,6 +296,26 @@ namespace Project.Presentation.IK
                 UpdateDebug();
                 return;
             }
+
+            // ⭐ 2026-09-20：**max 累加器只在 contact window 內折算。**
+            //
+            // 舊版把這三個 fold 放在上面那個 early return **之前**，於是只要 plan 還 active
+            // 就一直累加——包含 Transfer 之後、角色已經爬上平台走遠、而 committed hand target
+            // 還釘在下方邊緣的所有幀。實測後果：三個牆高全都回報
+            // `pre/post IK max ≈ 122 cm`、`arm ratio max ≈ 2.8`、`raw wrist reach ≈ 1.57 m`，
+            // 而同一次 traversal 的四個取樣點是 3–39 cm ／ 0.70–1.07。
+            // 那不是超額，那是「手離 0.5 個 normalized time 前放開的那個點有多遠」。
+            //
+            // 這與 `docs/39` F1（blocked displacement 被 post-exit 貼地力污染）是**同一類缺陷**：
+            // 未被窗口限制的 max 累加器。閘門刻意放在 residual 否決**之前**——
+            // 被 guard 擋下來的那一幀（1.6 m 的 39.47 cm）正是最需要被記錄的值。
+            MaxPreIKResidual = Mathf.Max(
+                MaxPreIKResidual, Mathf.Max(LeftResidualError, RightResidualError));
+            MaxPostIKResidual = Mathf.Max(
+                MaxPostIKResidual,
+                Mathf.Max(LeftSolvedResidualError, RightSolvedResidualError));
+            MaxArmReachRatio = Mathf.Max(
+                MaxArmReachRatio, Mathf.Max(LeftArmReachRatio, RightArmReachRatio));
 
             bool residualRejected = false;
             if (leftWeight > 0f &&
@@ -196,7 +339,105 @@ namespace Project.Presentation.IK
             Status = residualRejected
                 ? TraversalHandIKStatus.ResidualTooLarge
                 : TraversalHandIKStatus.Active;
+            CapturePrototypeMeasurements(
+                in plan,
+                normalizedTime,
+                leftWeight,
+                rightWeight);
             UpdateDebug();
+        }
+
+        private void ResetPrototypeMeasurements()
+        {
+            MaxArmReachRatio = 0f;
+            MaxPreIKResidual = 0f;
+            MaxPostIKResidual = 0f;
+            ContactSample = default;
+            ContactMidpointSample = default;
+            TransferPreviousFrameSample = default;
+            TransferSample = default;
+        }
+
+        private void UpdateArmReachMetrics(in TraversalContactTargets contacts)
+        {
+            LeftRawWristReach = RawWristReach(
+                _leftUpperArmBone, contacts.LeftHandWorldTarget, contacts.HasLeftHand);
+            RightRawWristReach = RawWristReach(
+                _rightUpperArmBone, contacts.RightHandWorldTarget, contacts.HasRightHand);
+            LeftArmReachRatio = ArmReachRatio(
+                _leftUpperArmBone, _leftLowerArmBone, _leftHandBone,
+                LeftRawWristReach, contacts.HasLeftHand);
+            RightArmReachRatio = ArmReachRatio(
+                _rightUpperArmBone, _rightLowerArmBone, _rightHandBone,
+                RightRawWristReach, contacts.HasRightHand);
+            // ⛔ 這裡**不折算** MaxArmReachRatio——逐幀值給 debug 標籤用，
+            //    max 由呼叫端在 contact window 內折算（見上方註解）。
+        }
+
+        private static float RawWristReach(Transform shoulder, Vector3 target, bool hasTarget)
+        {
+            if (!hasTarget || shoulder == null || !IsFinite(target)) return 0f;
+            return Vector3.Distance(shoulder.position, target);
+        }
+
+        private static float ArmReachRatio(
+            Transform shoulder,
+            Transform elbow,
+            Transform wrist,
+            float rawReach,
+            bool hasTarget)
+        {
+            if (!hasTarget || shoulder == null || elbow == null || wrist == null)
+                return 0f;
+            float armLength = Vector3.Distance(shoulder.position, elbow.position) +
+                              Vector3.Distance(elbow.position, wrist.position);
+            return armLength > 0.0001f && IsFinite(rawReach)
+                ? rawReach / armLength
+                : 0f;
+        }
+
+        private void CapturePrototypeMeasurements(
+            in TraversalWarpPlan plan,
+            float normalizedTime,
+            float leftWeight,
+            float rightWeight)
+        {
+            if (!motionDriver.IsClimb2mSegmentPrototypeActive) return;
+
+            float contact = Mathf.Max(
+                plan.LeftContactKnot.NormalizedTime,
+                plan.RightContactKnot.NormalizedTime);
+            float transfer = plan.TransferKnot.NormalizedTime;
+            float midpoint = 0.5f * (contact + transfer);
+            TraversalPrototypeMeasurementSample sample = CreateMeasurementSample(
+                normalizedTime, leftWeight, rightWeight);
+
+            if (!ContactSample.HasSample && normalizedTime >= contact)
+                ContactSample = sample;
+            if (!ContactMidpointSample.HasSample && normalizedTime >= midpoint)
+                ContactMidpointSample = sample;
+            if (normalizedTime < transfer)
+                TransferPreviousFrameSample = sample;
+            if (!TransferSample.HasSample && normalizedTime >= transfer)
+                TransferSample = sample;
+        }
+
+        private TraversalPrototypeMeasurementSample CreateMeasurementSample(
+            float normalizedTime,
+            float leftWeight,
+            float rightWeight)
+        {
+            return new TraversalPrototypeMeasurementSample(
+                normalizedTime,
+                Mathf.Max(LeftResidualError, RightResidualError),
+                Mathf.Max(LeftSolvedResidualError, RightSolvedResidualError),
+                Mathf.Max(LeftRawWristReach, RightRawWristReach),
+                Mathf.Max(LeftArmReachRatio, RightArmReachRatio),
+                motionDriver.ActiveClimb2mPrototypeRootError,
+                motionDriver.LastTraversalMaxWarpBlockedDisplacement,
+                motionDriver.LastTraversalMaxSegmentBoundaryVelocityDelta,
+                leftWeight,
+                rightWeight);
         }
 
         private static bool IsFinite(Vector3 value) =>
@@ -205,11 +446,53 @@ namespace Project.Presentation.IK
         private static bool IsFinite(float value) =>
             !float.IsNaN(value) && !float.IsInfinity(value);
 
+        // PROTOTYPE ONLY: keep hand contact through Transfer, then reuse the authored
+        // fade-in span for a short fade-out.  Bake authoring values remain untouched.
+        private static float EvaluateClimb2mPrototypeWindow(
+            TraversalHandIKWindow window,
+            float normalizedTime,
+            float transferNormalizedTime,
+            float exitNormalizedTime)
+        {
+            if (!window.IsValid || !IsFinite(normalizedTime) ||
+                !IsFinite(transferNormalizedTime) || !IsFinite(exitNormalizedTime) ||
+                transferNormalizedTime < window.FullNormalizedTime ||
+                exitNormalizedTime <= transferNormalizedTime)
+                return 0f;
+
+            if (normalizedTime <= window.StartNormalizedTime ||
+                normalizedTime >= exitNormalizedTime)
+                return 0f;
+            if (normalizedTime < window.FullNormalizedTime)
+                return Smooth01(Mathf.InverseLerp(
+                    window.StartNormalizedTime,
+                    window.FullNormalizedTime,
+                    normalizedTime));
+            if (normalizedTime <= transferNormalizedTime)
+                return 1f;
+
+            float fadeSpan = Mathf.Max(
+                0f,
+                window.FullNormalizedTime - window.StartNormalizedTime);
+            float fadeEnd = Mathf.Min(exitNormalizedTime, transferNormalizedTime + fadeSpan);
+            if (normalizedTime >= fadeEnd) return 0f;
+            return 1f - Smooth01(Mathf.InverseLerp(
+                transferNormalizedTime, fadeEnd, normalizedTime));
+        }
+
+        private static float Smooth01(float value)
+        {
+            value = Mathf.Clamp01(value);
+            return value * value * (3f - 2f * value);
+        }
+
         [System.Diagnostics.Conditional("UNITY_EDITOR")]
         [System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
         private void UpdateDebug()
         {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
+            UpdateRuntimeHandTargets();
+
             if (!drawTraversalHandIKDebug || !drawTraversalPanelText)
             {
                 if (_debugRuntimeLabel != null) _debugRuntimeLabel.gameObject.SetActive(false);
@@ -225,10 +508,12 @@ namespace Project.Presentation.IK
                     $"Hand IK: {Status} enabled={enableHandIK}\n" +
                     $"L w {_targetData.LeftHandPositionWeight:F2}" +
                     $"  goal {LeftResidualError * 100f:F1} cm" +
-                    $"  solved {LeftSolvedResidualError * 100f:F1} cm\n" +
+                    $"  solved {LeftSolvedResidualError * 100f:F1} cm" +
+                    $"  reach {LeftRawWristReach:F3} m / {LeftArmReachRatio:F3}\n" +
                     $"R w {_targetData.RightHandPositionWeight:F2}" +
                     $"  goal {RightResidualError * 100f:F1} cm" +
-                    $"  solved {RightSolvedResidualError * 100f:F1} cm";
+                    $"  solved {RightSolvedResidualError * 100f:F1} cm" +
+                    $"  reach {RightRawWristReach:F3} m / {RightArmReachRatio:F3}";
                 _debugRuntimeLabel.transform.position = transform.position + Vector3.up * 2.25f;
                 Camera mainCamera = Camera.main;
                 if (mainCamera != null)
@@ -242,6 +527,241 @@ namespace Project.Presentation.IK
         }
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
+        /// <summary>
+        /// Game View main channel: current hand bone → committed hand target, target marker, and
+        /// target orientation. Every value comes from the active production plan or actual rig;
+        /// this method performs no query and no IK solve.
+        /// </summary>
+        private void UpdateRuntimeHandTargets()
+        {
+            if (!drawTraversalHandIKDebug || motionDriver == null ||
+                !motionDriver.HasActiveTraversalPlan || _targetData == null)
+            {
+                DisableRuntimeHandTargets();
+                return;
+            }
+
+            TraversalContactTargets contacts = motionDriver.ActiveTraversalPlan.ContactTargets;
+            UpdateRuntimeHandTarget(
+                0,
+                contacts.HasLeftHand,
+                _leftHandBone != null
+                    ? _leftHandBone.position
+                    : (_poseData != null ? _poseData.LeftHandPosition : Vector3.zero),
+                contacts.LeftHandWorldTarget,
+                contacts.LeftHandWorldRotation,
+                Color.yellow,
+                "L Hand Target");
+            UpdateRuntimeHandTarget(
+                1,
+                contacts.HasRightHand,
+                _rightHandBone != null
+                    ? _rightHandBone.position
+                    : (_poseData != null ? _poseData.RightHandPosition : Vector3.zero),
+                contacts.RightHandWorldTarget,
+                contacts.RightHandWorldRotation,
+                new Color(1f, 0.55f, 0.1f, 1f),
+                "R Hand Target");
+        }
+
+        private void UpdateRuntimeHandTarget(
+            int index,
+            bool hasTarget,
+            Vector3 currentHand,
+            Vector3 target,
+            Quaternion targetRotation,
+            Color color,
+            string label)
+        {
+            if (!hasTarget)
+            {
+                SetRuntimeHandTargetEnabled(index, false);
+                return;
+            }
+
+            EnsureRuntimeHandTarget(index, color, label);
+            LineRenderer vector = _debugHandVectors[index];
+            LineRenderer ring = _debugTargetRings[index];
+            TextMesh targetLabel = _debugTargetLabels[index];
+            if (vector == null || ring == null || targetLabel == null) return;
+
+            vector.enabled = true;
+            vector.SetPosition(0, currentHand);
+            vector.SetPosition(1, target);
+            vector.SetPosition(2, target);
+            vector.SetPosition(3, target + targetRotation * Vector3.forward * TargetDirectionLength);
+
+            Vector3 right = targetRotation * Vector3.right * TargetMarkerRadius;
+            Vector3 up = targetRotation * Vector3.up * TargetMarkerRadius;
+            for (int i = 0; i < TargetRingSegments; i++)
+            {
+                float angle = i * (Mathf.PI * 2f / TargetRingSegments);
+                _debugTargetRingBuffer[i] = target + right * Mathf.Cos(angle) + up * Mathf.Sin(angle);
+            }
+            ring.enabled = true;
+            ring.SetPositions(_debugTargetRingBuffer);
+
+            // 解算後手腕的結構球。`currentHand` 已經是 IK 解完的骨骼位置
+            // （與 LeftSolvedPosition／RightSolvedPosition 同源），所以
+            // 「球心 ↔ 環心」的距離就是畫面上的 post-IK residual。
+            LineRenderer solvedBall = _debugSolvedBalls[index];
+            if (solvedBall != null)
+            {
+                FillSolvedBall(currentHand);
+                solvedBall.enabled = true;
+                solvedBall.SetPositions(_debugSolvedBallBuffer);
+            }
+
+            targetLabel.gameObject.SetActive(true);
+            targetLabel.transform.position = target + Vector3.up * 0.075f;
+            if (_debugCamera == null) _debugCamera = Camera.main;
+            if (_debugCamera != null)
+            {
+                Vector3 look = targetLabel.transform.position - _debugCamera.transform.position;
+                if (look.sqrMagnitude > 0.000001f)
+                    targetLabel.transform.rotation = Quaternion.LookRotation(look);
+            }
+        }
+
+        /// <summary>
+        /// 把三個正交圓（世界 XY／XZ／YZ）寫進共用緩衝區。逐幀呼叫但零配置：
+        /// <c>Vector3</c> 是 struct，緩衝區在欄位上一次配好。
+        /// </summary>
+        private void FillSolvedBall(Vector3 center)
+        {
+            const float step = Mathf.PI * 2f / SolvedBallSegments;
+            int w = 0;
+            for (int i = 0; i <= SolvedBallSegments; i++)
+            {
+                float a = i * step;
+                _debugSolvedBallBuffer[w++] = center + new Vector3(
+                    Mathf.Cos(a) * SolvedBallRadius, Mathf.Sin(a) * SolvedBallRadius, 0f);
+            }
+            for (int i = 0; i <= SolvedBallSegments; i++)
+            {
+                float a = i * step;
+                _debugSolvedBallBuffer[w++] = center + new Vector3(
+                    Mathf.Cos(a) * SolvedBallRadius, 0f, Mathf.Sin(a) * SolvedBallRadius);
+            }
+            for (int i = 0; i <= SolvedBallSegments; i++)
+            {
+                float a = i * step;
+                _debugSolvedBallBuffer[w++] = center + new Vector3(
+                    0f, Mathf.Cos(a) * SolvedBallRadius, Mathf.Sin(a) * SolvedBallRadius);
+            }
+        }
+
+        private void EnsureRuntimeHandTarget(int index, Color color, string label)
+        {
+            EnsureRuntimeHandDebugRoot();
+            if (_debugHandRoot == null || _debugHandMaterial == null) return;
+
+            if (_debugHandVectors[index] == null)
+            {
+                _debugHandVectors[index] = CreateRuntimeLine($"{label} Vector", 4, false, color);
+            }
+            if (_debugTargetRings[index] == null)
+            {
+                _debugTargetRings[index] = CreateRuntimeLine(
+                    $"{label} Marker", TargetRingSegments, true, color);
+            }
+            if (_debugSolvedBalls[index] == null)
+            {
+                // 比 target 暗一階，讓「球＝解算結果」與「環＝committed target」一眼分得開，
+                // 同時保留左右手的色相差異。
+                var solvedColor = new Color(color.r * 0.45f, color.g * 0.45f, color.b * 0.45f, 1f);
+                _debugSolvedBalls[index] = CreateRuntimeLine(
+                    $"{label} Solved", _debugSolvedBallBuffer.Length, false, solvedColor);
+            }
+            if (_debugTargetLabels[index] == null)
+            {
+                var labelObject = new GameObject(label)
+                {
+                    hideFlags = HideFlags.HideAndDontSave,
+                    layer = gameObject.layer,
+                };
+                labelObject.transform.SetParent(_debugHandRoot, false);
+                TextMesh text = labelObject.AddComponent<TextMesh>();
+                text.text = label;
+                text.anchor = TextAnchor.LowerCenter;
+                text.alignment = TextAlignment.Center;
+                text.characterSize = 0.018f;
+                text.fontSize = 42;
+                text.color = color;
+                _debugTargetLabels[index] = text;
+            }
+        }
+
+        private void EnsureRuntimeHandDebugRoot()
+        {
+            if (_debugHandMaterial == null)
+            {
+                Shader shader = Shader.Find("Sprites/Default");
+                if (shader == null) return;
+                _debugHandMaterial = new Material(shader)
+                {
+                    name = "Traversal Hand Target Debug (Runtime)",
+                    hideFlags = HideFlags.HideAndDontSave,
+                };
+            }
+
+            if (_debugHandRoot == null)
+            {
+                var root = new GameObject("Traversal Hand Target Debug")
+                {
+                    hideFlags = HideFlags.HideAndDontSave,
+                    layer = gameObject.layer,
+                };
+                _debugHandRoot = root.transform;
+                _debugHandRoot.SetParent(transform, false);
+            }
+        }
+
+        private LineRenderer CreateRuntimeLine(
+            string lineName,
+            int positionCount,
+            bool loop,
+            Color color)
+        {
+            var lineObject = new GameObject(lineName)
+            {
+                hideFlags = HideFlags.HideAndDontSave,
+                layer = gameObject.layer,
+            };
+            lineObject.transform.SetParent(_debugHandRoot, false);
+
+            var line = lineObject.AddComponent<LineRenderer>();
+            line.sharedMaterial = _debugHandMaterial;
+            line.useWorldSpace = true;
+            line.loop = loop;
+            line.positionCount = positionCount;
+            line.startWidth = TargetLineWidth;
+            line.endWidth = TargetLineWidth;
+            line.startColor = color;
+            line.endColor = color;
+            line.numCapVertices = 0;
+            line.numCornerVertices = 0;
+            line.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            line.receiveShadows = false;
+            line.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+            line.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+            return line;
+        }
+
+        private void DisableRuntimeHandTargets()
+        {
+            for (int i = 0; i < 2; i++) SetRuntimeHandTargetEnabled(i, false);
+        }
+
+        private void SetRuntimeHandTargetEnabled(int index, bool enabled)
+        {
+            if (_debugHandVectors[index] != null) _debugHandVectors[index].enabled = enabled;
+            if (_debugTargetRings[index] != null) _debugTargetRings[index].enabled = enabled;
+            if (_debugSolvedBalls[index] != null) _debugSolvedBalls[index].enabled = enabled;
+            if (_debugTargetLabels[index] != null)
+                _debugTargetLabels[index].gameObject.SetActive(enabled);
+        }
+
         private void EnsureRuntimeDebugLabel()
         {
             if (_debugRuntimeLabel != null) return;

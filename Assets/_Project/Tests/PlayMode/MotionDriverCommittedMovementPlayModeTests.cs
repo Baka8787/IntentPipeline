@@ -108,6 +108,44 @@ namespace Project.Tests.PlayMode
         }
 
         [UnityTest]
+        public IEnumerator C0_ReboundGroundingBlockIsNotReportedAsWarpBlock()
+        {
+            GameObject floor = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            _created.Add(floor);
+            floor.transform.position = new Vector3(0f, -0.5f, 0f);
+            floor.transform.localScale = new Vector3(10f, 1f, 10f);
+
+            GameObject host = new GameObject("Traversal Rebound Evidence Host");
+            _created.Add(host);
+            CharacterController controller = host.AddComponent<CharacterController>();
+            controller.center = new Vector3(0f, 1f, 0f);
+            controller.height = 2f;
+            controller.radius = 0.5f;
+            controller.minMoveDistance = 0f;
+            MotionDriver driver = host.AddComponent<MotionDriver>();
+            yield return null;
+            Physics.SyncTransforms();
+
+            driver.BeginTraversalPresentation(default, default);
+            var move = typeof(MotionDriver).GetMethod(
+                "MoveTraversalAndRecord",
+                System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.NonPublic);
+            Assert.IsNotNull(move);
+            move.Invoke(driver, new object[]
+            {
+                Vector3.zero,
+                Vector3.down * 0.1f,
+                0.9f,
+            });
+
+            Assert.That(driver.LastTraversalMaxWarpBlockedDisplacement, Is.LessThan(0.005f),
+                "grounding-only Move must not contaminate traversal warp blocking");
+            Assert.That(driver.LastTraversalMaxReboundBlockedDisplacement, Is.GreaterThan(0.05f),
+                "the blocked downward grounding request must remain observable separately");
+        }
+
+        [UnityTest]
         public IEnumerator C0_ExecutionRecordsRequestedActualFlagsAndCapsule()
         {
             GameObject host = new GameObject("Traversal Execution Evidence Host");
@@ -131,6 +169,8 @@ namespace Project.Tests.PlayMode
             Assert.That(Vector3.Distance(result.RequestedDisplacement, result.ActualDisplacement),
                 Is.LessThan(0.0001f));
             Assert.That(result.BlockedDisplacement.magnitude, Is.LessThan(0.0001f));
+            Assert.That(driver.LastTraversalMaxWarpBlockedDisplacement, Is.LessThan(0.0001f));
+            Assert.That(driver.LastTraversalMaxReboundBlockedDisplacement, Is.LessThan(0.0001f));
             Assert.AreEqual(controller.center, result.ControllerCenter);
             Assert.AreEqual(controller.height, result.ControllerHeight);
             Assert.AreEqual(controller.radius, result.ControllerRadius);

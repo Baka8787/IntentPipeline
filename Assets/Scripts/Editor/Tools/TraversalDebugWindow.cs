@@ -1,5 +1,6 @@
 #if UNITY_EDITOR
 using Project.Core.Environment;
+using Project.Presentation.IK;
 using Project.Presentation.Motion;
 using UnityEditor;
 using UnityEngine;
@@ -28,6 +29,7 @@ namespace Project.Editor.Tools
 
         private TraversalProbe _probe;
         private MotionDriver _driver;
+        private TraversalHandIKController _handIK;
         private double _nextRepaint;
         private Vector2 _scroll;
 
@@ -71,15 +73,27 @@ namespace Project.Editor.Tools
 
         private void ResolveTargets()
         {
-            if (_probe != null && _driver != null) return;
+            if (_probe != null && _driver != null)
+            {
+                if (_handIK == null) _handIK = _probe.GetComponent<TraversalHandIKController>();
+                return;
+            }
             if (Selection.activeGameObject != null)
             {
                 _probe = Selection.activeGameObject.GetComponentInParent<TraversalProbe>();
-                if (_probe != null) _driver = _probe.GetComponent<MotionDriver>();
+                if (_probe != null)
+                {
+                    _driver = _probe.GetComponent<MotionDriver>();
+                    _handIK = _probe.GetComponent<TraversalHandIKController>();
+                }
             }
             if (_probe != null) return;
             _probe = FindFirstObjectByType<TraversalProbe>();
-            if (_probe != null) _driver = _probe.GetComponent<MotionDriver>();
+            if (_probe != null)
+            {
+                _driver = _probe.GetComponent<MotionDriver>();
+                _handIK = _probe.GetComponent<TraversalHandIKController>();
+            }
         }
 
         // =====================================================================
@@ -219,9 +233,46 @@ namespace Project.Editor.Tools
         private void DrawExecution()
         {
             Section("Execution");
-            if (_driver == null || !_driver.HasActiveTraversalPlan)
+            if (_driver == null)
             {
-                Indent("沒有進行中的 traversal。");
+                Indent("找不到同物件上的 MotionDriver。");
+                return;
+            }
+
+            Row("completion",
+                _driver.HasActiveTraversalPlan
+                    ? "active"
+                    : _driver.LastTraversalCompleted ? "completed (reached Exit)" : "not completed",
+                _driver.HasActiveTraversalPlan || _driver.LastTraversalCompleted);
+            Indent($"warp blocked max {_driver.LastTraversalMaxWarpBlockedDisplacement * 100f:F2} cm" +
+                   $"   rebound blocked max {_driver.LastTraversalMaxReboundBlockedDisplacement * 100f:F2} cm");
+            Indent($"root divergence max {_driver.LastTraversalMaxRootDivergence * 100f:F2} cm" +
+                   $"   boundary dv max {_driver.LastTraversalMaxSegmentBoundaryVelocityDelta:F3} m/s");
+
+            TraversalWarpPlan retainedPlan = _driver.HasActiveTraversalPlan
+                ? _driver.ActiveTraversalPlan
+                : _driver.LastCommittedTraversalPlan;
+            if (_handIK != null)
+            {
+                float reachLimit = retainedPlan.IsValid &&
+                                   retainedPlan.Bake.Traversal.RootReachConstraint.IsValid
+                    ? retainedPlan.Bake.Traversal.RootReachConstraint.MaximumReachRatio
+                    : 0f;
+                Indent($"pre/post IK max {_handIK.MaxPreIKResidual * 100f:F2} / " +
+                       $"{_handIK.MaxPostIKResidual * 100f:F2} cm" +
+                       $"   arm ratio max {_handIK.MaxArmReachRatio:F3}" +
+                       (reachLimit > 0f ? $" / authored {reachLimit:F3}" : string.Empty));
+                Indent($"raw wrist reach L {_handIK.LeftRawWristReach:F3} m" +
+                       $"   R {_handIK.RightRawWristReach:F3} m");
+                DrawSample("Contact", _handIK.ContactSample);
+                DrawSample("Contact midpoint", _handIK.ContactMidpointSample);
+                DrawSample("Transfer - 1 frame", _handIK.TransferPreviousFrameSample);
+                DrawSample("Transfer", _handIK.TransferSample);
+            }
+
+            if (!_driver.HasActiveTraversalPlan)
+            {
+                Indent("沒有進行中的 traversal；以上保留最近一次量測。");
                 return;
             }
 
@@ -254,10 +305,30 @@ namespace Project.Editor.Tools
             TraversalExecutionResult result = _driver.LastTraversalExecutionResult;
             if (!result.HasResult) return;
             float blocked = result.BlockedDisplacement.magnitude;
-            Row("blocked",
+            Row("last combined Move blocked",
                 $"{blocked * 100f:F1} cm of {result.RequestedDisplacement.magnitude * 100f:F1} cm" +
                 $"   flags {result.CollisionFlags}",
                 blocked < 0.002f);
+        }
+
+        private static void DrawSample(
+            string label,
+            TraversalPrototypeMeasurementSample sample)
+        {
+            if (!sample.HasSample)
+            {
+                Indent($"{label}: —");
+                return;
+            }
+
+            Indent($"{label} t={sample.NormalizedTime:F3}" +
+                   $"   pre/post {sample.PreIKHandResidual * 100f:F2}/" +
+                   $"{sample.PostIKHandResidual * 100f:F2} cm" +
+                   $"   reach {sample.RawWristReach:F3} m / {sample.ArmReachRatio:F3}" +
+                   $"   root {sample.RootDivergence * 100f:F2} cm");
+            Indent($"    warp blocked {sample.WarpBlockedDisplacement * 100f:F2} cm" +
+                   $"   boundary dv {sample.SegmentBoundaryVelocityDelta:F3} m/s" +
+                   $"   IK L/R {sample.LeftIKWeight:F2}/{sample.RightIKWeight:F2}");
         }
 
         // =====================================================================

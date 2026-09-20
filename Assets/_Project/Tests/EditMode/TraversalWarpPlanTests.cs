@@ -538,5 +538,116 @@ namespace Project.Tests.EditMode
                 warpStart, warpEnd, 2f, 1f, out TraversalWarpPlan plan));
             return plan;
         }
+
+        [Test]
+        public void PrototypeBasis_RestoresReachConstraintWithCorrectedYawAndStopsAtExit()
+        {
+            ConfigureTraversalBlock();
+            var reach = new TraversalRootReachConstraint(
+                0.95f,
+                0.3f,
+                0.7f,
+                AnimationCurve.Linear(0f, 0.1f, 1f, 0.1f),
+                AnimationCurve.Linear(0f, 0.2f, 1f, 0.2f),
+                AnimationCurve.Linear(0f, 0.3f, 1f, 0.3f));
+            TraversalMotionBakeBlock block = _bake.Traversal;
+            _bake.Traversal = block.WithRootReachConstraint(in reach);
+            TraversalCandidate candidate = V3Candidate(
+                ledgeHeight: 2.1f, halfWidth: 0.8f, yaw: 20f);
+            TraversalEntryEvaluation entry = ExecutableEntry(candidate);
+            Assert.IsTrue(TraversalPlanBuilder.TryBuild(
+                _bake, in candidate, in entry, 0.05f, 5f, 5f,
+                out TraversalWarpPlan plan));
+
+            const float sampleTime = 0.4f;
+            Assert.IsTrue(TraversalWarpPlan.TryEvaluateOriginal(
+                _bake, plan.StartPosition, plan.StartForward, sampleTime,
+                out Vector3 original, out _));
+            Assert.IsTrue(plan.TryEvaluate(sampleTime, out _, out float correctedYaw));
+            Assert.IsTrue(TraversalSegmentWarpPrototypeSegment.TryEvaluateBasis(
+                in plan, sampleTime, out Vector3 basis));
+            Vector3 expected = original + Quaternion.AngleAxis(correctedYaw, Vector3.up) *
+                               reach.Evaluate(sampleTime);
+            Assert.That(Vector3.Distance(basis, expected), Is.LessThan(0.0001f));
+            Assert.That(Vector3.Distance(basis, original), Is.GreaterThan(0.1f),
+                "prototype basis must not silently drop the enabled reach term");
+
+            float exitTime = plan.ExitKnot.NormalizedTime;
+            Assert.IsTrue(TraversalWarpPlan.TryEvaluateOriginal(
+                _bake, plan.StartPosition, plan.StartForward, exitTime,
+                out Vector3 originalAtExit, out _));
+            Assert.IsTrue(TraversalSegmentWarpPrototypeSegment.TryEvaluateBasis(
+                in plan, exitTime, out Vector3 basisAtExit));
+            Assert.That(Vector3.Distance(basisAtExit, originalAtExit), Is.LessThan(0.0001f),
+                "production's Exit early-return must remain reach-free");
+        }
+
+        [Test]
+        public void PrototypeSegment_CompensationReachesCommittedEnd()
+        {
+            Assert.IsTrue(TraversalSegmentWarpPrototypeSegment.TryCreate(
+                0f,
+                0.25f,
+                new Vector3(1f, 0f, 2f),
+                new Vector3(0f, 0f, 0f),
+                new Vector3(0f, 1f, 1f),
+                new Vector3(1.2f, 0.4f, 3.5f),
+                out TraversalSegmentWarpPrototypeSegment segment));
+
+            Vector3 frameDelta = segment.EvaluateCompensatedDelta(
+                segment.BakedSegmentDelta, 0f, 0.25f);
+            Assert.Less(Vector3.Distance(
+                frameDelta,
+                segment.DesiredSegmentEnd - segment.ActualSegmentStart),
+                0.0001f);
+
+            Vector3 desired = segment.EvaluateDesiredPosition(
+                new Vector3(0f, 1f, 1f), 0.25f);
+            Assert.Less(Vector3.Distance(desired, segment.DesiredSegmentEnd), 0.0001f);
+        }
+
+        [Test]
+        public void PrototypeSegment_RebaseUsesActualBoundaryPosition()
+        {
+            // The first segment is blocked 0.30 m short.  The second segment starts from
+            // that actual position, not the first segment's theoretical endpoint.
+            Assert.IsTrue(TraversalSegmentWarpPrototypeSegment.TryCreate(
+                0f, 0.25f,
+                Vector3.zero,
+                Vector3.zero,
+                new Vector3(0f, 1f, 0f),
+                new Vector3(0f, 1f, 0f),
+                out _));
+            Assert.IsTrue(TraversalSegmentWarpPrototypeSegment.TryCreate(
+                0.25f, 0.8f,
+                new Vector3(0f, 0.7f, 0f),
+                new Vector3(0f, 1f, 0f),
+                new Vector3(0f, 1.5f, 0f),
+                new Vector3(0f, 2f, 0f),
+                out TraversalSegmentWarpPrototypeSegment rebased));
+
+            Vector3 desired = rebased.EvaluateDesiredPosition(
+                new Vector3(0f, 1.5f, 0f), 0.8f);
+            Assert.Less(Vector3.Distance(desired, new Vector3(0f, 2f, 0f)), 0.0001f);
+            Assert.That(rebased.ActualSegmentStart.y, Is.EqualTo(0.7f));
+        }
+
+        [Test]
+        public void PrototypeSegment_DeltaDoesNotReadActualPositionPerFrame()
+        {
+            Assert.IsTrue(TraversalSegmentWarpPrototypeSegment.TryCreate(
+                0f, 1f,
+                Vector3.zero,
+                Vector3.zero,
+                Vector3.forward,
+                Vector3.forward * 2f,
+                out TraversalSegmentWarpPrototypeSegment segment));
+
+            Vector3 first = segment.EvaluateCompensatedDelta(
+                Vector3.forward * 0.1f, 0.1f, 0.2f);
+            Vector3 second = segment.EvaluateCompensatedDelta(
+                Vector3.forward * 0.1f, 0.1f, 0.2f);
+            Assert.That(first, Is.EqualTo(second));
+        }
     }
 }
