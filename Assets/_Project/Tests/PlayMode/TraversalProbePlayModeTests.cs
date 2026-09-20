@@ -123,6 +123,57 @@ namespace Project.Tests.PlayMode
             Assert.AreEqual(TraversalKind.Climb2m, probe.Candidate.Kind);
         }
 
+        /// <summary>
+        /// 🔒 **懸空的板（底下是空的）必須被偵測到。**
+        ///
+        /// 真實 bug（2026-09-20 使用者回報「簍空結構攀爬不了」，現場量測定案）：
+        /// 場景裡的 `Cube (2)` 是 bounds y ∈ [1.425, 1.820] 的懸空厚板，底下完全是空的。
+        /// 現場重打同一組射線：1.40／1.50／1.60／1.70 四根命中（橫向 ±0.35 m 一致 ⇒ **不是**橫向缺口），
+        /// 0.30–1.30 全部落空。舊版前掃第一根（`stepOffset` 0.30 m）沒打到就 `break`
+        /// ⇒ 迴圈爬不到 1.40 ⇒ `NoForwardHit`、height 0.00。
+        ///
+        /// ⛔ 不要把這條刪掉：它守的不變量是「**掃描不得假設障礙物從地面長起**」。
+        /// 任何懸空板／桌面／欄杆／突出的簷都靠它。
+        /// </summary>
+        [UnityTest]
+        public IEnumerator FloatingSlabWithOpenSpaceBelow_IsStillDetected()
+        {
+            CreateGround();
+            TraversalProbe probe = CreateProbe();
+
+            // 底面 1.4 m、厚 0.4 m ⇒ 頂面 1.8 m，底下 0–1.4 m 完全淨空。
+            GameObject slab = CreateCube("Floating Slab");
+            slab.transform.position = new Vector3(0f, 1.6f, 0.75f + 0.5f);
+            slab.transform.localScale = new Vector3(4f, 0.4f, 1f);
+            Physics.SyncTransforms();
+            yield return null;
+
+            probe.Tick(ValidData());
+
+            Assert.AreNotEqual(
+                TraversalRejectReason.NoForwardHit, probe.Candidate.RejectReason,
+                "懸空板的正面在 1.4 m 才開始——掃描不得因為 0.3 m 處是空的就放棄");
+            Assert.That(
+                probe.Candidate.Height, Is.EqualTo(1.8f).Within(0.12f),
+                "偵測到的高度必須是板的**頂面**，不是第一個缺口的高度");
+        }
+
+        [UnityTest]
+        public IEnumerator SolidWall_ScanBehaviourIsUnchangedByFloatingSlabFix()
+        {
+            // 迴歸保險：實心牆的第一根射線一定命中，走的是原本那條路徑。
+            CreateGround();
+            TraversalProbe probe = CreateProbe();
+            CreateObstacle(height: 2f, depth: 1f);
+            Physics.SyncTransforms();
+            yield return null;
+
+            probe.Tick(ValidData());
+
+            Assert.AreEqual(TraversalKind.Climb2m, probe.Candidate.Kind);
+            Assert.That(probe.Candidate.Height, Is.EqualTo(2f).Within(0.12f));
+        }
+
         [UnityTest]
         public IEnumerator TwoPointFiveMetreObstacle_IsTooHigh()
         {

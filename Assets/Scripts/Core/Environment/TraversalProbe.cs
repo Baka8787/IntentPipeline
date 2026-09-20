@@ -162,6 +162,31 @@ namespace Project.Core.Environment
             _requiredLandingDepth = landingDepth;
         }
 
+        /// <summary>
+        /// 🆕 2026-09-20：**動畫覆蓋範圍的單向推送（只供 debug 顯示）。**
+        ///
+        /// 覆蓋範圍的擁有者是 `TraversalMotionBinding`（StateMachine 層）；Probe 不得反向查詢它
+        /// （§F I10：Core/Environment 不依賴 StateMachine）。沿用 <see cref="SetDerivedRangeRequirements"/>
+        /// 的同一個手法——推進來的是**四個 float**，不是 binding 引用。
+        ///
+        /// ⛔ 這些值**不參與任何判定**，只決定畫哪幾個環。真正的閘門在
+        /// <c>TraversalSelectionPolicy</c>，畫面永遠是決策的投影，不是第二份真相。
+        /// </summary>
+        public void SetDerivedCoverageBands(
+            float climb1mMinHeight, float climb1mMaxHeight,
+            float climb2mMinHeight, float climb2mMaxHeight)
+        {
+            _climb1mCoverageMin = climb1mMinHeight;
+            _climb1mCoverageMax = climb1mMaxHeight;
+            _climb2mCoverageMin = climb2mMinHeight;
+            _climb2mCoverageMax = climb2mMaxHeight;
+        }
+
+        private float _climb1mCoverageMin;
+        private float _climb1mCoverageMax;
+        private float _climb2mCoverageMin;
+        private float _climb2mCoverageMax;
+
         /// <summary>實際使用的前掃距離＝authored 與動畫需求取大。</summary>
         public float EffectiveForwardScanDistance =>
             IsFinitePositive(_requiredForwardReach)
@@ -362,7 +387,24 @@ namespace Project.Core.Environment
                     continue;
                 }
 
-                if (hasForwardHit) firstClearHeight = scanHeight;
+                // ⭐ 2026-09-20：**「還沒打到」與「牆面到頂了」是兩件事，不能共用同一個 break。**
+                //
+                // 真實 bug（使用者回報「簍空結構攀爬不了」，2026-09-20 現場量測定案）：
+                // `Cube (2)` 是一塊 bounds y ∈ [1.425, 1.820] 的懸空厚板，底下完全是空的。
+                // 現場重打同一組射線：1.40／1.50／1.60／1.70 四根都命中（橫向 ±0.35 m 結果一致，
+                // **不是**橫向缺口），但 0.30–1.30 全部落空。
+                // 舊版第一根（stepOffset = 0.30 m）沒打到就直接 break ⇒ 迴圈根本爬不到 1.40
+                // ⇒ `hasForwardHit = false` ⇒ `NoForwardHit`、height 0.00。
+                //
+                // 這條早退把掃描的前提寫死成「障礙物是一面從地面長上來的實心牆」。
+                // 任何**懸空板／桌面／欄杆／突出的簷**都因此隱形——比簍空結構廣得多。
+                //
+                // ⚠️ 對既有內容零行為差異：實心牆的第一根一定命中，走的是下面原本那條路徑。
+                // ⚠️ 代價：面向空曠處時由 1 根射線變成掃滿整個 ceiling（0.3→2.7，24 根）。
+                //    命中後的成本不變（原本就會一路 continue 到頂）。
+                if (!hasForwardHit) continue;
+
+                firstClearHeight = scanHeight;
                 break;
             }
 
@@ -1003,6 +1045,19 @@ namespace Project.Core.Environment
         /// 這裡沒有任何 <c>Raycast</c>／<c>CapsuleCast</c>——`docs/18` §1「**記錄，不要重算**」：
         /// debug 畫出來的必須是**真正做決定的那份資料**，否則它會變成第二個看起來很權威的來源。
         /// </summary>
+        /// <summary>
+        /// 畫一個覆蓋界線環。<paramref name="height"/> 非有限或 ≤0 ＝ 未 author ⇒ 不畫。
+        /// </summary>
+        private void AppendCoverageRing(
+            Vector3 root, float height, bool isUpperBound, Color color, ref int shapeCount)
+        {
+            if (float.IsNaN(height) || float.IsInfinity(height) || height <= 0f) return;
+            float radius = isUpperBound
+                ? KeyHeightRingRadius
+                : KeyHeightRingRadius * CoverageMinRingRadiusScale;
+            AppendDebugRing(root + Vector3.up * height, radius, color, ref shapeCount);
+        }
+
         private void AppendTraversalKeyHeights(ref int lineCount, ref int shapeCount)
         {
             Vector3 root = transform.position;
@@ -1012,10 +1067,18 @@ namespace Project.Core.Environment
             // 🔄 2026-09-15 改版：原本畫成角色**側邊**的三根短刻度，使用者回報
             //    「不知道那是什麼、為什麼在側邊」——那個抱怨是對的：一根浮在身側的短線
             //    既不像高度也不像門檻。圓環套在身上，一眼就讀成「我的攀爬上限在這裡」。
-            AppendDebugRing(root + Vector3.up * settings.Climb1mMaxHeight,
-                KeyHeightRingRadius, DebugDepthColor, ref shapeCount);
-            AppendDebugRing(root + Vector3.up * settings.Climb2mMaxHeight,
-                KeyHeightRingRadius, DebugMissColor, ref shapeCount);
+            // 🔄 2026-09-20 改版：原本兩個環畫的是**分類邊界**（Climb1mMaxHeight／Climb2mMaxHeight）。
+            //    那回答的是「我會被判成哪一種」，但玩家真正撞到的問題是
+            //    「這個高度**有沒有適用的動畫**」——`docs/39` §2 Q7 量到兩者差了 0.37 m。
+            //    現在改畫**每種 climb 的動畫覆蓋上下限**，兩種顏色各兩個環：
+            //      • 藍  ＝ Climb1m 的覆蓋帶
+            //      • 橘  ＝ Climb2m 的覆蓋帶
+            //      • 小半徑環 ＝ 下限，大半徑環 ＝ 上限
+            //    未 author（0）的界線不畫——沒有限制就不該有線。
+            AppendCoverageRing(root, _climb1mCoverageMin, false, Climb1mCoverageColor, ref shapeCount);
+            AppendCoverageRing(root, _climb1mCoverageMax, true, Climb1mCoverageColor, ref shapeCount);
+            AppendCoverageRing(root, _climb2mCoverageMin, false, Climb2mCoverageColor, ref shapeCount);
+            AppendCoverageRing(root, _climb2mCoverageMax, true, Climb2mCoverageColor, ref shapeCount);
             AppendDebugRing(root + Vector3.up * settings.ScanCeiling,
                 KeyHeightRingRadius, DebugRulerColor, ref shapeCount);
 
@@ -1037,7 +1100,8 @@ namespace Project.Core.Environment
                 AppendDebugSphere(candidate.ObstacleHitPoint, ContactSphereRadius,
                     DebugHitColor, ref shapeCount);
 
-            // ② 手抓點：障礙頂端邊緣。**這是攀爬真正要抓的地方**，畫得比其他球大。
+            // ② Shared ledge anchor：保留作為環境／plan 參考，但它不是左右手腕的 IK target。
+            // Individual hand targets are the primary Game View signal, so keep this marker small.
             if (candidate.TopNormal.sqrMagnitude > DirectionSqrEpsilon)
             {
                 AppendDebugSphere(candidate.TopPoint, GrabSphereRadius, DebugTopColor, ref shapeCount);
@@ -1071,8 +1135,15 @@ namespace Project.Core.Environment
 
         private const float RulerReachHeight = 1.0f;
         private const float KeyHeightRingRadius = 0.55f;
+        /// <summary>Climb1m 覆蓋帶的顏色（藍）。與 Climb2m 的橘刻意拉開色相，不只是明度。</summary>
+        private static readonly Color Climb1mCoverageColor = new Color(0.35f, 0.80f, 1f, 0.9f);
+        /// <summary>Climb2m 覆蓋帶的顏色（橘）。</summary>
+        private static readonly Color Climb2mCoverageColor = new Color(1f, 0.58f, 0.15f, 0.9f);
+        /// <summary>下限環的半徑比上限環小，讓「哪一個是地板」不依賴記憶顏色順序。</summary>
+        private const float CoverageMinRingRadiusScale = 0.72f;
+
         private const float ContactSphereRadius = 0.06f;
-        private const float GrabSphereRadius = 0.11f;
+        private const float GrabSphereRadius = 0.04f;
         private const float StanceSphereRadius = 0.09f;
         private static readonly Color DebugRulerColor = new Color(0.6f, 0.6f, 0.66f, 0.8f);
 
