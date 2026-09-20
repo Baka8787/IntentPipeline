@@ -38,6 +38,15 @@ namespace Project.Presentation.Animation
         private readonly Dictionary<string, AnimancerState> _stateCache = new();
         private int _activeOverlayLayerIndex = -1;
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        // Portfolio/debug observation only. This records the state that the Facade actually accepted;
+        // it is not read by gameplay and does not participate in animation selection.
+        private string _debugSelectedStateKey = string.Empty;
+        private AnimancerState _debugSelectedState;
+        private AnimationClip _debugDominantClip;
+        private string _debugDominantClipName = string.Empty;
+#endif
+
         private void Awake()
         {
             // 🆕（ADR-001）AnimancerComponent 定調在 Root（本物件）。改用 GetComponent（同物件）
@@ -190,6 +199,9 @@ namespace Project.Presentation.Animation
             // Idle/Move 共用 Locomotion 資產時的狀態切換因此無縫。
             AnimancerState state = PlayMapping(in mapping);
             _stateCache[stateKey] = state;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            RecordDebugSelection(stateKey, state);
+#endif
         }
 
         /// <summary>
@@ -262,6 +274,9 @@ namespace Project.Presentation.Animation
 
             AnimancerState state = PlayMapping(in mapping);
             _stateCache[stateKey] = state;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            RecordDebugSelection(stateKey, state);
+#endif
 
             // 💡 利用 Animancer 原生事件系統，並在結束後自動移除，防止事件掛載殘留污染下一次播放。
             // ⚠️ 誠實揭露：下方 lambda 捕獲 state / onComplete，每次呼叫仍會產生一次閉包 GC Alloc——
@@ -382,5 +397,64 @@ namespace Project.Presentation.Animation
             var currentRootState = animancer.Layers[0].CurrentState;
             return currentRootState != null ? currentRootState.NormalizedTime : 0f;
         }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        /// <summary>
+        /// Last animation state key successfully accepted by this Facade. Debug display only:
+        /// gameplay never reads it, and failed mapping requests never overwrite the snapshot.
+        /// </summary>
+        internal string DebugSelectedStateKey => _debugSelectedStateKey;
+
+        /// <summary>
+        /// The dominant leaf clip of the accepted Animancer state. For a Mixer this is the child
+        /// with the greatest current weight; for a clip state it is the clip itself.
+        /// </summary>
+        internal string DebugDominantClipName
+        {
+            get
+            {
+                AnimationClip clip = GetDominantClip(_debugSelectedState);
+                if (clip == _debugDominantClip) return _debugDominantClipName;
+
+                _debugDominantClip = clip;
+                // UnityEngine.Object.name may cross the native boundary and materialize a managed
+                // string. Only read it when the dominant leaf actually changes, never every frame.
+                _debugDominantClipName = clip != null ? clip.name : string.Empty;
+                return _debugDominantClipName;
+            }
+        }
+
+        private void RecordDebugSelection(string stateKey, AnimancerState state)
+        {
+            _debugSelectedStateKey = stateKey;
+            _debugSelectedState = state;
+            _debugDominantClip = null;
+            _debugDominantClipName = string.Empty;
+        }
+
+        internal static AnimationClip GetDominantClip(AnimancerState state)
+        {
+            // A shallow guard prevents malformed custom ParentState graphs from cycling forever.
+            for (int depth = 0; state != null && depth < 8; depth++)
+            {
+                if (!(state is ParentState parent)) return state.Clip;
+
+                AnimancerState dominant = null;
+                float dominantWeight = float.NegativeInfinity;
+                int childCount = parent.ChildCount;
+                for (int i = 0; i < childCount; i++)
+                {
+                    AnimancerState child = parent.GetChild(i);
+                    if (child == null || child.Weight <= dominantWeight) continue;
+                    dominant = child;
+                    dominantWeight = child.Weight;
+                }
+
+                state = dominant;
+            }
+
+            return null;
+        }
+#endif
     }
 }

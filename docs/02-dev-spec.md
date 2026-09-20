@@ -1373,7 +1373,7 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | **A46** 🟡 Trial | Motion Warp 不得查 Physics、直接寫 `transform.position` 或寫入 traversal blackboard；位移 delta 仍由 `MotionDriver` 的 `CharacterController.Move` 執行 | ADR-008 D4 | `ArchitectureRegressionTests.A46_*` | warp／MotionDriver source token 掃描 |
 | **A47** 🟡 Trial | `TraversalEntryPolicy`／`TraversalPlanBuilder`／root solver／warp plan 必須是 pure committed-data transform，不得查 Physics／Time／blackboard／Probe／Transform | ADR-008 D8／D9 | `ArchitectureRegressionTests.A47_*` | 合併掃描 policy／params／plan source token |
 | **A48** 🟡 Trial | `CharacterController.center／height／radius` 的 runtime writer 只能是 `MotionDriver`，且 restore 必須覆蓋三個原始值 | ADR-008 D11 | `ArchitectureRegressionTests.A48_*` | 全 Runtime 掃描 shape assignment 與 restore token |
-| **A49** 🟡 Trial | Traversal Hand IK 只消費 MotionDriver committed plan，不得依賴 Probe／Physics、改 root 或新增 PlayerRuntimeData 欄位 | ADR-008 D2／D9 | `ArchitectureRegressionTests.A49_*` | 掃描 Hand IK Controller／Rig 與 blackboard schema |
+| **A49** 🟡 Trial | Traversal Hand IK 與其 Game View debug 只消費 MotionDriver committed plan，不得依賴 Probe／Physics、改 root 或新增 PlayerRuntimeData 欄位；debug 必須直接畫獨立 L/R world target 與 actual hand bone，不得以 `Debug.DrawLine` 依賴 Game View Gizmos | ADR-008 D2／D9；`docs/22` §12 | `ArchitectureRegressionTests.A49_*` | 掃描 Hand IK Controller／Rig、runtime renderer、L/R committed target 與 blackboard schema |
 
 > **掃描法的已知精度（誠實記錄，非缺陷）**：①只掃 Runtime（`Core`／`Presentation`）——單一寫入者是**執行期**契約，`Editor/` 的除錯 Inspector 可手動改寫黑板意圖屬合法例外；②掃描前移除註解，避免文件性文字造成假陽性；字串常值內含 `//` 會被一併截斷，此偏差只會讓檢查**變寬鬆**（漏報），不會假陽性；③token 採子字串比對，刻意保守。
 
@@ -1394,6 +1394,7 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | **W5** | 有 `IInputSource` 的角色必須有可達的 `IArbiterSource` | 取代 M3 的「沒拖＝暫停中按跳躍會卡住」。**斷言結果不斷言位置**：掛在角色階層或走 `externalArbiterSources` 皆可 |
 | **SL1–SL6** 🟡 Trial | X Bot 四個 Spell key＝Layer 1 upper-body mask＋Layer 0 Spell Walk／Run 雙 8-way ring；Idle／Move 留 Layer 0；mask 排除 root／legs；Fireball／Ice 使用 soft target；兩個 gait ring 的 threshold／playback 由既有 1D anchors＋MotionBakeData 推導；Sprint gait／最大速度來源保持不變且不提前 author Sprint directional ring | `SpellLayeringWiringTests` 唯讀檢查 prefab／AvatarMask／ActionDefinition／Transition／Bake／Gait assets |
 | **W6** | `CursorModeController`（若存在）的 `uiModeSource`／`pauseController` 皆已指派 | 取代 M3 的「這顆缺席時開場游標不會被鎖住」 |
+| **W26** 🆕 | 每顆 `RuntimeDebugPanel` 的 Portfolio panel root／State／Anim State／Clip／Gait Text 皆已接線，且同物件可解析 Runner／AnimancerFacade | 防止全螢幕時面板存在但顯示空白，並守住「只讀 authoritative source」的組裝前提 |
 
 > 失敗訊息一律含：prefab 路徑、component、contract、expected、actual、**症狀**。
 > 目的是讓「角色沒反應」時能在**不進 Play** 的情況下先排除接線問題。

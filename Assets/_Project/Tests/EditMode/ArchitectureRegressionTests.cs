@@ -1552,8 +1552,9 @@ namespace Project.Tests.EditMode
             //    Unity 因此**完全無法把它們掛到 GameObject 上**（MonoBehaviour 的類名必須等於檔名），
             //    整個 Hand IK 是死路徑。已各自拆成同名檔案；本測試改讀新檔，
             //    順便把「必須存在於自己的檔案」這件事一起守住——掛不上去的元件等於不存在。
-            string controllerFile = StripStringLiterals(StripComments(
-                File.ReadAllText(FindSingleScript("TraversalHandIKController.cs"))));
+            string rawControllerFile =
+                File.ReadAllText(FindSingleScript("TraversalHandIKController.cs"));
+            string controllerFile = StripStringLiterals(StripComments(rawControllerFile));
             int handControllerStart = controllerFile.IndexOf(
                 "public sealed class TraversalHandIKController", StringComparison.Ordinal);
             Assert.GreaterOrEqual(handControllerStart, 0,
@@ -1579,6 +1580,16 @@ namespace Project.Tests.EditMode
                     $"Traversal Hand IK 出現 '{token}'：IK 只能消費 committed target，不能修 root 或重查環境");
 
             StringAssert.Contains("HasActiveTraversalPlan", handController);
+            StringAssert.Contains("LeftHandWorldTarget", handController);
+            StringAssert.Contains("RightHandWorldTarget", handController);
+            StringAssert.Contains("_leftHandBone.position", handController);
+            StringAssert.Contains("_rightHandBone.position", handController);
+            StringAssert.Contains("LineRenderer", handController,
+                "Game View hand-target debug must use a runtime renderer, not Gizmos only");
+            StringAssert.Contains("L Hand Target", rawControllerFile);
+            StringAssert.Contains("R Hand Target", rawControllerFile);
+            StringAssert.DoesNotContain("Debug.DrawLine", handController,
+                "Debug.DrawLine still depends on the Game View Gizmos toggle");
             StringAssert.Contains("SetIKPositionWeight", handRig);
             StringAssert.Contains("AvatarIKGoal.LeftHand", handRig);
             StringAssert.Contains("AvatarIKGoal.RightHand", handRig);

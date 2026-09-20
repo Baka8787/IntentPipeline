@@ -114,10 +114,15 @@ destination clearance 的唯一 production physics-query owner，並在決策點
 
 ### 1.4 目前**刻意不做**的 observability
 
+> 🔄 **2026-09-19 具體作品集需求重開了一條窄路徑**：`App/RuntimeDebugPanel` 新增
+> Basic／Off uGUI，只顯示 Runner state、AnimancerFacade 已接受的 animation key／dominant clip、
+> RuntimeData gait。這不是共用 debug framework，沒有新 asmdef／黑板欄位／決策路徑；
+> 與下表否決的是「預造 production abstraction」，不是否決已有明確受眾與畫面規格的只讀展示層。
+
 | 項目 | 為什麼不做 |
 |---|---|
 | **Release 事件的世界標記**（A6 驗收用） | 需要 `ActionState` 開一個 public debug snapshot，或在三個 sink 各畫一次。**兩條路都要先決定「誰擁有 release 的可觀測性」**——那是設計決定，不是 ticket |
-| **正式 runtime HUD / `Debug/` asmdef** | 「第二個使用者出現前不得建立 production abstraction」。Foot IK 的局部 runtime 線段只服務 Editor／Development world-space debug，不是 HUD |
+| **共用 runtime HUD framework / `Debug/` asmdef** | 「第二個使用者出現前不得建立 production abstraction」。Portfolio Basic 直接復用既有 PlayerHud uGUI，不建 framework；Foot IK／Traversal Hand IK 的局部 runtime 線段只服務 Editor／Development world-space debug，不是正式 HUD |
 | **額外 debug architecture framework** | A33／A34 已直接守住現有 snapshot 的單向性與「記錄，不重算」；不建立抽象層 |
 | **統一的 debug 開關／設定資產** | `FootIKController.drawFootIKRuntimeLines` 與 `drawFootIKSceneGizmos` 已分流。做成共用資產＝提前建 framework |
 

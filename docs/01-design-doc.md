@@ -347,6 +347,7 @@ flowchart LR
 - **這一層的兩個方向，都對**：游標是「**高層擁有、低層回報意圖**」（App 讀角色元件的 `IsUiModeActive`）；而若未來暫停要封鎖角色輸入，則是「**低層擁有、高層提供來源**」（角色的 `ArbiterPipeline` 收一顆 App 給的 `IArbiterSource`）。看起來相反，判準其實同一個：**那個狀態的 scope 屬於誰，就由誰擁有**
 - **與角色層的溝通方式（尚未需要，先記下界線）**：若未來暫停真的必須讓角色 `BlockInput`，正解**不是**讓角色去查詢全域，而是讓暫停器實作 `IArbiterSource`、由角色以 Inspector 引用（DIP，同 `IMovementIntentSource` 的注入形態）。在真的需要之前不預先接線
 - 🆕 **第二隻角色的首次實證（2026-08-29 P1，待 Play 驗收）**：敵人擁有自己的 `PlayerRuntimeData`、Runner、FSM 與角色內元件；它不複製也不宣稱擁有 `Time.timeScale`／`Cursor`。程式組裝因此符合本節的 scope 判準；最終證據待 Unity 中同場跑玩家＋敵人確認。
+- 🆕 **只讀 HUD／Debug 住戶（2026-09-19）**：`PlayerHud` 與 `RuntimeDebugPanel` 復用既有 uGUI Canvas 顯示資料，但不因此擁有資料。Portfolio Debug 的 `State` 來自 Runner、`Gait` 來自 RuntimeData、animation key／dominant clip 來自 AnimancerFacade 已成功接受的播放結果；它不由字串反推 gameplay、不寫黑板、不成為第二狀態機。這是 Application-level observation，不納入 `IPresentationController`。
 
 ### 4.10 Enemy Decision v1（FSM-lite ＋ IntentPipeline）
 

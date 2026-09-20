@@ -800,6 +800,14 @@ Development／Editor debug 全部只讀 Probe snapshot、EntryEvaluation、commi
 
 最小 `TraversalHandIKController → TraversalHandIKTargetData → TraversalHandIKRig(OnAnimatorIK)` 已沿用既有 Presentation Pipeline／Animator IK seam。它只讀 MotionDriver 發布的 committed plan，不讀 Probe、不改 root/capsule；每手以 authored start/full/release 與 Exit 建 0→1→hold→0 window，position 優先，rotation weight 可為 0。V3 plan、timing、pose 或 finite/residual safety 任一不成立時 weight 歸零並顯示原因；IK disabled 時 root trajectory 不變。Foot IK 未改動。
 
+🔄 **2026-09-19 Game View hand-target debug**：`TraversalHandIKController` 現在直接畫出
+actual left/right hand bone → `TraversalContactTargets.LeftHandWorldTarget/RightHandWorldTarget`，
+每手各有 ring marker、rotation forward 短線與 `L Hand Target` / `R Hand Target` label。
+既有 `candidate.TopPoint` shared ledge anchor 仍保留作環境參考，但球半徑降為 0.04 m，
+視覺優先級低於兩個具名 hand target；它不代表 Animator IK wrist goal。
+這兩個 target 在 plan commit 時已是獨立 world-space 資料；debug 不重新做 placement，
+也不把既有 root/contact/path anchor 的共通點假裝成手部目標。
+
 ### 12.6 Automated Verification
 
 - Unity 6000.5.1f1 import／compile：0 errors。

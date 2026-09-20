@@ -412,20 +412,23 @@ Climb 路徑的實錄合法帶是 **[0.06, 0.81] m**，0.47 仍在帶內。**見
 | **Capsule Offset** | ✅ 三層圓環。🔄 本輪改吃**獨立顯示開關** `drawCapsuleOffsetDebug`，⛔ 不再用 `Enabled && isPlaying`——功能關掉時同樣需要看得到「基準膠囊在哪、為什麼沒有偏移」 |
 | **Foot IK** | ✅ 既有 `drawFootIKRuntimeLines`／`drawFootIKSceneGizmos` |
 | **Traversal Runtime Lines** | ✅ 既有 |
+| **Traversal L/R Hand Targets** | ✅ `TraversalHandIKController` 各畫 actual hand→committed target＋ring＋orientation＋label；與 Runtime Lines 同由 F4 開關 |
 | **Traversal Scene Gizmos** | ✅ 既有（`#if UNITY_EDITOR`） |
 | **Traversal Panel Text** | ✅ 既有 |
 | **Direction Authority** | 🔴 **快照有記錄，但沒有任何繪製實作**。`CharacterFacingSource` 內零 `OnDrawGizmos`／`Debug.DrawLine`／`Handles`——`docs/18` §1 刻意收斂掉了 |
 | **Ground Probe ／ Ground Normal** | 🔴 **沒有東西可畫**，見 §9.7 |
 
-⇒ `App/RuntimeDebugPanel`（F1 開關）把可控的五項收攏成一個執行期面板。
-**它是遙控器不是感測器**：只翻既有元件上的 `bool`，⛔ 不計算、不打 ray、不讀黑板、不持有狀態。
-把 Panel 刪掉，那些旗標維持原樣。
+⇒ `App/RuntimeDebugPanel` 現在有兩個正交職責：**F1** 切 Portfolio Basic／Off，
+**backquote (`)** 開關工程 IMGUI，F2–F5 只翻既有 debug owner 上的 bool。
+Portfolio 區是只讀 observer，顯示 Runner state／RuntimeData gait／AnimancerFacade 已成功接受的
+animation state 與 dominant clip；⛔ 不由字串反推、不回寫 gameplay、不持有第二套狀態。
 不可用的兩項**也列在面板上並附理由**——空白會被讀成「還沒做」，於是每隔一陣子就有人重新調查一次
 （同 `docs/22` §H-1 ⑤：「什麼都不畫」會被誤讀成「沒資料」）。
 
-⚠️ Panel 用 IMGUI，每幀配置字串 ⇒ 這是零 GC 紀律的**明確例外**，成立條件有二：
+⚠️ **工程面板**用 IMGUI，開著時每幀會配置字串 ⇒ 這是零 GC 紀律的**明確例外**，成立條件有二：
 ①只在面板開著時發生；②整段包在 `UNITY_EDITOR || DEVELOPMENT_BUILD` 內，release build 不存在。
 ⛔ 不得把這個藉口套用到 gameplay。
+Portfolio uGUI 在值穩定時不重建字串；只在 state／key／clip／gait 真正改變時更新 Text。
 
 ## 9.7 🔴 Grounded 的可觀測性（2026-09-15 使用者裁決，**不做**）
 

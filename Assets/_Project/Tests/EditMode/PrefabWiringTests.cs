@@ -1397,6 +1397,52 @@ namespace Project.Tests.EditMode
         }
 
         // =====================================================================
+        // W26 — Portfolio Runtime Debug UI wiring (2026-09-19)
+        // =====================================================================
+
+        [Test]
+        public void W26_RuntimeDebugPanels_HaveCompletePortfolioUiWiring()
+        {
+            var violations = new List<string>();
+
+            foreach (CharacterPrefab prefab in LoadCharacterPrefabs())
+            {
+                RuntimeDebugPanel[] panels =
+                    prefab.Root.GetComponentsInChildren<RuntimeDebugPanel>(true);
+                for (int i = 0; i < panels.Length; i++)
+                {
+                    RuntimeDebugPanel panel = panels[i];
+                    var serialized = new SerializedObject(panel);
+                    string[] requiredReferences =
+                    {
+                        "portfolioPanelRoot", "stateText", "animationStateText", "clipText", "gaitText"
+                    };
+
+                    for (int field = 0; field < requiredReferences.Length; field++)
+                    {
+                        SerializedProperty property = serialized.FindProperty(requiredReferences[field]);
+                        if (property == null || property.objectReferenceValue == null)
+                        {
+                            violations.Add(
+                                $"{prefab.Path} → RuntimeDebugPanel.{requiredReferences[field]} 未接線");
+                        }
+                    }
+
+                    if (panel.GetComponent<CharacterPipelineRunner>() == null ||
+                        panel.GetComponent<AnimancerFacade>() == null)
+                    {
+                        violations.Add(
+                            $"{prefab.Path} → RuntimeDebugPanel 必須與 Runner／AnimancerFacade 同物件，" +
+                            "才能只讀 authoritative source");
+                    }
+                }
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "Portfolio Runtime Debug UI 接線不完整：\n" + string.Join("\n", violations));
+        }
+
+        // =====================================================================
         // W23 — 重生接線必須完整（2026-09-14）
         // =====================================================================
 

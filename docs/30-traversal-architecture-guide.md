@@ -636,6 +636,7 @@ Traversal 的可視化通道（`X Bot.prefab` 上的實際設定）：
 | 開關 | 目前 | 內容 |
 |---|---|---|
 | `TraversalProbe.drawTraversalRuntimeLines` | ✅ 開 | 前掃 ray、top probe、depth probe、落點膠囊 |
+| `TraversalHandIKController.DebugDrawRuntimeTargets` | 預設關，F4 與 probe runtime lines 同步開關 | actual L/R hand bone → committed L/R target；ring marker＋orientation forward＋world-space label |
 | `TraversalProbe.drawTraversalSceneGizmos` | ✅ 開 | Scene View 詳查 |
 | `TraversalProbe.drawTraversalPanelText` | ❌ 關 | Game View 文字面板 |
 | `MotionDriver.drawTraversalPanelText` | ❌ 關 | plan／執行的文字面板 |
@@ -655,6 +656,7 @@ Traversal 的可視化通道（`X Bot.prefab` 上的實際設定）：
 | 9 | `PiecewiseRejection` | `None` | `MissingTraversalBlock` ⇒ 該支 bake 沒烘 traversal 資料（**目前 `Bake_Climb1m` 就是**）；`HorizontalCorrectionExceeded` ⇒ 需要的修正超過 binding 上限（1.5 / 0.75） |
 | 10 | `LastTraversalMaxBlockedDisplacement` | ≈ 0 | > 0 ⇒ **plan 是對的，但被碰撞擋掉了**。這區分「計畫錯」與「被擋」 |
 | 11 | `HandIKStatus` | `Active` | `RootMappingUnavailable` ⇒ 沒有 plan；`NotConfigured` ⇒ bake 沒有 Hand IK 窗；`OutsideContactWindow` ⇒ 不在 IK 窗內（正常）；`ResidualTooLarge` ⇒ 誤差 > 0.35 m，IK 放棄 |
+| 12 | L/R hand bone → target 線與各自 marker | 兩手各自指向 `ContactTargets` 的獨立 world target | 兩線終點異常重疊：先看 bake hand separation／ledge interval；手骨與 target 誤差過大但 `HandIKStatus=Active`：看 IK window／weight／Animator IK seam；不要把 root/contact 共通 anchor 當成 hand target |
 
 ### 「畫面全綠卻什麼都沒發生」的標準排查
 
