@@ -7,6 +7,67 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # ✅ 2026-09-21（三）— **Climb2m 假落地聲已修**；另有兩件未結案
+>
+> ## ① ✅ 假落地聲（已 commit）
+>
+> 使用者回報「Climb2m 爬上去一瞬間很多聲」。**實測後描述需要修正**：
+>
+> | 量測 | 結果 |
+> |---|---|
+> | `FootstepDetector` trace（ground truth） | 攀爬後腳步只擊發 **1 次**；跑向牆時 4 次（0.28 s 交替）＝正常跑步。**沒有腳步爆量** |
+> | `JustLanded` 探針 | 一次攀爬出現 **2 次假落地**：`n=0.059`（正好抓握瞬間）、`n=0.535`（爬到一半） |
+>
+> 根因：爬牆時膠囊擦到牆面／邊緣讓 `isGrounded` 瞬間變 true，而
+> `MotionDriver.cs` 的 `JustLanded` 是**無去抖動的純邊沿偵測** ⇒ 每擦一次就是一聲落地。
+>
+> 修法：`suppressGroundEdges = HasActiveTraversalPlan` ⇒ 只擋 `JustLanded` ／ `JustLeftGround`，
+> **⛔ 不擋 `IsGrounded`**（那是 Foot IK／腳步偵測的閘門，也是 exit `reboundForce` 貼地刻意要達成的效果）。
+> `_wasGrounded` 照常前進——「不回報」與「沒發生」是兩件事，與 `FootstepDetector` 的 `Airborne` 抑制同紀律。
+>
+> ⚠️ **未重現到「一瞬間很多聲」**：兩次假落地間隔 1.7 s。可能還有未量到的來源，**不敢說完全結案**。
+>
+> ## ② 🟡 787（後續累積到 1987）個 NullReferenceException —— **未解，探針已武裝**
+>
+> ```
+> CharacterPipelineRunner.LateUpdate () at CharacterPipelineRunner.cs:525
+>   → _runtimeData.ResetTransientState();
+> ```
+>
+> **時間軸證明它與攀爬無關**：全部發生在 12:24:49–12:24:59（上一場 Play），
+> 而使用者那次攀爬的 Play 在 12:25:06 才開始。我自己跑乾淨 Play：**0 次**。
+>
+> 🔴 **尚未解開的矛盾**：`_runtimeData` 在 `Awake` 無條件指派、無早退、無 Awake 例外；
+> `ResetTransientState()` 與 `IntentData.Reset()` 都只碰值型別。兩邊照理都炸不了。
+> 場景有 **2 個 `CharacterPipelineRunner`**（X Bot／Y Bot），另有一行
+> `[TraversalState] StateMachineConfig 沒有綁定 TraversalStateParamsSO` 警告。
+>
+> ⚠️ **`CharacterPipelineRunner.cs` 目前帶著未 commit 的 `PROBE2`**（try/catch，會印出
+> `obj=<GameObject 名稱>` 與真實內層堆疊）。**下次它再出現就會自己報上名來。**
+>
+> ## ③ 🔍 手沒固定住 —— 根因已定位，建議獨立一包
+>
+> **先確認度量同源**：baker 的 `armLength = Distance(upper,lower) + Distance(lower,hand)`
+> 與 runtime instrumentation **完全相同** ⇒ 「1.055 vs budget 0.95」可比較，結論成立。
+>
+> | t | arm reach ratio | post-IK 殘差 |
+> |---|---|---|
+> | 0.065 Contact | 0.701 | 0.19 cm |
+> | 0.169 midpoint | 0.811 | 2.27 cm |
+> | 0.267 Transfer−1 | **1.044** | 2.71 cm |
+> | 0.270 Transfer | **1.055** | 3.33 cm |
+>
+> 比值跨過 0.95 的時刻落在 0.169–0.267 之間，而
+> `Bake_Climb2m.asset`：`anchorReleaseNormalizedTime = 0.2130`、`transferNormalizedTime = 0.2685`。
+>
+> **推論（強，未證明）**：reach constraint 的權威在 `anchorRelease 0.213` 交還（動畫自己放開的時刻），
+> 而 **prototype exception #5 的 IK window override 把手一路釘到 Transfer 0.2685**。
+> 那段差距裡 root 自由移動、IK 還在硬拉 ⇒ 手臂打直仍搆不到 ⇒ 殘差長到 3.33 cm。
+>
+> ⚠️ **真正的張力**：當初加 override 正是因為「IK 提前歸零 ⇒ late-contact drift」。
+> 兩個方向都有代價，正解應是**讓 IK window 與 anchor release 對齊**（`docs/39` Q5「authored IK window」那一包）。
+> ⛔ 本輪未動——它要同時處理 exception #5 與 reach budget，不該在雜項串裡順手改。
+
 > # ✅ 2026-09-21（二）— **作品集面板改用 TextMeshPro**（使用者裁決）
 >
 > ## 為什麼最後還是導入 TMP

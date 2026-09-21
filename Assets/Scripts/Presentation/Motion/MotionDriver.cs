@@ -2360,9 +2360,27 @@ namespace Project.Presentation.Motion
             //    ⇒ 現在明確接受「極端邊緣允許部分腳掌懸空」作為已知限制。
             //    重開條件見 `docs/38` §13.3，⛔ 不要再加局部 workaround。
             bool grounded = characterController.isGrounded;
+            // ⭐ 2026-09-21：**committed traversal 期間不得回報落地邊沿。**
+            //
+            // 真實 bug（使用者回報「Climb2m 爬上去一瞬間很多聲」，2026-09-21 探針定案）：
+            // 爬牆時膠囊會擦到牆面／邊緣，`CharacterController.isGrounded` 因此瞬間變 true。
+            // 而 JustLanded 是**無去抖動的純邊沿偵測** ⇒ 每擦一次就是一次「落地」。
+            // 實測一次 Climb2m 出現 2 次假落地：n=0.059（正好是抓握瞬間）與 n=0.535（爬到一半）。
+            //
+            // ⭐ 為什麼只擋事件、不擋 IsGrounded：`IsGrounded` 是 Foot IK／腳步偵測的閘門，
+            //    而 exit 之後的 reboundForce 貼地正是**刻意**讓角色在 traversal 內就觸地
+            //    （見本檔 exit 段說明：讓 Foot IK 提早接手、消除離開狀態時的落地聲）。
+            //    擋掉 IsGrounded 會把那個修法一起打掉。真正錯的只有「這是一次落地」這個語意——
+            //    committed traversal 擁有這段的垂直語意，擦到牆不是從高處砸下來。
+            //
+            // ⚠️ `_wasGrounded` 照常前進（見下方）：「不回報」與「沒發生」是兩件事，
+            //    這裡只做前者——與 FootstepDetector 的 justLanded／Airborne 抑制同一紀律。
+            // ⚠️ JustLeftGround 一併擋：原碼註解說兩者「成對維護」，只擋一邊會讓
+            //    抖動變成單向事件流（只離地、不落地），比兩邊都報還難追。
+            bool suppressGroundEdges = HasActiveTraversalPlan;
 
-            data.JustLanded = !_wasGrounded && grounded;
-            data.JustLeftGround = _wasGrounded && !grounded;
+            data.JustLanded = !_wasGrounded && grounded && !suppressGroundEdges;
+            data.JustLeftGround = _wasGrounded && !grounded && !suppressGroundEdges;
             data.IsGrounded = grounded;
             _wasGrounded = grounded;
 
