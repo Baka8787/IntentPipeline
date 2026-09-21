@@ -7,6 +7,48 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # ✅ 2026-09-21（四）— **Climb2m 正式化完成**；`docs/39` 六個 exception 全數結案
+>
+> 📖 **正本在 `docs/40-climb2m-kinematic-budget.md`**（量測＋coverage 推導）與 `docs/30` §M（執行模型）。
+> ADR-008 已加 **D10** 修訂紀錄（仍為 🟡 Trial——**只差人工 Play 的視覺驗收**）。
+>
+> ## 做了什麼
+>
+> | # | 改動 | 結果 |
+> |---|---|---|
+> | 1 | `Kind == Climb2m` 硬編 → authored `TraversalMotionBinding.executionModel`（`Absolute` / `Segmented`） | revert 路徑＝改一個資產欄位。Vault1m／Climb1m 維持 `Absolute`，行為未變 |
+> | 2 | segment 數學改為 **committed plan ＋ 衰減的 carried error**（刪 `TryEvaluateBasis`） | `RootReachConstraint` 與 knot 內插原樣保留；compensation 從「牆高適應（公寸）」降為「執行誤差（公分）」 |
+> | 3 | contact landmark 沿 **up** 夾在 entry 支撐面之上（`ClampOutsideWall` 的垂直同型，在 plan builder） | 低牆不再把膠囊解到地板下。夾持量以 `ContactSupportPlaneClampDistance` 可觀測 |
+> | 4 | ⛔ **刪 Hand IK window override** | **這就是手臂 reach 破 1.0 的唯一根因**。ratio 1.055 → ≤ 0.87 |
+> | 5 | 🆕 **手部 IK 一幀管線延遲補償** | 中點 post-IK 殘差 **6.77 cm → 0.60 cm**。這是「抓空氣」的真正來源 |
+> | 6 | `ArmReachRatio` 改量**加權後的實際目標** | 舊式在 IK 已淡出時仍回報 1.18／1.23 的假破表 |
+> | 7 | `coverageMinHeight` **1.65 → 1.72** | 在 1.65 時 contact 殘差距 IK guard 只剩 **1 cm**；1.72 有 **8 cm（23%）** |
+> | 8 | 🆕 `TraversalClimbPlayModeTests`（真實 prefab ＋ `InputTestFixture` ＋ 真的按 W／Space） | 2.05／1.80 兩個高度，守 5 條不變量 |
+>
+> ## 驗證
+>
+> **EditMode 620（619 passed／0 failed／1 skipped）、PlayMode 67／67。**
+> Play 實測（2.05／1.80／1.75／1.70／1.68 五個牆高）：IK 滿權重 arm ratio ≤ 0.87、手部殘差 ≤ 0.71 cm、
+> warp blocked ≤ 0.36 cm、traversal 期間 root divergence ≤ 0.10 cm、Exit 前零腳步聲。
+>
+> ## 🟢 上一輪未結案的兩件，都結了
+>
+> - **② 1987 個 NRE** → **不是程式缺陷**。Play Mode 中的 domain reload 會把 `_runtimeData` 這類
+>   非序列化欄位清成 null 且**不重跑 `Awake`**；已用 `EditorUtility.RequestScriptReload()` **主動重現**
+>   （`[PROBE2] obj=X Bot runtimeData=NULL`，兩個角色逐幀）。`PROBE2` 已刪。
+>   避免方式：Unity Preferences → **Script Changes While Playing → Recompile After Finished Playing**（使用者的偏好，我沒有替你改）。詳見 `docs/40` §12。
+> - **③ 手沒固定住** → 由上表第 4、5 兩項結案。⚠️ 當時 WORKLOG 的推論（「IK window 與 anchor release 對齊」）
+>   **方向對但理由錯**：不是 override 讓 root 自由移動，而是**動畫自己在 0.2407 之後就在推離邊緣**，
+>   把 IK 釘到 transfer 等於跟動畫對抗。
+>
+> ## ⛔ 還沒做的（下一步）
+>
+> 1. 🔴 **人工 Play 視覺驗收**——手臂觀感、segment boundary 有無頓挫、contact 瞬間的手部修正是否刺眼（1.75 m 牆的 pre-IK 修正量是 27 cm）。**ADR-008 D10 要靠這一項才能從 Trial 轉 Accepted。**
+> 2. entry distance 對 contact 殘差的敏感度**沒有量到**（量測腳本互搶角色，三次都失敗）——目前所有數字都在進場距離 ≈0.52 m 取得。
+> 3. Foot IK **有相同的一幀延遲**，本輪刻意沒動。
+>
+> ---
+
 > # ✅ 2026-09-21（三）— **Climb2m 假落地聲已修**；另有兩件未結案
 >
 > ## ① ✅ 假落地聲（已 commit）

@@ -166,7 +166,7 @@ flowchart LR
 | Landmark | 這是什麼 | **時間**從哪來 | **位置**從哪來 | 最終 authority |
 |---|---|---|---|---|
 | **Entry**（進場） | traversal 開始的那一刻與位置 | 固定 `t = 0` | **角色當下真正站的地方**（`candidate.SensedRootPosition`） | 🔵 **Probe**——entry knot 的 correction 恆為 0，因為起點就是角色自己 |
-| **L / R Hand Contact**（左右手接觸） | 手抓住邊緣的時刻與世界位置 | 🟢 **Bake**（`leftHandContactNormalizedTime` 等） | 🔵 **Probe 的 `LedgeFrame`**——`ledge.PointAt(clamp(centerCoordinate + lateral, min, max))` | **混合**：時間屬動畫，位置屬世界，橫向偏移（哪隻手在左邊多少）屬動畫 |
+| **L / R Hand Contact**（左右手接觸） | 手抓住邊緣的時刻與世界位置 | 🟢 **Bake**（`leftHandContactNormalizedTime` 等） | 🔵 **Probe 的 `LedgeFrame`**——`ledge.PointAt(clamp(centerCoordinate + lateral, min, max))`，⭐ 2026-09-21 起再沿 **up** 夾在 entry 支撐面之上 | **混合**：時間屬動畫，位置屬世界，橫向偏移（哪隻手在左邊多少）屬動畫 |
 | **Transfer / Clearance**（重心轉移／越過） | 「最後一隻手放開」的時刻 | 🟢 **Bake**（`transferNormalizedTime`） | ⭐ **刻意沿用 Right Contact 的 correction**——見下方 | 🟢 **動畫**（這一段 root 不額外修正） |
 | **Exit**（脫離） | 動畫「爬完了／落地了」的時刻與落點 | 🟢 **Bake**（`exitNormalizedTime`；未 author 時由 `VerticalCurve` 平台起點推導） | 🔵 **Probe 的 `DestinationPoint`**，但若 🟢 bake 的自然落點**更近**則用 bake 的 | **兩者取近**——「再遠不保證還在已驗證的落腳面上」 |
 | **Recovery**（恢復控制） | 交還玩家控制的時刻 | 🟢 **Bake**（`recoveryNormalizedTime`），與 binding 的 `RecoverNormalizedTime` 取大 | 同 Exit | 🟢 動畫 |
@@ -267,8 +267,11 @@ flowchart TD
 | **I3** | **Probe 不寫黑板、不決定狀態轉移** | traversal 變成「環境可以直接改角色狀態」，而環境是 Physics 決定的順序 |
 | **I4** | **三支 Policy 都是純函式**：不碰 Physics／Time／Transform／黑板 | EditMode 測不了；分類與合法性變成需要物理場景才能重現的東西 |
 | **I5** | **Commit 之後不再 query、不再分類、不再回讀 Probe** | committed 的語意消失，動畫與 root 會在執行中途被環境變化拉開 |
-| **I6** | **plan 在一次 traversal 內是常數** | root 目標抖動 |
-| **I7** | **plan 是絕對 pose 的函數；被碰撞擋掉的位移不回授進 plan** | 這是刻意的（可觀測），但你必須知道它，否則會誤以為「plan 錯了」 |
+| **I6** | 🔧 **committed landmarks／timing／contact targets 在一次 traversal 內是常數**（2026-09-21 改述；原文是「plan 在一次 traversal 內是常數」） | root 目標抖動 |
+| **I7a** | **執行分段**：每一段的起點取角色**當下實際的 root**，終點是 committed landmark；段內是開迴路 | 誤差跨段累積，最後永久偏掉（prototype 之前實測 1.8 m → 12.7 cm、1.6 m → 34.1 cm） |
+| **I7b** | **plan 是絕對 pose 的函數；被碰撞擋掉的位移不回授進 plan**——它只會在**下一個 phase boundary** 被吸收。⚠️ **最後一段沒有下一個 boundary ⇒ 該段誤差是永久的** | 這是刻意的（可觀測），但你必須知道它，否則會誤以為「plan 錯了」 |
+| **I11** | 🆕 **rebase 取樣點只能是 phase boundary，而且只能讀角色自己的 `transform.position`。** ⛔ 不得讀 Physics／Probe、⛔ 不得在段內重取樣。每次 traversal 的取樣次數有限且已知（目前 = 3） | committed 的語意退化成 continuous motion；`ArchitectureRegressionTests` 以原始碼規則守這一條 |
+| **I12** | 🆕 **`Segmented` 的 compensation 只承載執行誤差（公分級），不得承載牆高適應（公寸級）。** 牆高適應屬於 landmark 層（contact clamp ＋ knot correction） | 補償量一旦變大，就會在抓握期間把手臂拉出 reach budget——那正是 `docs/40` 追出來的那條路 |
 | **I8** | **每一個否決都必須留下理由**（`RejectReason` / `SelectionReason` / `FitReason` / `PlanRejection`） | 就是 `docs/23` §A10 記過的除錯黑洞：畫面顯示 `Climb1m` ＋ `Entry: Accept` 卻什麼都沒發生 |
 | **I9** | **感測範圍由動畫需求推導，不是獨立常數**（`SetDerivedRangeRequirements` 單向推送） | 見 §I 第一例 |
 | **I10** | **Core/Environment 不得依賴 StateMachine／Presentation** | 這就是為什麼推送的是兩個 `float` 而不是 bake 引用 |
@@ -757,3 +760,46 @@ Traversal 的可視化通道（`X Bot.prefab` 上的實際設定）：
 - `docs/01-design-doc.md` §2.9 —— committed vs continuous 的詞彙
 - `docs/28-dynamic-capsule-architecture-guide.md` §E —— 同一顆膠囊的另一個寫入者
 - `docs/29-foot-ik-architecture-guide.md` §C —— 為什麼 traversal 期間 Foot IK 會關掉
+
+---
+
+## M. 第二種 execution model：`Segmented`（2026-09-21）
+
+§A–§L 描述的是 `Absolute`：每幀直接求 committed plan 的絕對 pose，取前後差值當位移。
+**Vault1m 與 Climb1m 仍然走這條**，行為未變。
+
+`Climb2m` 的 binding 現在 author 成 **`Segmented`**（`TraversalMotionBinding.executionModel`）。
+
+### 差在哪一句話
+
+> `Absolute` 問「這一幀 plan 說我該在哪」；
+> `Segmented` 問「從**我現在真的在的地方**出發，怎麼在下一個 committed landmark 之前把誤差收掉」。
+
+```
+desired(t) = plan.TryEvaluate(t) + carriedError × (1 − smoothstep(u))
+carriedError = 段開始時的 actual root − plan.TryEvaluate(段開始時間)     ← 整段只取樣這一次
+u            = (t − 段起) / (段迄 − 段起)
+```
+
+三個段界＝三個 authored phase boundary：`Entry→Contact`、`Contact→Transfer`、`Transfer→Exit`。
+
+### 為什麼它仍然是 committed motion（不是 continuous）
+
+**判準是「commit 之後有沒有新的**世界觀測**可以改變結果」。**
+`transform.position` 不是世界觀測——它是**我們自己上一幀執行的結果**。
+landmarks／timing／contact targets 全部沒變 ⇒ 去哪裡在 commit 當下就定死了，
+變的只有**怎麼過去**。（`docs/18` §3 的分類下仍然是 committed。）
+
+### 為什麼 `Climb2m` 需要它而 Vault1m 不需要
+
+Climb2m 是**唯一**整段靠手支撐、且垂直位移接近 2 m 的動作：
+`Absolute` 路徑下被碰撞擦掉的位移沒有任何機會補回，實測在 1.8 m 牆殘留 12.7 cm、1.6 m 殘留 34.1 cm。
+Vault1m 的位移短、且以水平為主，沒有觀察到同樣的累積。
+⚠️ **這是實測差異，不是原則差異** —— 哪天 Vault 也量到累積，就把它的 binding 也 author 成 `Segmented`。
+
+### revert 路徑
+
+把 `TraversalStateParams.asset` 的 `climb2m.executionModel` 改回 **`Absolute`**。
+**一個資產欄位，不動任何程式。** 這正是 `docs/39` F9 要求刪掉 `Kind == Climb2m` 硬編的主要理由。
+
+> 📌 相關量測與 coverage：`docs/40-climb2m-kinematic-budget.md`
