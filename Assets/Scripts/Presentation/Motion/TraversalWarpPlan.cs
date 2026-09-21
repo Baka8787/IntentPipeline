@@ -59,6 +59,8 @@ namespace Project.Presentation.Motion
         public readonly float MaxHorizontalCorrection;
         public readonly float RequiredVerticalCorrection;
         public readonly float MaxVerticalCorrection;
+        /// <summary>Contact solve 被 committed Entry support plane 向上夾持的距離（m）。0 ＝ 未夾持。</summary>
+        public readonly float ContactSupportPlaneClampDistance;
         /// <summary>實際生效的 correction 窗（可能由 bake 推導而非 author）。</summary>
         public readonly float WarpStartNormalizedTime;
         public readonly float WarpEndNormalizedTime;
@@ -72,6 +74,7 @@ namespace Project.Presentation.Motion
             float maxHorizontalCorrection,
             float requiredVerticalCorrection,
             float maxVerticalCorrection,
+            float contactSupportPlaneClampDistance,
             float warpStartNormalizedTime,
             float warpEndNormalizedTime,
             bool warpEndIsDataDerived)
@@ -84,6 +87,7 @@ namespace Project.Presentation.Motion
             MaxHorizontalCorrection = maxHorizontalCorrection;
             RequiredVerticalCorrection = requiredVerticalCorrection;
             MaxVerticalCorrection = maxVerticalCorrection;
+            ContactSupportPlaneClampDistance = contactSupportPlaneClampDistance;
             WarpStartNormalizedTime = warpStartNormalizedTime;
             WarpEndNormalizedTime = warpEndNormalizedTime;
             WarpEndIsDataDerived = warpEndIsDataDerived;

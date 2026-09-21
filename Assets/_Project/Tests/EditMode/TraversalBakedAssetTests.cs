@@ -740,6 +740,20 @@ namespace Project.Tests.EditMode
             Assert.AreEqual(0.7f, authoredBinding.WarpEndNormalizedTime, 0.0001f);
         }
 
+        [Test]
+        public void B9_DefaultBinding_UsesAbsoluteExecutionModel()
+        {
+            Assert.AreEqual(0, (int)TraversalExecutionModel.Absolute,
+                "existing assets depend on a missing serialized executionModel field reading as Absolute");
+            Assert.AreEqual(1, (int)TraversalExecutionModel.Segmented);
+            Assert.AreEqual(
+                TraversalExecutionModel.Absolute,
+                default(TraversalMotionBinding).ExecutionModel);
+            Assert.AreEqual(
+                TraversalExecutionModel.Absolute,
+                new TraversalMotionBinding("Climb2m", null).ExecutionModel);
+        }
+
         /// <summary>
         /// 依實際場景幾何組出候選：牆面在原點、玩家在其後 <paramref name="wallDistance"/> 公尺。
         /// ⚠️ capsule clearance 必須與真實 CharacterController 一致（radius 0.12／skin 0.03）——

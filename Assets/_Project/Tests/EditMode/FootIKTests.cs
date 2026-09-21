@@ -327,6 +327,84 @@ namespace Project.Tests.EditMode
         }
 
         [Test]
+        public void TraversalHandIK_MaxFolds_IgnoreZeroWeightHandWhileOtherHandIsActive()
+        {
+            float maxArmReach = TraversalHandIKController.FoldActiveHandMaximum(
+                0.8f,
+                0.91f, 0.01f,
+                1.057f, 0f);
+            float maxPreIKResidual = TraversalHandIKController.FoldActiveHandMaximum(
+                0.03f,
+                0.08f, 0.01f,
+                0.4f, 0f);
+            float maxPostIKResidual = TraversalHandIKController.FoldActiveHandMaximum(
+                0.02f,
+                0.04f, 0.01f,
+                0.5f, 0f);
+
+            Assert.AreEqual(0.91f, maxArmReach, Epsilon,
+                "A released hand must not inflate MaxArmReachRatio while the other hand is active.");
+            Assert.AreEqual(0.08f, maxPreIKResidual, Epsilon,
+                "A released hand must not inflate MaxPreIKResidual while the other hand is active.");
+            Assert.AreEqual(0.04f, maxPostIKResidual, Epsilon,
+                "A released hand must not inflate MaxPostIKResidual while the other hand is active.");
+        }
+
+        [Test]
+        public void TraversalHandIK_BlendedReach_AtFullWeight_EqualsCommittedTargetRatio()
+        {
+            Vector3 shoulder = Vector3.zero;
+            Vector3 animatedGoal = new Vector3(0.45f, 0f, 0f);
+            Vector3 committedTarget = new Vector3(0.9f, 0f, 0f);
+            const float armLength = 1.2f;
+
+            float ratio = TraversalHandIKController.EvaluateBlendedWristReach(
+                shoulder, animatedGoal, committedTarget, 1f) / armLength;
+            float targetBasedRatio = Vector3.Distance(shoulder, committedTarget) / armLength;
+
+            Assert.AreEqual(targetBasedRatio, ratio, Epsilon);
+        }
+
+        [Test]
+        public void TraversalHandIK_BlendedReach_AtZeroWeight_EqualsAnimatedPoseRatio()
+        {
+            Vector3 shoulder = Vector3.zero;
+            Vector3 animatedGoal = new Vector3(0.45f, 0f, 0f);
+            Vector3 committedTarget = new Vector3(0.9f, 0f, 0f);
+            const float armLength = 1.2f;
+
+            float ratio = TraversalHandIKController.EvaluateBlendedWristReach(
+                shoulder, animatedGoal, committedTarget, 0f) / armLength;
+            float animatedPoseRatio = Vector3.Distance(shoulder, animatedGoal) / armLength;
+
+            Assert.AreEqual(animatedPoseRatio, ratio, Epsilon);
+        }
+
+        [Test]
+        public void TraversalHandIK_BlendedReach_IntermediateWeights_AreMonotonicBetweenEndpoints()
+        {
+            Vector3 shoulder = Vector3.zero;
+            Vector3 animatedGoal = new Vector3(0.45f, 0f, 0f);
+            Vector3 committedTarget = new Vector3(0.9f, 0f, 0f);
+
+            float atZero = TraversalHandIKController.EvaluateBlendedWristReach(
+                shoulder, animatedGoal, committedTarget, 0f);
+            float atQuarter = TraversalHandIKController.EvaluateBlendedWristReach(
+                shoulder, animatedGoal, committedTarget, 0.25f);
+            float atHalf = TraversalHandIKController.EvaluateBlendedWristReach(
+                shoulder, animatedGoal, committedTarget, 0.5f);
+            float atThreeQuarters = TraversalHandIKController.EvaluateBlendedWristReach(
+                shoulder, animatedGoal, committedTarget, 0.75f);
+            float atOne = TraversalHandIKController.EvaluateBlendedWristReach(
+                shoulder, animatedGoal, committedTarget, 1f);
+
+            Assert.Less(atZero, atQuarter);
+            Assert.Less(atQuarter, atHalf);
+            Assert.Less(atHalf, atThreeQuarters);
+            Assert.Less(atThreeQuarters, atOne);
+        }
+
+        [Test]
         public void PoseData_IsAvailableImmediately_WithoutAnyAwakeOrBind()
         {
             // 🎯 這條守的是「不需要關心 Awake 順序」這個結構保證本身。

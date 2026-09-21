@@ -37,125 +37,97 @@ namespace Project.Presentation.Motion
     }
 
     /// <summary>
-    /// PROTOTYPE ONLY: one committed root-warp segment.  The segment is deliberately
-    /// independent of hand anchors: animation displacement is retained and a constant
-    /// compensation is distributed over the authored normalized-time span.  The caller
-    /// must create a new segment at a boundary using the actual transform position.
+    /// One phase-boundary-rebased execution segment. The committed plan remains the motion
+    /// source; a boundary-sampled carried error decays to zero with smoothstep by the next
+    /// committed landmark.
     /// </summary>
-    public readonly struct TraversalSegmentWarpPrototypeSegment
+    public readonly struct TraversalExecutionSegment
     {
         private const float Epsilon = 0.0001f;
 
         public readonly float StartNormalizedTime;
         public readonly float EndNormalizedTime;
         public readonly Vector3 ActualSegmentStart;
-        public readonly Vector3 OriginalSegmentStart;
+        public readonly Vector3 PlanSegmentStart;
         public readonly Vector3 DesiredSegmentEnd;
-        public readonly Vector3 BakedSegmentDelta;
-        public readonly Vector3 CompensationTotal;
+        public readonly Vector3 CarriedError;
 
-        private TraversalSegmentWarpPrototypeSegment(
+        private TraversalExecutionSegment(
             float startNormalizedTime,
             float endNormalizedTime,
             Vector3 actualSegmentStart,
-            Vector3 originalSegmentStart,
-            Vector3 desiredSegmentEnd,
-            Vector3 bakedSegmentDelta)
+            Vector3 planSegmentStart,
+            Vector3 desiredSegmentEnd)
         {
             StartNormalizedTime = startNormalizedTime;
             EndNormalizedTime = endNormalizedTime;
             ActualSegmentStart = actualSegmentStart;
-            OriginalSegmentStart = originalSegmentStart;
+            PlanSegmentStart = planSegmentStart;
             DesiredSegmentEnd = desiredSegmentEnd;
-            BakedSegmentDelta = bakedSegmentDelta;
-            CompensationTotal = desiredSegmentEnd - actualSegmentStart - bakedSegmentDelta;
+            CarriedError = actualSegmentStart - planSegmentStart;
         }
 
         public static bool TryCreate(
             float startNormalizedTime,
             float endNormalizedTime,
             Vector3 actualSegmentStart,
-            Vector3 originalSegmentStart,
-            Vector3 originalSegmentEnd,
-            Vector3 desiredSegmentEnd,
-            out TraversalSegmentWarpPrototypeSegment segment)
+            Vector3 planSegmentStart,
+            Vector3 planSegmentEnd,
+            out TraversalExecutionSegment segment)
         {
             segment = default;
             if (!IsFinite(startNormalizedTime) || !IsFinite(endNormalizedTime) ||
                 endNormalizedTime <= startNormalizedTime + Epsilon ||
-                !IsFinite(actualSegmentStart) || !IsFinite(originalSegmentStart) ||
-                !IsFinite(originalSegmentEnd) || !IsFinite(desiredSegmentEnd))
+                !IsFinite(actualSegmentStart) || !IsFinite(planSegmentStart) ||
+                !IsFinite(planSegmentEnd))
                 return false;
 
-            segment = new TraversalSegmentWarpPrototypeSegment(
+            segment = new TraversalExecutionSegment(
                 startNormalizedTime,
                 endNormalizedTime,
                 actualSegmentStart,
-                originalSegmentStart,
-                desiredSegmentEnd,
-                originalSegmentEnd - originalSegmentStart);
-            return IsFinite(segment.CompensationTotal);
+                planSegmentStart,
+                planSegmentEnd);
+            return IsFinite(segment.CarriedError);
         }
 
-        public Vector3 EvaluateCompensatedDelta(
-            Vector3 bakedDelta,
+        public Vector3 EvaluateRequestedDelta(
+            Vector3 previousPlanPosition,
+            Vector3 currentPlanPosition,
             float previousNormalizedTime,
             float currentNormalizedTime)
         {
-            float span = EndNormalizedTime - StartNormalizedTime;
-            float fraction = span > Epsilon
-                ? Mathf.Clamp01((currentNormalizedTime - previousNormalizedTime) / span)
-                : 1f;
-            return bakedDelta + CompensationTotal * fraction;
+            Vector3 previousDesired = EvaluateDesiredPosition(
+                previousPlanPosition, previousNormalizedTime);
+            Vector3 currentDesired = EvaluateDesiredPosition(
+                currentPlanPosition, currentNormalizedTime);
+            return currentDesired - previousDesired;
         }
 
-        public Vector3 EvaluateDesiredPosition(Vector3 originalPosition, float normalizedTime)
+        public Vector3 EvaluateDesiredPosition(Vector3 planPosition, float normalizedTime)
         {
-            float span = EndNormalizedTime - StartNormalizedTime;
-            float fraction = span > Epsilon
-                ? Mathf.Clamp01((normalizedTime - StartNormalizedTime) / span)
-                : 1f;
-            return ActualSegmentStart + (originalPosition - OriginalSegmentStart) +
-                   CompensationTotal * fraction;
+            if (normalizedTime <= StartNormalizedTime) return ActualSegmentStart;
+            if (normalizedTime >= EndNormalizedTime) return DesiredSegmentEnd;
+            return planPosition + CarriedError * EvaluateCarriedErrorWeight(normalizedTime);
         }
 
-        /// <summary>
-        /// PROTOTYPE ONLY: evaluates the baked root basis used by segmented execution.
-        /// Production applies the root-reach term after knot position/yaw correction and
-        /// rotates it by that corrected yaw.  Segmented execution does not reuse the knot
-        /// position correction, but it must retain the same reach term and Exit boundary.
-        /// </summary>
-        public static bool TryEvaluateBasis(
-            in TraversalWarpPlan plan,
-            float normalizedTime,
-            out Vector3 position)
+        public float EvaluateCarriedErrorWeight(float normalizedTime)
         {
-            position = plan.StartPosition;
-            float normalized = Mathf.Clamp01(normalizedTime);
-            if (!TraversalWarpPlan.TryEvaluateOriginal(
-                    plan.Bake,
-                    plan.StartPosition,
-                    plan.StartForward,
-                    normalized,
-                    out position,
-                    out _))
-                return false;
+            float span = EndNormalizedTime - StartNormalizedTime;
+            if (span <= Epsilon) return 0f;
+            float u = Mathf.Clamp01((normalizedTime - StartNormalizedTime) / span);
+            float smooth = u * u * (3f - 2f * u);
+            return 1f - smooth;
+        }
 
-            // Match TryEvaluatePiecewise: Exit is an early positional contract, so the
-            // reach term is never applied at or after Exit.
-            if (normalized >= plan.ExitKnot.NormalizedTime)
-                return IsFinite(position);
-
-            TraversalRootReachConstraint reachConstraint =
-                plan.Bake.Traversal.RootReachConstraint;
-            if (!reachConstraint.IsValid)
-                return IsFinite(position);
-            if (!plan.TryEvaluate(normalized, out _, out float correctedYaw))
-                return false;
-
-            position += Quaternion.AngleAxis(correctedYaw, Vector3.up) *
-                        reachConstraint.Evaluate(normalized);
-            return IsFinite(position);
+        /// <summary>Derivative of the carried-error weight with respect to normalized time.</summary>
+        public float EvaluateCarriedErrorVelocityScale(float normalizedTime)
+        {
+            float span = EndNormalizedTime - StartNormalizedTime;
+            if (span <= Epsilon) return 0f;
+            float u = Mathf.Clamp01((normalizedTime - StartNormalizedTime) / span);
+            if (u <= 0f || u >= 1f) return 0f;
+            return -6f * u * (1f - u) / span;
         }
 
         private static bool IsFinite(Vector3 value) =>
@@ -167,7 +139,7 @@ namespace Project.Presentation.Motion
 
     public class MotionDriver : MonoBehaviour
     {
-        private const float MaxCommittedFrameDisplacement = 10f;
+        internal const float MaxCommittedFrameDisplacement = 10f;
         [Header("Setup")]
         [SerializeField] private CharacterController characterController;
 
@@ -306,16 +278,16 @@ namespace Project.Presentation.Motion
         private float _traversalOriginalRadius;
         private TraversalCollisionProfile _activeTraversalCollisionProfile;
 
-        // PROTOTYPE ONLY: Climb2m segment warp state.  This is intentionally owned by
-        // MotionDriver so CharacterController.Move remains the sole root-position writer.
-        private bool _climb2mSegmentPrototypeEnabled;
-        private bool _climb2mSegmentInitialized;
-        private int _climb2mSegmentIndex = -1;
-        private TraversalSegmentWarpPrototypeSegment _climb2mSegment;
-        private Vector3 _climb2mPrototypeDesiredPosition;
-        private float _climb2mPrototypeRootError;
-        private Vector3 _climb2mLastWarpVelocity;
-        private int _climb2mLastWarpVelocitySegmentIndex = -1;
+        // Segmented execution state stays in MotionDriver so CharacterController.Move remains
+        // the sole root-position writer. Actual root is sampled only when a segment opens.
+        private bool _segmentedExecutionEnabled;
+        private bool _segmentInitialized;
+        private int _activeSegmentIndex = -1;
+        private TraversalExecutionSegment _activeTraversalSegment;
+        private Vector3 _activeSegmentDesiredPosition;
+        private float _activeSegmentRootError;
+        private Vector3 _lastSegmentWarpVelocity;
+        private int _lastWarpVelocitySegmentIndex = -1;
 
         public TraversalExecutionResult LastTraversalExecutionResult { get; private set; }
         public bool IsTraversalCollisionProfileActive => _traversalCollisionProfileActive;
@@ -334,29 +306,28 @@ namespace Project.Presentation.Motion
         public float LastTraversalMaxWarpBlockedDisplacement { get; private set; }
         /// <summary>整段 traversal 的 post-exit 貼地 rebound 被碰撞擋掉的最大值（m）。</summary>
         public float LastTraversalMaxReboundBlockedDisplacement { get; private set; }
-        /// <summary>PROTOTYPE ONLY: segmented desired root 與 CharacterController 實際 root 的最大距離。</summary>
+        /// <summary>Segmented desired root 與 CharacterController 實際 root 的最大距離。</summary>
         public float LastTraversalMaxRootDivergence { get; private set; }
-        /// <summary>PROTOTYPE ONLY: 相鄰 segment requested velocity 的最大邊界跳變（m/s）。</summary>
+        /// <summary>相鄰 segment requested velocity 的最大邊界跳變（m/s）。</summary>
         public float LastTraversalMaxSegmentBoundaryVelocityDelta { get; private set; }
         public float LastTraversalMaxNormalizedTime { get; private set; }
         /// <summary>最近一次 traversal 是否至少執行到 committed Exit。</summary>
         public bool LastTraversalCompleted { get; private set; }
 
-        /// <summary>PROTOTYPE ONLY: true while the committed Climb2m segment path is active.</summary>
-        public bool IsClimb2mSegmentPrototypeActive => _climb2mSegmentPrototypeEnabled;
+        /// <summary>True while the committed plan uses phase-boundary-rebased execution.</summary>
+        public bool IsSegmentedExecutionActive => _segmentedExecutionEnabled;
         /// <summary>
-        /// PROTOTYPE ONLY: 0 = entry→contact, 1 = contact→transfer,
-        /// 2 = transfer→exit.
+        /// 0 = entry→contact, 1 = contact→transfer, 2 = transfer→exit.
         /// </summary>
-        public int ActiveClimb2mSegment => _climb2mSegmentIndex;
-        /// <summary>PROTOTYPE ONLY: current segment's committed world end target.</summary>
-        public Vector3 ActiveClimb2mSegmentTarget => _climb2mSegment.DesiredSegmentEnd;
-        /// <summary>PROTOTYPE ONLY: total compensation distributed over the current segment.</summary>
-        public Vector3 ActiveClimb2mSegmentCompensation => _climb2mSegment.CompensationTotal;
-        /// <summary>PROTOTYPE ONLY: instantaneous desired root after segment compensation.</summary>
-        public Vector3 ActiveClimb2mPrototypeDesiredPosition => _climb2mPrototypeDesiredPosition;
-        /// <summary>PROTOTYPE ONLY: distance between actual root and the re-based desired root.</summary>
-        public float ActiveClimb2mPrototypeRootError => _climb2mPrototypeRootError;
+        public int ActiveSegmentIndex => _activeSegmentIndex;
+        /// <summary>Current segment's committed world end target.</summary>
+        public Vector3 ActiveSegmentTarget => _activeTraversalSegment.DesiredSegmentEnd;
+        /// <summary>Boundary-sampled execution error carried by the current segment.</summary>
+        public Vector3 ActiveSegmentCarriedError => _activeTraversalSegment.CarriedError;
+        /// <summary>Instantaneous desired root after carried-error decay.</summary>
+        public Vector3 ActiveSegmentDesiredPosition => _activeSegmentDesiredPosition;
+        /// <summary>Distance between actual root and the re-based desired root.</summary>
+        public float ActiveSegmentRootError => _activeSegmentRootError;
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         [SerializeField] private bool drawTraversalMotionDebug = false;
         /// <summary>
@@ -1166,18 +1137,19 @@ namespace Project.Presentation.Motion
         }
 
         /// <summary>
-        /// PROTOTYPE ONLY: publishes the Climb2m segment experiment.  Every target is derived
-        /// from the already committed plan; this method performs no query.
+        /// Selects an execution model for the already committed plan. This method performs no
+        /// environment query and does not alter the plan's authored landmarks.
         /// </summary>
         public void BeginTraversalPresentation(
             in TraversalWarpPlan plan,
             in TraversalWarpPlanDiagnostics diagnostics,
-            bool enableClimb2mSegmentPrototype)
+            bool useSegmentedExecution)
         {
             ActiveTraversalPlan = plan;
             ActiveTraversalNormalizedTime = 0f;
             HasActiveTraversalPlan = plan.IsValid;
             ActiveTraversalPlanDiagnostics = diagnostics;
+            LastTraversalExecutionResult = default;
 
             LastCommittedTraversalPlan = plan;
             LastCommittedTraversalDiagnostics = diagnostics;
@@ -1188,8 +1160,8 @@ namespace Project.Presentation.Motion
             LastTraversalMaxNormalizedTime = 0f;
             LastTraversalCompleted = false;
 
-            _climb2mSegmentPrototypeEnabled = enableClimb2mSegmentPrototype && plan.IsPiecewise;
-            ResetClimb2mSegmentRuntimeState();
+            _segmentedExecutionEnabled = useSegmentedExecution && plan.IsPiecewise;
+            ResetSegmentedExecutionRuntimeState();
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             _debugTraversalPlan = plan;
 #endif
@@ -1203,8 +1175,8 @@ namespace Project.Presentation.Motion
             ActiveTraversalPlan = default;
             ActiveTraversalNormalizedTime = 0f;
             ActiveTraversalPlanDiagnostics = default;
-            _climb2mSegmentPrototypeEnabled = false;
-            ResetClimb2mSegmentRuntimeState();
+            _segmentedExecutionEnabled = false;
+            ResetSegmentedExecutionRuntimeState();
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (_debugTraversalRuntimeLabel != null)
                 _debugTraversalRuntimeLabel.gameObject.SetActive(false);
@@ -1259,39 +1231,6 @@ namespace Project.Presentation.Motion
                 return;
             }
 
-            // PROTOTYPE ONLY: Climb2m is executed as committed baked motion plus a
-            // constant compensation per segment.  Each boundary re-reads the actual
-            // transform position; the old absolute plan remains available for diagnostics.
-            if (_climb2mSegmentPrototypeEnabled)
-            {
-                if (!IsFinite(deltaYaw))
-                {
-                    _verticalVelocity = 0f;
-                    SyncGroundedState(data);
-                    return;
-                }
-
-                if (Mathf.Abs(deltaYaw) > 0.0001f)
-                    transform.Rotate(Vector3.up, deltaYaw, Space.World);
-
-                SyncGroundedState(data);
-                if (TryExecuteClimb2mSegmentPrototype(
-                        in plan,
-                        previousNormalized,
-                        currentNormalized,
-                        frameDeltaTime,
-                        out Vector3 prototypeMovement))
-                {
-                    _verticalVelocity = prototypeMovement.y / frameDeltaTime;
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-                    UpdateTraversalMotionRuntimeDebug(in plan, currentNormalized);
-#endif
-                    return;
-                }
-
-                // Invalid prototype inputs fall through to the committed path below.
-            }
-
             // ⭐ 2026-09-13 Playtest：「動畫結束會有微小浮空，有落地聲佐證」。
             //
             // Exit knot 之後 plan 的位置是**凍結**的（TryEvaluatePiecewise 的 positional contract），
@@ -1309,14 +1248,32 @@ namespace Project.Presentation.Motion
             if (plan.IsPiecewise && currentNormalized >= plan.ExitKnot.NormalizedTime)
             {
                 reboundMovementDelta = Vector3.up * (reboundForce * frameDeltaTime);
-                movementDelta += reboundMovementDelta;
             }
 
-            _verticalVelocity = movementDelta.y / frameDeltaTime;
             if (Mathf.Abs(deltaYaw) > 0.0001f)
                 transform.Rotate(Vector3.up, deltaYaw, Space.World);
 
             SyncGroundedState(data);
+            if (_segmentedExecutionEnabled &&
+                TryExecuteSegmentedTraversal(
+                    in plan,
+                    previousNormalized,
+                    currentNormalized,
+                    frameDeltaTime,
+                    reboundMovementDelta,
+                    out Vector3 segmentedMovement))
+            {
+                _verticalVelocity = segmentedMovement.y / frameDeltaTime;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                UpdateTraversalMotionRuntimeDebug(in plan, currentNormalized);
+#endif
+                return;
+            }
+
+            // Invalid segmented inputs use the Absolute revert path. Yaw and grounded state
+            // were already applied exactly once above.
+            movementDelta += reboundMovementDelta;
+            _verticalVelocity = movementDelta.y / frameDeltaTime;
             MoveTraversalAndRecord(
                 warpMovementDelta,
                 reboundMovementDelta,
@@ -1326,11 +1283,12 @@ namespace Project.Presentation.Motion
 #endif
         }
 
-        private bool TryExecuteClimb2mSegmentPrototype(
+        private bool TryExecuteSegmentedTraversal(
             in TraversalWarpPlan plan,
             float previousNormalized,
             float currentNormalized,
             float frameDeltaTime,
+            Vector3 reboundMovementDelta,
             out Vector3 totalRequestedMovement)
         {
             totalRequestedMovement = Vector3.zero;
@@ -1346,62 +1304,78 @@ namespace Project.Presentation.Motion
 
             float cursor = previousNormalized;
             float end = currentNormalized;
+            bool reboundApplied = false;
+            // Once a span has issued Move, falling back would apply the whole frame a second time.
+            // Later boundary failures therefore keep the partial result and recover next frame.
+            bool moveIssuedThisFrame = false;
             if (end > cursor && cursor < contactNormalized)
             {
-                if (!_climb2mSegmentInitialized || _climb2mSegmentIndex != 0)
+                if (!_segmentInitialized || _activeSegmentIndex != 0)
                 {
-                    if (!EnsureClimb2mPrototypeSegment(in plan, 0, cursor)) return false;
+                    if (!EnsureTraversalExecutionSegment(in plan, 0, cursor))
+                        return moveIssuedThisFrame;
                 }
                 float spanEnd = Mathf.Min(end, contactNormalized);
-                totalRequestedMovement += ExecuteClimb2mPrototypeSpan(
+                totalRequestedMovement += ExecuteTraversalSegmentSpan(
                     in plan, cursor, spanEnd, previousNormalized, currentNormalized,
-                    frameDeltaTime);
+                    frameDeltaTime, Vector3.zero, out bool spanMoveIssued);
+                moveIssuedThisFrame |= spanMoveIssued;
                 cursor = spanEnd;
             }
 
             if (end > cursor && cursor >= contactNormalized && cursor < transferNormalized)
             {
-                if (!_climb2mSegmentInitialized || _climb2mSegmentIndex != 1)
+                if (!_segmentInitialized || _activeSegmentIndex != 1)
                 {
-                    if (!EnsureClimb2mPrototypeSegment(in plan, 1, cursor)) return false;
+                    if (!EnsureTraversalExecutionSegment(in plan, 1, cursor))
+                        return moveIssuedThisFrame;
                 }
                 float spanEnd = Mathf.Min(end, transferNormalized);
-                totalRequestedMovement += ExecuteClimb2mPrototypeSpan(
+                totalRequestedMovement += ExecuteTraversalSegmentSpan(
                     in plan, cursor, spanEnd, previousNormalized, currentNormalized,
-                    frameDeltaTime);
+                    frameDeltaTime, Vector3.zero, out bool spanMoveIssued);
+                moveIssuedThisFrame |= spanMoveIssued;
                 cursor = spanEnd;
             }
 
             if (end > cursor && cursor >= transferNormalized && cursor < exitNormalized)
             {
-                if (!_climb2mSegmentInitialized || _climb2mSegmentIndex != 2)
+                if (!_segmentInitialized || _activeSegmentIndex != 2)
                 {
-                    if (!EnsureClimb2mPrototypeSegment(in plan, 2, cursor)) return false;
+                    if (!EnsureTraversalExecutionSegment(in plan, 2, cursor))
+                        return moveIssuedThisFrame;
                 }
                 float spanEnd = Mathf.Min(end, exitNormalized);
-                totalRequestedMovement += ExecuteClimb2mPrototypeSpan(
+                Vector3 spanRebound = end >= exitNormalized
+                    ? reboundMovementDelta
+                    : Vector3.zero;
+                totalRequestedMovement += ExecuteTraversalSegmentSpan(
                     in plan, cursor, spanEnd, previousNormalized, currentNormalized,
-                    frameDeltaTime);
+                    frameDeltaTime, spanRebound, out bool spanMoveIssued);
+                moveIssuedThisFrame |= spanMoveIssued;
+                reboundApplied = spanMoveIssued && spanRebound.sqrMagnitude > 0f;
                 cursor = spanEnd;
             }
 
             if (end >= exitNormalized)
             {
-                // Keep the existing committed post-exit grounding behavior.  This is a
-                // separate downward Move, not feedback into either committed segment.
-                Vector3 rebound = Vector3.up * (reboundForce * frameDeltaTime);
-                totalRequestedMovement += rebound;
-                MoveTraversalAndRecord(Vector3.zero, rebound, currentNormalized);
-                _climb2mPrototypeDesiredPosition = plan.TargetPosition;
-                _climb2mPrototypeRootError = Vector3.Distance(
-                    transform.position, _climb2mPrototypeDesiredPosition);
-                RecordClimb2mRootDivergence();
+                if (!reboundApplied)
+                {
+                    totalRequestedMovement += reboundMovementDelta;
+                    MoveTraversalAndRecord(
+                        Vector3.zero, reboundMovementDelta, currentNormalized);
+                    moveIssuedThisFrame = true;
+                }
+                _activeSegmentDesiredPosition = plan.TargetPosition;
+                _activeSegmentRootError = Vector3.Distance(
+                    transform.position, _activeSegmentDesiredPosition);
+                RecordSegmentRootDivergence();
             }
 
             return true;
         }
 
-        private bool EnsureClimb2mPrototypeSegment(
+        private bool EnsureTraversalExecutionSegment(
             in TraversalWarpPlan plan,
             int segmentIndex,
             float actualStartNormalized)
@@ -1417,104 +1391,90 @@ namespace Project.Presentation.Motion
                     : Mathf.Clamp01(plan.ExitKnot.NormalizedTime);
             if (endNormalized <= startNormalized + 0.0001f) return false;
 
-            if (!TraversalSegmentWarpPrototypeSegment.TryEvaluateBasis(
-                    in plan, startNormalized, out Vector3 originalStart) ||
-                !TraversalSegmentWarpPrototypeSegment.TryEvaluateBasis(
-                    in plan, endNormalized, out Vector3 originalEnd))
+            if (!plan.TryEvaluate(startNormalized, out Vector3 planStart, out _) ||
+                !plan.TryEvaluate(endNormalized, out Vector3 planEnd, out _))
                 return false;
 
-            Vector3 bakedSegmentDelta = originalEnd - originalStart;
+            // I11: this is the segment's only actual-root sample. Per-frame evaluation uses
+            // the committed plan and the immutable carried error captured here.
             Vector3 actualSegmentStart = transform.position;
-            Vector3 desiredEnd;
-            if (segmentIndex == 0)
-            {
-                if (!plan.TryEvaluate(endNormalized, out Vector3 committedContactRoot, out _))
-                    return false;
-
-                // PROTOTYPE EXCEPTION: the committed contact solve may still contain the
-                // GripEdgeInRoot-derived absolute Y that pushed low Climb2m roots below the
-                // support plane.  Keep its already-committed X/Z alignment, but source Y only
-                // from the animation's own delta.  No new query or per-frame feedback occurs.
-                desiredEnd = committedContactRoot;
-                desiredEnd.y = actualSegmentStart.y + bakedSegmentDelta.y;
-            }
-            else if (segmentIndex == 1)
-            {
-                // PROTOTYPE EXCEPTION: correction is intentionally allowed to change during
-                // Contact→Transfer instead of preserving the production held-correction
-                // invariant.  Apply the committed low/high-ledge compensation only after
-                // contact.  The segment starts from the actual (floor-safe) contact root, so a
-                // low Climb2m no longer asks the capsule to enter the floor during Entry→Contact.
-                // Hand IK keeps the independently committed world targets stable while this
-                // bounded segment compensation is distributed.
-                if (!plan.TryEvaluate(endNormalized, out desiredEnd, out _))
-                    return false;
-            }
-            else
-            {
-                desiredEnd = plan.TargetPosition;
-            }
-            if (!TraversalSegmentWarpPrototypeSegment.TryCreate(
+            if (!TraversalExecutionSegment.TryCreate(
                     startNormalized,
                     endNormalized,
                     actualSegmentStart,
-                    originalStart,
-                    originalEnd,
-                    desiredEnd,
-                    out _climb2mSegment))
+                    planStart,
+                    planEnd,
+                    out _activeTraversalSegment))
                 return false;
 
-            _climb2mSegmentIndex = segmentIndex;
-            _climb2mSegmentInitialized = true;
-            _climb2mPrototypeDesiredPosition = transform.position;
-            _climb2mPrototypeRootError = 0f;
+            _activeSegmentIndex = segmentIndex;
+            _segmentInitialized = true;
+            _activeSegmentDesiredPosition = actualSegmentStart;
+            _activeSegmentRootError = 0f;
             return true;
         }
 
-        private Vector3 ExecuteClimb2mPrototypeSpan(
+        private Vector3 ExecuteTraversalSegmentSpan(
             in TraversalWarpPlan plan,
             float previousNormalized,
             float currentNormalized,
             float frameStartNormalized,
             float frameEndNormalized,
-            float frameDeltaTime)
+            float frameDeltaTime,
+            Vector3 reboundRequestedDelta,
+            out bool moveIssued)
         {
+            moveIssued = false;
             if (currentNormalized <= previousNormalized) return Vector3.zero;
-            if (!TraversalSegmentWarpPrototypeSegment.TryEvaluateBasis(
-                    in plan, previousNormalized, out Vector3 previousOriginal) ||
-                !TraversalSegmentWarpPrototypeSegment.TryEvaluateBasis(
-                    in plan, currentNormalized, out Vector3 currentOriginal))
+            if (!plan.TryEvaluate(
+                    previousNormalized, out Vector3 previousPlanPosition, out _) ||
+                !plan.TryEvaluate(
+                    currentNormalized, out Vector3 currentPlanPosition, out _))
                 return Vector3.zero;
 
-            Vector3 bakedDelta = currentOriginal - previousOriginal;
-            Vector3 requestedDelta = _climb2mSegment.EvaluateCompensatedDelta(
-                bakedDelta, previousNormalized, currentNormalized);
+            Vector3 requestedDelta = _activeTraversalSegment.EvaluateRequestedDelta(
+                previousPlanPosition,
+                currentPlanPosition,
+                previousNormalized,
+                currentNormalized);
             if (!IsFinite(requestedDelta) || requestedDelta.magnitude > MaxCommittedFrameDisplacement)
+            {
+                if (reboundRequestedDelta.sqrMagnitude > 0f)
+                {
+                    MoveTraversalAndRecord(
+                        Vector3.zero, reboundRequestedDelta, currentNormalized);
+                    moveIssued = true;
+                    return reboundRequestedDelta;
+                }
                 return Vector3.zero;
+            }
 
-            _climb2mPrototypeDesiredPosition =
-                _climb2mSegment.EvaluateDesiredPosition(currentOriginal, currentNormalized);
-            MoveTraversalAndRecord(requestedDelta, Vector3.zero, currentNormalized);
-            _climb2mPrototypeRootError = Vector3.Distance(
-                transform.position, _climb2mPrototypeDesiredPosition);
-            RecordClimb2mRootDivergence();
-            RecordClimb2mSegmentVelocity(
+            _activeSegmentDesiredPosition = _activeTraversalSegment.EvaluateDesiredPosition(
+                currentPlanPosition, currentNormalized);
+            MoveTraversalAndRecord(
+                requestedDelta, reboundRequestedDelta, currentNormalized);
+            moveIssued = true;
+            _activeSegmentRootError = Vector3.Distance(
+                transform.position, _activeSegmentDesiredPosition);
+            RecordSegmentRootDivergence();
+            RecordSegmentBoundaryVelocity(
                 requestedDelta,
                 previousNormalized,
                 currentNormalized,
                 frameStartNormalized,
                 frameEndNormalized,
                 frameDeltaTime);
-            return requestedDelta;
+            // The caller derives vertical velocity from the exact combined delta sent to Move.
+            return requestedDelta + reboundRequestedDelta;
         }
 
-        private void RecordClimb2mRootDivergence()
+        private void RecordSegmentRootDivergence()
         {
-            if (_climb2mPrototypeRootError > LastTraversalMaxRootDivergence)
-                LastTraversalMaxRootDivergence = _climb2mPrototypeRootError;
+            if (_activeSegmentRootError > LastTraversalMaxRootDivergence)
+                LastTraversalMaxRootDivergence = _activeSegmentRootError;
         }
 
-        private void RecordClimb2mSegmentVelocity(
+        private void RecordSegmentBoundaryVelocity(
             Vector3 requestedDelta,
             float spanStartNormalized,
             float spanEndNormalized,
@@ -1533,29 +1493,29 @@ namespace Project.Presentation.Motion
             Vector3 velocity = requestedDelta / spanDeltaTime;
             if (!IsFinite(velocity)) return;
 
-            if (_climb2mLastWarpVelocitySegmentIndex >= 0 &&
-                _climb2mLastWarpVelocitySegmentIndex != _climb2mSegmentIndex)
+            if (_lastWarpVelocitySegmentIndex >= 0 &&
+                _lastWarpVelocitySegmentIndex != _activeSegmentIndex)
             {
-                float delta = (velocity - _climb2mLastWarpVelocity).magnitude;
+                float delta = (velocity - _lastSegmentWarpVelocity).magnitude;
                 if (delta > LastTraversalMaxSegmentBoundaryVelocityDelta)
                     LastTraversalMaxSegmentBoundaryVelocityDelta = delta;
             }
 
-            _climb2mLastWarpVelocity = velocity;
-            _climb2mLastWarpVelocitySegmentIndex = _climb2mSegmentIndex;
+            _lastSegmentWarpVelocity = velocity;
+            _lastWarpVelocitySegmentIndex = _activeSegmentIndex;
         }
 
-        private void ResetClimb2mSegmentRuntimeState()
+        private void ResetSegmentedExecutionRuntimeState()
         {
-            _climb2mSegmentInitialized = false;
-            _climb2mSegmentIndex = -1;
-            _climb2mSegment = default;
-            _climb2mPrototypeDesiredPosition = transform != null
+            _segmentInitialized = false;
+            _activeSegmentIndex = -1;
+            _activeTraversalSegment = default;
+            _activeSegmentDesiredPosition = transform != null
                 ? transform.position
                 : Vector3.zero;
-            _climb2mPrototypeRootError = 0f;
-            _climb2mLastWarpVelocity = Vector3.zero;
-            _climb2mLastWarpVelocitySegmentIndex = -1;
+            _activeSegmentRootError = 0f;
+            _lastSegmentWarpVelocity = Vector3.zero;
+            _lastWarpVelocitySegmentIndex = -1;
         }
 
         private void MoveTraversalAndRecord(
@@ -1675,19 +1635,19 @@ namespace Project.Presentation.Motion
                       ? $"  Lw {handIK.TargetData.LeftHandPositionWeight:F2}" +
                          $"  Rw {handIK.TargetData.RightHandPositionWeight:F2}"
                       : string.Empty);
-            string prototypeLine = _climb2mSegmentPrototypeEnabled
-                ? $"PROTOTYPE root seg {_climb2mSegmentIndex}" +
-                  $"  target {_climb2mSegment.DesiredSegmentEnd}" +
-                  $"  err {_climb2mPrototypeRootError * 100f:F1} cm" +
+            string executionLine = _segmentedExecutionEnabled
+                ? $"SEGMENTED root seg {_activeSegmentIndex}" +
+                  $"  target {_activeTraversalSegment.DesiredSegmentEnd}" +
+                  $"  err {_activeSegmentRootError * 100f:F1} cm" +
                   $"  warp blocked {LastTraversalMaxWarpBlockedDisplacement * 100f:F1} cm" +
                   $"  rebound {LastTraversalMaxReboundBlockedDisplacement * 100f:F1} cm" +
                   $"  root max {LastTraversalMaxRootDivergence * 100f:F1} cm" +
                   $"  dv {LastTraversalMaxSegmentBoundaryVelocityDelta:F2} m/s"
-                : "PROTOTYPE root: off";
+                : "SEGMENTED root: off";
 
             _debugTraversalRuntimeLabel.text =
                 $"{planLine}   t {Mathf.Clamp01(normalizedTime):F2}\n" +
-                $"{syncLine}\n{heightLine}\n{contactLine}\n{prototypeLine}\n{ikLine}";
+                $"{syncLine}\n{heightLine}\n{contactLine}\n{executionLine}\n{ikLine}";
             _debugTraversalRuntimeLabel.transform.position = transform.position + Vector3.up * 2.35f;
             Camera mainCamera = Camera.main;
             if (mainCamera != null)
@@ -2037,14 +1997,13 @@ namespace Project.Presentation.Motion
                 Gizmos.DrawLine(currentOriginalRoot, currentWarpedRoot);
             }
 
-            // PROTOTYPE ONLY: distinguish the re-based desired root from the actual
-            // CharacterController result.  The legacy warped root remains drawn above
-            // for comparison, but it is no longer the prototype execution target.
-            if (_climb2mSegmentPrototypeEnabled)
+            // Distinguish the re-based desired root from the CharacterController result.
+            // The absolute committed root remains drawn above for comparison.
+            if (_segmentedExecutionEnabled)
             {
                 Gizmos.color = Color.cyan;
-                Gizmos.DrawWireSphere(_climb2mPrototypeDesiredPosition, 0.07f);
-                Gizmos.DrawLine(transform.position, _climb2mPrototypeDesiredPosition);
+                Gizmos.DrawWireSphere(_activeSegmentDesiredPosition, 0.07f);
+                Gizmos.DrawLine(transform.position, _activeSegmentDesiredPosition);
                 Gizmos.color = Color.magenta;
                 Gizmos.DrawWireSphere(transform.position, 0.06f);
             }

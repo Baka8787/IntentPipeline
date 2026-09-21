@@ -225,6 +225,9 @@ namespace Project.Editor.Tools
                     $"{diagnostics.RequiredVerticalCorrection:+0.00;-0.00; 0.00} / " +
                     $"{diagnostics.MaxVerticalCorrection:F2} m", ok);
             }
+            Row("contact support clamp",
+                $"{diagnostics.ContactSupportPlaneClampDistance:F3} m",
+                diagnostics.ContactSupportPlaneClampDistance <= 0f);
         }
 
         // =====================================================================
@@ -313,7 +316,7 @@ namespace Project.Editor.Tools
 
         private static void DrawSample(
             string label,
-            TraversalPrototypeMeasurementSample sample)
+            TraversalExecutionMeasurementSample sample)
         {
             if (!sample.HasSample)
             {

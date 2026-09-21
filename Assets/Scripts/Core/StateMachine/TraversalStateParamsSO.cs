@@ -49,6 +49,12 @@ namespace Project.Core.StateMachine
             !float.IsNaN(value) && !float.IsInfinity(value);
     }
 
+    public enum TraversalExecutionModel
+    {
+        Absolute = 0,
+        Segmented = 1,
+    }
+
     /// <summary>
     /// V3 fixed-shape plan builder. It selects hand targets on the committed ledge interval,
     /// solves root contact constraints once, and emits six allocation-free piecewise knots.
@@ -67,7 +73,8 @@ namespace Project.Core.StateMachine
             out TraversalWarpPlan plan) =>
             TryBuild(
                 bake, in candidate, in entry, ledgeSafetyMargin,
-                maxHorizontalCorrection, maxVerticalCorrection, out plan, out _);
+                maxHorizontalCorrection, maxVerticalCorrection,
+                out plan, out _, out _);
 
         /// <summary>
         /// 🆕（docs/23 §R1）帶理由的 piecewise build。正式資產目前一律停在
@@ -82,10 +89,26 @@ namespace Project.Core.StateMachine
             float maxHorizontalCorrection,
             float maxVerticalCorrection,
             out TraversalWarpPlan plan,
-            out TraversalWarpPlanRejection rejection)
+            out TraversalWarpPlanRejection rejection) =>
+            TryBuild(
+                bake, in candidate, in entry, ledgeSafetyMargin,
+                maxHorizontalCorrection, maxVerticalCorrection,
+                out plan, out rejection, out _);
+
+        public static bool TryBuild(
+            MotionBakeData bake,
+            in TraversalCandidate candidate,
+            in TraversalEntryEvaluation entry,
+            float ledgeSafetyMargin,
+            float maxHorizontalCorrection,
+            float maxVerticalCorrection,
+            out TraversalWarpPlan plan,
+            out TraversalWarpPlanRejection rejection,
+            out float contactSupportPlaneClampDistance)
         {
             plan = default;
             rejection = TraversalWarpPlanRejection.None;
+            contactSupportPlaneClampDistance = 0f;
             if (bake == null)
             {
                 rejection = TraversalWarpPlanRejection.MissingBake;
@@ -222,6 +245,14 @@ namespace Project.Core.StateMachine
                 0f, entry.LongitudinalDistance - entry.CapsuleWallClearance);
             primaryRootTarget = ClampOutsideWall(
                 primaryRootTarget, ledge.EdgeOrigin, wallNormal, minimumRootWallDistance);
+
+            // Contact precision is a soft constraint. Never let the hand solve place the standing
+            // capsule below the surface it is standing on: clamp the root up against the committed
+            // Entry support plane. Any remaining hand error stays observable to the bounded IK pass.
+            float unclampedRootY = primaryRootTarget.y;
+            primaryRootTarget.y = Mathf.Max(
+                primaryRootTarget.y, candidate.SensedRootPosition.y);
+            contactSupportPlaneClampDistance = primaryRootTarget.y - unclampedRootY;
             Vector3 primaryCorrection = primaryRootTarget - primaryOriginalRoot;
             Vector3 leftRootTarget = leftOriginalRoot + primaryCorrection;
             Vector3 rightRootTarget = rightOriginalRoot + primaryCorrection;
@@ -516,6 +547,12 @@ namespace Project.Core.StateMachine
         [SerializeField, Min(0f)] private float maxVerticalCorrection;
         [SerializeField] private TraversalCollisionProfile collisionProfile;
 
+        [Header("Execution model")]
+        [Tooltip("Absolute uses the production per-frame absolute-pose path and is the revert " +
+                 "target. Segmented re-bases carried execution error only at authored phase " +
+                 "boundaries.")]
+        [SerializeField] private TraversalExecutionModel executionModel;
+
         // ⭐ 2026-09-20：**動畫覆蓋範圍（上下限）。**
         //
         // 為什麼放在 binding 而不是 TraversalProbeSettings：這是**這支 clip** 的性質，
@@ -587,6 +624,7 @@ namespace Project.Core.StateMachine
                 ? maxVerticalCorrection
                 : DefaultMaxVerticalCorrection;
         public TraversalCollisionProfile CollisionProfile => collisionProfile;
+        public TraversalExecutionModel ExecutionModel => executionModel;
 
         public TraversalMotionBinding(string animationKey, MotionBakeData bake)
         {
@@ -599,6 +637,7 @@ namespace Project.Core.StateMachine
             maxHorizontalCorrection = DefaultMaxHorizontalCorrection;
             maxVerticalCorrection = DefaultMaxVerticalCorrection;
             collisionProfile = default;
+            executionModel = TraversalExecutionModel.Absolute;
             coverageMinHeight = 0f;
             coverageMaxHeight = 0f;
         }
@@ -622,6 +661,7 @@ namespace Project.Core.StateMachine
             this.maxHorizontalCorrection = maxHorizontalCorrection;
             this.maxVerticalCorrection = maxVerticalCorrection;
             collisionProfile = default;
+            executionModel = TraversalExecutionModel.Absolute;
             coverageMinHeight = 0f;
             coverageMaxHeight = 0f;
         }

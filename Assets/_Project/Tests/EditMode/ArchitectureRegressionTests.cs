@@ -1471,8 +1471,13 @@ namespace Project.Tests.EditMode
             string motion = File.ReadAllText(FindSingleScript("MotionDriver.cs"));
             string capture = ExtractMethodBody(motion, "TryCreateTraversalWarpPlan");
             string execute = ExtractMethodBody(motion, "ExecuteTraversalWarpedMovement");
+            string executeSegmented = ExtractMethodBody(motion, "TryExecuteSegmentedTraversal");
+            string openSegment = ExtractMethodBody(motion, "EnsureTraversalExecutionSegment");
+            string executeSegmentSpan = ExtractMethodBody(motion, "ExecuteTraversalSegmentSpan");
             string move = ExtractMethodBody(motion, "MoveTraversalAndRecord");
-            string combined = plan + "\n" + traversal + "\n" + capture + "\n" + execute + "\n" + move;
+            string combined = plan + "\n" + traversal + "\n" + capture + "\n" +
+                              execute + "\n" + executeSegmented + "\n" + openSegment +
+                              "\n" + executeSegmentSpan + "\n" + move;
 
             StringAssert.DoesNotContain("Physics.", combined,
                 "Warp plan／State／Motion execution 不得重發 traversal physics query");
@@ -1484,6 +1489,19 @@ namespace Project.Tests.EditMode
                 "warped delta 必須仍由 MotionDriver 的 CharacterController.Move 權威執行");
             StringAssert.Contains("currentPosition - previousPosition", execute,
                 "warp execution 必須輸出 warped current - warped previous displacement delta");
+
+            StringAssert.Contains("actualSegmentStart = transform.position", openSegment,
+                "I11：carried error 必須在 segment boundary 從角色實際 root 取樣");
+            StringAssert.Contains("TraversalExecutionSegment.TryCreate", openSegment,
+                "I11：boundary sample 必須被封裝成 immutable execution segment");
+            Assert.AreEqual(
+                1,
+                Regex.Matches(motion, @"TraversalExecutionSegment\.TryCreate\s*\(").Count,
+                "I11：MotionDriver 只能在開啟 segment 時建立 carried error；段內不得重取樣");
+            StringAssert.DoesNotContain("TraversalExecutionSegment.TryCreate", executeSegmentSpan,
+                "I11：段內逐幀 evaluation 不得重新建立 segment 或重取樣 carried error");
+            StringAssert.DoesNotContain("actualSegmentStart", executeSegmentSpan,
+                "I11：段內逐幀 evaluation 只能讀 immutable boundary snapshot");
 
             string runtimeData = StripStringLiterals(StripComments(
                 File.ReadAllText(FindSingleScript("PlayerRuntimeData.cs"))));

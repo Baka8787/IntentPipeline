@@ -312,7 +312,8 @@ namespace Project.Core.StateMachine
                 _currentBinding.MaxHorizontalCorrection,
                 _currentBinding.MaxVerticalCorrection,
                 out _warpPlan,
-                out TraversalWarpPlanRejection piecewiseRejection);
+                out TraversalWarpPlanRejection piecewiseRejection,
+                out float contactSupportPlaneClampDistance);
 
             float warpStart = _currentBinding.WarpStartNormalizedTime;
             bool warpEndIsDataDerived = !_currentBinding.HasAuthoredWarpEnd;
@@ -351,20 +352,20 @@ namespace Project.Core.StateMachine
                 _currentBinding.MaxHorizontalCorrection,
                 requiredVertical,
                 _currentBinding.MaxVerticalCorrection,
+                contactSupportPlaneClampDistance,
                 warpStart,
                 warpEnd,
                 warpEndIsDataDerived);
 
             _executionMotionDriver = motionDriver;
-            // PROTOTYPE ONLY: MotionDriver derives three segments from this already committed
-            // plan.  Entry→Contact ignores the grip-derived absolute root Y, Contact→Transfer
-            // applies the committed height correction from the actual floor-safe contact root,
-            // and Transfer→Exit re-bases from actual root.
-            bool enableClimb2mPrototype = _committedCandidate.Kind == TraversalKind.Climb2m;
+            // Kind is classifier output, not an execution-policy owner. The committed binding
+            // explicitly selects whether MotionDriver uses absolute or segmented execution.
+            bool useSegmentedExecution =
+                _currentBinding.ExecutionModel == TraversalExecutionModel.Segmented;
             motionDriver.BeginTraversalPresentation(
                 in _warpPlan,
                 in diagnostics,
-                enableClimb2mPrototype);
+                useSegmentedExecution);
             if (_warpPlan.IsValid)
             {
                 TraversalCollisionProfile collisionProfile = _currentBinding.CollisionProfile;

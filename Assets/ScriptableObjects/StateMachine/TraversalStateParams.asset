@@ -55,6 +55,7 @@ MonoBehaviour:
         m_PreInfinity: 2
         m_PostInfinity: 2
         m_RotationOrder: 4
+    executionModel: 0
     coverageMinHeight: 0
     coverageMaxHeight: 0
   climb1m:
@@ -100,6 +101,7 @@ MonoBehaviour:
         m_PreInfinity: 2
         m_PostInfinity: 2
         m_RotationOrder: 4
+    executionModel: 0
     coverageMinHeight: 1
     coverageMaxHeight: 1.2
   climb2m:
@@ -145,7 +147,8 @@ MonoBehaviour:
         m_PreInfinity: 2
         m_PostInfinity: 2
         m_RotationOrder: 4
-    coverageMinHeight: 1.65
+    executionModel: 1
+    coverageMinHeight: 1.72
     coverageMaxHeight: 2.05
   normalJumpReachSafetyMargin: 0.15
   entryPolicy:

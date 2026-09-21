@@ -5,7 +5,7 @@ using Project.Presentation.Motion;
 
 namespace Project.Presentation.IK
 {
-    public readonly struct TraversalPrototypeMeasurementSample
+    public readonly struct TraversalExecutionMeasurementSample
     {
         public readonly bool HasSample;
         public readonly float NormalizedTime;
@@ -19,7 +19,7 @@ namespace Project.Presentation.IK
         public readonly float LeftIKWeight;
         public readonly float RightIKWeight;
 
-        public TraversalPrototypeMeasurementSample(
+        public TraversalExecutionMeasurementSample(
             float normalizedTime,
             float preIKHandResidual,
             float postIKHandResidual,
@@ -130,10 +130,10 @@ namespace Project.Presentation.IK
         public float MaxArmReachRatio { get; private set; }
         public float MaxPreIKResidual { get; private set; }
         public float MaxPostIKResidual { get; private set; }
-        public TraversalPrototypeMeasurementSample ContactSample { get; private set; }
-        public TraversalPrototypeMeasurementSample ContactMidpointSample { get; private set; }
-        public TraversalPrototypeMeasurementSample TransferPreviousFrameSample { get; private set; }
-        public TraversalPrototypeMeasurementSample TransferSample { get; private set; }
+        public TraversalExecutionMeasurementSample ContactSample { get; private set; }
+        public TraversalExecutionMeasurementSample ContactMidpointSample { get; private set; }
+        public TraversalExecutionMeasurementSample TransferPreviousFrameSample { get; private set; }
+        public TraversalExecutionMeasurementSample TransferSample { get; private set; }
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         /// <summary>
@@ -222,8 +222,11 @@ namespace Project.Presentation.IK
                 return;
             }
 
-            _targetData.LeftHandPosition = contacts.LeftHandWorldTarget;
-            _targetData.RightHandPosition = contacts.RightHandWorldTarget;
+            Vector3 rootDisplacementCompensation = GetPostAnimatorRootDisplacementCompensation();
+            _targetData.LeftHandPosition =
+                contacts.LeftHandWorldTarget - rootDisplacementCompensation;
+            _targetData.RightHandPosition =
+                contacts.RightHandWorldTarget - rootDisplacementCompensation;
             _targetData.LeftHandRotation = contacts.LeftHandWorldRotation;
             _targetData.RightHandRotation = contacts.RightHandWorldRotation;
 
@@ -248,23 +251,19 @@ namespace Project.Presentation.IK
 
             float normalizedTime = motionDriver.ActiveTraversalNormalizedTime;
             if (!_measurementWasActive || normalizedTime + 0.0001f < _lastMeasurementNormalizedTime)
-                ResetPrototypeMeasurements();
+                ResetExecutionMeasurements();
             _measurementWasActive = true;
             _lastMeasurementNormalizedTime = normalizedTime;
             float exitTime = plan.ExitKnot.NormalizedTime;
-            bool useClimb2mPrototypeWindow = motionDriver.IsClimb2mSegmentPrototypeActive;
-            float transferTime = plan.TransferKnot.NormalizedTime;
+
+            // The authored window is authoritative. TraversalContactDerivation.BuildHandIKWindow
+            // derives release from FixedGoalExtensionStart - fade, so pinning the wrist past it
+            // would demand a longer shoulder-to-wrist chain than the animation's own push-off.
             float leftWeight = contacts.HasLeftHand
-                ? useClimb2mPrototypeWindow
-                    ? EvaluateClimb2mPrototypeWindow(
-                        contacts.LeftHandIKWindow, normalizedTime, transferTime, exitTime)
-                    : contacts.LeftHandIKWindow.Evaluate(normalizedTime, exitTime)
+                ? contacts.LeftHandIKWindow.Evaluate(normalizedTime, exitTime)
                 : 0f;
             float rightWeight = contacts.HasRightHand
-                ? useClimb2mPrototypeWindow
-                    ? EvaluateClimb2mPrototypeWindow(
-                        contacts.RightHandIKWindow, normalizedTime, transferTime, exitTime)
-                    : contacts.RightHandIKWindow.Evaluate(normalizedTime, exitTime)
+                ? contacts.RightHandIKWindow.Evaluate(normalizedTime, exitTime)
                 : 0f;
             float maxResidual = IsFinite(maximumResidualDistance) && maximumResidualDistance > 0f
                 ? maximumResidualDistance
@@ -288,7 +287,7 @@ namespace Project.Presentation.IK
             RightSolvedResidualError = contacts.HasRightHand
                 ? Vector3.Distance(RightSolvedPosition, contacts.RightHandWorldTarget)
                 : 0f;
-            UpdateArmReachMetrics(in contacts);
+            UpdateArmReachMetrics(in contacts, leftWeight, rightWeight);
 
             if (leftWeight <= 0f && rightWeight <= 0f)
             {
@@ -309,13 +308,20 @@ namespace Project.Presentation.IK
             // 這與 `docs/39` F1（blocked displacement 被 post-exit 貼地力污染）是**同一類缺陷**：
             // 未被窗口限制的 max 累加器。閘門刻意放在 residual 否決**之前**——
             // 被 guard 擋下來的那一幀（1.6 m 的 39.47 cm）正是最需要被記錄的值。
-            MaxPreIKResidual = Mathf.Max(
-                MaxPreIKResidual, Mathf.Max(LeftResidualError, RightResidualError));
-            MaxPostIKResidual = Mathf.Max(
+            // Gate each value by its own authored weight: a zero-weight hand is not being asked
+            // to reach, so its distance to a released target is not a reach measurement.
+            MaxPreIKResidual = FoldActiveHandMaximum(
+                MaxPreIKResidual,
+                LeftResidualError, leftWeight,
+                RightResidualError, rightWeight);
+            MaxPostIKResidual = FoldActiveHandMaximum(
                 MaxPostIKResidual,
-                Mathf.Max(LeftSolvedResidualError, RightSolvedResidualError));
-            MaxArmReachRatio = Mathf.Max(
-                MaxArmReachRatio, Mathf.Max(LeftArmReachRatio, RightArmReachRatio));
+                LeftSolvedResidualError, leftWeight,
+                RightSolvedResidualError, rightWeight);
+            MaxArmReachRatio = FoldActiveHandMaximum(
+                MaxArmReachRatio,
+                LeftArmReachRatio, leftWeight,
+                RightArmReachRatio, rightWeight);
 
             bool residualRejected = false;
             if (leftWeight > 0f &&
@@ -339,7 +345,7 @@ namespace Project.Presentation.IK
             Status = residualRejected
                 ? TraversalHandIKStatus.ResidualTooLarge
                 : TraversalHandIKStatus.Active;
-            CapturePrototypeMeasurements(
+            CaptureSegmentedExecutionMeasurements(
                 in plan,
                 normalizedTime,
                 leftWeight,
@@ -347,7 +353,7 @@ namespace Project.Presentation.IK
             UpdateDebug();
         }
 
-        private void ResetPrototypeMeasurements()
+        private void ResetExecutionMeasurements()
         {
             MaxArmReachRatio = 0f;
             MaxPreIKResidual = 0f;
@@ -358,26 +364,99 @@ namespace Project.Presentation.IK
             TransferSample = default;
         }
 
-        private void UpdateArmReachMetrics(in TraversalContactTargets contacts)
+        private Vector3 GetPostAnimatorRootDisplacementCompensation()
+        {
+            TraversalExecutionResult result = motionDriver.LastTraversalExecutionResult;
+            if (!result.HasResult) return Vector3.zero;
+
+            Vector3 actualDisplacement = result.ActualDisplacement;
+            float maximumDisplacement = MotionDriver.MaxCommittedFrameDisplacement;
+            if (!IsFinite(actualDisplacement) ||
+                actualDisplacement.sqrMagnitude > maximumDisplacement * maximumDisplacement)
+                return Vector3.zero;
+
+            // Animator IK runs before LateUpdate, while traversal root movement is applied during
+            // LateUpdate after the IK pass. The last actual root delta predicts that next move, so
+            // the rig receives target - delta and the later root move returns the rendered hand to
+            // the committed world target. Before this compensation, midpoint residual measured
+            // 6.77 cm at timeScale 1.0 and 2.53 cm at timeScale 0.25.
+            return actualDisplacement;
+        }
+
+        internal static float FoldActiveHandMaximum(
+            float currentMaximum,
+            float leftValue,
+            float leftWeight,
+            float rightValue,
+            float rightWeight)
+        {
+            if (leftWeight > 0f) currentMaximum = Mathf.Max(currentMaximum, leftValue);
+            if (rightWeight > 0f) currentMaximum = Mathf.Max(currentMaximum, rightValue);
+            return currentMaximum;
+        }
+
+        private void UpdateArmReachMetrics(
+            in TraversalContactTargets contacts,
+            float leftWeight,
+            float rightWeight)
         {
             LeftRawWristReach = RawWristReach(
-                _leftUpperArmBone, contacts.LeftHandWorldTarget, contacts.HasLeftHand);
+                _leftUpperArmBone,
+                _poseData.LeftHandPosition,
+                contacts.LeftHandWorldTarget,
+                leftWeight,
+                contacts.HasLeftHand);
             RightRawWristReach = RawWristReach(
-                _rightUpperArmBone, contacts.RightHandWorldTarget, contacts.HasRightHand);
+                _rightUpperArmBone,
+                _poseData.RightHandPosition,
+                contacts.RightHandWorldTarget,
+                rightWeight,
+                contacts.HasRightHand);
             LeftArmReachRatio = ArmReachRatio(
                 _leftUpperArmBone, _leftLowerArmBone, _leftHandBone,
                 LeftRawWristReach, contacts.HasLeftHand);
             RightArmReachRatio = ArmReachRatio(
                 _rightUpperArmBone, _rightLowerArmBone, _rightHandBone,
                 RightRawWristReach, contacts.HasRightHand);
-            // ⛔ 這裡**不折算** MaxArmReachRatio——逐幀值給 debug 標籤用，
-            //    max 由呼叫端在 contact window 內折算（見上方註解）。
+            // Reach follows the goal Animator IK is actually asked to satisfy: the animation's
+            // pre-override hand goal blended toward the uncompensated committed world target by
+            // that hand's weight. The old target-only formula reported a released target's
+            // distance as if it were arm stretch. Max folding still belongs to the caller and is
+            // gated per hand inside the contact window.
         }
 
-        private static float RawWristReach(Transform shoulder, Vector3 target, bool hasTarget)
+        private static float RawWristReach(
+            Transform shoulder,
+            Vector3 animatedHandGoal,
+            Vector3 committedWorldTarget,
+            float weight,
+            bool hasTarget)
         {
-            if (!hasTarget || shoulder == null || !IsFinite(target)) return 0f;
-            return Vector3.Distance(shoulder.position, target);
+            if (!hasTarget || shoulder == null) return 0f;
+            return EvaluateBlendedWristReach(
+                shoulder.position,
+                animatedHandGoal,
+                committedWorldTarget,
+                weight);
+        }
+
+        internal static float EvaluateBlendedWristReach(
+            Vector3 shoulderPosition,
+            Vector3 animatedHandGoal,
+            Vector3 committedWorldTarget,
+            float weight)
+        {
+            if (!IsFinite(shoulderPosition) ||
+                !IsFinite(animatedHandGoal) ||
+                !IsFinite(committedWorldTarget) ||
+                !IsFinite(weight))
+                return 0f;
+
+            Vector3 effectiveGoal = Vector3.Lerp(
+                animatedHandGoal,
+                committedWorldTarget,
+                weight);
+            return Vector3.Distance(shoulderPosition, effectiveGoal);
         }
 
         private static float ArmReachRatio(
@@ -396,20 +475,20 @@ namespace Project.Presentation.IK
                 : 0f;
         }
 
-        private void CapturePrototypeMeasurements(
+        private void CaptureSegmentedExecutionMeasurements(
             in TraversalWarpPlan plan,
             float normalizedTime,
             float leftWeight,
             float rightWeight)
         {
-            if (!motionDriver.IsClimb2mSegmentPrototypeActive) return;
+            if (!motionDriver.IsSegmentedExecutionActive) return;
 
             float contact = Mathf.Max(
                 plan.LeftContactKnot.NormalizedTime,
                 plan.RightContactKnot.NormalizedTime);
             float transfer = plan.TransferKnot.NormalizedTime;
             float midpoint = 0.5f * (contact + transfer);
-            TraversalPrototypeMeasurementSample sample = CreateMeasurementSample(
+            TraversalExecutionMeasurementSample sample = CreateMeasurementSample(
                 normalizedTime, leftWeight, rightWeight);
 
             if (!ContactSample.HasSample && normalizedTime >= contact)
@@ -422,18 +501,18 @@ namespace Project.Presentation.IK
                 TransferSample = sample;
         }
 
-        private TraversalPrototypeMeasurementSample CreateMeasurementSample(
+        private TraversalExecutionMeasurementSample CreateMeasurementSample(
             float normalizedTime,
             float leftWeight,
             float rightWeight)
         {
-            return new TraversalPrototypeMeasurementSample(
+            return new TraversalExecutionMeasurementSample(
                 normalizedTime,
                 Mathf.Max(LeftResidualError, RightResidualError),
                 Mathf.Max(LeftSolvedResidualError, RightSolvedResidualError),
                 Mathf.Max(LeftRawWristReach, RightRawWristReach),
                 Mathf.Max(LeftArmReachRatio, RightArmReachRatio),
-                motionDriver.ActiveClimb2mPrototypeRootError,
+                motionDriver.ActiveSegmentRootError,
                 motionDriver.LastTraversalMaxWarpBlockedDisplacement,
                 motionDriver.LastTraversalMaxSegmentBoundaryVelocityDelta,
                 leftWeight,
@@ -445,46 +524,6 @@ namespace Project.Presentation.IK
 
         private static bool IsFinite(float value) =>
             !float.IsNaN(value) && !float.IsInfinity(value);
-
-        // PROTOTYPE ONLY: keep hand contact through Transfer, then reuse the authored
-        // fade-in span for a short fade-out.  Bake authoring values remain untouched.
-        private static float EvaluateClimb2mPrototypeWindow(
-            TraversalHandIKWindow window,
-            float normalizedTime,
-            float transferNormalizedTime,
-            float exitNormalizedTime)
-        {
-            if (!window.IsValid || !IsFinite(normalizedTime) ||
-                !IsFinite(transferNormalizedTime) || !IsFinite(exitNormalizedTime) ||
-                transferNormalizedTime < window.FullNormalizedTime ||
-                exitNormalizedTime <= transferNormalizedTime)
-                return 0f;
-
-            if (normalizedTime <= window.StartNormalizedTime ||
-                normalizedTime >= exitNormalizedTime)
-                return 0f;
-            if (normalizedTime < window.FullNormalizedTime)
-                return Smooth01(Mathf.InverseLerp(
-                    window.StartNormalizedTime,
-                    window.FullNormalizedTime,
-                    normalizedTime));
-            if (normalizedTime <= transferNormalizedTime)
-                return 1f;
-
-            float fadeSpan = Mathf.Max(
-                0f,
-                window.FullNormalizedTime - window.StartNormalizedTime);
-            float fadeEnd = Mathf.Min(exitNormalizedTime, transferNormalizedTime + fadeSpan);
-            if (normalizedTime >= fadeEnd) return 0f;
-            return 1f - Smooth01(Mathf.InverseLerp(
-                transferNormalizedTime, fadeEnd, normalizedTime));
-        }
-
-        private static float Smooth01(float value)
-        {
-            value = Mathf.Clamp01(value);
-            return value * value * (3f - 2f * value);
-        }
 
         [System.Diagnostics.Conditional("UNITY_EDITOR")]
         [System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
