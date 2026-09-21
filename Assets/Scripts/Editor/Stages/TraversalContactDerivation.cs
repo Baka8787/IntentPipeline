@@ -634,10 +634,17 @@ namespace Project.Editor.Stages
                         Quaternion.Inverse(Quaternion.Euler(0f, root.rotation.eulerAngles.y, 0f));
                     Vector3 leftInRoot = inverseRootYaw * (left.position - root.position);
                     Vector3 rightInRoot = inverseRootYaw * (right.position - root.position);
+                    // 朝向與位置用**同一個 root yaw 框架**，下游才能用同一個 committed yaw 還原。
+                    // 這是 contact 資料缺掉的另一半：只給腕點、不給朝向時，兩骨 IK 會把手轉到
+                    // 一個沒有人決定過的角度（低牆實測偏 49.3°，手指因此插進頂面）。
+                    Quaternion leftRotationInRoot = inverseRootYaw * left.rotation;
+                    Quaternion rightRotationInRoot = inverseRootYaw * right.rotation;
 
                     result[i] = new TraversalBakedAnchor(
                         normalized, rootLocalPosition, rootLocalYaw,
-                        leftInRoot, rightInRoot, true, true);
+                        leftInRoot, rightInRoot,
+                        leftRotationInRoot, rightRotationInRoot,
+                        true, true);
                 }
             }
             finally

@@ -92,6 +92,15 @@ namespace Project.Presentation.Motion
         [SerializeField] private float rootLocalYaw;
         [SerializeField] private Vector3 leftHandInRoot;
         [SerializeField] private Vector3 rightHandInRoot;
+        // ⭐ 2026-09-22：**手的「朝向」和「位置」一樣是 contact 資料的一半。**
+        //
+        // 只 commit 腕點、不 commit 朝向時，兩骨 IK 會為了搆到腕點而把前臂擺過去，
+        // 手就跟著前臂轉到一個沒有人決定過的角度。實測：牆比動畫低 35 cm 時，
+        // 接觸瞬間手的朝向偏離 authored 抓握姿勢 **49.3°** ⇒ 五根手指直接插進頂面下方 8.3 cm；
+        // 在 authored 高度上只偏 11.0°，手指剛好貼在頂面上（+0.2 cm）。
+        // ⇒ 腕點 solve 一直是對的，缺的是這個。
+        [SerializeField] private Quaternion leftHandRotationInRoot;
+        [SerializeField] private Quaternion rightHandRotationInRoot;
         [SerializeField] private bool hasLeftHand;
         [SerializeField] private bool hasRightHand;
 
@@ -100,6 +109,17 @@ namespace Project.Presentation.Motion
         public float RootLocalYaw => rootLocalYaw;
         public Vector3 LeftHandInRoot => leftHandInRoot;
         public Vector3 RightHandInRoot => rightHandInRoot;
+        public Quaternion LeftHandRotationInRoot => leftHandRotationInRoot;
+        public Quaternion RightHandRotationInRoot => rightHandRotationInRoot;
+
+        /// <summary>
+        /// 這個 anchor 是否帶著烘焙好的手部朝向。
+        /// ⚠️ **尚未烘焙的舊資產會反序列化成 `(0,0,0,0)`**——那不是一個旋轉，是零四元數。
+        /// 因此判準是「模長接近 1」而不是「非零」；不合格時呼叫端必須退回既有行為，
+        /// 讓 Vault1m／Climb1m 這些沒有重烘的資產**行為完全不變**。
+        /// </summary>
+        public bool HasHandRotations =>
+            IsValidRotation(leftHandRotationInRoot) && IsValidRotation(rightHandRotationInRoot);
         public bool HasLeftHand => hasLeftHand;
         public bool HasRightHand => hasRightHand;
         public bool IsFinite =>
@@ -115,15 +135,44 @@ namespace Project.Presentation.Motion
             Vector3 rightHandInRoot,
             bool hasLeftHand,
             bool hasRightHand)
+            : this(
+                normalizedTime, rootLocalPosition, rootLocalYaw,
+                leftHandInRoot, rightHandInRoot,
+                // 不帶朝向的舊呼叫端：寫入與「沒烘焙過」完全相同的零四元數，
+                // 讓 HasHandRotations 為 false ⇒ 下游走既有路徑。
+                default, default,
+                hasLeftHand, hasRightHand)
+        {
+        }
+
+        public TraversalBakedAnchor(
+            float normalizedTime,
+            Vector3 rootLocalPosition,
+            float rootLocalYaw,
+            Vector3 leftHandInRoot,
+            Vector3 rightHandInRoot,
+            Quaternion leftHandRotationInRoot,
+            Quaternion rightHandRotationInRoot,
+            bool hasLeftHand,
+            bool hasRightHand)
         {
             this.normalizedTime = normalizedTime;
             this.rootLocalPosition = rootLocalPosition;
             this.rootLocalYaw = rootLocalYaw;
             this.leftHandInRoot = leftHandInRoot;
             this.rightHandInRoot = rightHandInRoot;
+            this.leftHandRotationInRoot = leftHandRotationInRoot;
+            this.rightHandRotationInRoot = rightHandRotationInRoot;
             this.hasLeftHand = hasLeftHand;
             this.hasRightHand = hasRightHand;
         }
+
+        private static bool IsValidRotation(Quaternion value) =>
+            IsFiniteValue(value.x) && IsFiniteValue(value.y) &&
+            IsFiniteValue(value.z) && IsFiniteValue(value.w) &&
+            Mathf.Abs(
+                value.x * value.x + value.y * value.y +
+                value.z * value.z + value.w * value.w - 1f) < 0.01f;
 
         private static bool IsFiniteValue(Vector3 value) =>
             IsFiniteValue(value.x) && IsFiniteValue(value.y) && IsFiniteValue(value.z);

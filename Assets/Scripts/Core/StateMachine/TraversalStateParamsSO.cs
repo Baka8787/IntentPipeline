@@ -416,6 +416,18 @@ namespace Project.Core.StateMachine
                     authored.RightContactAnchor.RightHandInRoot,
                     rightWristTarget)
                 : default;
+            // ⚠️ 2026-09-22：**這裡刻意還沒有消費 bake 的 `LeftHandRotationInRoot`。**
+            //
+            // 診斷是確定的：接觸瞬間手的**朝向**偏離 authored 抓握姿勢
+            // （authored 高度 11.0°／coverage 下緣 **49.3°**），五根手指因此插進頂面下方 8.3 cm。
+            // 腕點目標在所有高度上完全相同 ⇒ **位置 solve 一直是對的，缺的是朝向。**
+            //
+            // 但**烘焙的是 bone rotation，而 `Animator.SetIKRotation` 吃的是 goal rotation**，
+            // 兩者之間有一個 avatar 決定的固定偏移（實測非單位、量級以十度計）。
+            // 直接把 bone rotation 餵給 `SetIKRotation` 的後果已經實測過：
+            // **三個高度的手指全部掉到頂面下方 22 cm**，比原本更差。
+            // ⇒ 要啟用旋轉 IK，必須先在 Presentation/IK 層做 bone→goal 空間轉換。
+            // 在那之前維持原本的 ledge-frame 朝向，且 `handIKRotationWeight` 保持 0（＝從未套用）。
             Quaternion handTargetRotation = Quaternion.LookRotation(traversalForward, ledge.TopNormal);
             var contacts = new TraversalContactTargets(
                 primaryHand,

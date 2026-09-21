@@ -441,3 +441,59 @@ root 過衝修好之後角色在 **n≈0.51 就真的站上平台**，右腳在 
 ### 驗證
 
 EditMode 620（619 passed／0 failed／1 skipped）、PlayMode **67／67**。
+
+---
+
+## 14. 手指插進頂面：根因已確定，修法**尚未落地**（2026-09-22）
+
+使用者回報：「手腕有高度變化我能理解，但五根指頭怎麼第一時間插進牆裡厚面直接浮空」。
+**這不是本輪造成的回歸——它一直存在**，只是 §9 之前的量測全部只看腕點，看不到手指。
+
+### 量測（接觸瞬間，食指指節相對頂面的高度；負 = 埋在頂面下方）
+
+| 牆高 | 腕點（dY / dZ） | 食指 dY | 手的朝向偏離 authored 抓握姿勢 |
+|---|---|---|---|
+| 2.05（＝ authored） | −0.102 / −0.082 | **+0.002 m** | **11.0°** |
+| 1.80 | −0.102 / −0.082 | −0.034 m | — |
+| 1.68（coverage 下緣） | −0.102 / −0.082 | **−0.083 m** | **49.3°** |
+
+**腕點目標在每個高度上完全相同** ⇒ 位置 solve 一直是對的。
+差的是**朝向**：牆比動畫低時，兩骨 IK 為了把腕點搆到 32 cm 外的目標而把前臂擺過去，
+手就跟著轉到一個沒有人決定過的角度（下緣偏 49.3°），五根手指因此戳進頂面；
+身體升上來、reach 縮短之後又轉回來（n≈0.14 時只剩 6.0°）⇒ 看起來就是「先插進去、再浮空」。
+
+`handIKRotationWeight` 在 `Bake_Climb2m` 上 author 為 **0** ⇒ **旋轉 IK 從來沒有生效過。**
+位置 commit 了、朝向沒有——這正是 `gripEdgeInRoot` 那次修法的**旋轉版缺口**。
+
+### 已經做了的（留在 repo）
+
+`TraversalBakedAnchor` 新增 `leftHandRotationInRoot` / `rightHandRotationInRoot`，
+`TraversalContactDerivation` 在既有的 preview-scene 採樣裡一併取（與位置**同一個 root yaw 框架**），
+並已用 targeted `SerializedObject` 寫進 `Bake_Climb2m`（⚠️ **沒有跑完整 re-bake**，
+因為 `Apply()` 會重寫所有推導欄位，其中有手動調過的值）。
+舊資產反序列化成 `(0,0,0,0)`，`HasHandRotations` 以「模長接近 1」判定為未烘焙 ⇒ 行為不變。
+
+### ⛔ 為什麼還沒啟用
+
+試著把 `handIKRotationWeight` 設成 1、並把 committed 朝向改成
+`Quaternion.Euler(0, targetYaw, 0) * authoredHandRotationInRoot`，實測**更糟**：
+
+| 牆高 | 食指 dY（啟用後） |
+|---|---|
+| 2.05 | **−0.220 m** |
+| 1.80 | **−0.220 m** |
+| 1.68 | **−0.221 m** |
+
+連原本正確的 2.05 都壞了，而且三個高度一模一樣 ⇒ **與牆高無關的固定錯誤 = 座標系錯了。**
+
+根因：**烘焙的是 bone rotation，而 `Animator.SetIKRotation` 吃的是 goal rotation。**
+兩者之間有一個 avatar 決定的固定偏移，實測非單位且量級以十度計
+（`K = Inverse(boneRotation) × GetIKRotation(...)`，在權重 0 的幀上量得 x 分量穩定在 ≈272°）。
+
+⇒ 要啟用旋轉 IK，**必須先在 Presentation/IK 層做 bone→goal 空間轉換**
+（`TraversalHandIKRig` 同時看得到 `GetIKRotation` 與骨骼，是唯一有資格做這件事的地方）。
+在那之前 `handIKRotationWeight` 保持 **0**，`TraversalPlanBuilder` 也**刻意不消費**新欄位——
+半套接線比沒接線更危險：下一個人只要把權重調上去就會重現上面那張表。
+
+📌 **本輪的教訓（第二次）**：上一次是「blocked displacement 看不到半空中的過衝」，
+這次是「腕點殘差看不到手指」。**代理量只證明它自己量的那件事。**

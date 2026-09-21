@@ -4986,6 +4986,8 @@ MonoBehaviour:
       rootLocalYaw: 0
       leftHandInRoot: {x: -0.42509642, y: 1.5280775, z: -0.06731982}
       rightHandInRoot: {x: 0.52144676, y: 1.3840011, z: -0.11592395}
+      leftHandRotationInRoot: {x: 0.03511287, y: -0.059804678, z: -0.052366644, w: -0.9962172}
+      rightHandRotationInRoot: {x: 0.1195868, y: -0.15333775, z: 0.003654384, w: 0.98090434}
       hasLeftHand: 1
       hasRightHand: 1
     leftContactAnchor:
@@ -4994,6 +4996,8 @@ MonoBehaviour:
       rootLocalYaw: 0
       leftHandInRoot: {x: -0.20638415, y: 1.8151668, z: 0.3588858}
       rightHandInRoot: {x: 0.37259024, y: 1.8469213, z: 0.34825224}
+      leftHandRotationInRoot: {x: -0.325511, y: -0.10328533, z: 0.09978378, w: -0.93456846}
+      rightHandRotationInRoot: {x: 0.35302255, y: -0.029368281, z: 0.1072741, w: 0.9289805}
       hasLeftHand: 1
       hasRightHand: 1
     rightContactAnchor:
@@ -5002,6 +5006,8 @@ MonoBehaviour:
       rootLocalYaw: 0
       leftHandInRoot: {x: -0.20638415, y: 1.8151668, z: 0.3588858}
       rightHandInRoot: {x: 0.37259024, y: 1.8469213, z: 0.34825224}
+      leftHandRotationInRoot: {x: -0.325511, y: -0.10328533, z: 0.09978378, w: -0.93456846}
+      rightHandRotationInRoot: {x: 0.35302255, y: -0.029368281, z: 0.1072741, w: 0.9289805}
       hasLeftHand: 1
       hasRightHand: 1
     transferAnchor:
@@ -5010,6 +5016,8 @@ MonoBehaviour:
       rootLocalYaw: 0
       leftHandInRoot: {x: -0.19926919, y: 0.23833895, z: 0.36506894}
       rightHandInRoot: {x: 0.40063226, y: 0.25837922, z: 0.32086557}
+      leftHandRotationInRoot: {x: -0.76231635, y: -0.086982116, z: 0.06976552, w: -0.6375269}
+      rightHandRotationInRoot: {x: 0.63635606, y: -0.032819, z: 0.200851, w: 0.7440656}
       hasLeftHand: 1
       hasRightHand: 1
     exitAnchor:
@@ -5018,6 +5026,8 @@ MonoBehaviour:
       rootLocalYaw: 0
       leftHandInRoot: {x: -0.233263, y: 0.93825746, z: 0.078742534}
       rightHandInRoot: {x: 0.31832385, y: 0.93575263, z: 0.07811972}
+      leftHandRotationInRoot: {x: -0.92892474, y: -0.005170959, z: -0.36296502, w: -0.07299679}
+      rightHandRotationInRoot: {x: 0.86211467, y: -0.09603244, z: -0.4212589, w: 0.26472116}
       hasLeftHand: 1
       hasRightHand: 1
     recoveryAnchor:
@@ -5026,6 +5036,8 @@ MonoBehaviour:
       rootLocalYaw: 0
       leftHandInRoot: {x: -0.24438328, y: 0.9132564, z: 0.038535625}
       rightHandInRoot: {x: 0.29678935, y: 0.9228997, z: 0.072650395}
+      leftHandRotationInRoot: {x: -0.9146676, y: 0.012561441, z: -0.39794925, w: -0.069731146}
+      rightHandRotationInRoot: {x: 0.8537629, y: -0.08590296, z: -0.4485278, w: 0.25006503}
       hasLeftHand: 1
       hasRightHand: 1
   RotationCurve:
