@@ -5,7 +5,7 @@ using Project.App;
 using Project.Core.Blackboard;
 using Project.Core.StateMachine;
 using UnityEngine;
-using UnityEngine.UI;
+using TMPro;
 using Object = UnityEngine.Object;
 
 namespace Project.Tests.EditMode
@@ -27,10 +27,10 @@ namespace Project.Tests.EditMode
         {
             RuntimeDebugPanel panel = CreatePanel(
                 out GameObject root,
-                out Text state,
-                out Text animation,
-                out Text clip,
-                out Text gait);
+                out TextMeshProUGUI state,
+                out TextMeshProUGUI animation,
+                out TextMeshProUGUI clip,
+                out TextMeshProUGUI gait);
 
             panel.SetPortfolioDisplayModeForTests(RuntimeDebugPanel.PortfolioDisplayMode.Basic);
             panel.UpdatePortfolioLabelsForTests(
@@ -47,7 +47,7 @@ namespace Project.Tests.EditMode
         public void SameSnapshot_DoesNotReplaceUiStringsEveryFrame()
         {
             RuntimeDebugPanel panel = CreatePanel(
-                out _, out Text state, out Text animation, out Text clip, out Text gait);
+                out _, out TextMeshProUGUI state, out TextMeshProUGUI animation, out TextMeshProUGUI clip, out TextMeshProUGUI gait);
 
             panel.UpdatePortfolioLabelsForTests(
                 StateType.Jump, "JumpRun_Land", "MAP_Jump_Run_Land", GaitTier.Sprint);
@@ -69,7 +69,7 @@ namespace Project.Tests.EditMode
         public void OffMode_HidesPanelWithoutTouchingSnapshotText()
         {
             RuntimeDebugPanel panel = CreatePanel(
-                out GameObject root, out Text state, out _, out _, out _);
+                out GameObject root, out TextMeshProUGUI state, out _, out _, out _);
             panel.UpdatePortfolioLabelsForTests(
                 StateType.Traversal, "Climb2m", "MAP_Climb_2m", GaitTier.Walk);
 
@@ -83,7 +83,7 @@ namespace Project.Tests.EditMode
         public void MissingAnimationData_IsShownAsUnavailableNotGuessed()
         {
             RuntimeDebugPanel panel = CreatePanel(
-                out _, out _, out Text animation, out Text clip, out _);
+                out _, out _, out TextMeshProUGUI animation, out TextMeshProUGUI clip, out _);
 
             panel.UpdatePortfolioLabelsForTests(StateType.Idle, null, string.Empty, GaitTier.Run);
 
@@ -93,10 +93,10 @@ namespace Project.Tests.EditMode
 
         private RuntimeDebugPanel CreatePanel(
             out GameObject root,
-            out Text state,
-            out Text animation,
-            out Text clip,
-            out Text gait)
+            out TextMeshProUGUI state,
+            out TextMeshProUGUI animation,
+            out TextMeshProUGUI clip,
+            out TextMeshProUGUI gait)
         {
             var host = new GameObject("RuntimeDebugHost");
             _created.Add(host);
@@ -118,11 +118,11 @@ namespace Project.Tests.EditMode
             return panel;
         }
 
-        private Text CreateText(Transform parent, string name)
+        private TextMeshProUGUI CreateText(Transform parent, string name)
         {
             var child = new GameObject(name, typeof(RectTransform));
             child.transform.SetParent(parent, false);
-            return child.AddComponent<Text>();
+            return child.AddComponent<TextMeshProUGUI>();
         }
 
         private static void SetPrivateField(object target, string fieldName, object value)

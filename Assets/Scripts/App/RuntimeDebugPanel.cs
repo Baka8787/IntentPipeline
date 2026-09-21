@@ -69,10 +69,10 @@ namespace Project.App
         [Header("Portfolio Debug UI")]
         [SerializeField] private PortfolioDisplayMode portfolioDisplayMode = PortfolioDisplayMode.Off;
         [SerializeField] private GameObject portfolioPanelRoot;
-        [SerializeField] private UnityEngine.UI.Text stateText;
-        [SerializeField] private UnityEngine.UI.Text animationStateText;
-        [SerializeField] private UnityEngine.UI.Text clipText;
-        [SerializeField] private UnityEngine.UI.Text gaitText;
+        [SerializeField] private TMPro.TextMeshProUGUI stateText;
+        [SerializeField] private TMPro.TextMeshProUGUI animationStateText;
+        [SerializeField] private TMPro.TextMeshProUGUI clipText;
+        [SerializeField] private TMPro.TextMeshProUGUI gaitText;
 
         [Header("Read-only Sources")]
         [SerializeField] private CharacterPipelineRunner runner;

@@ -281,6 +281,9 @@ namespace Project.Tests.EditMode
             {
                 Folder = "Presentation",
                 // 🆕（2026-09-15，HUD）`UnityEngine.UI` 一併列入禁令。
+                // 🆕（2026-09-21）`TMPro` 同理：作品集面板改用 TextMeshPro 後，
+                // `Project.Runtime.asmdef` 又多了一條 Unity.TextMeshPro 組件參考。
+                // ⛔ 加參考的同一刻就把門關上——否則整個 Runtime 從此都編得過 TMP。
                 // `Project.Runtime.asmdef` 為了 `App/PlayerHud` 新增了 UnityEngine.UI 參考，
                 // 那條參考是**組件層級**的 ⇒ 整個 Runtime 組件從此都「編得過」uGUI。
                 // ⛔ HUD 是 App 層的東西；讓表現層（甚至 Core）開始碰 Image／Canvas，
@@ -288,7 +291,7 @@ namespace Project.Tests.EditMode
                 Forbidden = new[]
                 {
                     "Project.Core.StateMachine", "StateType", "Project.Core.Pipeline",
-                    "IInputSource", "InputData", "UnityEngine.UI",
+                    "IInputSource", "InputData", "UnityEngine.UI", "TMPro",
                 },
                 AllowedNamespaces = new[]
                 {
@@ -326,9 +329,10 @@ namespace Project.Tests.EditMode
             {
                 Folder = "Core",
                 // 🆕（2026-09-15）`UnityEngine.UI` 同理——見 Presentation 那一條的說明。
+                // 🆕（2026-09-21）`TMPro` 一併列入，理由同上。
                 // gameplay 層碰 UI 是「把顯示需求倒灌進規則」的第一步，而 `docs/17` §3.3
                 // 紅線 2 正是在防這件事（禁止為了顯示而汙染 gameplay 的資料與依賴）。
-                Forbidden = new[] { "Animancer", "Animator", "UnityEngine.UI" },
+                Forbidden = new[] { "Animancer", "Animator", "UnityEngine.UI", "TMPro" },
                 Reason = "Core 不得直接碰 Animation API，一律經 AnimationFacadeBase 抽象（禁止 Controller→Animation API）；也不得碰 UI"
             },
             // ⚠️ 本層刻意**不遞迴**：`Core/Movement` 根目錄放的是 intent producer（context-free、

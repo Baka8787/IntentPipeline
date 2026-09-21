@@ -7,6 +7,52 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # ✅ 2026-09-21（二）— **作品集面板改用 TextMeshPro**（使用者裁決）
+>
+> ## 為什麼最後還是導入 TMP
+>
+> 第一輪只調參數（`fontSize` 17→22、`dynamicPixelsPerUnit` 1→3）**不夠**。
+> 對比不是問題（底 `α 0.72` 深色、字近白 `{0.92,0.95,1}`），問題純粹是 rasterize 銳利度：
+> legacy `UI.Text` **先用 fontSize 烘成點陣、再乘 canvas scaleFactor 縮放** ⇒ 任何縮放都是重採樣。
+> 實測 Game view 783×440 ⇒ `scaleFactor 0.4077` ⇒ 22 × 0.4077 ≈ **9 px**。
+> TMP 是 **SDF**，在任何縮放下都銳利 —— 這是唯一的根治。
+>
+> ## 做了什麼
+>
+> | 步驟 | 內容 |
+> |---|---|
+> | 1 | `AssetDatabase.ImportPackage` 匯入 `TMP Essential Resources`（來自 `com.unity.ugui` 套件內），新增 `Assets/TextMesh Pro/`（Fonts／Resources／Shaders，含 `LiberationSans SDF`） |
+> | 2 | `Project.Runtime.asmdef` ＋ `Project.Tests.EditMode.asmdef` 加 `Unity.TextMeshPro` 參考 |
+> | 3 | `RuntimeDebugPanel` 四個欄位 `UnityEngine.UI.Text` → `TMPro.TextMeshProUGUI` |
+> | 4 | **prefab asset 層**（`LoadPrefabContents`／`SaveAsPrefabAsset`，不是 instance override）換掉四個元件並重接引用；保留 text／color／fontSize 22，`alignment = Left`、`raycastTarget = false` |
+> | 5 | `RuntimeDebugPanelTests` 改用 TMP 型別 |
+> | 6 | `dynamicPixelsPerUnit` **3 → 1 還原** |
+>
+> ### 為什麼把 dynPPU 還原
+>
+> 它只影響**動態點陣字型**（legacy Text）。實測全場景 canvas 已**零個** legacy Text
+> （`HealthBar: 0 / PlayerHud: 0`）⇒ 這個值現在完全失效。
+> ⛔ 不留「理由已死的數字」——那正是本專案反覆踩到的那類東西。
+>
+> ## 🔒 順手補上的不變量（這是我自己開的門）
+>
+> `ArchitectureRegressionTests` 既有規則：**Core 與 Presentation 不得碰 `UnityEngine.UI`**，
+> 理由是 asmdef 參考屬**組件層級**，一加就讓整個 Runtime 編得過 uGUI ⇒ 「加參考的同一刻就把門關上」。
+>
+> **加 `Unity.TextMeshPro` 等於把同一扇門又開一次** ⇒ 已把 `"TMPro"` 一併加入
+> `LayerRules` 的 Presentation 與 Core 兩條 Forbidden 清單。
+> HUD 屬 App 層；⛔ 不得讓表現層或 gameplay 層開始碰 TMP。
+>
+> ## 驗證與還原
+>
+> 驗證：四個欄位皆指向 `TextMeshProUGUI`／font `LiberationSans SDF`／size 22，
+> 面板底下 legacy Text **0 個**，場景 instance 引用未斷。
+> 還原：`git checkout -- "Assets/Prefabs/X Bot.prefab"` ＋ 刪除 `Assets/TextMesh Pro/` ＋ 回退 asmdef 與兩個 .cs。
+>
+> ⚠️ **尚未人工看過實際畫面** —— 字級 22 在 TMP 下的視覺大小與 legacy 不完全相同，可能還要微調。
+>
+> ---
+>
 > # ✅ 2026-09-21 — **Debug 一鍵開關（F6）＋ 作品集面板文字**
 >
 > ## F6 ＝ 全部可視化一鍵開／關
