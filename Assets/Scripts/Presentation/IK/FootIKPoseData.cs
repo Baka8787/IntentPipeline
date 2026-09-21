@@ -51,6 +51,18 @@ namespace Project.Presentation.IK
         public Quaternion LeftHandRotation = Quaternion.identity;
         public Vector3 RightHandPosition;
         public Quaternion RightHandRotation = Quaternion.identity;
+
+        /// <summary>
+        /// 與上面的 goal rotation **在同一個瞬間**（<c>OnAnimatorIK</c> 開頭、IK 尚未套用）
+        /// 取樣的手骨世界旋轉。
+        ///
+        /// ⚠️ 為什麼一定要在那個時點取：`OnAnimatorIK` 之後 IK solve 會改寫骨骼旋轉，
+        /// 在 `LateUpdate` 讀到的骨骼**已經是解算後**的姿勢，與這裡的 goal 不同源，
+        /// 兩者相除得到的不是 avatar 的基底轉換，而是「基底轉換 ＋ 本幀 IK 造成的旋轉」。
+        /// 用那個值推導出來的常數會是假的。
+        /// </summary>
+        public Quaternion LeftHandBoneRotation = Quaternion.identity;
+        public Quaternion RightHandBoneRotation = Quaternion.identity;
         public bool IsWarm;
     }
 }

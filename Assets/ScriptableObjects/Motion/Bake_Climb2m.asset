@@ -2010,7 +2010,7 @@ MonoBehaviour:
       startNormalizedTime: 0.037037037
       fullNormalizedTime: 0.06481481
       releaseNormalizedTime: 0.2037037
-    handIKRotationWeight: 0
+    handIKRotationWeight: 1
     rootReachConstraint:
       enabled: 1
       maximumReachRatio: 0.95
@@ -4996,8 +4996,8 @@ MonoBehaviour:
       rootLocalYaw: 0
       leftHandInRoot: {x: -0.20638415, y: 1.8151668, z: 0.3588858}
       rightHandInRoot: {x: 0.37259024, y: 1.8469213, z: 0.34825224}
-      leftHandRotationInRoot: {x: -0.325511, y: -0.10328533, z: 0.09978378, w: -0.93456846}
-      rightHandRotationInRoot: {x: 0.35302255, y: -0.029368281, z: 0.1072741, w: 0.9289805}
+      leftHandRotationInRoot: {x: -0.33841866, y: -0.11720233, z: 0.13653252, w: -0.9236321}
+      rightHandRotationInRoot: {x: 0.38087738, y: -0.03180874, z: 0.11591917, w: 0.91677916}
       hasLeftHand: 1
       hasRightHand: 1
     rightContactAnchor:
@@ -5006,8 +5006,8 @@ MonoBehaviour:
       rootLocalYaw: 0
       leftHandInRoot: {x: -0.20638415, y: 1.8151668, z: 0.3588858}
       rightHandInRoot: {x: 0.37259024, y: 1.8469213, z: 0.34825224}
-      leftHandRotationInRoot: {x: -0.325511, y: -0.10328533, z: 0.09978378, w: -0.93456846}
-      rightHandRotationInRoot: {x: 0.35302255, y: -0.029368281, z: 0.1072741, w: 0.9289805}
+      leftHandRotationInRoot: {x: -0.33841866, y: -0.11720233, z: 0.13653252, w: -0.9236321}
+      rightHandRotationInRoot: {x: 0.38087738, y: -0.03180874, z: 0.11591917, w: 0.91677916}
       hasLeftHand: 1
       hasRightHand: 1
     transferAnchor:

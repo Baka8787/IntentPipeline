@@ -497,3 +497,87 @@ EditMode 620（619 passed／0 failed／1 skipped）、PlayMode **67／67**。
 
 📌 **本輪的教訓（第二次）**：上一次是「blocked displacement 看不到半空中的過衝」，
 這次是「腕點殘差看不到手指」。**代理量只證明它自己量的那件事。**
+
+---
+
+## 15. 手指問題結案：bone → goal 是固定基底轉換（2026-09-22）
+
+§14 停在「根因確定、修法未落地」。本節把它做完。**做法沿用位置那次的同一句話：把資料轉到正確的基底再 solve。**
+
+### 15.1 先證明 K 真的近似常數
+
+在 `TraversalHandIKRig.OnAnimatorIK` **開頭、IK 尚未套用時**同時取樣
+（`TraversalHandIKPoseData` 新增 `Left/RightHandBoneRotation`）：
+
+```
+B = 手骨世界旋轉      G = Animator.GetIKRotation(handGoal)      K = inverse(B) × G
+```
+
+⚠️ **取樣時點是硬性條件**：`LateUpdate` 讀到的骨骼**已被 IK 解算改寫**，與 goal 不同源，
+算出來的 K 是「基底轉換 ＋ 本幀 IK 造成的旋轉」——假的。§14 那次就是這樣量錯的。
+
+先排除一個假象：`GetIKRotation` 會不會只是把我們上一幀 `SetIKRotation` 的值還回來？
+實測 `angle(goal, 我們設的值)` 在窗內是 **45–70° 且持續變動** ⇒ 不是，它確實來自動畫。
+
+Climb2m contact window 內逐幀量 K（1.68 m 牆，左右手分開，以四元數夾角比較）：
+
+| n | 0.030 | 0.062 | 0.090 | 0.120 | 0.149 | 0.178 | 0.208 | 0.238 | 0.266 |
+|---|---|---|---|---|---|---|---|---|---|
+| 左手 K 偏離首樣本 | 0.00° | 3.49° | 5.42° | 8.10° | 8.22° | 7.34° | 4.32° | 1.68° | 0.68° |
+| 右手 K 偏離首樣本 | 0.00° | 1.14° | 1.91° | 5.59° | 7.87° | 7.57° | 4.38° | 1.55° | 2.39° |
+
+**最大漂移：左 8.22°／右 7.87°**，而 K 本身量級 ≈98°（`angle(goal, bone)` 穩定落在 95–102°）。
+⇒ **近似常數成立**。依裁決：不擴張方案。
+
+### 15.2 用「本幀的」K，而不是烘一個常數
+
+既然 B 與 G 每幀都同源可得，就直接用本幀的 K：
+
+```csharp
+Quaternion boneToGoal = Quaternion.Inverse(sampledBoneRotation) * sampledGoalRotation;
+SetIKRotation(goal, committedBoneRotation * boneToGoal);
+```
+
+那 8° 的漂移因此**自動消掉**，也不必多烘一個 avatar 常數、不必擔心換 rig 要重烘。
+⛔ 轉換只放在 `TraversalHandIKRig`：Core 的 plan builder 沒有 Animator，
+也不該知道 avatar 的內部慣例；它只回答「手該朝哪裡」，用的是**骨骼朝向**這個與 rig 無關的語彙。
+
+### 15.3 pinned 朝向取在窗口中點，不是 contact 那一格
+
+第一版把 contact frame（n=0.0648）的朝向釘滿整個窗，結果**在 authored 高度上退化**：
+手指從「貼在頂面上」變成「懸在前緣外約 2 cm」。原因是 authored 的手在窗內自己會轉約 14°
+（滾過邊緣），釘住起始那一格等於全程餵一個過時的朝向。
+
+改成取窗口中點（**n = 0.1296**）重烘 contact anchor 的朝向後，兩端都成立。
+⚠️ 這是**取樣時點**的選擇，不是新機制。
+
+### 15.4 三個驗收條件（裁決要求的）
+
+食指指節相對頂面（負 = 埋在頂面下方），接觸瞬間：
+
+| 牆高 | 修前 | 修後 | 判定 |
+|---|---|---|---|
+| 2.05 | +0.002 m | **+0.007 m** | ✅ 未退化 |
+| 1.80 | −0.034 m | **+0.008 m** | ✅ 改善 |
+| 1.68 | **−0.083 m** | **+0.007 m** | ✅ 不再插進頂面 |
+
+滿權重窗內的其他指標（括號內為修前）：
+
+| 牆高 | post-IK 手部殘差 | 手臂 reach ratio（contact／mid） |
+|---|---|---|
+| 2.05 | **0.00 ／ 0.11 cm**（0.00 ／ 0.09） | 0.719 ／ 0.942（0.720 ／ 0.946） |
+| 1.80 | **0.00 ／ 0.04 cm**（0.45 ／ 0.71） | 0.739 ／ 0.856 |
+| 1.68 | **0.00 ／ 0.07 cm**（0.00 ／ 0.05） | 0.833 ／ 0.816（0.832 ／ 0.802） |
+
+🎯 **三個高度的手指位置現在幾乎相同（+0.007 / +0.008 / +0.007）——高度相依性消失了。**
+這與 §13 root 過衝修好時是同一個判準：**異常不再隨參數縮放，才是修對了的特徵。**
+
+### 15.5 落地內容
+
+- `TraversalHandIKPoseData`：新增 `Left/RightHandBoneRotation`（與 goal 同瞬間取樣）。
+- `TraversalHandIKRig`：`ToGoalRotation()` 做 bone→goal 轉換；四元數未初始化／非有限時原樣退回。
+- `TraversalPlanBuilder`：commit **per-hand 的骨骼朝向** `yaw × authoredHandRotationInRoot`；
+  沒有烘焙朝向的資產（Vault1m／Climb1m）退回原本的 ledge-frame 朝向，**行為不變**。
+- `Bake_Climb2m`：contact anchor 的手部朝向取自 n=0.1296；`handIKRotationWeight` **0 → 1**。
+
+EditMode 620（619 passed／0 failed／1 skipped）、PlayMode **67／67**。
