@@ -2,7 +2,8 @@
 
 | 欄位 | 內容 |
 |---|---|
-| 日期 | 2026-09-21 |
+| 日期 | 2026-09-21，**2026-09-22 大幅修訂（§13）** |
+| 🔴 先看這個 | **§7 的結論已被 §13 推翻。** §9／§10 的數字是 §13 之前的，最終數字與 coverage 以 **§13** 為準 |
 | 性質 | **量測報告 ＋ 設計依據**。`docs/39` 的 Step 0–2 所需要的那個「可信的量測」 |
 | 量測手法 | Editor 端 `AnimationClip.SampleAnimation` 逐格採樣（`applyRootMotion = true`），與 `TraversalContactDerivation.Measure` 同源；108 格 / 3.6 s / 30 fps |
 | 落地 | `docs/39` §2 Q2 的選項 C（support-aware 垂直夾持）**被實測確認為足夠**；§7 撤回本文件初稿「垂直適應必須搬進 Contact→Transfer」的主張 |
@@ -17,12 +18,11 @@
 2. **「Contact→Transfer 手臂 reach 超過 1.0」的根因是 prototype exception #5（IK window override），不是 warp compensation。**
    純動畫、零 warp 的情況下，把腕點釘在抓握點本身就會在 `n = 0.2593` 讓 ratio 到 **1.044**、`n = 0.2685` 到 **1.102**。
    執行期量到的 1.044 / 1.055 與這條曲線幾乎逐點吻合 ⇒ **compensation 不是主項**。
-3. ~~垂直適應必須發生在 Contact→Transfer，不能留到 Transfer→Exit。~~
-   ⛔ **這一條在實測後被推翻，見 §7。** 真正需要的是**把 contact landmark 夾在 entry 支撐面之上**；
-   夾住之後，垂直適應留在 Transfer→Exit 完全不會被平台擋住（實測 warp blocked ≤ 0.36 cm）。
-4. **最終 coverage ＝ candidate 高度 1.72–2.05 m（§10）。** 三個下限互不相同：
-   運動學 ≈1.58 m、IK guard ≈1.62 m、authored 1.72 m（為 guard 留 23% 餘裕）。
-   帶內實測：IK 滿權重時手臂 ratio ≤ 0.87、手部殘差 ≤ 0.71 cm。
+3. **Contact 的垂直修正有兩個成分，必須分開處理（§13）**：
+   **grip-driven 的凍結到放手**（動了就是滑手）；**support-plane clamp 的必須在 Transfer 前鬆開**
+   （那是「腳還踩著地」才成立的謊，撐過 Transfer 就會讓 root 爬過頭再沉下來，低牆上實測衝過 **22.8 cm**）。
+4. **最終 coverage ＝ candidate 高度 1.65–2.05 m（§13）。**
+   ⚠️ 下緣的 pre-IK 殘差 33.8 cm vs guard 0.35 ⇒ **餘裕只有 1.2 cm**，是已知的薄冰（§13）。
 5. **另外找到一個與 traversal 無關、但會污染所有量測的東西**：
    Play Mode 中的 domain reload 會把 `_runtimeData` 這類非序列化欄位清成 null 且**不重跑 `Awake`**
    ⇒ `CharacterPipelineRunner.LateUpdate` 每幀 NRE。已用 `EditorUtility.RequestScriptReload()` **重現**。
@@ -94,8 +94,8 @@ IK 目標 = `Lerp(authoredHand, fixedGoal, w)`，`w` 取 **authored** window 包
 | # | Exception | 裁決 | 依據 |
 |---|---|---|---|
 | 1 | `Kind == Climb2m` 硬編 | ⛔ 刪 → authored `executionModel` | `docs/39` F9 |
-| 2 | Entry→Contact 忽略 grip-derived 絕對 Y | ⛔ 刪 → 在 **landmark 層**把 contact root 夾在 entry 支撐面之上（`ClampOutsideWall` 的垂直同型） | §7 實測：夾住之後就夠了 |
-| 3 | Contact→Transfer 不維持固定 correction | ⛔ **刪** → 恢復 production 的 held correction | §7：垂直適應留在 Transfer→Exit 並未被平台擋住（blocked ≤ 0.36 cm） |
+| 2 | Entry→Contact 忽略 grip-derived 絕對 Y | ⛔ 刪 → 在 **landmark 層**把 contact root 夾在 entry 支撐面之上（`ClampOutsideWall` 的垂直同型） | §13 |
+| 3 | Contact→Transfer 不維持固定 correction | 🔧 **部分保留（§13 修訂）**：水平凍結、**clamp 那一份在 Transfer 前鬆開** | §13：全部凍結 ⇒ 低牆 root 過衝 22.8 cm；全部提前補完 ⇒ 高牆手臂 ratio 0.976 |
 | 4 | boundary actual-root rebase | ✅ 保留 | `docs/39` Q1 |
 | 5 | Hand IK window override 至 Transfer | ⛔ **刪**（本文件的主要發現） | §2 ＋ §3 |
 | 6 | residual guard 放寬至 0.5 m | ✅ **已不存在**——`X Bot.prefab` 實際值是 0.35 | 磁碟現況 |
@@ -119,9 +119,15 @@ u = (t − segmentStart) / (segmentEnd − segmentStart)
 
 ---
 
-## 7. 實測修正：垂直適應不必搬進 Contact→Transfer（2026-09-21 Play 量測）
+## 7. ⛔ 本節的結論在 2026-09-22 被推翻，見 §13
 
-§1.3 原本主張「Transfer 之後的向下修正會被平台擋住」。**實測推翻了它。**
+> 🔴 **不要照用本節。** 下面這段用「blocked displacement ≈ 0」推論出「垂直適應留在 Transfer→Exit 沒問題」，
+> 但那個代理量**看不到失效模式**：root 在半空中衝過落腳面再沉回來，**一路上沒有任何東西擋它**，
+> 所以 blocked 當然是 0。使用者在真實 Play 一眼就看到了，而我的量測全綠。
+> 保留本節是為了留下「代理量選錯」的紀錄本身。正確的規則在 **§13**。
+
+§1.3 原本主張「Transfer 之後的向下修正會被平台擋住」。~~實測推翻了它。~~
+（機制猜錯，但**方向是對的**：垂直確實不能整段凍結到 Transfer 之後。見 §13。）
 
 裝上 contact support-plane clamp 之後，production 的 held-correction 形狀原樣保留
 （Transfer knot 沿用 Contact 的 correction，垂直適應落在 Transfer→Exit），實測：
@@ -235,7 +241,12 @@ Exit 到 Recovery（0.870）之間 plan 仍活著，但人已經被貼地力壓�
 
 ---
 
-## 10. 最終 coverage：三個不同的下限，取最保守的那一個
+## 10. coverage 推導（⚠️ 下緣數字已由 §13 改回 1.65）
+
+> 🔴 **本節的 `1.72` 已作廢。** 推導過程仍然有效（三個下限的分層），但結論被 §13 改回 **1.65**：
+> 使用者回報那個高度本來就在用，而 root 過衝修好之後它跑得乾淨。薄冰的部分照實記在 §13。
+
+### 原推導：最終 coverage：三個不同的下限，取最保守的那一個
 
 Climb2m 的下限有**三個來源**，它們不是同一個數字，混用會得到錯的結論。
 
@@ -339,3 +350,94 @@ Unity 的「Script Changes While Playing」預設是 **Recompile And Continue Pl
 - `docs/30-traversal-architecture-guide.md` §C／§F —— 本輪改了 I6／I7／新增 I11／I12
 - `docs/ADR/008-traversal-integration.md` 🟡 Trial —— 本輪加了 Segmented execution 的修訂紀錄
 - `Assets/_Project/Tests/PlayMode/TraversalClimbPlayModeTests.cs` —— §9 的自動化版本
+
+---
+
+## 13. 🔴 2026-09-22 回歸：root 在低牆上會「爬過頭再沉下來」
+
+使用者實際 Play 後回報「原本能爬的最低高度爬不了了，且效果更差」，並附上兩張畫面：
+角色掛在邊緣上姿勢扭曲、以及整個人對折趴在平台上。**兩件事都是真的，而且都是我造成的。**
+
+### 現象（1.75 m 牆，ledge top = 1.750）
+
+| n | 0.083 | 0.174 | 0.263 | **0.350** | 0.439 | 0.525 | 0.702 |
+|---|---|---|---|---|---|---|---|
+| rootY | 0.039 | 0.727 | 1.660 | **1.978** | 1.934 | 1.874 | 1.780 |
+
+**root 衝過落腳面 22.8 cm，再花約 1.3 s 沉回去。** 畫面上就是「爬上去之後浮在半空、身體垂在邊緣外側再慢慢落下」。
+
+### 為什麼我的量測全綠
+
+- `warpBlocked` ≤ 0.36 cm —— **往下沉是朝著平台，沒有任何東西擋它**，所以擋住量當然是 0。
+- hand residual 乾淨 —— 過衝發生在 n > 0.27，手早就放開了。
+- `LastTraversalMaxRootDivergence` —— 它量的是 root 與 **plan** 的距離，而 plan 本身就是要它衝上去的。
+
+⇒ **三個指標全部看不到這個失效模式。** 這與 `docs/39` F1 是同一類錯誤，只是這次犯錯的人是我。
+📌 **教訓：「沒有指標變紅」不是「沒有問題」。第三人稱看一眼的成本遠低於這一輪的代價。**
+
+### 根因
+
+`TraversalPlanBuilder` 的 Contact 垂直修正由**兩個語意完全不同的部分**組成：
+
+| 成分 | 來源 | 抓握期間該怎麼辦 |
+|---|---|---|
+| ① **grip-driven** | 把 root 擺到「動畫的手剛好落在真實邊緣」的高度 | **必須凍結**——手是硬約束，root 一動就是滑手 |
+| ② **support-plane clamp** | 接觸瞬間角色站在地上，不能把 root 解到地板下，所以往上夾了一段 | **必須鬆開**——這是對 root 高度說的謊，只在腳還踩著地時成立 |
+
+2026-09-21 我加了 clamp（②，正確且必要），卻讓**整份**修正凍結到 Transfer 之後。
+於是 ② 一路撐到越過邊緣才開始還，而**動畫自己的垂直位移在 n≈0.35 就結束了**，
+Transfer→Exit（0.269→0.833）這個窗口來不及把它還完 ⇒ 過衝。
+牆越矮、clamp 越大、過衝越明顯（2.05 m 牆 clamp = 0，所以我在那裡完全量不到）。
+
+### 修法
+
+**Transfer 的垂直 ＝ Contact 的垂直 − clamp 量。** 水平維持凍結。
+
+```csharp
+transferCorrection.y -= contactSupportPlaneClampDistance;
+```
+
+剩下的（grip 幾何與落腳面之間的差，實測 6–8 cm）留給 Transfer→Exit——
+那段手已經放開，而且 2.05 m 牆本來就是這樣跑、從來沒有過衝。
+
+### ⛔ 先試過但否決的版本
+
+`transferCorrection.y = exitKnot.PositionCorrection.y`（垂直全部在 Transfer 前補完）。
+低牆確實不再過衝，但 **2.05 m 牆**抓握期間多沉 6.1 cm，
+滿權重手臂 ratio 從 0.866 升到 **0.976** ⇒ **拿高牆的手換低牆的 root**。不可接受。
+clamp-unwind 版在 2.05 m 上 Transfer knot 與 Contact knot **逐位元相同**（clamp = 0），是真正的 no-op。
+
+### 修好之後（teleport 進場 0.46 m，三個高度）
+
+| 牆高 | ledge top | root 峰值 | 超出量 | 滿權重 ratio（contact／mid） | 滿權重手部殘差 | completed |
+|---|---|---|---|---|---|---|
+| 2.05 | 2.050 | 2.093 | **4.3 cm** | 0.720 ／ 0.946 | 0.00 ／ 0.09 cm | ✅ |
+| 1.75 | 1.750 | 1.794 | **4.4 cm** | 0.773 ／ 0.822 | 0.00 ／ 0.13 cm | ✅ |
+| 1.68 | 1.680 | 1.718 | **3.8 cm** | 0.832 ／ 0.802 | 0.00 ／ 0.05 cm | ✅ |
+
+**超出量不再隨牆高變化**（22.8 cm → 一律 ~4 cm，就是站立時的 skin width ＋ 沉降）。
+**異常不再隨參數縮放，才是修對了的特徵。**
+
+### coverage 退回 1.65
+
+2026-09-21 我把 `coverageMinHeight` 從 1.65 提到 1.72，理由是 pre-IK 殘差距 IK guard 只剩 1 cm。
+**使用者回報那個高度本來就在用**，而修好過衝之後它跑得乾淨（見上表 1.68 那列）⇒ **退回 1.65。**
+
+⚠️ **保留的已知限制**：在 coverage 下緣（candidate 高度 1.65），contact 的 pre-IK 殘差是 **33.8 cm**，
+而 `maximumResidualDistance = 0.35` ⇒ **餘裕只有 1.2 cm**。
+guard 一旦觸發，IK 會整個掉到 0（**斷裂，不是降級**）。實測沒有觸發，但這是一條薄冰。
+⛔ **不要用「放寬 guard」去換餘裕**——那是 `docs/39` F8 指名的錯誤做法。
+要處理的話，正解是 `docs/39` Q6：把 guard 改成 reach-ratio 計價。
+
+### 順帶修正的判準
+
+`TraversalClimbPlayModeTests` 原本斷言「Exit 之前不得有腳步聲」。**那個界線是錯的。**
+root 過衝修好之後角色在 **n≈0.51 就真的站上平台**，右腳在 n≈0.68 落地
+（`hasGround=True / phase=Planted / 水平速度 1.12 m/s`）——**那是正確的腳步**，
+卻會被 Exit(0.833) 判成缺陷。改成**「不得在角色離地的那一幀出聲」**：
+缺陷的本體是「腳下沒有真地面卻出聲」，與 normalized time 無關。
+📌 綁在時間上的判準會隨著 root 軌跡變好而誤報——那不是判準，是噪音產生器。
+
+### 驗證
+
+EditMode 620（619 passed／0 failed／1 skipped）、PlayMode **67／67**。
