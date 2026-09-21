@@ -104,7 +104,8 @@ namespace Project.Core.StateMachine
             float maxVerticalCorrection,
             out TraversalWarpPlan plan,
             out TraversalWarpPlanRejection rejection,
-            out float contactSupportPlaneClampDistance)
+            out float contactSupportPlaneClampDistance,
+            bool completeVerticalAdaptationByTransfer = false)
         {
             plan = default;
             rejection = TraversalWarpPlanRejection.None;
@@ -331,6 +332,48 @@ namespace Project.Core.StateMachine
                 rightKnot.PositionCorrection,
                 rightKnot.YawCorrection);
             TraversalWarpKnot transferKnot = heldTransferKnot;
+
+            // ⭐ 2026-09-22 Play 回報：**垂直修正全部凍結到 Transfer 之後，root 會先衝過頭再沉下來。**
+            //
+            // 上面那段「correction 凍結到放開為止」對**水平**是對的（手釘在牆上，root 橫移就是滑手），
+            // 但對**垂直**是錯的：把垂直也凍結，等於要求角色不管牆多高都先爬完**動畫自己的**高度
+            // （Climb2m 是 1.978 m），越過真實邊緣之後再由 Transfer→Exit 把多出來的部分沉回去。
+            //
+            // 實測（1.75 m 牆，ledge top 1.750）：
+            //   n=0.263 root 1.660 → **n=0.350 root 1.978（高出邊緣 22.8 cm）** → n=0.702 才降回 1.780。
+            // 畫面上就是「爬上去之後整個人浮在半空、再慢慢沉下去」，越矮的牆越明顯。
+            //
+            // ⚠️ 這個缺陷**量不到**：它不會被碰撞擋住（往下沉是朝著平台，沒有東西擋），
+            //    所以 blocked displacement ≈ 0；手也早就放開了，所以 hand residual 也乾淨。
+            //    這正是 `docs/39` F1 那一類「代理量沒有涵蓋失效模式」的錯誤。
+            //
+            // 修法：**抓握期間要鬆開的，只有「支撐面夾持」那一份。**
+            //
+            // Contact 的垂直修正由兩部分組成，語意完全不同：
+            //   ① **grip-driven**：把 root 擺到「動畫的手剛好落在真實邊緣」的高度。
+            //      手在抓握期間是硬約束 ⇒ 這一份**必須凍結**，動了就是滑手。
+            //   ② **support-plane clamp**：角色在接觸瞬間站在地上，不能把 root 解到地板下面，
+            //      所以我們往上夾了一段。**那是對 root 高度說的一個謊**，而它只在腳還踩著地時成立。
+            //      角色一離地，這個謊就該還回去——否則它會一路撐到 Transfer 之後，
+            //      變成「先爬過頭、再沉下來」。
+            //
+            // 所以 Transfer 的垂直 ＝ Contact 的垂直 **減掉夾持量**。
+            // 剩下的（grip 幾何與落腳面之間的差，實測 6–8 cm）留給 Transfer→Exit，
+            // 那段手已經放開，且 2.05 m 牆本來就是這樣跑而沒有任何過衝。
+            //
+            // ⛔ 早一版曾改成 `transferCorrection.y = exitKnot.PositionCorrection.y`（垂直全部補完）。
+            //    低牆確實不再過衝，但在 **2.05 m 牆**上抓握期間多沉了 6.1 cm，
+            //    滿權重手臂 ratio 從 0.866 升到 **0.976** ⇒ 用高牆的手換低牆的 root。不可接受。
+            if (completeVerticalAdaptationByTransfer)
+            {
+                Vector3 transferCorrection = rightKnot.PositionCorrection;
+                transferCorrection.y -= contactSupportPlaneClampDistance;
+                transferKnot = new TraversalWarpKnot(
+                    TraversalWarpKnotRole.Transfer,
+                    Mathf.Clamp01(authored.TransferNormalizedTime),
+                    transferCorrection,
+                    rightKnot.YawCorrection);
+            }
 
             // IK／debug 的目標是**手腕**（Animator IK 的 goal 就是手腕），但 root solve 的 primary
             // contact 與 secondary surface query 都在 grip edge 語意上工作。wrist-to-grip offset 是

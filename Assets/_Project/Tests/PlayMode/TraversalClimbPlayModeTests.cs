@@ -81,7 +81,8 @@ namespace Project.Tests.PlayMode
             bool traversalStarted = false;
             bool segmentedExecutionObserved = false;
             bool fullWeightSampleObserved = false;
-            bool firedFootstepBeforeExit = false;
+            bool firedFootstepWhileAirborne = false;
+            int previousFiredFootstepCount = 0;
             float maximumFullWeightPostIKResidual = 0f;
             float maximumFullWeightArmReachRatio = 0f;
             float maximumActualFrameDisplacement = 0f;
@@ -124,21 +125,21 @@ namespace Project.Tests.PlayMode
                         ref fullWeightSampleObserved,
                         ref maximumFullWeightPostIKResidual,
                         ref maximumFullWeightArmReachRatio);
-                    // ⭐ 判準的邊界是 **committed Exit**，不是「plan 還活著」。
+                    // ⭐ 判準是「**這一步底下有沒有真的地面**」，不是任何 normalized time。
                     //
-                    // Exit 之前角色是離地的：`isGrounded == false`、沒有地面觀測，任何腳步聲
-                    // 都是攀爬動畫的腳掃過偵測帶造成的幻覺（`FootstepDetector` 的 Airborne 抑制
-                    // 就是為此而存在）。
+                    // 缺陷的本體是**離地時出聲**：攀爬途中角色沒有地面觀測，腳掃過偵測帶
+                    // 產生的都是幻覺（`FootstepDetector` 的 Airborne 抑制就是為此存在）。
+                    // 只要腳真的踩在落腳面上，那一步**就該出聲**，不管此刻 normalized time 是多少。
                     //
-                    // Exit **之後** plan 仍然活到 Recovery（Climb2m：0.833 → 0.870），
-                    // 而此時角色已經被貼地力壓在落腳面上、Foot IK 已接手、人也開始走。
-                    // 那一步是**真的踩在平台上**（實測 `hasGround=True / phase=Planted /
-                    // 水平速度 1.70 m/s`）⇒ 它該出聲。
-                    // ⛔ 不要把它算進來——那會把「正確的落地腳步」當成缺陷，
-                    //    正是 `docs/39` F1 那一類「累加器沒有被窗口限制」的錯誤。
-                    if (driver.ActiveTraversalNormalizedTime <
-                        driver.ActiveTraversalPlan.ExitKnot.NormalizedTime)
-                        firedFootstepBeforeExit |= HasFiredFootstep(footsteps);
+                    // ⛔ 不要拿 Exit 當界線。實測：修好 root 過衝之後角色在 n≈0.51 就真的
+                    //    站上平台，右腳在 n≈0.68 落地（`hasGround=True / phase=Planted /
+                    //    水平速度 1.12 m/s`）——那是正確的腳步，卻會被 Exit(0.833) 判成缺陷。
+                    //    綁在時間上的判準會隨著 root 軌跡變好而誤報，那就不是判準，是噪音。
+                    int firedFootstepCount = CountFiredFootsteps(footsteps);
+                    if (firedFootstepCount > previousFiredFootstepCount &&
+                        !runner.RuntimeData.IsGrounded)
+                        firedFootstepWhileAirborne = true;
+                    previousFiredFootstepCount = firedFootstepCount;
                 }
                 else if (traversalStarted)
                 {
@@ -182,9 +183,9 @@ namespace Project.Tests.PlayMode
                 driver.LastTraversalMaxWarpBlockedDisplacement,
                 committedDisplacement * 0.01f,
                 "Root warp was materially fighting collision during the climb.");
-            Assert.IsFalse(firedFootstepBeforeExit,
-                "A footstep fired before the committed Exit — the character is airborne there, " +
-                "so that sound has no real foot contact behind it.");
+            Assert.IsFalse(firedFootstepWhileAirborne,
+                "A footstep fired on a frame where the character was not grounded — that sound " +
+                "has no real foot contact behind it.");
         }
 
         private static void CaptureFullWeightHandMetrics(
@@ -214,14 +215,14 @@ namespace Project.Tests.PlayMode
             }
         }
 
-        private static bool HasFiredFootstep(FootstepDetector footsteps)
+        private static int CountFiredFootsteps(FootstepDetector footsteps)
         {
+            int fired = 0;
             for (int i = 0; i < footsteps.TraceCount; i++)
             {
-                if (footsteps.GetTrace(i).Reason == FootstepSuppressReason.Fired)
-                    return true;
+                if (footsteps.GetTrace(i).Reason == FootstepSuppressReason.Fired) fired++;
             }
-            return false;
+            return fired;
         }
 
         private void CreateGround()

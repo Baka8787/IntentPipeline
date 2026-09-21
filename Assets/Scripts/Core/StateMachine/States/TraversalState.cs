@@ -313,7 +313,11 @@ namespace Project.Core.StateMachine
                 _currentBinding.MaxVerticalCorrection,
                 out _warpPlan,
                 out TraversalWarpPlanRejection piecewiseRejection,
-                out float contactSupportPlaneClampDistance);
+                out float contactSupportPlaneClampDistance,
+                // Segmented 的語意包含「垂直適應在 Transfer 之前補完」——兩者綁在同一個
+                // authored 開關，才能讓 revert 維持「改一個資產欄位」。Absolute（Vault1m／
+                // Climb1m）維持 held correction，行為不變。理由見 TraversalPlanBuilder 內註解。
+                _currentBinding.ExecutionModel == TraversalExecutionModel.Segmented);
 
             float warpStart = _currentBinding.WarpStartNormalizedTime;
             bool warpEndIsDataDerived = !_currentBinding.HasAuthoredWarpEnd;

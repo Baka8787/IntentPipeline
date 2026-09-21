@@ -148,7 +148,7 @@ MonoBehaviour:
         m_PostInfinity: 2
         m_RotationOrder: 4
     executionModel: 1
-    coverageMinHeight: 1.72
+    coverageMinHeight: 1.65
     coverageMaxHeight: 2.05
   normalJumpReachSafetyMargin: 0.15
   entryPolicy:
