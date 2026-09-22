@@ -395,6 +395,8 @@ hardLandingSpeed = 8 m/s
     ②兩個邊沿<strong>成對擋</strong>，只擋一邊會讓抖動變成單向事件流；
     ③<code>_wasGrounded</code> 照常前進——<strong>「不回報」與「沒發生」是兩件事</strong>。<br>
     ⇒ 所以本頁的落地分類鏈路在 traversal 期間是<strong>整條靜默</strong>的，不是「分類成別的」。
+    ⚠️ PlayMode <code>C0_TraversalDoesNotReportGroundEdgesFromIncidentalContact</code>
+    <strong>只斷言 ①</strong>（<code>JustLanded</code> 被擋且 <code>IsGrounded</code> 保留）；②③目前只有原始碼保證。
     細節見 <code>traversal.html</code> §06 ／ <code>footstep-surface.html</code> §04。
   </p></div>
 </section>

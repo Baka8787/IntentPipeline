@@ -318,8 +318,9 @@
     <table>
       <thead><tr><th class="m">層</th><th>可以參照</th><th class="no">⛔ 不得參照</th></tr></thead>
       <tbody>
-        <tr><td class="m">Presentation</td><td class="m">Core.Blackboard／Core.Actions／Core.Effects</td><td class="no">StateMachine／Pipeline／InputData</td></tr>
-        <tr><td class="m">Core/StateMachine</td><td class="m">Core.Blackboard／Core.Actions／Core.Movement／Presentation</td><td class="no">Pipeline／Runner</td></tr>
+        <tr><td class="m">Presentation</td><td class="m">Core.Blackboard／Core.Actions／Core.Effects／Core.Survivability</td><td class="no">StateMachine／Pipeline／InputData／<strong>UnityEngine.UI</strong>／<strong>TMPro</strong></td></tr>
+        <tr><td class="m">Core（整層，僅黑名單）</td><td class="m">—（本層只掃禁用 token，不設白名單）</td><td class="no">Animancer／Animator／<strong>UnityEngine.UI</strong>／<strong>TMPro</strong></td></tr>
+        <tr><td class="m">Core/StateMachine</td><td class="m">Core.Blackboard／Core.Actions／Core.Movement／Core.Environment／<strong>Presentation.Motion</strong>／<strong>Presentation.Animation</strong></td><td class="no">Pipeline／Runner／<strong>其餘 Presentation</strong></td></tr>
         <tr class="bind"><td class="m">Core/Movement（不遞迴）</td><td class="m">Core.Blackboard ＋ <span style="color:var(--wrong)">Core.Effects ⚠️ 已知張力</span></td><td class="no">StateMachine／Presentation</td></tr>
         <tr><td class="m">Core/Movement/Models</td><td class="m">Core.Blackboard／Core.Movement／Presentation</td><td class="no">StateMachine／Pipeline／Presentation.IK</td></tr>
         <tr><td class="m">Core/Arbitration</td><td class="m">Core.Arbitration／Core.Blackboard</td><td class="no">Presentation／IPresentationController</td></tr>
@@ -328,6 +329,17 @@
       </tbody>
     </table>
   </div>
+
+  <div class="note key"><span class="lab">兩條收窄</span><p>
+    表裡有兩處是<strong>被實證收窄過</strong>的，值得單獨看：<br>
+    ① <code>Core/StateMachine</code> 原本放行整個 <code>Project.Presentation</code> 前綴，
+    讓 <code>CameraControl.AimResolver</code> 的具體依賴<strong>靜默通過</strong>（ADR-007 §7-E6 的實證）。
+    現在只留 State 真正需要的兩類 seam：驅動位移的 <code>Presentation.Motion</code>、驅動動畫的 <code>Presentation.Animation</code>。<br>
+    ② <code>UnityEngine.UI</code> 與 <code>TMPro</code> 是<strong>在加 assembly 參考的同一刻</strong>被列入禁令的——
+    HUD 與作品集 Debug 面板各讓 <code>Project.Runtime.asmdef</code> 多一條參考，
+    而那條參考是<strong>組件層級</strong>的 ⇒ 整個 Runtime 從此都「編得過」uGUI／TMP。
+    ⭐ <strong>加參考的同一刻就把門關上</strong>，否則畫面佈局的責任會滲進角色表現甚至 gameplay。
+  </p></div>
 
   <div class="note bad"><span class="lab">誠實記錄</span><p>
     <code>Core/Movement</code> 的白名單裡有一筆<strong>明文標記的已知張力</strong>：

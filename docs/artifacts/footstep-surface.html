@@ -554,8 +554,12 @@
     ⭐ 而且它<strong>明文沿用了本頁 §04 的紀律</strong>：<code>_wasGrounded</code> 照常前進，
     「<strong>不回報」與「沒發生」是兩件事</strong>。
     ⇒ 同一條紀律現在有兩個實作點，一個在事件<strong>來源</strong>（偵測器），一個在事件<strong>寫入者</strong>（MotionDriver）。
-    由 PlayMode <code>C0_TraversalDoesNotReportGroundEdgesFromIncidentalContact</code> 守，
-    <strong>帶陽性對照</strong>——先驗證非 traversal 的同一個邊沿照常回報，再驗證 traversal 期間被擋掉。
+    ⚠️ <strong>測試覆蓋的範圍要說清楚</strong>：PlayMode
+    <code>C0_TraversalDoesNotReportGroundEdgesFromIncidentalContact</code> 只直接斷言
+    <strong>traversal 期間 <code>JustLanded == false</code> 且 <code>IsGrounded</code> 仍為 true</strong>
+    ——也就是上面第一條。第二條（<code>JustLeftGround</code> 成對擋）與第三條（<code>_wasGrounded</code> 照常前進）
+    目前<strong>只有原始碼保證，沒有斷言</strong>。<br>
+    ⭐ 它<strong>帶陽性對照</strong>：先驗證非 traversal 的同一個 false→true 邊沿照常回報，再驗證 traversal 期間被擋掉。
     <span style="color:var(--muted)">沒有對照就分不出「成功擋掉」與「本來就不會觸發」。</span>
   </p></div>
 
@@ -877,7 +881,8 @@ AudioController.Tick
   <code>Core/Blackboard/PresentationEventData.cs</code> · <code>Presentation/PresentationPipeline.cs</code><br>
   測試：<code>FootstepDetectorTests</code>（26）· <code>FootstepSurfaceTests</code>（15）· <code>PresentationEventTests</code>（8）·
   <code>A5_BlackboardMembers_HaveSingleDocumentedWriter</code> ·
-  PlayMode <code>MotionDriverCommittedMovementPlayModeTests.C0_*</code>（traversal 期間的 ground edge 抑制，帶陽性對照）<br>
+  PlayMode <code>MotionDriverCommittedMovementPlayModeTests.C0_TraversalDoesNotReportGroundEdgesFromIncidentalContact</code>
+  （帶陽性對照；<strong>只斷言 <code>JustLanded</code> 被擋且 <code>IsGrounded</code> 保留</strong>）<br>
   authored 值來源：<code>X Bot.prefab</code> ／ <code>Y Bot.prefab</code>（八個偵測參數逐條相同）·
   <code>SceneSurfaceMap.asset</code>（9 筆 Material 對應）· <code>FootstepAudioBank.asset</code>（Shuffle 四槽皆空）<br>
   ⚠️ 本頁只描述 repo／docs／tests 已能證明的現況。

@@ -157,7 +157,7 @@
   </p>
 
   <figure>
-    <svg viewBox="0 0 840 500" role="img" aria-label="Traversal 八階段：觀測、分類、進場合法性、玩法取捨、動畫配合、承諾、運動映射、執行、恢復，commit 是環境與動畫的分界線">
+    <svg viewBox="0 0 840 512" role="img" aria-label="Traversal 八階段：觀測、分類、進場合法性、玩法取捨、動畫配合、承諾、運動映射、執行、恢復，commit 是環境與動畫的分界線">
       <text class="xs m me" x="16" y="18">← 環境說了算</text>
       <text class="xs m bd" x="824" y="18" text-anchor="end">動畫說了算 →</text>
 
@@ -247,7 +247,8 @@
       <text class="xs mu" x="16" y="410">1↔2　量測不能有判斷——Classifier 是純函式、完全不碰 Physics，所以 400 條分類測試不需要物理場景。</text>
       <text class="xs mu" x="16" y="430">2↔3　candidate 答「<tspan class="me">那是什麼</tspan>」，entry 答「<tspan class="me">我站得對不對</tspan>」。同一堵牆對站 0.5 m 的人合法、對站 1.5 m 的人不合法，但它還是同一堵牆。</text>
       <text class="xs mu" x="16" y="450">3↔3b　entry 是<tspan class="me">幾何</tspan>（做不做得到），selection 是<tspan class="me">玩法</tspan>（該不該做）。</text>
-      <text class="xs mu" x="16" y="470">5↔6　plan 是<tspan class="bd">絕對 pose</tspan> 的函數（給 t 回位置），execution 是<tspan class="bd">相對 delta</tspan>。被牆擋掉的部分<tspan class="wr" font-weight="700">不會回授進 plan</tspan>——但 Segmented 會在<tspan class="me">下一個 phase boundary</tspan> 把它吸收（§06）。</text>
+      <text class="xs mu" x="16" y="470">5↔6　plan 是<tspan class="bd">絕對 pose</tspan> 的函數（給 t 回位置），execution 是<tspan class="bd">相對 delta</tspan>。被牆擋掉的部分<tspan class="wr" font-weight="700">不會回授進 plan</tspan>——</text>
+      <text class="xs mu" x="48" y="486">但 <tspan class="m">Segmented</tspan> 會在<tspan class="me" font-weight="700">下一個 phase boundary</tspan> 把它吸收（§06）。</text>
       <text class="xs me" x="16" y="490">4　　是一條線：線之前環境說了算，線之後動畫說了算。</text>
     </svg>
 
@@ -271,7 +272,7 @@
   </p>
 
   <figure>
-    <svg viewBox="0 0 840 330" role="img" aria-label="三個資料來源：Probe 量世界幾何、Bake 量動畫身體、Commit 時解出世界目標">
+    <svg viewBox="0 0 840 344" role="img" aria-label="三個資料來源：Probe 量世界幾何、Bake 量動畫身體、Commit 時解出世界目標">
       <rect class="boxm" x="16" y="30" width="248" height="150"></rect>
       <text class="xs m me" x="28" y="22">🔵 Probe 量出來的（世界幾何真相）</text>
       <text class="s t" x="28" y="54">LedgeFrame</text>
@@ -302,12 +303,13 @@
       <line class="lnm" x1="268" y1="60" x2="556" y2="60" marker-end="url(#arm)"></line>
       <line class="lnb" x1="540" y1="104" x2="556" y2="104" marker-end="url(#arb)"></line>
 
-      <rect class="boxw" x="16" y="200" width="808" height="112"></rect>
+      <rect class="boxw" x="16" y="200" width="808" height="130"></rect>
       <text class="s t wr" x="28" y="222">🔴 Transfer 為什麼刻意不指向 corridor 的 clearance 點</text>
       <text class="xs mu" x="28" y="244">手一旦植在牆／邊緣上，它的世界位置就是<tspan font-weight="700">硬約束</tspan>。舊版把 Transfer knot 指向另一個空間目標（corridor clearance root），</text>
       <text class="xs mu" x="28" y="262">於是 Contact→Transfer 這段——<tspan class="wr" font-weight="700">也就是手正抓著的整段</tspan>——correction 會一路內插過去；沒有 IK 釘住手時，手就被 root 拖著在牆面上滑。</text>
-      <text class="xs me" x="28" y="284">修法：Transfer knot 直接沿用最後一次接觸的 correction ⇒ <tspan font-weight="700">抓握期間零額外 root 位移</tspan>。越過邊緣的位移交還給動畫自己。</text>
-      <text class="xs bd" x="28" y="304">📌 一句話：混用它們，就是把「我確認過這裡走得通」誤讀成「我必須精確走過這幾個點」。</text>
+      <text class="xs me" x="28" y="284">修法：Transfer knot 沿用最後一次接觸的 correction ⇒ <tspan font-weight="700">抓握期間零額外 root 位移</tspan>。越過邊緣的位移交還給動畫自己。</text>
+      <text class="xs bd" x="28" y="300">📌 一句話：混用它們，就是把「我確認過這裡走得通」誤讀成「我必須精確走過這幾個點」。</text>
+      <text class="xs wr" x="28" y="318">⚠️ <tspan font-weight="700">上面這條後來只對「水平」成立</tspan>——<tspan class="m">Segmented</tspan> 的垂直例外見 §06。</text>
     </svg>
   </figure>
 
@@ -317,7 +319,7 @@
       <tbody>
         <tr><td><strong>Entry</strong> 進場</td><td class="m">固定 t = 0</td><td>🔵 角色當下真正站的地方</td><td>🔵 Probe——entry correction 恆為 0，起點就是角色自己</td></tr>
         <tr class="bind"><td><strong>L / R Hand Contact</strong></td><td>🟢 Bake</td><td>🔵 Probe 的 <code>LedgeFrame</code></td><td><strong>混合</strong>：時間屬動畫、位置屬世界、橫向偏移屬動畫</td></tr>
-        <tr><td><strong>Transfer</strong> 重心轉移</td><td>🟢 Bake</td><td>⭐ 刻意沿用 Right Contact 的 correction</td><td>🟢 動畫（這一段 root 不額外修正）</td></tr>
+        <tr><td><strong>Transfer</strong> 重心轉移</td><td>🟢 Bake</td><td>⭐ 沿用 Right Contact 的 correction<br>🔄 <strong><code>Segmented</code> 例外</strong>：垂直 <code>−= contactSupportPlaneClampDistance</code></td><td>🟢 動畫（<strong>水平</strong>不額外修正）<br>⚠️ 垂直在 <code>Segmented</code> 下必須還掉支撐面夾持——見 §06</td></tr>
         <tr><td><strong>Exit</strong> 脫離</td><td>🟢 Bake</td><td>🔵 Probe 的 <code>DestinationPoint</code></td><td><strong>兩者取近</strong>——再遠不保證還在已驗證的落腳面上</td></tr>
         <tr><td><strong>Recovery</strong> 恢復控制</td><td>🟢 Bake 與 binding 取大</td><td>同 Exit</td><td>🟢 動畫</td></tr>
       </tbody>
@@ -517,7 +519,7 @@ EffectiveForwardScanDistance = max(authored 1.25, 2.1385) = <span class="me">2.1
       <circle cx="80" cy="54" r="5" fill="var(--measure)"></circle>
       <circle cx="126.7" cy="54" r="5" fill="var(--bind)"></circle>
       <circle cx="273.3" cy="54" r="5" fill="var(--bind)"></circle>
-      <text class="xs m me" x="16" y="88">● ＝ 段開始時<tspan font-weight="700">取樣一次</tspan> transform.position　⇒　一次 traversal 恰好 3 次，⛔ 段內不得重取樣（I11）</text>
+      <text class="xs m me" x="16" y="88">● ＝ 段開始時<tspan font-weight="700">取樣一次</tspan> transform.position　⇒　上限 3 次（完整跑到 Exit 即為 3），⛔ 段內不得重取樣（I11）</text>
 
       <!-- time axis -->
       <line class="grid" x1="80" y1="118" x2="800" y2="118"></line>
@@ -579,7 +581,7 @@ u            = (t − 段起) / (段迄 − 段起)
         <tr><td class="m">I6 🔧</td><td><strong>committed landmarks／timing／contact targets</strong> 在一次 traversal 內是常數<br><span style="color:var(--muted)">（2026-09-21 改述；原文是「plan 在一次 traversal 內是常數」）</span></td><td>root 目標抖動</td></tr>
         <tr><td class="m">I7a</td><td><strong>執行分段</strong>：每段起點取角色當下實際 root，終點是 committed landmark；段內是開迴路</td><td>誤差跨段累積，最後永久偏掉</td></tr>
         <tr class="bind"><td class="m">I7b</td><td>plan 是絕對 pose 的函數；被碰撞擋掉的位移不回授進 plan——它只會在<strong>下一個 phase boundary</strong> 被吸收。⚠️ <strong>最後一段沒有下一個 boundary</strong></td><td>會誤以為「plan 錯了」</td></tr>
-        <tr><td class="m">I11 🆕</td><td>rebase 取樣點<strong>只能是 phase boundary</strong>，而且只能讀角色自己的 <code>transform.position</code>。⛔ 不得讀 Physics／Probe、⛔ 不得段內重取樣</td><td>committed 的語意退化成 continuous motion</td></tr>
+        <tr><td class="m">I11 🆕</td><td>rebase 取樣點<strong>只能是 phase boundary</strong>，而且只能讀角色自己的 <code>transform.position</code>。⛔ 不得讀 Physics／Probe、⛔ 不得段內重取樣。取樣次數<strong>有限且已知</strong>——目前上限 3（提前結束或 plan 退化時更少）</td><td>committed 的語意退化成 continuous motion</td></tr>
         <tr><td class="m">I12 🆕</td><td><code>Segmented</code> 的 compensation <strong>只承載執行誤差（公分級）</strong>，不得承載牆高適應（公寸級）——後者屬 landmark 層</td><td>補償量變大 ⇒ 抓握期間把手臂拉出 reach budget</td></tr>
       </tbody>
     </table>
@@ -613,6 +615,42 @@ u            = (t − 段起) / (段迄 − 段起)
     </table>
   </div>
 
+  <div class="callout warn">
+    <div class="h">🔴 <code>Segmented</code> 還綁著第二件事：垂直適應在 Transfer 之前補完</div>
+    <code>ExecutionModel == Segmented</code> 這個 authored 開關<strong>同時</strong>打開
+    <code>completeVerticalAdaptationByTransfer</code>。⚠️ 這推翻了 §02 那句
+    「Transfer 直接沿用最後一次接觸的 correction ⇒ 抓握期間零額外 root 位移」——
+    <strong>那句話現在只對水平成立。</strong><br><br>
+    <strong>症狀</strong>（2026-09-22 Play 回報）：矮牆爬上去之後整個人<strong>浮在半空、再慢慢沉下去</strong>，越矮越明顯。
+    實測 1.75 m 牆（ledge top 1.750）：<code>n=0.263</code> root 1.660 →
+    <code>n=0.350</code> root <strong>1.978（高出邊緣 22.8 cm）</strong> → <code>n=0.702</code> 才降回 1.780。<br><br>
+    <strong>根因</strong>：Contact 的垂直修正由<strong>兩份語意完全不同</strong>的東西組成，而舊版把兩份一起凍結——
+    <table style="margin-top:8px;min-width:0">
+      <thead><tr><th>成分</th><th>它在說什麼</th><th>抓握期間該不該凍結</th></tr></thead>
+      <tbody>
+        <tr><td class="m">grip-driven</td><td>把 root 擺到「動畫的手剛好落在真實邊緣」的高度</td><td>✅ <strong>必須凍結</strong>——手是硬約束，動了就是滑手</td></tr>
+        <tr class="bind"><td class="m">support-plane clamp</td><td>接觸瞬間角色還站在地上，不能把 root 解到地板下面，所以往上夾了一段</td><td class="no">⛔ <strong>那是對 root 高度說的一個謊</strong>，只在腳還踩著地時成立。角色一離地就該還回去</td></tr>
+      </tbody>
+    </table>
+    ⇒ 修法是 <code>transferCorrection.y −= contactSupportPlaneClampDistance</code>：
+    <strong>抓握期間要鬆開的，只有「支撐面夾持」那一份。</strong>
+    剩下的（grip 幾何與落腳面之間的差，實測 6–8 cm）留給 Transfer→Exit，那段手已經放開。<br><br>
+    ⚠️ <strong>這個缺陷量不到</strong>：往下沉是朝著平台，沒有東西擋 ⇒ blocked displacement ≈ 0；
+    手也早就放開 ⇒ hand residual 也乾淨。
+    ⭐ 這正是 <code>docs/39</code> F1 那一類「<strong>代理量沒有涵蓋失效模式</strong>」——
+    和 <code>failure-atlas.html</code> 的 F3（量測代理不對題）是同一個形狀。<br>
+    ⛔ 早一版曾改成「垂直全部補完」（<code>transferCorrection.y = exitKnot.PositionCorrection.y</code>）：
+    低牆確實不再過衝，但 2.05 m 牆抓握期間多沉 6.1 cm，滿權重手臂 ratio 從 0.866 升到
+    <strong>0.976</strong> ⇒ <strong>用高牆的手換低牆的 root</strong>。不可接受。
+  </div>
+
+  <div class="note key"><span class="lab">為什麼綁一起</span><p>
+    「第二種 execution model」與「垂直適應在 Transfer 之前補完」<strong>刻意綁在同一個 authored 欄位</strong>，
+    <code>Absolute</code>（Vault1m／Climb1m）維持 held correction、行為不變。
+    理由不是它們在概念上必然相關，而是<strong>為了讓 revert 維持「改一個資產欄位」</strong>——
+    拆成兩個開關就會有四種組合，其中兩種從來沒有人驗過。
+  </p></div>
+
   <div class="note key"><span class="lab">revert</span><p>
     把 <code>TraversalStateParams.asset</code> 的 <code>climb2m.executionModel</code> 改回 <code>Absolute</code>。
     <strong>一個資產欄位，不動任何程式。</strong>
@@ -645,7 +683,7 @@ u            = (t − 段起) / (段迄 − 段起)
   文字正本：<code>docs/30-traversal-architecture-guide.md</code>（§M ＝ <code>Segmented</code>）<br>
   相關：<code>docs/22</code>（規格）· <code>docs/23</code>／<code>docs/24</code>（研究輪）·
   <code>docs/39</code>（segment-warp 架構審查）· <code>docs/40</code>（Climb2m 運動學預算與 coverage）<br>
-  測試：<code>TraversalWarpPlanTests</code>（29）· <code>TraversalSelectionPolicyTests</code>（17）·
+  測試：<code>TraversalWarpPlanTests</code>（29）· <code>TraversalSelectionPolicyTests</code>（31）·
   <code>TraversalBakedAssetTests</code>（16）· PlayMode <code>TraversalStatePlayModeTests</code>／<code>TraversalProbePlayModeTests</code>／<code>TraversalClimbPlayModeTests</code>（真實 rig climb）·
   <code>A49</code>（Hand IK 只消費 committed plan）· <code>I11</code> 的原始碼規則斷言<br>
   authored 值來源：<code>TraversalStateParams.asset</code>（executionModel／coverage）·

@@ -454,7 +454,7 @@ pitch      = definition.GetRandomPitch()</div>
           <td>同上 ＋ <code>CombatAudioTests</code> CA1–CA6</td></tr>
         <tr><td class="m">JustLeftGround</td><td class="m">MotionDriver（順序 6）<br><span style="color:var(--muted)">🔄 committed traversal 期間不回報</span></td>
           <td>看垂直速度猜起跳 ⇒ 第二個回答者</td>
-          <td class="m">A5 WriterRule「JustLeftGround」<br>PlayMode <code>C0_*</code></td></tr>
+          <td class="m">A5 WriterRule「JustLeftGround」<br><span style="color:var(--muted)">（抑制本身只有 <code>JustLanded</code> 那一半有 PlayMode 斷言）</span></td></tr>
       </tbody>
     </table>
   </div>
@@ -722,7 +722,8 @@ pitch      = definition.GetRandomPitch()</div>
   <code>Presentation/Actions/</code>（<code>MeleeHitboxSink</code>／<code>ThrownProjectile</code>／<code>GroundEffectSink</code>）<br>
   測試：<code>AudioSystemTests</code>（11）· <code>CombatAudioTests</code>（10）·
   <code>A25_Slow_DoesNotLeakIntoMovementIntentConsumers</code> · <code>A5</code>（Gait／Survivability／JustLeftGround）·
-  PlayMode <code>MotionDriverCommittedMovementPlayModeTests.C0_*</code>（traversal 期間的 ground edge 抑制，帶陽性對照）<br>
+  PlayMode <code>MotionDriverCommittedMovementPlayModeTests.C0_TraversalDoesNotReportGroundEdgesFromIncidentalContact</code>
+  （帶陽性對照；<strong>只斷言 <code>JustLanded</code> 被擋且 <code>IsGrounded</code> 保留</strong>）<br>
   authored 值來源：<code>FootstepAudioBank.asset</code> · <code>PlayerAudioLibrary.asset</code> ／ <code>EnemyAudioLibrary.asset</code> ·
   <code>X Bot.prefab</code>（3 顆 ActionAudioSink，Slot 1／2／3）· <code>Y Bot.prefab</code>（0 顆）<br>
   ⚠️ 本頁只描述 repo／docs／tests 已能證明的現況。與 <code>docs/</code> 分歧處已於 §01／§07 逐條指出，以程式與資產為準。
