@@ -423,8 +423,8 @@
 
   <div class="stats">
     <div><div class="v">119</div><div class="k">Runtime ＋ Editor 程式檔</div></div>
-    <div><div class="v">27,248</div><div class="k">程式行數</div></div>
-    <div><div class="v">599</div><div class="k">EditMode 測試條目</div></div>
+    <div><div class="v">29,057</div><div class="k">程式行數</div></div>
+    <div><div class="v">620</div><div class="k">EditMode 測試條目</div></div>
     <div><div class="v">45</div><div class="k">架構回歸測試</div></div>
     <div><div class="v">9</div><div class="k">ADR 決策紀錄</div></div>
     <div><div class="v">16</div><div class="k">管線步驟（順序 0.5–7）</div></div>
@@ -917,7 +917,7 @@
       <tr><td class="m">ADR-005 多 Action</td><td><span class="badge t">Accepted</span></td><td>三技能、per-slot 冷卻、Reaction 保留段、Play 與 Profiler 驗收已完成。細節見 <code>action-combat.html</code>。</td></tr>
       <tr><td class="m">ADR-007 Direction Authority</td><td><span class="badge w">Trial</span></td><td>S1／S2／S3／F6 已落地：世界移動方向、ActionReleaseContext、唯一 CharacterFacingSource、IAimSource seam。A28–A32 已守住，但 ADR 尚未翻 Accepted。</td></tr>
       <tr><td class="m">ADR-006 上半身層</td><td><span class="badge w">Trial</span></td><td>Spell＝Layer 1 upper-body mask；Layer 0 使用 Walk／Run 雙 8-way ring。Sprint directional presentation 延後。待 Play 驗收。</td></tr>
-      <tr><td class="m">ADR-008 Traversal</td><td><span class="badge w">Trial</span></td><td>Probe→Selection→Fitting→Plan→root warp→Contact→Hand IK 已接通。自動測試已守，Climb2m 撐起自然度仍待人類 Play。細節見 <code>traversal.html</code>。</td></tr>
+      <tr><td class="m">ADR-008 Traversal</td><td><span class="badge w">Trial</span></td><td>Probe→Selection→Fitting→Plan→root warp→Contact→Hand IK 已接通，Vault1m／Climb1m／Climb2m <strong>三支都已啟用</strong>。🔄 <strong>D10（2026-09-21）新增第二種 execution model <code>Segmented</code></strong>，committed 的定義改述為「landmarks／timing／contact targets 固定」而非「絕對軌跡固定」——Climb2m 走這條，另兩支不變。自動測試已達成 Acceptance Criteria；<strong>人工 Play 的視覺驗收仍未進行</strong>。細節見 <code>traversal.html</code> §06。</td></tr>
       <tr><td class="m">Action targeting</td><td><span class="badge t">已實作</span></td><td><code>CameraForward</code> 為預設；只有顯式 <code>CameraConeSoftTarget</code> 才會在角錐內使用 CombatContext target。<strong>不是 persistent lock-on。</strong></td></tr>
       <tr><td class="m">MAP Jump ＋ Walk-off Falling</td><td><span class="badge t">已驗收</span></td><td>主動跳與非主動失地共用 JumpState；落地分類統一讀 <code>VerticalVelocity</code>。EditMode／PlayMode 全綠。</td></tr>
       <tr><td class="m">Foot IK 斜坡抽搐</td><td><span class="badge t">已修正</span></td><td>已證實為 GroundY 不連續並改由實際腳底平面導出；連續性測試留存。追因過程見 <code>failure-atlas.html</code>。</td></tr>

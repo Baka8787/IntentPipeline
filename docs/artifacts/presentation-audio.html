@@ -452,9 +452,9 @@ pitch      = definition.GetRandomPitch()</div>
         <tr><td class="m">JustDied</td><td class="m">CharacterHealth（順序 0.5）</td>
           <td>對 <code>IsDead</code> 做邊沿偵測 ⇒ 下游重新推導已 commit 的狀態</td>
           <td>同上 ＋ <code>CombatAudioTests</code> CA1–CA6</td></tr>
-        <tr><td class="m">JustLeftGround</td><td class="m">MotionDriver（順序 6）</td>
+        <tr><td class="m">JustLeftGround</td><td class="m">MotionDriver（順序 6）<br><span style="color:var(--muted)">🔄 committed traversal 期間不回報</span></td>
           <td>看垂直速度猜起跳 ⇒ 第二個回答者</td>
-          <td class="m">A5 WriterRule「JustLeftGround」</td></tr>
+          <td class="m">A5 WriterRule「JustLeftGround」<br>PlayMode <code>C0_*</code></td></tr>
       </tbody>
     </table>
   </div>
@@ -477,6 +477,28 @@ pitch      = definition.GetRandomPitch()</div>
     ⛔ 若 Play 時「走下台階也有起跳聲」明顯不對，正確修法是加 Jump 自己的事件源，
     <strong>不是</strong>在這裡讀速度或狀態去猜。
   </p></div>
+
+  <div class="callout">
+    <div class="h">🔄 2026-09-21：這兩個邊沿在 committed traversal 期間<strong>會被上游擋掉</strong></div>
+    使用者回報「Climb2m 爬上去一瞬間很多聲」。探針結果推翻了症狀描述：
+    腳步偵測器的 trace 顯示攀爬後腳步只擊發 <strong>1 次</strong>——<strong>響的是落地音</strong>。
+    根因是爬牆時膠囊擦到牆面／邊緣，讓 <code>CharacterController.isGrounded</code> 瞬間變 true，
+    而 <code>JustLanded</code> 是<strong>無去抖動的純邊沿偵測</strong> ⇒ 每擦一次就是一聲落地
+    （實測一次 Climb2m 兩次假落地：<code>n=0.059</code> 抓握瞬間、<code>n=0.535</code> 爬到一半）。<br><br>
+    修法在 <code>MotionDriver</code>：<code>suppressGroundEdges = HasActiveTraversalPlan</code>。<br>
+    ⭐ <strong>三個刻意的邊界，每一個都能對應到這頁已經講過的原則</strong>：
+    <ul style="margin:8px 0 0;padding-left:20px">
+      <li><strong>只擋事件語意，不擋 <code>IsGrounded</code></strong>——後者是 Foot IK 與腳步偵測的閘門。
+          角色正在爬牆，<strong>擦到牆不是從高處砸下來</strong>；錯的只有「這是一次落地」這個語意。</li>
+      <li><strong><code>JustLeftGround</code> 一併擋</strong>——原碼註解說兩者「成對維護」，
+          只擋一邊會讓抖動變成<strong>單向事件流</strong>（只離地、不落地），比兩邊都報還難追。</li>
+      <li><strong><code>_wasGrounded</code> 照常前進</strong>——「不回報」與「沒發生」是兩件事，
+          與腳步偵測器的 <code>justLanded</code>／<code>Airborne</code> 抑制<strong>同一條紀律</strong>。</li>
+    </ul>
+    <br>⇒ 對本頁的意思：<code>Landing</code> 與 <code>JumpTakeoff</code> 兩條路徑在 traversal 期間<strong>結構上不會響</strong>，
+    而 <code>AudioController</code> <strong>一個字都不用改</strong>——它仍然只是「讀到 true 就播一次」。
+    <strong>音效端不該認識 traversal，這次也沒有。</strong>
+  </div>
 
   <div class="note key"><span class="lab">A25</span><p>
     <code>AudioController.cs</code> 被明確列進 <code>A25_Slow_DoesNotLeakIntoMovementIntentConsumers</code>
@@ -699,7 +721,8 @@ pitch      = definition.GetRandomPitch()</div>
   <code>AudioLibrarySO</code>／<code>AudioEventId</code>／<code>FootstepAudioBankSO</code>／<code>ActionAudioSink</code>）·
   <code>Presentation/Actions/</code>（<code>MeleeHitboxSink</code>／<code>ThrownProjectile</code>／<code>GroundEffectSink</code>）<br>
   測試：<code>AudioSystemTests</code>（11）· <code>CombatAudioTests</code>（10）·
-  <code>A25_Slow_DoesNotLeakIntoMovementIntentConsumers</code> · <code>A5</code>（Gait／Survivability／JustLeftGround）<br>
+  <code>A25_Slow_DoesNotLeakIntoMovementIntentConsumers</code> · <code>A5</code>（Gait／Survivability／JustLeftGround）·
+  PlayMode <code>MotionDriverCommittedMovementPlayModeTests.C0_*</code>（traversal 期間的 ground edge 抑制，帶陽性對照）<br>
   authored 值來源：<code>FootstepAudioBank.asset</code> · <code>PlayerAudioLibrary.asset</code> ／ <code>EnemyAudioLibrary.asset</code> ·
   <code>X Bot.prefab</code>（3 顆 ActionAudioSink，Slot 1／2／3）· <code>Y Bot.prefab</code>（0 顆）<br>
   ⚠️ 本頁只描述 repo／docs／tests 已能證明的現況。與 <code>docs/</code> 分歧處已於 §01／§07 逐條指出，以程式與資產為準。

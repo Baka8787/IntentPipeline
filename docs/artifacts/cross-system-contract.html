@@ -116,7 +116,7 @@
 <div class="shell">
 
 <header>
-  <div class="eyebrow">Cross-System · 視覺版 · 對應 dev-spec §1／§2／§3.1</div>
+  <div class="eyebrow">Cross-System · 對應 dev-spec §1／§2／§3.1</div>
   <h1>跨系統契約</h1>
   <p class="lede">
     子系統之間<strong>不互相引用</strong>。它們只共用三樣東西：一塊黑板、一組驅動介面、一條管線順序。
@@ -156,7 +156,7 @@
         <tr><td class="m">CombatContext</td><td>覆寫式</td><td class="m">敵人 AIMovementSource<br>玩家 PlayerCombatContextSource</td><td class="num">2.5<br>2.6</td><td>Facing（4.6）／Action targeting</td></tr>
         <tr><td class="m">Movement Output</td><td>衍生值</td><td class="m">IMovementModel</td><td class="num">3</td><td>MotionDriver／Facing</td></tr>
         <tr><td class="m">Arbitration</td><td>覆寫式</td><td class="m">ArbiterPipeline</td><td class="num">4.5</td><td>順序 2 閘門（<strong>下一幀</strong>）</td></tr>
-        <tr><td class="m">IsGrounded／VerticalVelocity<br>JustLanded／JustLeftGround</td><td>觀測＋<strong>單幀邊沿</strong></td><td class="m">MotionDriver</td><td class="num">6</td><td>FSM（下一幀）／表現層（6.5）</td></tr>
+        <tr><td class="m">IsGrounded／VerticalVelocity<br>JustLanded／JustLeftGround</td><td>觀測＋<strong>單幀邊沿</strong><br><span style="color:var(--muted)">🔄 兩個<strong>邊沿</strong>在 committed traversal 期間不回報；<strong>觀測</strong>照常</span></td><td class="m">MotionDriver</td><td class="num">6</td><td>FSM（下一幀）／表現層（6.5）</td></tr>
         <tr class="bind"><td class="m">PresentationEvents</td><td><strong>廣播快照</strong></td><td class="m">PresentationPipeline</td><td class="num">6.5②</td><td>各 Controller（<strong>下一幀</strong> 6.5①）</td></tr>
       </tbody>
     </table>

@@ -119,7 +119,7 @@
 <div class="shell">
 
 <header>
-  <div class="eyebrow">Architecture Deep-Dive · 視覺版 · 對應 docs/31</div>
+  <div class="eyebrow">Subsystem Architecture · 對應 docs/31</div>
   <h1>Jump 與落地解剖</h1>
   <p class="lede">
     <code>StateType.Jump</code> <strong>承載所有滯空時間</strong>——包含走下平台的自由落體，
@@ -383,6 +383,20 @@ hardLandingSpeed = 8 m/s
       <text class="xs mu" x="28" y="270">然後合理地以為「角色落地時本來就接近 0」。唯一的症狀是<tspan class="wr" font-weight="700">「一個功能從來沒有觸發過」</tspan>——而那最容易被當成沒做。</text>
     </svg>
   </figure>
+
+  <div class="note bad"><span class="lab">🔄 例外</span><p>
+    <strong>committed traversal 期間，<code>JustLanded</code> 與 <code>JustLeftGround</code> 兩個邊沿完全不回報</strong>
+    （2026-09-21，<code>MotionDriver.suppressGroundEdges = HasActiveTraversalPlan</code>）。
+    起因：爬牆時膠囊會擦到牆面／邊緣，讓 <code>CharacterController.isGrounded</code> 瞬間變 true，
+    而這兩個邊沿是<strong>無去抖動的純邊沿偵測</strong> ⇒ 每擦一次就是一次「落地」
+    （實測一次 Climb2m 兩次假落地）。<br>
+    ⚠️ 三個邊界要分清楚：①<strong>只擋事件語意，<code>IsGrounded</code> 觀測照常發布</strong>——它是 Foot IK
+    與腳步偵測的閘門，也是 traversal exit 之後 <code>reboundForce</code> 貼地<strong>刻意</strong>要達成的效果；
+    ②兩個邊沿<strong>成對擋</strong>，只擋一邊會讓抖動變成單向事件流；
+    ③<code>_wasGrounded</code> 照常前進——<strong>「不回報」與「沒發生」是兩件事</strong>。<br>
+    ⇒ 所以本頁的落地分類鏈路在 traversal 期間是<strong>整條靜默</strong>的，不是「分類成別的」。
+    細節見 <code>traversal.html</code> §06 ／ <code>footstep-surface.html</code> §04。
+  </p></div>
 </section>
 
 <!-- ═══ 5 ═══ -->

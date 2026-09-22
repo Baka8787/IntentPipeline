@@ -516,11 +516,47 @@
     ⇒ 偵測器拿不到地面觀測 ⇒ 基準退回 Root 平面。
     Root 平面在地上是腳底基準，在空中只是<strong>一個跟著角色一起飛的參考點</strong>——
     腳相對它的起落純粹是動畫內容。
-    ⭐ 觸發它的實例是 ledge climb：整段 traversal 的 <code>isGrounded</code> 都是 <code>false</code>
+    ⭐ 觸發它的實例是 ledge climb：當時整段 traversal 的 <code>isGrounded</code> 都是 <code>false</code>
     （exit knot 之後位置凍結 ⇒ <code>Move(Vector3.zero)</code> 不回報觸地），
     攀爬動畫的腳因此在「離地 0」附近反覆進出接觸帶 ⇒ <strong>攀爬途中出現腳步聲</strong>。
     ⛔ 修法刻意<strong>不</strong>讓偵測器認識 traversal／jump／任何狀態——本元件不該知道有哪些狀態存在。
     ⚠️ 退化方向：<code>hasGround</code> 為真時完全不介入 ⇒ 沒有 Foot IK 的退化配置在地上仍照常出聲。
+  </p></div>
+
+  <div class="callout warn">
+    <div class="h">🔄 2026-09-21 更新：上面那句「整段 <code>isGrounded</code> 都是 false」已經不成立</div>
+    traversal 後來被改了兩次，兩次都動到這個前提——<strong>結論（Airborne 抑制）不變，但理由的形狀變了</strong>：
+    <table style="margin-top:10px;min-width:0">
+      <thead><tr><th>改動</th><th>對 <code>isGrounded</code> 做了什麼</th></tr></thead>
+      <tbody>
+        <tr><td><strong>exit knot 之後改用 <code>reboundForce</code> 真的貼地</strong><br>
+            （原因是「動畫結束會有微小浮空，有落地聲佐證」）</td>
+            <td>traversal <strong>尾段變成 true</strong>——<strong>刻意的</strong>：讓 Foot IK 在還在 traversal 內就接手，
+                吸收掉 clip 最後一格與站姿的 1.2 cm 差，同時消掉離開狀態時那一聲落地</td></tr>
+        <tr><td><strong>爬牆時膠囊擦到牆面／邊緣</strong></td>
+            <td>中途<strong>瞬間 true</strong>。實測一次 Climb2m 出現兩次，
+                <code>n=0.059</code>（正好抓握瞬間）與 <code>n=0.535</code>（爬到一半）</td></tr>
+      </tbody>
+    </table>
+    ⇒ 現在正確的說法是：<strong><code>isGrounded</code> 在 traversal 期間是會跳動的</strong>，
+    而 Airborne 抑制守的仍然是「<strong>離地且該腳沒有地面觀測</strong>」這個<strong>量測無意義</strong>的條件——
+    它從來沒有依賴「整段都是 false」。
+    📌 這正是當初「⛔ 不讓偵測器認識 traversal 狀態」換到的東西：
+    <strong>上游把 grounded 的形狀改了兩次，這條抑制一個字都不用改。</strong>
+  </div>
+
+  <div class="note key"><span class="lab">同一條紀律</span><p>
+    第二次改動的修法<strong>沒有</strong>放在腳步這一側，而是放在 <code>MotionDriver</code>：
+    <code>suppressGroundEdges = HasActiveTraversalPlan</code>，
+    只擋 <code>JustLanded</code>／<code>JustLeftGround</code> 這<strong>兩個事件語意</strong>，
+    ⛔ <strong>不擋 <code>IsGrounded</code></strong>——後者是 Foot IK 與腳步偵測的閘門，
+    擋掉它會把上面那條 <code>reboundForce</code> 修法一起打掉。<br>
+    ⭐ 而且它<strong>明文沿用了本頁 §04 的紀律</strong>：<code>_wasGrounded</code> 照常前進，
+    「<strong>不回報」與「沒發生」是兩件事</strong>。
+    ⇒ 同一條紀律現在有兩個實作點，一個在事件<strong>來源</strong>（偵測器），一個在事件<strong>寫入者</strong>（MotionDriver）。
+    由 PlayMode <code>C0_TraversalDoesNotReportGroundEdgesFromIncidentalContact</code> 守，
+    <strong>帶陽性對照</strong>——先驗證非 traversal 的同一個邊沿照常回報，再驗證 traversal 期間被擋掉。
+    <span style="color:var(--muted)">沒有對照就分不出「成功擋掉」與「本來就不會觸發」。</span>
   </p></div>
 
   <div class="note why"><span class="lab">ForcePlanted</span><p>
@@ -722,10 +758,19 @@ AudioController.Tick
         <tr class="bind">
           <td><strong>攀爬途中出現腳步聲</strong></td>
           <td class="m">地面基準退化</td>
-          <td>ledge climb 全程 <code>isGrounded == false</code> ⇒ Foot IK 閘門關閉 ⇒ 無地面觀測 ⇒
+          <td>ledge climb 期間 <code>isGrounded == false</code>（當時是整段）⇒ Foot IK 閘門關閉 ⇒ 無地面觀測 ⇒
               基準退回 Root 平面，而那只是一個<strong>跟著角色一起飛的參考點</strong></td>
           <td>離地<strong>且</strong>該腳無地面觀測時不回報（<code>Airborne</code>）。
               ⛔ 不讓偵測器認識 traversal 狀態</td>
+        </tr>
+        <tr class="bind">
+          <td><strong>「Climb2m 爬上去一瞬間很多聲」</strong><br><span style="color:var(--muted)">（2026-09-21）</span></td>
+          <td class="m">上游的事件語意<br>（不在本子系統）</td>
+          <td>⭐ <strong>探針推翻了症狀描述</strong>：偵測器的 trace 顯示攀爬後腳步只擊發 <strong>1 次</strong>
+              （跑向牆時 4 次、0.28 s 交替＝正常跑步）。真正響的是<strong>落地音</strong>——
+              膠囊擦到牆讓 <code>isGrounded</code> 瞬間 true，而 <code>JustLanded</code> 是<strong>無去抖動的純邊沿偵測</strong></td>
+          <td>修在 <code>MotionDriver</code>：committed traversal 期間不回報 <code>JustLanded</code>／<code>JustLeftGround</code>。
+              ⛔ <strong>不擋 <code>IsGrounded</code></strong></td>
         </tr>
         <tr>
           <td><strong>整隻右腳永久靜音</strong></td>
@@ -818,7 +863,7 @@ AudioController.Tick
         <tr><td class="m">presentation-audio</td><td>事件快照被誰、怎麼變成聲音</td><td>那份快照<strong>怎麼產生</strong>、材質決策從哪來</td></tr>
         <tr><td class="m">authority-timeline</td><td>6.5 在一幀裡的位置、順序 7 的復位</td><td>6.5 <strong>內部</strong>兩個步驟的分界為什麼不能調換</td></tr>
         <tr><td class="m">jump-landing</td><td><code>JustLanded</code> 的產生與落地分類</td><td>落地為什麼要由偵測器<strong>轉報</strong>而不是直接讀</td></tr>
-        <tr><td class="m">traversal</td><td>攀爬八階段與 <code>isGrounded</code> 為何全程 false</td><td>那個 false <strong>怎麼變成腳步 bug</strong>，以及修在哪一層</td></tr>
+        <tr><td class="m">traversal</td><td>八階段、兩種 execution model、committed 的定義為什麼被改述</td><td><code>isGrounded</code> 在 traversal 期間的跳動<strong>怎麼變成兩個不同的 bug</strong>，以及各自修在哪一層</td></tr>
         <tr><td class="m">cross-system-contract</td><td>廣播快照的語意（第三種 intent 復位語意）</td><td>這個子系統<strong>如何實例化</strong>那個語意</td></tr>
       </tbody>
     </table>
@@ -831,7 +876,8 @@ AudioController.Tick
   程式：<code>Presentation/Footstep/</code>（<code>FootPlantTracker</code>／<code>FootstepDetector</code>／<code>SurfaceResolver</code>／<code>SurfaceMapSO</code>／<code>SurfaceOverride</code>）·
   <code>Core/Blackboard/PresentationEventData.cs</code> · <code>Presentation/PresentationPipeline.cs</code><br>
   測試：<code>FootstepDetectorTests</code>（26）· <code>FootstepSurfaceTests</code>（15）· <code>PresentationEventTests</code>（8）·
-  <code>A5_BlackboardMembers_HaveSingleDocumentedWriter</code><br>
+  <code>A5_BlackboardMembers_HaveSingleDocumentedWriter</code> ·
+  PlayMode <code>MotionDriverCommittedMovementPlayModeTests.C0_*</code>（traversal 期間的 ground edge 抑制，帶陽性對照）<br>
   authored 值來源：<code>X Bot.prefab</code> ／ <code>Y Bot.prefab</code>（八個偵測參數逐條相同）·
   <code>SceneSurfaceMap.asset</code>（9 筆 Material 對應）· <code>FootstepAudioBank.asset</code>（Shuffle 四槽皆空）<br>
   ⚠️ 本頁只描述 repo／docs／tests 已能證明的現況。

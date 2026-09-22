@@ -119,19 +119,23 @@
 <div class="shell">
 
 <header>
-  <div class="eyebrow">Architecture Deep-Dive · 視覺版 · 對應 docs/30</div>
+  <div class="eyebrow">Subsystem Architecture · 對應 docs/30 ／ 39 ／ 40 · ⚠️ ADR-008 仍是 Trial</div>
   <h1>Traversal 解剖</h1>
   <p class="lede">
     角色前面有一堵 1 公尺高的矮牆。普通跳躍表達不了「翻過去」。
     這套系統每幀偷看前方幾何，判斷「那是什麼、身體過不過得去」，
     在你按下跳躍的那一瞬間<strong>把答案鎖起來</strong>，播一支翻越動畫，
     並把那支動畫的 root 軌跡<strong>重新映射</strong>到現場真正的邊緣位置上。<br>
-    關鍵詞是 <strong>committed（已承諾）</strong>：一旦開始就不再看環境、不再吃輸入。
+    關鍵詞是 <strong>committed（已承諾）</strong>：一旦開始就不再<strong>看環境</strong>、不再吃輸入。<br>
+    ⚠️ 2026-09-21（ADR-008 D10）起，committed 的定義被<strong>改述</strong>過一次——
+    固定的是 <strong>landmarks／timing／contact targets</strong>，不是「絕對軌跡」。
+    差別與它為什麼仍然算 committed，見 §06。
   </p>
 
   <div class="keyfacts">
     <div><div class="v">8</div><div class="k">階段，每層回答<br>一個不同的問題</div></div>
-    <div><div class="v">6</div><div class="k">跨幀狀態<br>（全專案最多）</div></div>
+    <div><div class="v">7</div><div class="k">跨幀狀態<br>（全專案最多）</div></div>
+    <div><div class="v">2</div><div class="k">execution model<br>（Absolute／Segmented）</div></div>
     <div><div class="v">1.4017</div><div class="k">Vault1m 由 bake 推導<br>的理想進場距離（m）</div></div>
     <div><div class="v">2.1385</div><div class="k">因此被撐開的<br>感測範圍（m）</div></div>
     <div><div class="v">3</div><div class="k">四個 landmark<br>來自三個不同來源</div></div>
@@ -243,7 +247,7 @@
       <text class="xs mu" x="16" y="410">1↔2　量測不能有判斷——Classifier 是純函式、完全不碰 Physics，所以 400 條分類測試不需要物理場景。</text>
       <text class="xs mu" x="16" y="430">2↔3　candidate 答「<tspan class="me">那是什麼</tspan>」，entry 答「<tspan class="me">我站得對不對</tspan>」。同一堵牆對站 0.5 m 的人合法、對站 1.5 m 的人不合法，但它還是同一堵牆。</text>
       <text class="xs mu" x="16" y="450">3↔3b　entry 是<tspan class="me">幾何</tspan>（做不做得到），selection 是<tspan class="me">玩法</tspan>（該不該做）。</text>
-      <text class="xs mu" x="16" y="470">5↔6　plan 是<tspan class="bd">絕對 pose</tspan> 的函數（給 t 回位置），execution 是<tspan class="bd">相對 delta</tspan>。被牆擋掉的部分<tspan class="wr" font-weight="700">不會回授進 plan</tspan>——刻意的。</text>
+      <text class="xs mu" x="16" y="470">5↔6　plan 是<tspan class="bd">絕對 pose</tspan> 的函數（給 t 回位置），execution 是<tspan class="bd">相對 delta</tspan>。被牆擋掉的部分<tspan class="wr" font-weight="700">不會回授進 plan</tspan>——但 Segmented 會在<tspan class="me">下一個 phase boundary</tspan> 把它吸收（§06）。</text>
       <text class="xs me" x="16" y="490">4　　是一條線：線之前環境說了算，線之後動畫說了算。</text>
     </svg>
 
@@ -325,8 +329,8 @@
 <section>
   <div class="sec-head">
     <span class="n">03</span>
-    <h2>跨幀狀態：六項，全專案最多</h2>
-    <span class="tag">commit 的定義就是「這些不再變」</span>
+    <h2>跨幀狀態：七項，全專案最多</h2>
+    <span class="tag">commit 鎖住的是 landmarks，不是軌跡</span>
   </div>
 
   <div class="wrap">
@@ -339,6 +343,7 @@
         <tr><td class="m">_previousNormalizedTime</td><td class="m">TraversalState</td><td>delta 是兩個 pose 的差</td><td>位移量錯，或第一幀跳一大段</td></tr>
         <tr><td class="m">_traversalOriginal<br>Center/Height/Radius</td><td class="m">MotionDriver</td><td>結束時要還原膠囊</td><td>帶著 traversal 尺寸的膠囊回到正常遊玩</td></tr>
         <tr><td class="m">_playbackSpeedApplied</td><td class="m">TraversalState</td><td>速率只能在動畫真的開始播之後套一次</td><td>逐幀寫速率，或永遠套不上</td></tr>
+        <tr class="bind"><td class="m">TraversalExecutionSegment<br>（carried error）🆕</td><td class="m">MotionDriver</td><td><code>Segmented</code> 路徑用的段界快照：每段<strong>開始時取樣一次</strong>角色實際 root</td><td>段內重取樣 ⇒ committed 退化成 continuous motion（<strong>I11</strong> 以原始碼規則守這一條）</td></tr>
       </tbody>
     </table>
   </div>
@@ -347,7 +352,9 @@
     <div class="h">⭐ 進度的唯一權威是動畫，不是計時器</div>
     執行階段每幀問 <code>AnimationFacade.GetNormalizedTime()</code>，再用
     <code>plan.TryEvaluate(t) − plan.TryEvaluate(t_prev)</code> 算出這一幀該移動多少。
-    <strong>位移是兩個絕對 pose 的差</strong>，所以動畫播多快、被 fitting 調過速率，位移都自動跟著對。
+    <strong>位移是兩個絕對 pose 的差</strong>，所以動畫播多快、被 fitting 調過速率，位移都自動跟著對。<br>
+    ⚠️ 這段描述的是 <code>Absolute</code>（Vault1m／Climb1m）。<code>Climb2m</code> 走 <code>Segmented</code>，
+    在同一個 plan 上多疊一層衰減中的誤差補償——見 §06。<strong>動畫仍然是進度的唯一權威，兩條路都一樣。</strong>
   </div>
 </section>
 
@@ -472,11 +479,182 @@ EffectiveForwardScanDistance = max(authored 1.25, 2.1385) = <span class="me">2.1
   </p></div>
 </section>
 
+<!-- ═══ 6 ═══ -->
+<section>
+  <div class="sec-head">
+    <span class="n">06</span>
+    <h2>第二種 execution model：<code>Segmented</code></h2>
+    <span class="tag">ADR-008 D10 · 2026-09-21</span>
+  </div>
+  <p class="sec-intro">
+    §01–§05 描述的是 <code>Absolute</code>：每幀直接求 committed plan 的絕對 pose，取前後差值當位移。
+    <strong>Vault1m 與 Climb1m 仍然走這條，行為未變。</strong>
+    <code>Climb2m</code> 的 binding 現在 author 成 <code>Segmented</code>——差別可以壓成一句話：
+  </p>
+
+  <div class="callout">
+    <div class="h">⭐ 一句話的差別</div>
+    <code>Absolute</code> 問「這一幀 plan 說我<strong>該</strong>在哪」；<br>
+    <code>Segmented</code> 問「從<strong>我現在真的在的地方</strong>出發，怎麼在下一個 committed landmark 之前把誤差收掉」。
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 860 392" role="img" aria-label="按 Climb2m 實際 knot 時間繪製的三段執行：Entry 到 Contact、Contact 到 Transfer、Transfer 到 Exit，各段開始取樣一次 carried error 並以 smoothstep 衰減到零；Exit 之後沒有下一個 boundary，該段殘差是永久的">
+      <text class="xs m me" x="16" y="16">按 Bake_Climb2m 的實際 normalized time 繪製　·　三個 authored phase boundary</text>
+
+      <!-- segment bands -->
+      <rect class="boxm" x="80" y="40" width="46.7" height="28"></rect>
+      <rect class="boxb" x="126.7" y="40" width="146.6" height="28"></rect>
+      <rect class="boxb" x="273.3" y="40" width="406.7" height="28"></rect>
+      <rect class="box" x="680" y="40" width="120" height="28"></rect>
+
+      <text class="xs m me" x="84" y="59">S1</text>
+      <text class="xs m bd" x="131" y="59">S2　Contact→Transfer</text>
+      <text class="xs m bd" x="278" y="59">S3　Transfer→Exit　<tspan font-weight="700">佔 56.5% 的時間軸</tspan></text>
+      <text class="xs mu" x="686" y="59">Exit 之後</text>
+
+      <!-- sample markers -->
+      <circle cx="80" cy="54" r="5" fill="var(--measure)"></circle>
+      <circle cx="126.7" cy="54" r="5" fill="var(--bind)"></circle>
+      <circle cx="273.3" cy="54" r="5" fill="var(--bind)"></circle>
+      <text class="xs m me" x="16" y="88">● ＝ 段開始時<tspan font-weight="700">取樣一次</tspan> transform.position　⇒　一次 traversal 恰好 3 次，⛔ 段內不得重取樣（I11）</text>
+
+      <!-- time axis -->
+      <line class="grid" x1="80" y1="118" x2="800" y2="118"></line>
+      <g class="mu">
+        <line class="grid" x1="80" y1="114" x2="80" y2="122"></line>
+        <text class="xs m mu" x="80" y="136" text-anchor="middle">0</text>
+        <text class="xs m mu" x="80" y="150" text-anchor="middle">Entry</text>
+        <line class="grid" x1="126.7" y1="114" x2="126.7" y2="122"></line>
+        <text class="xs m mu" x="126.7" y="136" text-anchor="middle">.0648</text>
+        <text class="xs m mu" x="126.7" y="150" text-anchor="middle">Contact</text>
+        <line class="grid" x1="273.3" y1="114" x2="273.3" y2="122"></line>
+        <text class="xs m mu" x="273.3" y="136" text-anchor="middle">.2685</text>
+        <text class="xs m mu" x="273.3" y="150" text-anchor="middle">Transfer</text>
+        <line class="grid" x1="680" y1="114" x2="680" y2="122"></line>
+        <text class="xs m mu" x="680" y="136" text-anchor="middle">.8333</text>
+        <text class="xs m mu" x="680" y="150" text-anchor="middle">Exit</text>
+        <line class="grid" x1="800" y1="114" x2="800" y2="122"></line>
+        <text class="xs m mu" x="800" y="136" text-anchor="middle">1.0</text>
+      </g>
+
+      <!-- carried error decay -->
+      <text class="xs m me" x="16" y="182">carried error　×　(1 − smoothstep(u))　　u ＝ 段內進度</text>
+      <line class="thin" x1="80" y1="256" x2="800" y2="256"></line>
+      <text class="xs m mu" x="806" y="259">0</text>
+
+      <path class="lnm" d="M80,212 C96,212 111,256 126.7,256"></path>
+      <path class="lnb" d="M126.7,206 C178,206 222,256 273.3,256"></path>
+      <path class="lnb" d="M273.3,200 C415,200 538,256 680,256"></path>
+      <path class="lnw" d="M680,240 L800,240"></path>
+
+      <text class="xs m wr" x="686" y="232">殘差永久</text>
+      <text class="xs m wr" x="686" y="278">沒有下一個</text>
+      <text class="xs m wr" x="686" y="292">boundary（I7b）</text>
+
+      <line class="dash" x1="16" y1="312" x2="844" y2="312"></line>
+      <text class="xs m me" x="16" y="334">為什麼它仍然是 committed motion</text>
+      <text class="xs mu" x="16" y="356">判準是「commit 之後有沒有新的<tspan class="bd" font-weight="700">世界觀測</tspan>可以改變結果」。<tspan class="m">transform.position</tspan> 不是世界觀測——</text>
+      <text class="xs mu" x="16" y="376">它是<tspan class="me" font-weight="700">我們自己上一幀執行的結果</tspan>。landmarks／timing／contact targets 全沒變 ⇒ 去哪裡在 commit 當下就定死了，變的只有「怎麼過去」。</text>
+    </svg>
+
+    <figcaption>
+      <strong>看 S3 的寬度。</strong> 三個段一點都不等長——<code>Transfer→Exit</code> 一段就吃掉
+      <strong>56.5%</strong> 的時間軸，而它<strong>沒有下一個 boundary</strong>。
+      ⇒ 這一段累積的執行誤差是<strong>永久的</strong>（<strong>I7b</strong>）。
+      這不是缺陷，是這個 model 的邊界：它能把誤差收在 landmark 上，收不了最後一段。
+    </figcaption>
+  </figure>
+
+  <div class="calc">desired(t)   = plan.TryEvaluate(t) + <span class="hl">carriedError × (1 − smoothstep(u))</span>
+carriedError = 段開始時的 actual root − plan.TryEvaluate(段開始時間)   <span class="c">← 整段只取樣這一次</span>
+u            = (t − 段起) / (段迄 − 段起)
+
+<span class="c">// 段內形狀仍然是同一份 committed plan。變的只有一個衰減到零的偏移量。</span></div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>invariant</th><th>內容</th><th>違反會怎樣</th></tr></thead>
+      <tbody>
+        <tr><td class="m">I6 🔧</td><td><strong>committed landmarks／timing／contact targets</strong> 在一次 traversal 內是常數<br><span style="color:var(--muted)">（2026-09-21 改述；原文是「plan 在一次 traversal 內是常數」）</span></td><td>root 目標抖動</td></tr>
+        <tr><td class="m">I7a</td><td><strong>執行分段</strong>：每段起點取角色當下實際 root，終點是 committed landmark；段內是開迴路</td><td>誤差跨段累積，最後永久偏掉</td></tr>
+        <tr class="bind"><td class="m">I7b</td><td>plan 是絕對 pose 的函數；被碰撞擋掉的位移不回授進 plan——它只會在<strong>下一個 phase boundary</strong> 被吸收。⚠️ <strong>最後一段沒有下一個 boundary</strong></td><td>會誤以為「plan 錯了」</td></tr>
+        <tr><td class="m">I11 🆕</td><td>rebase 取樣點<strong>只能是 phase boundary</strong>，而且只能讀角色自己的 <code>transform.position</code>。⛔ 不得讀 Physics／Probe、⛔ 不得段內重取樣</td><td>committed 的語意退化成 continuous motion</td></tr>
+        <tr><td class="m">I12 🆕</td><td><code>Segmented</code> 的 compensation <strong>只承載執行誤差（公分級）</strong>，不得承載牆高適應（公寸級）——後者屬 landmark 層</td><td>補償量變大 ⇒ 抓握期間把手臂拉出 reach budget</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note key"><span class="lab">機器化</span><p>
+    <strong>I11 是由原始碼規則守的，不是靠紀律。</strong>
+    <code>ArchitectureRegressionTests</code> 直接掃 <code>MotionDriver</code> 的方法本體：
+    <code>TraversalExecutionSegment.TryCreate(</code> 在整個檔案裡<strong>只能出現一次</strong>，
+    且必須出現在開啟 segment 的那個方法裡；
+    段內逐幀 evaluation 的方法本體<strong>不得出現</strong> <code>TryCreate</code> 或 <code>actualSegmentStart</code>。
+    ⇒ 想在段內偷偷重取樣，測試會在原始碼層變紅。
+  </p></div>
+
+  <div class="note why"><span class="lab">為什麼只有 Climb2m</span><p>
+    Climb2m 是<strong>唯一</strong>整段靠手支撐、且垂直位移接近 2 m 的動作。
+    <code>Absolute</code> 路徑下被碰撞擦掉的位移沒有任何機會補回，
+    實測在 <strong>1.8 m 牆殘留 12.7 cm、1.6 m 牆殘留 34.1 cm</strong>。
+    Vault1m 的位移短、且以水平為主，沒有觀察到同樣的累積。<br>
+    ⚠️ <strong>這是實測差異，不是原則差異</strong>——哪天 Vault 也量到累積，就把它的 binding 也 author 成 <code>Segmented</code>。
+  </p></div>
+
+  <div class="wrap">
+    <table>
+      <thead><tr><th>binding</th><th class="m">executionModel</th><th class="m">coverage（候選高度 m）</th><th class="m">enabled</th></tr></thead>
+      <tbody>
+        <tr><td class="m">vault1m</td><td class="m">Absolute</td><td class="m">—（0／0，不設上下限）</td><td class="m">✅</td></tr>
+        <tr><td class="m">climb1m</td><td class="m">Absolute</td><td class="m">1.00 – 1.20</td><td class="m">✅</td></tr>
+        <tr class="bind"><td class="m">climb2m</td><td class="m"><strong>Segmented</strong></td><td class="m"><strong>1.65 – 2.05</strong></td><td class="m">✅</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note key"><span class="lab">revert</span><p>
+    把 <code>TraversalStateParams.asset</code> 的 <code>climb2m.executionModel</code> 改回 <code>Absolute</code>。
+    <strong>一個資產欄位，不動任何程式。</strong>
+    ⇒ 這正是要求刪掉 <code>Kind == Climb2m</code> 硬編（<code>docs/39</code> F9）最主要的理由：
+    <strong>revert 路徑的成本，是設計時就該買下來的東西。</strong>
+  </p></div>
+
+  <div class="note bad"><span class="lab">能力空缺</span><p>
+    coverage 有三個不同的下限，取最保守者：<strong>運動學 ≈1.58</strong>（接觸瞬間手臂打直）／
+    <strong>IK guard ≈1.62</strong>（contact pre-IK 殘差撞到 <code>maximumResidualDistance</code> 0.35）／
+    <strong>authored 1.65</strong>。<br>
+    ⇒ <strong>1.20 – 1.65 m 這一段沒有任何 traversal 動畫</strong>（Climb1m 的 coverage 是 [1.0, 1.2]）。
+    落在這裡的牆由 <code>TraversalSelectionPolicy</code> 以 <code>OutsideAnimationCoverage</code> 明確否決、退回一般 Jump。
+    📌 <strong>這是資產限制，不是程式缺陷</strong>——寫在這裡是為了讓下次看到「這堵牆爬不上去」時，
+    先去對 coverage，而不是去 debug 執行層。
+  </p></div>
+
+  <div class="note bad"><span class="lab">一幀延遲</span><p>
+    <code>docs/40</code> 順帶挖出一個<strong>與 execution model 無關</strong>的缺陷：
+    <code>OnAnimatorIK</code> 在 <code>LateUpdate</code> <strong>之前</strong>，而 root 位移在之後才套上
+    ⇒ 手每幀浮在 <code>target + Δ</code>（60 fps 約 <strong>4.8 cm</strong>，幾乎全部朝上，就是「抓空氣」）。
+    補償後中點殘差 <strong>6.77 cm → 0.60 cm</strong>。<br>
+    ⭐ 值得記住的是它的形狀：<strong>兩個 callback 的相對順序，變成了一個看得見的視覺缺陷</strong>——
+    和 <code>authority-timeline.html</code> 裡那些「一幀延遲」是同一類東西。
+  </p></div>
+</section>
+
 <div class="foot">
-  原始檔：<code>docs/artifacts/traversal.html</code>　·　文字正本：<code>docs/30-traversal-architecture-guide.md</code><br>
-  相關：<code>docs/22-traversal-v1.md</code>（規格）· <code>docs/23</code>／<code>docs/24</code>（研究輪）<br>
+  原始檔：<code>docs/artifacts/traversal.html</code>　·　分類：<strong>Subsystem Architecture</strong>　·　治理：<strong>ADR-008</strong>（🟡 Trial）<br>
+  文字正本：<code>docs/30-traversal-architecture-guide.md</code>（§M ＝ <code>Segmented</code>）<br>
+  相關：<code>docs/22</code>（規格）· <code>docs/23</code>／<code>docs/24</code>（研究輪）·
+  <code>docs/39</code>（segment-warp 架構審查）· <code>docs/40</code>（Climb2m 運動學預算與 coverage）<br>
+  測試：<code>TraversalWarpPlanTests</code>（29）· <code>TraversalSelectionPolicyTests</code>（17）·
+  <code>TraversalBakedAssetTests</code>（16）· PlayMode <code>TraversalStatePlayModeTests</code>／<code>TraversalProbePlayModeTests</code>／<code>TraversalClimbPlayModeTests</code>（真實 rig climb）·
+  <code>A49</code>（Hand IK 只消費 committed plan）· <code>I11</code> 的原始碼規則斷言<br>
+  authored 值來源：<code>TraversalStateParams.asset</code>（executionModel／coverage）·
+  <code>Bake_Climb2m.asset</code>（contact .0648／transfer .2685／exit .8333／anchorRelease .2130）·
+  <code>X Bot.prefab</code>（<code>forwardScanDistance</code> 1.25）<br>
   ⚠️ <code>docs/23</code>／<code>docs/24</code> 有兩條關鍵結論<strong>已過期</strong>：Vault1m 與 Climb2m 現在<strong>有</strong> Traversal block；<code>RootReachConstraint</code> 已啟用。<br>
-  姊妹頁：<code>dynamic-capsule.html</code>（docs/28）· <code>foot-ik-architecture.html</code>（docs/29）
+  ⚠️ <code>docs/40</code> §10 推導出的 coverage 下緣 <strong>1.72 已作廢</strong>——§13 改回 <strong>1.65</strong>，以資產為準。<br>
+  ⛔ ADR-008 仍是 Trial：自動測試已全數達成 Acceptance Criteria，但<strong>人工 Play 的視覺驗收（手臂觀感、segment boundary 頓挫）尚未進行</strong>。<br>
+  姊妹頁：<code>dynamic-capsule.html</code>（docs/28）· <code>foot-ik-architecture.html</code>（docs/29）· <code>footstep-surface.html</code> · <code>authority-timeline.html</code>
 </div>
 
 </div>
