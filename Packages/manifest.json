@@ -10,13 +10,14 @@
     "com.unity.ide.vscode": "1.2.1",
     "com.unity.inputsystem": "1.19.0",
     "com.unity.multiplayer.center": "1.0.1",
+    "com.unity.pipeline": "0.7.0-exp.1",
     "com.unity.postprocessing": "3.5.4",
     "com.unity.probuilder": "6.0.9",
     "com.unity.recorder": "5.1.6",
     "com.unity.render-pipelines.universal": "17.5.0",
     "com.unity.test-framework": "1.7.0",
     "com.unity.timeline": "1.8.12",
-    "com.unity.toonshader": "0.11.0-preview",
+    "com.unity.toonshader": "0.15.1-preview",
     "com.unity.ugui": "2.5.0",
     "com.unity.visualscripting": "1.9.11",
     "com.unity.modules.accessibility": "1.0.0",
@@ -52,7 +53,6 @@
     "com.unity.modules.vehicles": "1.0.0",
     "com.unity.modules.video": "1.0.0",
     "com.unity.modules.wind": "1.0.0",
-    "com.unity.modules.xr": "1.0.0",
-    "com.unity.pipeline": "0.7.0-exp.1"
+    "com.unity.modules.xr": "1.0.0"
   }
 }
