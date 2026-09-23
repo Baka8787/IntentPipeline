@@ -7,6 +7,21 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🔵 2026-09-23（一，續）— **Near-Floor Following 研究輪**：只研究＋提案，⛔ 未實作未裁決
+>
+> 📖 正本：`docs/42-near-floor-following-step-down-study.md`。索引：`docs/00-map.md`。
+>
+> 使用者裁決：下樓梯 jitter 不要寫 Stairs 特例，參考 UE `FindFloor`／`MoveAlongFloor`／
+> `FStepDownResult` 研究 `MotionDriver` 是否缺通用機制。**一句話結論**：`ExecuteBaseMovement`
+> 永遠等同 UE 的 `PhysFalling`（水平垂直同一次 `Move()` 彈道式積分），沒有對應 `PhysWalking`
+> （主動貼地）層——落地聲／Falling 閃爍（已修）與 Foot IK 骨盆抽動（未修）是同一缺口的三個症狀。
+> 最小方案：只動 `ExecuteBaseMovement`，利用 `CharacterController.Move()` 自帶 sweep 給下探
+> 分量一個有界下限；**`ExecuteBaseMovement`／`ExecuteVerticalOnlyMovement` 既有切分剛好對應
+> UE Walking/Falling 模式切換，不需要新掛載點**。留 6 個待裁決問題（`docs/42` §6.3）。
+> **下一步在使用者：決定 Q1（`maxStepDownDistance` 放哪、初值）與 Q2 才能進 prototype。**
+>
+> ---
+
 > # 🟡 2026-09-23（一）— **下樓梯高頻率落地聲**：音效與 FSM 兩層都已修，⛔ 未經 Play 驗收
 >
 > 📖 根因與修法見 `docs/31` §C（stateDiagram）／§G／附錄 B（authored 值）／debug 表 #8，
