@@ -1,4 +1,9 @@
-# 42 — Near-Floor Following / Step-Down 研究輪（2026-09-23，研究性質，⛔ 未實作、未裁決）
+# 42 — Near-Floor Following / Step-Down 研究輪（2026-09-23）
+
+> 🔄 **狀態**：研究＋提案（§0–§6）已完成；§7 起是 **Play Mode prototype 三輪迭代量測**——
+> `MotionDriver` 已有一個預設關閉、局部可撤銷的實驗開關（`enableStepDownAssistPrototype`），
+> **尚未升格為正式架構、尚未 tuning、尚未裁決要不要接線**。Q8（真實樓梯貼齊平滑度）結論是
+> 「有意義改善、尚未完全通過」，見 §7.4。
 
 > **這份文件是什麼**：使用者在下樓梯 jitter 排查後明確要求——**不要針對 Stairs 寫特例**，
 > 改參考 Unreal `FindFloor` / `MoveAlongFloor` / `FStepDownResult` 的責任劃分，研究
@@ -335,12 +340,122 @@ Probe／本欄位）需要**各自**更新，不會因為欄位獨立而漏改�
 
 ---
 
-## 7. 下一步
+## 7. Play Mode Prototype 迭代記錄（Q8 驗證，2026-09-23）
+
+> 使用者裁決：Q8 不再用 Editor-only synthetic Move 實驗（§6.1 那種隔離 preview scene 的 Spike
+> 驗不到「找到面時貼齊是否平滑」），改進 Play Mode，用**現有場景的真實樓梯**量測。實作要求局部、
+> 可撤銷、不升格正式架構——`MotionDriver` 新增一個預設關閉的 prototype 開關，正式接線與 tuning
+> 留到 Q8 通過之後再談。
+
+### 7.0 Prototype 實作總覽
+
+新增（[MotionDriver.cs](Assets/Scripts/Presentation/Motion/MotionDriver.cs)，皆為 `#if UNITY_EDITOR || DEVELOPMENT_BUILD` 內的量測程式碼 + 三個獨立序列化欄位）：
+
+| 欄位／機制 | 用途 | 對應裁決 |
+|---|---|---|
+| `enableStepDownAssistPrototype`（bool，預設 `false`） | 總開關，關閉時對現行行為零影響 | — |
+| `maxStepDownDistance`（float，預設 `0.25`） | Query 向下搜尋距離 | Q1（§6.0） |
+| `stepDownQueryLayers`（LayerMask，預設 `~0`） | Query 遮罩 | Q7（§6.5.2） |
+| `stepDownRetryWindow`（float，預設 `0.08`） | Gate①重試窗口，🔬 實驗值，不共用 `fallEntryGrace`／`groundEdgeEventGrace` | 本輪第三次迭代新增，見 §7.3 |
+| `ApplyStepDownAssistPrototype` | Query（`Physics.CapsuleCastNonAlloc`，非提交）→ Apply（找到才提交）兩段式 | §6.2 |
+| `LogStepDownAssistTrace` | 每幀一行 CSV 風格 log，欄位：`prevGrounded／retryWindow／lostSupportAge／hIntent／preY／queryHit／queryDist／slopeOk／assistApplied／requestedDY／actualDY／pelvisY／postGrounded` | Q8 量測要求 |
+
+三個 gate 同時成立才介入（見程式內註解，逐項對應本節三輪迭代踩到的坑）：①連續失地時間在
+`stepDownRetryWindow` 內；②本幀有效 horizontal locomotion（Q2）；③本幀重力積分出來的垂直分量
+已經 ≤ 0（Gate③，符號檢查，見 §7.2）。
+
+量測方法：`unity cmd console --tail 3000` 撈 Console 緩衝、grep 抽出 `[StepDownAssist]` 訊息、
+用 `frame`／`pos`／`postGrounded` 做連續失地時長（run-length）分布統計，這是本輪判斷「有沒有真的
+從逐階彈道落下變成連續支撐」的主要量化指標。
+
+### 7.1 第一輪：`queryDist` 鎖死在 skin width——自碰撞
+
+現象：不管平地還是樓梯，`queryDist` 只出現 `0.00000` 與 `0.03000`（後者精確等於
+`characterController.skinWidth`），從未出現接近樓梯實測級高 0.195m 的距離。
+
+根因：Query 用的膠囊跟 `characterController` 自己完全同形狀、同位置往下 cast，第一個命中的
+幾乎必定是**角色自己**——`CharacterController` 在物理世界裡本來就是一顆可以被別的查詢打中的
+膠囊，單一 `Physics.CapsuleCast` 只回傳最近一次命中，一旦那是自己，就永遠看不到腳下真正的地面。
+
+修法：改用 `Physics.CapsuleCastNonAlloc` 取得路徑上所有命中，過濾掉 `collider.transform ==
+transform || IsChildOf(transform)`（自己階層），取最近的真實命中。
+
+### 7.2 第二輪：修好自碰撞後，樓梯每階仍週期性掉出 3–4 幀
+
+現象：真實下樓片段裡，`postGrounded` 每 ~15 幀（＝ Walk 跨一階水平距離所需時間，
+0.3m÷2.19m/s≈15 幀 @60fps）規律性 False 3–4 幀，跟階梯週期完全對齊。
+
+根因：Query 從「本幀移動前」的位置直直往下探。角色快越過一階邊緣時，正下方不是階梯立面
+（角度太陡，被 slope gate 擋掉）就是完全落空（下一階踏面在**前方**，不在正下方）——要等水平
+移動把角色帶到下一階踏面正上方，直探才會重新命中。這正是 UE `MoveAlongFloor`「先套水平位移、
+才用新位置找地板」的順序，我們一開始漏掉了。
+
+修法：Query 起點加上「本幀即將套用的水平位移」（`finalMovement` 的 x/z 分量在寫入垂直分量之前
+還沒被污染，直接可用），呼應 UE 的處理順序。
+
+**這輪同時發現一個更深的問題**：修完水平投影後，短掉出變少了，但出現了 8 次 11–42 幀的**更長**
+掉出（比完全沒有 assist 的 0.1–0.3s 還久）。追根因：Gate①原本是「上一幀是否 grounded」的單幀
+記憶——一旦被某一幀的 slope gate 誤判擋下（樓梯轉角常見：查到立面而非踏面），就**永久停用**
+直到角色自己彈道式撞到東西為止，中間完全不會再嘗試查詢。這跟 UE `FindFloor` 每幀都重新嘗試、
+隨時能從 Falling 切回 Walking 的行為不一樣。
+
+### 7.3 第三輪：Gate①改成短時間重試窗口
+
+使用者裁決：不要整個移除 grounded history，改成「連續失地時間在一個短窗口內都還能重試」，
+約 3–6 幀（0.05–0.1s），先當實驗值，獨立欄位、不共用 `fallEntryGrace`／`groundEdgeEventGrace`
+（語意不同：那兩個是事件層的確認延遲，這個是運動層的重試預算）。實作用 `stepDownRetryWindow`
+（0.08s）＋ `_stepDownTimeSinceGrounded`（`data.IsGrounded` 為真時歸零，否則累加 `Time.deltaTime`）。
+
+**驗證重試真的有在找，不是純等待**（使用者明確要求的檢查項）——真實 log 片段：
+
+```
+frame 855: queryHit=True  slopeOk=False  lostSupportAge=0.000  ← 剛失地，查到面但角度太陡（立面）
+frame 856: queryHit=True  slopeOk=False  lostSupportAge=0.008  ← 持續重試
+frame 857: queryHit=True  slopeOk=False  lostSupportAge=0.018
+frame 858: queryHit=True  slopeOk=False  lostSupportAge=0.027
+frame 859: queryHit=True  slopeOk=True   lostSupportAge=0.036  ← 水平位移帶到踏面正上方，重新貼合
+```
+
+每一幀都是真的重新查詢，不是卡在等待計時器到期——`lostSupportAge` 只是重試預算的上限，
+不是固定要等多久。
+
+**三輪連續失地時長（run-length）分布比較**：
+
+| | 第一輪（直探，有自碰撞污染） | 第二輪（水平投影，無 retry window） | 第三輪（+ retry window） |
+|---|---|---|---|
+| 典型掉出 | 3–6 幀（22＋15＋5＋1 次） | 1–5 幀為主，混 8 次 11–42 幀長掉出 | **1–4 幀為主（2＋17＋12＋12 次），幾乎無長掉出** |
+| 最長 | 6 幀 | 42 幀（0.7s，比沒裝 assist 還糟） | 62 幀，但**查證後是一次真實主動跳躍**（`preY=+5.51`，Gate③正確排除，不是樓梯缺陷）|
+| 整體 grounded 比例 | — | — | 1802／1984 ≈ 90.8% |
+
+### 7.4 Q8 結論：有意義的改善，未完全通過
+
+樓梯上的掉出已從「每階完整彈道落下（0.1–0.3s）」收斂到「轉角處 1–4 幀短暫重試（16–66ms
+@60fps）」，且驗證過重試機制是真的在查詢、不是假等待，找不到面時完全不介入（現行懸崖／跳躍
+行為逐位元不變，62 幀那次真實跳躍就是證據）。
+
+⚠️ **使用者體感（2026-09-23）**：「有優化但還有問題，但情況比上樓好了」——量測數據與主觀體感
+方向一致（大幅改善、非完全解決），**Q8 判定為「有意義改善、尚未完全通過」**，還沒到「先調好看」
+的 tuning 階段（`stepDownRetryWindow` 等仍是實驗值）。殘餘的 1–4 幀短暫重試視覺上是否還會被
+察覺、是否需要進一步壓縮，留給下一輪決定要不要繼續迭代。
+
+### 7.5 上樓抖動——獨立記錄，本輪不修
+
+使用者回報「上下樓皆有抖動」，但**上樓抖動是完全不同機制**：本 prototype 的 Gate③
+（`本幀重力積分出來的垂直分量已經 ≤ 0`）確保 assist 只在下降時介入，上樓完全不會觸發它——
+上樓由 `characterController.stepOffset`（0.3m）內建機制處理，一幀內直接把角色頂上去，過程中
+沒有任何位置平滑，Foot IK／骨盆得在一幀內吸收這個跳變。這跟本輪解決的「重力積分導致的
+逐階彈道落下」是不同的根因，需要另外立案研究，**本輪刻意不碰**。
+
+---
+
+## 8. 下一步
 
 1. ~~使用者裁決 Q1／Q2~~ ✅ 已裁決（§6.0）。
 2. ~~Q3／Q7 讀碼查證~~ ✅ 已完成（§6.5）。
-3. 若要精確化 §3.4，安排一輪標記步態的 Console 量測（Q5）。
-4. **Q8 是目前唯一剩下的技術性阻斷項**：Query→Apply 對真實樓梯的貼齊平滑度需要 Play Mode 或
-   真實場景驗證（`CharacterController.Move()` 不認 preview scene 隔離物理，本輪 Spike 驗不到這塊）。
-5. Q6（敵人要不要吃到 assist）是產品決策，不是技術阻斷項，可以留到 prototype 出來後再談。
-6. 落地後記得：`docs/29`（Foot IK 已知限制表）與 `docs/31`（附錄 B authored 值）需要 fold back。
+3. ~~Q8：Play Mode 驗證~~ ✅ 已完成三輪迭代（§7），**有意義改善、尚未完全通過**。
+4. 若要精確化 §3.4，安排一輪標記步態的 Console 量測（Q5）。
+5. Q6（敵人要不要吃到 assist）是產品決策，不是技術阻斷項，可以留到正式接線時再談。
+6. **上樓抖動**（§7.5）需要另開研究——根因是 `stepOffset` 的一幀位置跳變，不是本文件的範疇。
+7. 是否繼續壓縮殘餘的 1–4 幀短暫重試、或先暫停迭代轉去做正式接線與 tuning 的討論，
+   待使用者下一輪裁決。
+8. 落地後記得：`docs/29`（Foot IK 已知限制表）與 `docs/31`（附錄 B authored 值）需要 fold back。

@@ -169,6 +169,32 @@ namespace Project.Presentation.Motion
                  "獨立成欄位是因為 Motion 層不應反向依賴 StateMachine.States 的實作細節。")]
         [SerializeField, Min(0f)] private float groundEdgeEventGrace = 0.1f;
 
+        [Header("🔬 Step-Down Assist — PROTOTYPE（docs/42，2026-09-23）")]
+        [Tooltip("⚠️ 局部、可撤銷的量測用 prototype，尚未升格正式架構（docs/42 §6.6 尚未決定要不要接線）。\n" +
+                 "預設關閉。開啟後 ExecuteBaseMovement 在特定條件下會用一次獨立的 Physics.CapsuleCast " +
+                 "Query，找到在 maxStepDownDistance 內、且法線夾角 ≤ characterController.slopeLimit 的可站表面時，" +
+                 "直接把本幀垂直分量設成查到的距離（Apply）；查不到／不滿足條件則完全不介入，" +
+                 "現行彈道重力行為逐位元不變。目的只是量測 Q8：Walk 下樓梯能不能從「逐階彈道落下」" +
+                 "變成連續支撐，不是先調好看。")]
+        [SerializeField] private bool enableStepDownAssistPrototype = false;
+
+        [Tooltip("Query 向下搜尋距離。docs/42 §6.0：prototype 先用 0.22–0.25m，以樓梯實測級高 0.195m 為" +
+                 "驗證基準，不是最終 tuning 值。")]
+        [SerializeField, Min(0f)] private float maxStepDownDistance = 0.25f;
+
+        [Tooltip("docs/42 §6.5.2：專案目前沒有專用 Ground layer 且 Physics Layer Collision Matrix 全開，" +
+                 "~0（Everything）是唯一與 characterController.Move() 真實碰撞範圍一致的選擇。" +
+                 "獨立欄位，不重用 FootIKSettings.GroundLayers（Motion 不跨模組讀 Presentation/IK 設定）。")]
+        [SerializeField] private LayerMask stepDownQueryLayers = ~0;
+
+        [Tooltip("🔬 實驗值，非最終 tuning。2026-09-23 第三輪 Play 量測發現 Gate①（上一幀是否 grounded）" +
+                 "只有單幀記憶——一旦被某幀的 slope gate 誤判擋下（樓梯轉角常見），就永久停用直到角色自己" +
+                 "彈道式撞到東西為止，量到最長 42 幀（0.7s）的掉出，比完全沒有 assist 還久。" +
+                 "改成「連續失地時間在這個短窗口內都還能重試」，約 3–6 幀（0.05–0.1s）。" +
+                 "⛔ 刻意不重用 fallEntryGrace／groundEdgeEventGrace——語意不同（那兩個是事件層的確認延遲，" +
+                 "這個是運動層的重試預算），且都是各自獨立場次量出來的實驗值。")]
+        [SerializeField, Min(0f)] private float stepDownRetryWindow = 0.08f;
+
         [Header("Facing Execution")]
         // 朝向方向與「本幀該不該轉」都由 CharacterFacingSource 決定；此處只保留執行速率。
         [SerializeField, Min(0f)] private float aimFacingTurnSpeed = 10f;
@@ -286,6 +312,20 @@ namespace Project.Presentation.Motion
         // 與 JumpState._ungroundedSince 同一模式（見該檔 TrackUngroundedSince 的說明），
         // 獨立持有狀態而非直接引用——Motion 層不得反向依賴 StateMachine.States 的實作細節。
         private float _groundDivergingSince = -1f;
+
+        // 🔬 PROTOTYPE（docs/42）：純粹為了在量測 log 裡印出 PelvisOffsetY 才拿的參考，
+        // 不參與任何決策、不影響 gameplay。正式接線前必須跟著整段 prototype 一起刪掉——
+        // Motion 不應該長期持有對 Presentation/IK 元件的參考。
+        private Project.Presentation.IK.FootIKController _debugFootIKController;
+        private bool _debugFootIKControllerResolved;
+
+        // 🔬 PROTOTYPE：CapsuleCastNonAlloc 的命中緩衝，避免每幀配置陣列。8 格對這個查詢範圍
+        // （單一 CapsuleCast，路徑僅 maxStepDownDistance 這麼短）綽綽有餘。
+        private static readonly RaycastHit[] _stepDownQueryHitBuffer = new RaycastHit[8];
+
+        // 🔬 PROTOTYPE：連續失地時間（秒）。data.IsGrounded 為 true 時歸零，否則累加 Time.deltaTime——
+        // Gate①的重試窗口依這個值判斷，取代單幀記憶的「上一幀是否 grounded」。
+        private float _stepDownTimeSinceGrounded;
 
         private bool _traversalCollisionProfileActive;
         private Vector3 _traversalOriginalCenter;
@@ -490,9 +530,182 @@ namespace Project.Presentation.Motion
             // 疊加單幀快取重力（保持原有的自由落體與貼地力優化），同時同步觸地狀態回黑板
             Vector3 finalMovement = horizontalVelocity + GetGravityThisFrame(data);
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            StepDownAssistDebugSnapshot debugSnap = default;
+#endif
+            if (enableStepDownAssistPrototype)
+            {
+                finalMovement = ApplyStepDownAssistPrototype(data, finalMovement
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                    , ref debugSnap
+#endif
+                );
+            }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            Vector3 posBeforeMove = transform.position;
+#endif
+
             // 總出口呼叫
             characterController.Move(finalMovement * Time.deltaTime);
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (enableStepDownAssistPrototype)
+            {
+                LogStepDownAssistTrace(data, in debugSnap, posBeforeMove, transform.position);
+            }
+#endif
         }
+
+        // 🔬 PROTOTYPE（docs/42 §6.2／§6.5）：Query（非提交）→ Apply（找到才提交）兩段式，
+        // 局部、可撤銷，尚未升格正式架構。三個 gate 同時成立才介入：
+        //   ①連續失地時間在 stepDownRetryWindow 內（🔄 2026-09-23 第三輪修正：原本是「上一幀
+        //     是否 grounded」的單幀記憶，量測證實一旦被某幀 slope gate 誤判擋下（樓梯轉角常見），
+        //     就永久停用直到角色自己彈道式撞到東西為止，量到最長 42 幀＝0.7s 的掉出，比完全沒有
+        //     assist 還久。改成短時間窗口重試，不是單純移除——真的掉落夠久還是要放手）
+        //   ②本幀有效 horizontal locomotion（Q2 裁決：靜止不生效，保護 docs/38 的 edge-standing）
+        //   ③本幀重力積分出來的垂直分量已經 ≤ 0（不是正在主動起跳——docs/42 §6.1 Spike ③：
+        //     只看 grounded 會把 ApplyJumpLaunch 剛注入的正向速度直接覆寫成負的）
+        // Query 用獨立的 Physics.CapsuleCast（不是 characterController.Move() 自帶的 sweep——
+        // docs/42 §6.1 Spike ①證實後者找不到面時仍會無條件全額提交位移，不是安全的簡化）。
+        private Vector3 ApplyStepDownAssistPrototype(PlayerRuntimeData data, Vector3 finalMovement
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            , ref StepDownAssistDebugSnapshot debugSnap
+#endif
+        )
+        {
+            // 每幀先更新「連續失地多久」，不管本次會不會真的介入——跟 SyncGroundedState 的
+            // _wasGrounded 同一種紀律：追蹤與是否觸發是兩件事。
+            if (data.IsGrounded) _stepDownTimeSinceGrounded = 0f;
+            else _stepDownTimeSinceGrounded += Time.deltaTime;
+
+            bool withinRetryWindow = data.IsGrounded || _stepDownTimeSinceGrounded <= stepDownRetryWindow;
+            bool hasHorizontalIntent = data.MoveDirection.sqrMagnitude > 0.001f;
+            bool alreadyDescending = finalMovement.y <= 0f;
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            debugSnap.PreviouslyGrounded = data.IsGrounded;
+            debugSnap.WithinRetryWindow = withinRetryWindow;
+            debugSnap.LostSupportAge = _stepDownTimeSinceGrounded;
+            debugSnap.HasHorizontalIntent = hasHorizontalIntent;
+            debugSnap.PreAssistVerticalVelocity = finalMovement.y;
+#endif
+
+            if (!withinRetryWindow || !hasHorizontalIntent || !alreadyDescending) return finalMovement;
+
+            // 🔴 2026-09-23 第二輪 Play 量測踩到的坑：從「本幀移動前」的位置直直往下探，
+            // 角色快越過一階邊緣時正下方不是階梯立面（角度太陡，被 slope gate 擋掉）就是完全落空
+            // （下一階踏面在**前方**、不在正下方）——每階週期性掉出 3–4 幀，跟 UE `MoveAlongFloor`
+            // 「先套水平位移、才用新位置找地板」的順序缺的就是這一步。修法：Query 起點加上
+            // 本幀即將套用的水平位移（finalMovement 的 x／z 分量在這裡還沒被垂直分量污染，
+            // 因為 GetGravityThisFrame 只寫 y——見上面 horizontalVelocity 的計算）。
+            Vector3 horizontalDeltaThisFrame = new Vector3(finalMovement.x, 0f, finalMovement.z) * Time.deltaTime;
+
+            // Query：與 characterController 當幀真正的膠囊幾何同形狀（半徑／高度），
+            // 在 UpdateCapsuleOffset(data) 之後執行 ⇒ 讀到的一定是本幀已調整過的正確值（docs/42 §6.5.1）。
+            Vector3 capsuleCenter = transform.TransformPoint(characterController.center) + horizontalDeltaThisFrame;
+            float halfSegment = Mathf.Max(characterController.height * 0.5f - characterController.radius, 0f);
+            Vector3 top = capsuleCenter + Vector3.up * halfSegment;
+            Vector3 bottom = capsuleCenter - Vector3.up * halfSegment;
+
+            // 🔴 2026-09-23 第一輪 Play 量測踩到的坑：用跟 characterController 完全同形狀／同位置的
+            // capsule 往下 cast，第一個命中的幾乎必定是「自己」（CharacterController 本身在物理世界
+            // 裡就是一顆可被 CapsuleCast 打中的膠囊）——單一 CapsuleCast 只回傳最近一次命中，一旦那
+            // 是自己，就永遠看不到腳下真正的地面。量到的 queryDist 因此鎖死在 skinWidth（0.03）附近，
+            // 不管站在平地還是樓梯都一樣，slopeOk 也因為自身表面法線亂七八糟而幾乎全部落空。
+            // 修法：改用 NonAlloc 拿到路徑上「所有」命中，過濾掉屬於自己階層的那些，取最近的真實命中。
+            int hitCount = Physics.CapsuleCastNonAlloc(top, bottom, characterController.radius, Vector3.down,
+                _stepDownQueryHitBuffer, maxStepDownDistance, stepDownQueryLayers, QueryTriggerInteraction.Ignore);
+
+            bool queryHit = false;
+            RaycastHit hitInfo = default;
+            float nearestDistance = float.PositiveInfinity;
+            for (int i = 0; i < hitCount; i++)
+            {
+                RaycastHit candidate = _stepDownQueryHitBuffer[i];
+                if (candidate.collider == null) continue;
+                if (candidate.collider.transform == transform || candidate.collider.transform.IsChildOf(transform)) continue; // 排除自己
+                if (candidate.distance >= nearestDistance) continue;
+                nearestDistance = candidate.distance;
+                hitInfo = candidate;
+                queryHit = true;
+            }
+
+            // Walkable surface gate：與 characterController.slopeLimit 對齊（docs/42 使用者裁決）——
+            // 查到的面本身太陡（例如樓梯立面）不該被當成可以站的下一階。
+            bool slopeOk = queryHit && Vector3.Angle(hitInfo.normal, Vector3.up) <= characterController.slopeLimit;
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            debugSnap.QueryHit = queryHit;
+            debugSnap.QueryDistance = queryHit ? hitInfo.distance : -1f;
+            debugSnap.SlopeGateOk = slopeOk;
+#endif
+
+            if (!slopeOk) return finalMovement; // 找不到面／面太陡 ⇒ 完全不介入，照舊吃彈道重力。
+
+            // Apply：把本幀垂直分量設成「查到的實際距離」，不是盲設 maxStepDownDistance——
+            // finalMovement 是速度（下面會乘 Time.deltaTime），所以要把距離換算回速度。
+            finalMovement.y = -hitInfo.distance / Time.deltaTime;
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            debugSnap.AssistApplied = true;
+#endif
+            return finalMovement;
+        }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        // 🔬 PROTOTYPE 專用量測快照（docs/42 §Q8）。不進黑板、不跨方法呼叫持有狀態。
+        private struct StepDownAssistDebugSnapshot
+        {
+            public bool PreviouslyGrounded;
+            public bool WithinRetryWindow;
+            public float LostSupportAge;
+            public bool HasHorizontalIntent;
+            public float PreAssistVerticalVelocity;
+            public bool QueryHit;
+            public float QueryDistance;
+            public bool SlopeGateOk;
+            public bool AssistApplied;
+        }
+
+        /// <summary>
+        /// 🔬 PROTOTYPE 專用（docs/42 §Q8 量測）：CSV 風格單行 log，供事後從 Console 撈出來逐幀比對。
+        /// 正式接線前整段連同呼叫點一起刪除。
+        /// </summary>
+        private void LogStepDownAssistTrace(PlayerRuntimeData data, in StepDownAssistDebugSnapshot snap,
+            Vector3 posBefore, Vector3 posAfter)
+        {
+            if (!_debugFootIKControllerResolved)
+            {
+                _debugFootIKController = GetComponentInChildren<Project.Presentation.IK.FootIKController>();
+                _debugFootIKControllerResolved = true;
+            }
+            float pelvisOffsetY = _debugFootIKController != null
+                ? _debugFootIKController.TargetData.PelvisOffsetY
+                : float.NaN;
+
+            float requestedDeltaY = snap.AssistApplied
+                ? -snap.QueryDistance
+                : snap.PreAssistVerticalVelocity * Time.deltaTime;
+            float actualDeltaY = posAfter.y - posBefore.y;
+
+            Debug.Log("[StepDownAssist] frame=" + Time.frameCount +
+                " pos=(" + posAfter.x.ToString("F3") + "," + posAfter.y.ToString("F3") + "," + posAfter.z.ToString("F3") + ")" +
+                " prevGrounded=" + snap.PreviouslyGrounded +
+                " retryWindow=" + snap.WithinRetryWindow +
+                " lostSupportAge=" + snap.LostSupportAge.ToString("F5") +
+                " hIntent=" + snap.HasHorizontalIntent +
+                " preY=" + snap.PreAssistVerticalVelocity.ToString("F5") +
+                " queryHit=" + snap.QueryHit +
+                " queryDist=" + snap.QueryDistance.ToString("F5") +
+                " slopeOk=" + snap.SlopeGateOk +
+                " assistApplied=" + snap.AssistApplied +
+                " requestedDY=" + requestedDeltaY.ToString("F5") +
+                " actualDY=" + actualDeltaY.ToString("F5") +
+                " pelvisY=" + pelvisOffsetY.ToString("F5") +
+                " postGrounded=" + characterController.isGrounded);
+        }
+#endif
 
         /// <summary>
         /// 只執行朝向、垂直重力、grounded 同步與 CharacterController collision，不施加

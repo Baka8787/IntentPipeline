@@ -7,7 +7,7 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
-> # 🔵 2026-09-23（一，續）— **Near-Floor Following 研究輪**：Spike 已跑，⛔ 未實作未裁決
+> # 🔵 2026-09-23（一，續）— **Near-Floor Following 研究輪**：Q8 三輪 Play 迭代，有意義改善、未完全通過
 >
 > 📖 正本：`docs/42-near-floor-following-step-down-study.md`。索引：`docs/00-map.md`。
 >
@@ -49,6 +49,32 @@
 > **Q3／Q7 已無阻斷，剩下的唯一技術性阻斷項是 Q8**（Query→Apply 對真實樓梯的貼齊平滑度——
 > `CharacterController.Move()` 不認 preview scene 隔離物理，驗不到，需要 Play Mode 或真實場景）。
 > Q4／Q5／Q6 都是可以留到 prototype 之後再談的次要問題，不擋進度。
+>
+> ## Q8：Play Mode Prototype 三輪迭代（`docs/42` §7，正本）
+>
+> `MotionDriver` 新增預設關閉、局部可撤銷的實驗開關（`enableStepDownAssistPrototype`），
+> 用真實場景樓梯 + Console log（`unity cmd console --tail 3000` 撈、grep `[StepDownAssist]`、
+> 統計連續失地時長分布）量測。三輪：
+>
+> 1. **`queryDist` 鎖死在 skin width**——Query 膠囊跟 `characterController` 同形狀同位置往下
+>    cast，第一個命中的是**自己**。改用 `Physics.CapsuleCastNonAlloc` 過濾自身階層修復。
+> 2. **修完自碰撞後樓梯每階仍週期性掉出 3–4 幀**——Query 從「移動前」位置直探，越過階緣時
+>    正下方是立面（slope gate 擋）或完全落空。改成 Query 起點加上本幀水平位移（呼應 UE
+>    `MoveAlongFloor` 先套水平再找地板）。**同時發現 Gate①（上一幀是否 grounded）單幀記憶
+>    會永久鎖死**——一旦被某幀 slope gate 誤判擋下就再也不重試，量到比沒裝 assist 還糟的
+>    42 幀掉出（0.7s）。
+> 3. **Gate①改成短時間重試窗口**（`stepDownRetryWindow` 0.08s，🔬 實驗值，獨立欄位不共用
+>    `fallEntryGrace`／`groundEdgeEventGrace`）。用新增的 `lostSupportAge` 欄位驗證重試期間
+>    確實每幀重新查詢、不是假等待。三輪掉出時長分布：3–6 幀 → 混雜 8 次 11–42 幀長掉出 →
+>    收斂 1–4 幀為主（唯一 62 幀離群值查證是真實主動跳躍，`preY=+5.51`，Gate③正確排除）。
+>
+> **Q8 結論**：有意義改善、尚未完全通過——樓梯掉出從「每階完整彈道落下 0.1–0.3s」收斂到
+> 「轉角處 1–4 幀短暫重試（16–66ms）」，使用者體感：「有優化但還有問題，但情況比上樓好了」，
+> 與數據方向一致。**上樓抖動是完全不同機制**（`stepOffset` 一幀內位置跳變，非重力/grounded
+> 問題），獨立記錄，本輪刻意不修。
+>
+> **下一步待裁決**：要不要繼續壓縮殘餘的 1–4 幀重試，或先暫停轉去討論正式接線與 tuning；
+> 上樓抖動需要另開研究。
 >
 > ---
 
