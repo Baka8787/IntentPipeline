@@ -7,7 +7,29 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
-> # 🟢 2026-09-23（一，續三）— **上樓抖動量測完成：H3 成立（root 雜訊＋IK 放大）**
+> # 🟢 2026-09-23（一，續四）— **上樓抖動：與 Codex 討論修法方向，⛔ 未裁決**
+>
+> 📖 正本：`docs/43` §3。
+>
+> 使用者要求先跟 Codex 討論再回報。**建議方向：「分層 ramp collider」＋「Pelvis 支撐語意重構」
+> 並行**：
+> 1. CharacterController 只碰撞一個平滑 ramp（樓梯移動用）——從源頭消除 `stepOffset` 逐幀
+>    雜訊，不需要角色一階一階解算。
+> 2. 樓梯視覺階梯的碰撞體移到獨立 layer（Player 忽略、Foot IK `GroundLayers` 仍查得到）——
+>    保留逐階精確度，腳還是會對齊到真正的踏面，不是隱形斜坡。
+> 3. Pelvis 補償的真正斷點在呼叫端 `ikAllowed && left.HasHit && right.HasHit ? ... : 0f`，
+>    混了「查到候選面」／「是不是支撐腳」／「套用多少 IK」三件事，需要重構成「有效支撐集合」
+>    的資料模型（公式待下一輪設計）。
+>
+> Presentation Reconciliation（視覺／物理 root 解耦）**降為保險層**，只有樓梯無法／不便追加
+> ramp collider 時才補；若採用**不能是裸 `SmoothDamp`**（那會違反 `docs/29` §I「不准 fade
+> 掩蓋斷點」的既有裁決），要做成有界、可追溯的 correction channel（細節記在 `docs/43` §3.4）。
+>
+> **下一步待使用者裁決**：①是否核准分層 ramp 當樓梯新 authoring 慣例（需新增專用 layer、調
+> Layer Collision Matrix、為 4 個樓梯物件各加 ramp collider，屬資產改動，走 Editor API，
+> 仍需先問）；②Pelvis 支撐語意公式需要一輪設計；③若核准，先做一道樓梯 prototype 驗證。
+>
+> ---
 >
 > 📖 正本：`docs/43` §2。
 >

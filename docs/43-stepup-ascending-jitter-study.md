@@ -14,7 +14,9 @@
 >
 > 🔄 **2026-09-23 第一輪 Play 量測已完成（§2）：H3 成立（root 雜訊＋Foot IK 放大，兩層疊加，
 > 有明確上下游關係），且發現上樓跟下樓是不同失效模式——`IsGrounded` 全程不閃**。
-> ⛔ 尚未提出修法，下一輪再談方向。
+> 🔄 **續：已與 Codex 討論修法方向（§3）**——建議優先方向是「分層 ramp collider（移動用 ramp，
+> Foot IK 查詢用原本階梯幾何）＋ Pelvis 支撐語意重構」並行，Presentation Reconciliation
+> （視覺/物理 root 解耦）降為保險層。⛔ **仍是提案，未實作、未裁決是否採用。**
 
 ---
 
@@ -106,11 +108,77 @@ ComputePelvisOffset` 的既有邏輯：`pelvisTarget` 只有在**兩隻腳都有
 
 ---
 
-## 3. 下一步（尚未裁決）
+## 3. 修法方向討論（與 Codex 對照，2026-09-23，⛔ 仍是提案，未實作未裁決）
 
-量測完成，**尚未提出修法**（使用者裁決：先確認根因再談怎麼修）。可能的方向留待下一輪討論，
-不在本輪展開：
-- 是否要在 `stepOffset` 的解算之外，對「本幀究竟要頂多高」做一層自己的平滑（呼應 `docs/42`
-  下樓那套 Query→Apply 的精神，但方向相反：上樓已經有 `stepOffset` 保底不掉出去，缺的是平滑）。
-- 或者只處理下游（Foot IK／骨盆的權重平滑速率、或雙腳命中門檻的判定方式），不動 root。
-- 或者兩者都要——但**這是下一輪的討論**，本輪只交付量測結論。
+使用者要求先跟 Codex 討論修法方向再回報。Codex 讀過 `MotionDriver.ExecuteBaseMovement` 與
+`FootIKController.ComputePelvisOffset`／`ResolveFoot` 後給出獨立判斷，與我自己查到的候選方向
+交叉比對如下。
+
+### 3.1 四個候選方向
+
+| # | 方向 | Codex 判斷 | 排序 |
+|---|---|---|---|
+| **B（分層版）** | **CharacterController 只碰撞平滑 ramp；樓梯視覺階梯的碰撞體改到獨立 layer，Player 忽略、但 Foot IK 的 `GroundLayers` 仍查得到** | 從源頭消除 `stepOffset` 雜訊，同時保留逐階 Foot IK 精確度——**最推薦** | 1 |
+| **Pelvis 雙腳命中門檻重構** | 真正的斷點不在 `ComputePelvisOffset`（本身連續），在呼叫端的三元運算式 `ikAllowed && left.HasHit && right.HasHit ? ComputePelvisOffset(...) : 0f`——混了「查到候選面」「是不是支撐腳」「套用多少 IK」三件事 | 應與方向一起做，但**單獨做治不了 root 的雜訊**，不能單獨結案 | 與 1 並行 |
+| **A（Presentation Reconciliation）** | 物理 root 保持唯一權威；量出 `solverCorrectionY = actualDY − requestedDY`，грounded／有效 locomotion／正向修正時把這筆量存進一個**有界、連續歸零**的 Presentation-only Y offset，而不是直接對輸出做 `SmoothDamp`（那才是真的在掩蓋斷點）——**全部位移最終都會被完整呈現，只是重新安排呈現的時間**，不是丟掉或降權重 | 次選／保險層，**不建議單獨當主修法**：無法要求關卡提供 ramp 時才用 | 2（保險層，非主修） |
+| B（同 layer） | CharacterController 與 Foot IK 共用同一個 ramp collider | Foot IK 會把腳對齊到隱形斜坡、跟視覺踏面不符 | ⛔ 不建議 |
+| 自製 step-up solver（停用內建 `stepOffset`，仿照下樓的 Query→Apply） | 角色要先跨過垂直立面，膠囊得先升高或沿虛擬坡面上升——本質上等於「runtime 生成 ramp」，且要另外防跟內建 depenetration／grounding 互相干擾 | 通用性最高但複雜度／風險也最高，**除非目標是「任意樓梯零額外 authoring」，否則不列優先** | 4 |
+| 調 `skinWidth`／`minMoveDistance`／切多段 Move | 可能改變雜訊量級，但不保證連續性 | 只適合當敏感度實驗，不是正式設計 | ⛔ 不建議 |
+
+### 3.2 為什麼「分層 ramp」不算掩蓋，是分工
+
+Codex 的論點：這不是平滑遮掩，是把「locomotion support surface」（角色碰撞需要的可行走面）與
+「presentation contact surface」（腳部呈現需要的視覺接觸面）**明確分工**——兩者本來就不一定該是
+同一份幾何。與 `docs/29` §I 那次「不准 fade 掩蓋斷點」的裁決不衝突：那次反對的是「保留一個
+錯誤的目標、只降低它的影響」；分層 ramp 是從根本上讓 `stepOffset` 不再需要處理離散台階，
+上游訊號本身就不再有雜訊，不是在下游遮住一個仍然存在的斷點。
+
+代價：**關卡 authoring 契約變重**——每道樓梯需要「一個 ramp collider 供移動用」＋「保留原本階梯
+幾何供 Foot IK query 用」，且需要新增一個「Player 不碰撞、但 Foot IK 查得到」的專用 layer
+（`docs/42` §6.5.2 已查證本專案目前只用了 8 個 layer 中的 7 個，還有空位；但目前 Physics Layer
+Collision Matrix 是全開的，需要顯式停用 Player↔此新 layer 的碰撞）。
+
+### 3.3 Pelvis 門檻的正確修法方向（非「任一腳命中就算」）
+
+Codex 特別提醒：不能直接改成 `left.HasHit || right.HasHit`——`HasHit` 不代表「這隻腳是支撐腳」，
+擺盪腳前方新踏面的候選命中也會是 `HasHit=true`。理想的資料模型是「有效支撐集合」：
+- 兩隻都是有效支撐 ⇒ 取兩者較低的 surface（現行邏輯，不變）；
+- 只有一隻是有效支撐 ⇒ 由那隻腳單獨決定 pelvis；
+- 沒有支撐腳／進入 airborne ⇒ 回到 neutral（這才是合理的模式切換，不是「掉到 0 忍著」）。
+
+但「有效支撐」需要 foot-contact／foot-phase 語意，本輪未定案怎麼組（pose height／IK eligibility／
+命中狀態的組合公式留待下一輪設計）。
+
+### 3.4 若走 Presentation Reconciliation（方向 A）的實作邊界（若未來需要保險層時參考）
+
+Codex 給的具體分工，記錄供未來參考，**本輪不實作**：
+- 物理 root：碰撞、gameplay 座標、狀態、移動權威，唯一不變。
+- Presentation root：Animator／模型／相機跟隨 anchor／視覺 Y offset，才是被 reconcile 的對象。
+- X/Z 與 yaw 精確跟隨物理 root，只有 Y 被時間平滑。
+- Foot IK 的 ray 仍查 world-space 真實踏面（不受影響）；但 pose-relative weight 與 pelvis 用的
+  `rootY` 必須改用 **presentation root Y**，不能繼續混用 physics root Y。
+- 視覺 offset 必須在 `OnAnimatorIK` 解算**之前**生效，不能等到 LateUpdate 才搬模型（否則 IK 解完
+  又被整副骨架的位移蓋掉，腳會再次偏離 world-space target）。
+- 必須有**最大視覺落後量上限**，以及跳躍／傳送／traversal／失地／移動平台切換時的明確 reset
+  policy——否則高速連續爬多階時 offset 會累積，造成模型落後 collider。
+
+### 3.5 目前合適的方向（本輪結論，⛔ 仍待使用者裁決是否採用）
+
+**依 Codex 判斷＋我方複核：優先方向是「分層 ramp（B 的分層版）＋ Pelvis 支撐語意重構」兩者並行**，
+理由：
+1. 直接消除上游雜訊來源（root 本身），不是在下游加平滑掩蓋一個仍在跳動的訊號。
+2. Pelvis 門檻重構本來就該做——現行的「雙腳都命中才算」邏輯本身混淆了三件事，不管有沒有
+   ramp 都是一個獨立的資料構造缺陷。
+3. 兩者都符合 `docs/29` §I 既有裁決的精神（修斷點本身，不加 fade）。
+4. Presentation Reconciliation（方向 A）留作**保險層**——只有在某些樓梯無法／不便追加 ramp
+   collider時才補這一層，不當主修法先做（複雜度與風險都更高：有界回收速率、reset policy、
+   presentation/physics root 分離會牽動 Foot IK 與相機兩處消費者）。
+
+**下一步待使用者裁決**：
+1. 是否核准「分層 ramp」作為樓梯的新 authoring 慣例（需要新增一個專用 layer、調整 Layer
+   Collision Matrix、為現有 4 個樓梯物件各加一個 ramp collider——資產改動，走 Unity Editor API，
+   屬於 CLAUDE.md「Unity Asset Authoring」§小範圍可逆的範疇，但仍需先問）。
+2. Pelvis 支撐語意的具體公式（pose height／IK eligibility／命中狀態怎麼組合）需要一輪設計，
+   不是本文件的範圍。
+3. 若核准，建議先做一道樓梯當 prototype 驗證，比照 `docs/42` 的量測方法論（Console log
+   逐幀比對），再決定要不要推廣到其餘樓梯。
