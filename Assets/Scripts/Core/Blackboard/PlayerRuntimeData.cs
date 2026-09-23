@@ -136,12 +136,19 @@ namespace Project.Core.Blackboard
         /// 讀取者：PresentationPipeline 的各 Controller（M2 首個消費者：AudioController 落地音）。
         /// 生命週期：順序 6（MotionDriver 生）→ 6.5（Presentation 消費）→ 7（ResetTransientState 死）。
         /// 統一復位屬生命週期管理，不視為第二寫入者。
+        ///
+        /// <para><b>🔄 2026-09-23：不再是無去抖動的純邊沿偵測。</b></para>
+        /// 套用 <c>MotionDriver.groundEdgeEventGrace</c>（預設 0.1s）：<c>IsGrounded</c> 本身仍是
+        /// 每幀原始值（不受影響），但這兩個**事件**只在 grounded 狀態連續變化達 grace 之後才觸發一次。
+        /// 修的是「下樓梯高頻率觸發落地聲」——樓梯單階自由落體時間本來就會讓原始 <c>isGrounded</c>
+        /// 每階閃爍。細節見 <c>MotionDriver.TrackGroundStateDivergence</c>／<c>ShouldConfirmGroundStateChange</c>。
         /// </summary>
         public bool JustLanded;
 
         /// <summary>
         /// 單幀事件：本影格剛離地（上一影格觸地 → 本影格空中）。寫入者與生命週期同 JustLanded。
-        /// M2 尚無消費者，與 JustLanded 成對維護，保持邊沿語義完整。
+        /// 與 JustLanded 成對維護，保持邊沿語義完整；消費者：AudioController（JumpTakeoff，已知近似——
+        /// 走下平台邊緣也會觸發，見該檔說明）。🔄 2026-09-23：同樣套用 groundEdgeEventGrace，見上方 JustLanded 說明。
         /// </summary>
         public bool JustLeftGround;
 

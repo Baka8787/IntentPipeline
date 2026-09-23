@@ -126,7 +126,7 @@ flowchart TD
 stateDiagram-v2
     [*] --> Grounded
     Grounded --> Windup : JumpRequested 且 IsGrounded
-    Grounded --> Falling : 連續離地 ≥ fallEntryGrace(0.1s)<br/>（_enterAsFall，**不注入初速**）
+    Grounded --> Falling : 連續離地 ≥ fallEntryGrace(🔄 0.35s，2026-09-23 調高)<br/>（_enterAsFall，**不注入初速**）
     Windup --> Airborne : _stageElapsedTime ≥ AutoTakeoffDelay<br/>⇒ ApplyJumpLaunch
     Airborne --> Falling : 重建的 v_y ≤ 0（**物理條件，不是播完**）
     Airborne --> Airborne : 空中再按跳（_jumpIndex++，需 _stageCount > 1）
@@ -273,7 +273,7 @@ Stages[0].Bake = Bake_Jump_place_ALL_short
 HeightMultiplier = 1    GravityMultiplier = 1    LaunchVelocityMultiplier = 1
 movementIntentThreshold = 0.20      runIntentThreshold = 0.75
 hardLandingSpeed = 8.0              landFallbackDuration = 0.10
-fallEntryGrace = 0.10
+fallEntryGrace = 0.35   🔄 2026-09-23（原 0.10，見附錄 B 註）
 ```
 
 `Bake_Jump_place_ALL_short.asset`（實測）：
@@ -544,6 +544,14 @@ Jump(3)  CanBeInterruptedBy = [Hurt(8), Death(7)]
 ```
 
 ```
+❌ fallEntryGrace 是唯一過濾 isGrounded 抖動的地方
+✅ 🆕（2026-09-23）MotionDriver.groundEdgeEventGrace 是**另一道**獨立的 grace，
+   只過濾 JustLanded／JustLeftGround 這兩個表現層事件（Landing／JumpTakeoff 音效）。
+   兩者語意同源（都在過濾「樓梯／碎步造成的 isGrounded 抖動」）但刻意不共用同一個欄位——
+   Motion 層不反向依賴 StateMachine.States 的實作細節。IsGrounded 本身不受這道 grace 影響。
+```
+
+```
 ❌ HardRecovery 是「等落地動畫播完」
 ✅ 是 gameplay phase，由 JumpState 自己計時。動畫只負責表現它
    鎖定的方式是「不消費水平輸出」，⛔ 不是清空 MoveDirection
@@ -568,7 +576,7 @@ Jump(3)  CanBeInterruptedBy = [Hurt(8), Death(7)]
 | 5 | 起跳瞬間角色「先飛再蹲」 | — | `AutoTakeoffDelay = 0` ⇒ **bake 沒烘到前搖**，或走了 fallback（前搖 0s） |
 | 6 | `_animationPhase` 停在 `Start` | 應在約 0.42 s 切 Falling | 不切 ⇒ `gravity ≤ 0`（`ShouldEnterFalling` 的守衛直接 return false） |
 | 7 | 起跳當幀就落地 | — | `_airborneTimer` 保護失效（正常是 0.15 s） |
-| 8 | 走下小台階就進 Falling | — | `fallEntryGrace (0.1 s)` 太短，或地形 collider 讓 `isGrounded` 抖動 |
+| 8 | 走下小台階就進 Falling | — | `fallEntryGrace` 太短，或地形 collider 讓 `isGrounded` 抖動。🔄 **2026-09-23 實例**：使用者回報下樓梯高頻率觸發落地聲＋反覆進 Falling，Console 實測樓梯 passive-fall 連續離地多數 0.02–0.21s（總離地含 grace 最長 ≈0.306s）——X Bot 的 `JumpStateParams.fallEntryGrace` 已由 0.1s 調高到 **0.35s**（留安全margin，仍遠低於真實跳躍滯空 ≈0.67s，不影響主動跳躍資格判定） |
 | 9 | 空中一直跳 | 只能跳 `Stages.Count` 段 | 🔴 `_isVelocityInjected` 或 `_enteredFromFall` 失效 |
 | 10 | 落地後卡住不能動 | `NormalStop` 應可被移動意圖提前結束 | 卡住 ⇒ 看是不是 `NormalContinue`／`HardRecovery`（**這兩個刻意不接受提前結束**），或 `_landDuration` 取到了很長的 bake duration |
 | 11 | 空中被打沒反應 | 應進 Hurt | 查 config 的 `Jump.CanBeInterruptedBy`（現況已含 Hurt/Death，見 §I） |
@@ -624,7 +632,7 @@ Jump(3)  CanBeInterruptedBy = [Hurt(8), Death(7)]
 | | `runIntentThreshold` | 0.75 |
 | | `hardLandingSpeed` | 8.0 m/s |
 | | `landFallbackDuration` | 0.10 s |
-| | `fallEntryGrace` | 0.10 s |
+| | `fallEntryGrace` | **0.35 s**（🔄 2026-09-23 調高，原 `DefaultFallEntryGrace` 0.10 s；下樓梯實測 passive-fall 連續離地最長 ≈0.306s，見下方使用者回報段） |
 | `JumpState`（常數） | `MinAirborneTimeBeforeLandingCheck` | 0.15 s |
 | | fallback 初速／重力 | 7.5 m/s／9.81 m/s² |
 | `MotionDriver`（X Bot） | `gravity` | −9.81 |

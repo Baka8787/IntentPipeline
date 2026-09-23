@@ -161,6 +161,14 @@ namespace Project.Presentation.Motion
         [SerializeField] private float gravity = -9.81f;
         [SerializeField] private float reboundForce = -2f; // 踩在地面時的固定貼地力
 
+        [Tooltip("JustLanded／JustLeftGround 兩個單幀事件套用的最短連續變化時間，過濾樓梯／碎步造成的 " +
+                 "characterController.isGrounded 抖動（實測樓梯級高 0.195m 的自由落體時間 ≈0.199s，" +
+                 "本來就會每階閃爍一次原始訊號）。⚠️ 只影響這兩個事件，不影響 IsGrounded 本身——" +
+                 "docs/38 §13 的裁決（不得為 IsGrounded 加否決層）維持不變。" +
+                 "語意呼應 JumpStateParams.FallEntryGrace（同一類地形抖動的 FSM 側過濾），" +
+                 "獨立成欄位是因為 Motion 層不應反向依賴 StateMachine.States 的實作細節。")]
+        [SerializeField, Min(0f)] private float groundEdgeEventGrace = 0.1f;
+
         [Header("Facing Execution")]
         // 朝向方向與「本幀該不該轉」都由 CharacterFacingSource 決定；此處只保留執行速率。
         [SerializeField, Min(0f)] private float aimFacingTurnSpeed = 10f;
@@ -268,9 +276,16 @@ namespace Project.Presentation.Motion
         private int _gravityFrame = -1;
         private Vector3 _cachedGravity;
 
-        // 🆕（M2）上一影格的觸地狀態，供 SyncGroundedState 做落地/離地邊沿偵測
+        // 🆕（M2）上一次**已確認回報**的觸地狀態，供 SyncGroundedState 做落地/離地邊沿偵測
         // （JustLanded / JustLeftGround 的唯一觸發源比較基準）。
+        // 🔄 2026-09-23：只在 groundEdgeEventGrace 過濾後才更新（見 ShouldConfirmGroundStateChange），
+        // 不再是「上一幀原始 isGrounded」——樓梯抖動期間它會保持不變，直到分歧持續夠久才追上。
         private bool _wasGrounded;
+
+        // 🆕 2026-09-23：本幀 grounded 與 _wasGrounded 分歧的起始時刻快照（-1 代表目前一致）。
+        // 與 JumpState._ungroundedSince 同一模式（見該檔 TrackUngroundedSince 的說明），
+        // 獨立持有狀態而非直接引用——Motion 層不得反向依賴 StateMachine.States 的實作細節。
+        private float _groundDivergingSince = -1f;
 
         private bool _traversalCollisionProfileActive;
         private Vector3 _traversalOriginalCenter;
@@ -2338,14 +2353,63 @@ namespace Project.Presentation.Motion
             //    抖動變成單向事件流（只離地、不落地），比兩邊都報還難追。
             bool suppressGroundEdges = HasActiveTraversalPlan;
 
-            data.JustLanded = !_wasGrounded && grounded && !suppressGroundEdges;
-            data.JustLeftGround = _wasGrounded && !grounded && !suppressGroundEdges;
+            // 🆕 2026-09-23：JustLanded／JustLeftGround 加入 groundEdgeEventGrace 過濾。
+            //
+            // 真實 bug（使用者回報「下樓梯高頻率觸發落地聲」）：場景樓梯實測級高 0.195m，
+            // 純重力自由落體到下一階需 ≈0.199s——`characterController.isGrounded` 因此
+            // 本來就會每一階閃爍一次原始訊號，而 JustLanded／JustLeftGround 原本是無去抖動的
+            // 純邊沿偵測 ⇒ 每階各報一次「落地」與「離地」，分別灌爆 Landing 與 JumpTakeoff 音效。
+            //
+            // ⚠️ 只延遲這兩個**事件**的確認，`data.IsGrounded` 下方仍照舊寫入本幀原始值——
+            //    Foot IK／腳步偵測的閘門與 docs/38 §13 的裁決（不得為 IsGrounded 加否決層）不受影響。
+            //
+            // 已知取捨：主動跳躍離地也會被同一道 grace 延遲最多 groundEdgeEventGrace 秒才發
+            // JustLeftGround（進而延遲 JumpTakeoff 音效）。JustLeftGround／JumpTakeoff 的對應
+            // 本來就是已知近似（AudioController 註解：走下平台邊緣也會誤觸），可接受的延遲換掉樓梯噪音。
+            float now = Time.time;
+            _groundDivergingSince = TrackGroundStateDivergence(grounded, _wasGrounded, _groundDivergingSince, now);
+
+            if (ShouldConfirmGroundStateChange(_groundDivergingSince, now, groundEdgeEventGrace))
+            {
+                data.JustLanded = grounded && !_wasGrounded && !suppressGroundEdges;
+                data.JustLeftGround = !grounded && _wasGrounded && !suppressGroundEdges;
+                _wasGrounded = grounded;
+                _groundDivergingSince = -1f;
+            }
+            else
+            {
+                data.JustLanded = false;
+                data.JustLeftGround = false;
+            }
+
             data.IsGrounded = grounded;
-            _wasGrounded = grounded;
 
             // 必須在 reboundForce 貼地夾持前發布；否則落地幀的 impact velocity 會被銷毀，
             // 所有落地都只會拿到貼地力並被誤分為 Normal。
             data.VerticalVelocity = _verticalVelocity;
+        }
+
+        /// <summary>
+        /// 追蹤本幀 grounded 與「上次已確認回報」的 grounded 是否持續分歧；供 JustLanded／
+        /// JustLeftGround 的 groundEdgeEventGrace 過濾使用。回傳「本次分歧從何時開始」的快照
+        /// （負值代表目前一致、沒有待確認的分歧）。同一段分歧被重複詢問只鎖存第一次 now——
+        /// 語意與 JumpState.TrackUngroundedSince 相同（該檔的說明同樣適用於此）。
+        /// </summary>
+        internal static float TrackGroundStateDivergence(
+            bool grounded, bool reportedGrounded, float divergingSince, float now)
+        {
+            if (grounded == reportedGrounded) return -1f;
+            return divergingSince >= 0f ? divergingSince : now;
+        }
+
+        /// <summary>
+        /// 分歧是否已持續達 grace，可以確認為一次真實的 JustLanded／JustLeftGround。
+        /// 只過濾地形造成的 isGrounded 抖動，不是 Coyote Time——期間不放寬任何遊戲性資格。
+        /// </summary>
+        internal static bool ShouldConfirmGroundStateChange(float divergingSince, float now, float grace)
+        {
+            if (divergingSince < 0f) return false;
+            return now - divergingSince >= Mathf.Max(0f, grace);
         }
 
         private static bool IsFinite(Vector3 value) =>

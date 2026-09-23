@@ -72,3 +72,4 @@ MonoBehaviour:
   runIntentThreshold: 0.75
   hardLandingSpeed: 8
   landFallbackDuration: 0.1
+  fallEntryGrace: 0.35

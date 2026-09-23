@@ -7,6 +7,64 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🟡 2026-09-23（一）— **下樓梯高頻率落地聲**：音效與 FSM 兩層都已修，⛔ 未經 Play 驗收
+>
+> 📖 根因與修法見 `docs/31` §C（stateDiagram）／§G／附錄 B（authored 值）／debug 表 #8，
+> 與 `docs/02` §1.1 `JustLanded / JustLeftGround` 列。
+>
+> ## 使用者回報（分兩輪）
+>
+> 1. 測試 Foot IK 時發現下樓梯會高頻率觸發落地聲或腳步聲，疑似反覆進入掉落動畫。
+> 2. Direction A 落地後回報：「還是會出現下落但沒聲音了，但是我需要的是正常下樓狀態」
+>    ⇒ 音效已修好，但 FSM 仍會反覆進 Falling 動畫，需要進一步處理。
+>
+> ## 根因（兩層同源，同一套 grace 過濾模式分別補齊）
+>
+> 場景樓梯實測級高 0.195m，純重力自由落體到下一階 ≈0.199s——`characterController.isGrounded`
+> 本來就會每一階閃爍一次原始訊號。
+>
+> - **音效層**：`data.JustLanded`／`JustLeftGround`（[MotionDriver.cs:2321](Assets/Scripts/Presentation/Motion/MotionDriver.cs:2321)
+>   的 `SyncGroundedState`）原本是無去抖動的純邊沿偵測，直接驅動 `AudioController` 的
+>   Landing／JumpTakeoff 音效，每階都各響一次。
+> - **FSM 層**：`JumpState.fallEntryGrace` 雖然機制上就是為了過濾這類抖動而存在
+>   （`docs/31` debug 表 #8 早就預告這個症狀），但 X Bot 的 `JumpStateParams.asset`
+>   從未序列化這個欄位 ⇒ 吃 `DefaultFallEntryGrace = 0.1s`，而 Console 實測（2026-09-22
+>   場次）樓梯 passive-fall 連續離地多數 0.02–0.21s、總離地（含 grace）最長 ≈0.306s——
+>   0.1s 遠不夠，於是幾乎每階都真的判定為一次「非主動 Falling」。
+>
+> ## 已做
+>
+> **Direction A（音效層）**：新增 `MotionDriver.groundEdgeEventGrace`（預設 0.1s，獨立欄位，
+> 不共用 `JumpStateParams`——Motion 層不反向依賴 StateMachine.States）。`data.IsGrounded`
+> 完全不動（仍每幀原始值，`docs/38` §13 裁決不受影響）；只有 `JustLanded`／`JustLeftGround`
+> 這兩個事件延遲到 grounded 狀態連續變化達 grace 才確認觸發。新增純函數
+> `TrackGroundStateDivergence`／`ShouldConfirmGroundStateChange`（同 `JumpState.TrackUngroundedSince`
+> 模式）＋ EditMode 測試 `Assets/_Project/Tests/EditMode/GroundEdgeEventTests.cs`（8 條）。
+>
+> **FSM 層（使用者確認需要後追加）**：透過 `unity cmd set_serialized_field`（Editor API，非手改
+> YAML）把 X Bot `Assets/ScriptableObjects/StateMachine/JumpStateParams.asset` 的
+> `fallEntryGrace` 由（隱含的）0.1s 顯式調到 **0.35s**——依 Console 實測最大值 0.306s 留安全
+> margin，仍遠低於真實跳躍滯空 ≈0.67s（不影響主動跳躍資格判定，`fallEntryGrace` 本來就不放寬
+> 起跳資格，只延遲非主動 Falling 的判定）。`AssetDatabase.SaveAssets()` 確認已落盤
+> （`git diff` 可見新增一行 `fallEntryGrace: 0.35`）。
+>
+> `dotnet build`（Project.Runtime／Project.Tests.EditMode）與 Unity live Editor `recompile` 皆 0 錯誤。
+> **EditMode 628／627 passed／0 failed／1 skipped**（含新增 8 條全過）。
+>
+> ## ⛔ 尚未做
+>
+> 1. 🔴 **Play 驗收（唯一剩下的缺口）**：`fallEntryGrace 0.35s` 這個數字是從**單次** Console log
+>    樣本（2026-09-22 場次，32 筆進出 Falling 記錄）推導，未必涵蓋所有走位／速度組合
+>    （例如用跑步下樓梯，理論上單階水平位移可能跨 2–3 階，滯空時間可能更長——見 `docs/31`
+>    附錄 B 的 margin 說明）。**需要使用者重新下樓梯（含走與跑）確認手感**。
+> 2. **已知取捨未驗證**：主動跳躍離地時 `JustLeftGround`（→ JumpTakeoff 音效）現在也會被
+>    `groundEdgeEventGrace`（0.1s，音效層，未調整）延遲。理論上可接受（已知近似 + 實際跳躍
+>    滯空遠長於 0.1s），但未經耳朵驗證。
+> 3. **敵人／其他角色未動**：這次只調了 X Bot 的 `JumpStateParams.asset`；`EnemyJumpStateParams.asset`
+>    的 `fallEntryGrace` 維持原值，若敵人也會走樓梯需要另外評估。
+>
+> ---
+
 > # 🏁 2026-09-22（四）— **Climb2m 收尾**：動畫穿模判定為 Accepted Limitation，traversal 可以停了
 >
 > 📖 正本：`docs/40` **§17**（含裁決與重新評估的觸發條件）。
