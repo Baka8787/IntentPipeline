@@ -1,9 +1,10 @@
 # 42 — Near-Floor Following / Step-Down 研究輪（2026-09-23）
 
-> 🔄 **狀態**：研究＋提案（§0–§6）已完成；§7 起是 **Play Mode prototype 三輪迭代量測**——
-> `MotionDriver` 已有一個預設關閉、局部可撤銷的實驗開關（`enableStepDownAssistPrototype`），
-> **尚未升格為正式架構、尚未 tuning、尚未裁決要不要接線**。Q8（真實樓梯貼齊平滑度）結論是
-> 「有意義改善、尚未完全通過」，見 §7.4。
+> 🔄 **狀態**：研究＋提案（§0–§6）已完成；§7 是 **Play Mode prototype 三輪迭代量測**——
+> `MotionDriver` 已有一個預設關閉、局部可撤銷的實驗開關（`enableStepDownAssistPrototype`）；
+> **Q8 已裁決收斂**（有意義改善、不再追加壓低殘餘掉出，見 §7.4）。§8 是**正式接線提案**——
+> 區分已驗證的機制規則（§8.1）與待 tuning 的參數（§8.2），含 regression test 清單（§8.4）；
+> ⛔ **仍只是提案，尚未實作、尚未裁決是否要真的接線**。上樓抖動已拆成獨立研究輪，見另一份文件。
 
 > **這份文件是什麼**：使用者在下樓梯 jitter 排查後明確要求——**不要針對 Stairs 寫特例**，
 > 改參考 Unreal `FindFloor` / `MoveAlongFloor` / `FStepDownResult` 的責任劃分，研究
@@ -435,8 +436,11 @@ frame 859: queryHit=True  slopeOk=True   lostSupportAge=0.036  ← 水平位移�
 
 ⚠️ **使用者體感（2026-09-23）**：「有優化但還有問題，但情況比上樓好了」——量測數據與主觀體感
 方向一致（大幅改善、非完全解決），**Q8 判定為「有意義改善、尚未完全通過」**，還沒到「先調好看」
-的 tuning 階段（`stepDownRetryWindow` 等仍是實驗值）。殘餘的 1–4 幀短暫重試視覺上是否還會被
-察覺、是否需要進一步壓縮，留給下一輪決定要不要繼續迭代。
+的 tuning 階段（`stepDownRetryWindow` 等仍是實驗值）。
+
+> 🔒 **2026-09-23 使用者裁決：Q8 收斂，不再追求把殘餘 1–4 幀掉出壓到 0。**
+> 「暫不實作額外 aggressiveness」——不再迭代降低這個殘餘值，直接把目前 prototype 提煉成
+> 正式接線提案（§8），區分已驗證的機制規則與待 tuning 的參數。
 
 ### 7.5 上樓抖動——獨立記錄，本輪不修
 
@@ -448,14 +452,92 @@ frame 859: queryHit=True  slopeOk=True   lostSupportAge=0.036  ← 水平位移�
 
 ---
 
-## 8. 下一步
+## 8. 正式接線提案（Formal Wiring Proposal，⛔ 提案，尚未實作／裁決）
+
+> 目的：把三輪 prototype 迭代的結果**提煉成可以審查的方案**——區分「已經被量測證明、應該
+> 直接鎖進實作的機制規則」與「數值上還是實驗值、需要獨立 tuning pass 的參數」，並列出正式
+> 落地前應該補上的 regression tests。**本節只是提案，沒有動程式**——現行程式仍是
+> `MotionDriver` 上一個預設關閉的 prototype 開關（§7.0）。
+
+### 8.1 已驗證的機制規則（建議原樣鎖進正式實作）
+
+這些規則每一條都對應一次真實的失敗量測，不是憑空設計：
+
+| # | 規則 | 為什麼是規則，不是可調參數 | 對應證據 |
+|---|---|---|---|
+| R1 | **只掛在 `ExecuteBaseMovement`，絕不碰 `ExecuteVerticalOnlyMovement`** | 這個切分本來就對應 UE 的 Walking／Falling 模式，`DeathState`／`HurtState`／Jump 空中段天生免疫，不需要任何額外判斷 | §6.5.1 讀碼查證 |
+| R2 | **Query 必須是獨立、非提交的 `Physics.Capsule*`，絕不用 `characterController.Move()` 自帶 sweep 當探測** | 單次 Move 下壓在找不到面時會無條件全額提交位移，懸崖邊緣造成單幀瞬移 | §6.1 Spike ①（Editor-only 隔離場景實測） |
+| R3 | **Query 必須用多重命中（`CapsuleCastNonAlloc`）並過濾自身階層** | 單一命中的 `Physics.CapsuleCast` 幾乎必定先打中角色自己的 `CharacterController`（同形狀同位置），`queryDist` 會鎖死在 skin width，永遠看不到真正的地面 | §7.1 第一輪量測 |
+| R4 | **Query 起點必須加上「本幀即將套用的水平位移」，不能從移動前的位置直探** | 越過階緣時正下方不是立面（角度太陡）就是完全落空——下一階踏面在前方，不在正下方 | §7.2 第二輪量測 |
+| R5 | **Walkable gate 必須對齊 `characterController.slopeLimit`** | 查到的面本身太陡（樓梯立面）不該被當成可站的下一階；此規則語意上就該跟角色本身的坡度判準一致，不是獨立參數 | §6.0 使用者裁決 |
+| R6 | **Apply 前必須額外檢查「本幀重力積分出來的垂直分量已 ≤ 0」（符號檢查）** | 只看 grounded 會把 `ApplyJumpLaunch` 剛注入的正向速度直接覆寫成負的，起跳當幀完全跳不起來 | §6.1 Spike ③（Editor-only 實測）＋ §7 三輪 Play 測試皆未再發生 |
+| R7 | **失地後的重試資格必須用「連續失地時間」判斷，不能用「上一幀是否 grounded」的單幀記憶** | 單幀記憶一旦被某幀 slope gate 誤判擋下就永久鎖死，量到比完全沒有 assist 還糟的掉出（42 幀＝0.7s） | §7.2／§7.3 第二、三輪量測 |
+| R8 | **Apply 把垂直分量設成「查到的實際距離」，不是盲設 `maxStepDownDistance`** | 保留原本地面高度差的精確值，不過度修正；平地上等於沒有效果（sweep 本來就會在原地停下） | §6.2 設計原則，三輪量測皆未觀察到平地异常 |
+| R9 | **Query／Apply 完全找不到有效目標時必須是純粹 no-op，直接吃現行彈道重力** | 這是懸崖／主動跳躍現行行為不被破壞的唯一保證；三輪量測的每一次長距離掉出（含 62 幀的真實跳躍）都證實了這條 fallback 邏輯正確 | §6.1 Spike ②＋§7.3 62 幀離群值查證 |
+| R10 | **`LayerMask` 用獨立欄位，不跨模組讀 `FootIKSettings`／`TraversalProbeSettings`** | 專案既有慣例：每個系統各自宣告，即使數值一樣也不共用引用 | §6.5.2 讀碼查證 |
+
+### 8.2 待 Tuning 的參數（數值仍是實驗值，需要獨立 tuning pass）
+
+| 參數 | 目前值 | 為什麼還不能定案 |
+|---|---|---|
+| `maxStepDownDistance` | 0.25m | 只驗證過目前這道樓梯（實測級高 0.195m）；專案內其他樓梯／小台階的級高沒有量過，值可能需要因地形調整，或改成從 `MotionBakeData`／場景量測推導 |
+| `stepDownQueryLayers` | `~0`（Everything） | 對「目前配置」是正確答案（§6.5.2），但**條件是**「專案沒有專用 Ground layer」——這個條件改變（例如以後新增 Ground layer），這個值要跟著重新評估 |
+| `stepDownRetryWindow` | 0.08s | 單一場次、單一樓梯量出來的實驗值；沒有掃過不同速度（Walk／Run）、不同級高的組合；且與 `maxStepDownDistance` 存在耦合（重試預算應該要能覆蓋「一次查詢失敗後，下一次水平位移多遠會重新進入下一階範圍」，這個關係還沒有推導成公式，只是試出一個能用的數字） |
+| 殘餘 1–4 幀短暫重試 | 不追加修正 | 使用者裁決本輪收斂，不繼續往下壓；未來若確認視覺上仍可感知，才重新評估 |
+
+### 8.3 明確排除、本提案不涵蓋的範圍
+
+- **上樓抖動**——不同機制（`stepOffset` 一幀位置跳變），另案研究（見另一份文件）。
+- **敵人是否套用**（Q6）——`MotionDriver` 是共用類別，技術上會自動套用，但要不要是產品決策，留到接線當下再問。
+- **`docs/40` §Q5 步態量測**——與本提案無關，可獨立安排。
+- **prototype 目前的除錯專用程式碼**（`_debugFootIKController` 對 `FootIKController` 的參考、
+  `LogStepDownAssistTrace` 整段）——這些是量測用途，正式接線時必須跟著 prototype 標記一起移除，
+  不得留在正式路徑（Motion 不應長期持有對 Presentation/IK 元件的參考）。
+
+### 8.4 建議的 Regression Tests
+
+正式接線前應該補上的測試，分兩層（沿用本專案既有的「pure function 抽出來給 EditMode 測、
+物理相關的留給 PlayMode」慣例，見 `JumpState.TrackUngroundedSince`／`MotionDriver.TrackGroundStateDivergence`
+先例）：
+
+**EditMode（純函數，可從 gating 邏輯抽出，零物理依賴）**
+
+| 測試 | 驗證什麼 | 對應規則 |
+|---|---|---|
+| `Gate_RejectsWhenAscending` | `finalMovement.y > 0`（如剛注入的跳躍初速）⇒ gate 必須拒絕，不管 grounded 或 retry window 狀態 | R6，**最重要的一條**——直接對應 Spike ③ 的真實 bug |
+| `Gate_RejectsWhenNoHorizontalIntent` | `MoveDirection` 接近零 ⇒ gate 拒絕（保護 edge-standing，docs/38） | Q2 裁決 |
+| `RetryWindow_AcceptsWithinWindow` / `RejectsBeyondWindow` | `lostSupportAge <= stepDownRetryWindow` 的邊界行為 | R7 |
+| `RetryWindow_ResetsWhenGrounded` | `IsGrounded` 為真時 age 歸零、非真時累加 `deltaTime`（同 `GroundEdgeEventTests` 的 `TrackGroundStateDivergence` 測試模式） | R7 |
+| `WalkableGate_RejectsSteeperThanSlopeLimit` / `AcceptsWithinSlopeLimit` | 法線夾角與 `characterController.slopeLimit` 的邊界行為 | R5 |
+
+**PlayMode（需要真實 `CharacterController` 物理，比照 `MotionDriverCommittedMovementPlayModeTests.cs` 先例）**
+
+| 測試 | 驗證什麼 | 對應規則 |
+|---|---|---|
+| `StepDownAssist_WalkingDownStairs_NeverExceedsBallisticThreshold` | 走下已知級高的合成樓梯，逐幀量測單幀 `actualDY`，斷言永遠不超過「未裝 assist 時的彈道極值」——這是「有沒有真的從逐階彈道變連續支撐」的自動化版本，取代人工 Console log 判讀 | 整體目標 |
+| `StepDownAssist_CliffBeyondMaxDistance_FallsNormally` | 懸崖深度超過 `maxStepDownDistance` ⇒ `IsGrounded` 正常變 false、`JustLeftGround`／`fallEntryGrace` 路徑不受影響 | R2／R9 |
+| `StepDownAssist_ActiveJumpLaunch_NotClobbered` | 按下跳躍瞬間的 `VerticalVelocity` 必須等於 `JumpLaunchData` 注入值（不被 assist 覆寫）——**這是保護 Spike ③ 的最終防線** | R6 |
+| `StepDownAssist_SelfCollisionRegression` | 合成場景「角色下方完全沒有地面」時，assist 不得回報命中（防止 R3 那個自碰撞 bug 復發） | R3 |
+| `StepDownAssist_StationaryAtEdge_NoIntervention` | 靜止站在平台邊緣（docs/38 的 edge-standing 案例）數秒，位置與 `IsGrounded` 必須與關閉 assist 時逐位元一致 | Q2／§6.4 |
+| `StepDownAssist_FlatGround_NoOp` | 平地行走時 `actualDY` 與關閉 assist 時一致（sweep 在原地停下，見 R8） | R8 |
+
+**架構回歸**（`ArchitectureRegressionTests.cs`，若正式接線後仍保留任何跨模組參考）：
+確認 `MotionDriver` 沒有新增對 `Presentation/IK` 的持久參考（§8.3 提到的除錯參考必須先移除，
+否則這條會炸）。
+
+---
+
+## 9. 下一步
 
 1. ~~使用者裁決 Q1／Q2~~ ✅ 已裁決（§6.0）。
 2. ~~Q3／Q7 讀碼查證~~ ✅ 已完成（§6.5）。
-3. ~~Q8：Play Mode 驗證~~ ✅ 已完成三輪迭代（§7），**有意義改善、尚未完全通過**。
-4. 若要精確化 §3.4，安排一輪標記步態的 Console 量測（Q5）。
-5. Q6（敵人要不要吃到 assist）是產品決策，不是技術阻斷項，可以留到正式接線時再談。
-6. **上樓抖動**（§7.5）需要另開研究——根因是 `stepOffset` 的一幀位置跳變，不是本文件的範疇。
-7. 是否繼續壓縮殘餘的 1–4 幀短暫重試、或先暫停迭代轉去做正式接線與 tuning 的討論，
-   待使用者下一輪裁決。
-8. 落地後記得：`docs/29`（Foot IK 已知限制表）與 `docs/31`（附錄 B authored 值）需要 fold back。
+3. ~~Q8：Play Mode 驗證~~ ✅ 已完成三輪迭代（§7），**有意義改善、已裁決收斂，不再追加**。
+4. ~~提煉正式接線提案~~ ✅ 已完成（§8）——**提案階段，尚未實作，尚未裁決是否要真的接線**。
+5. 若要精確化 §3.4，安排一輪標記步態的 Console 量測（Q5）。
+6. Q6（敵人要不要吃到 assist）是產品決策，不是技術阻斷項，可以留到接線當下再談。
+7. **上樓抖動**——已另開研究輪，見獨立文件（測 root Y／actual Move delta／stepOffset 觸發／
+   pelvis offset／foot IK weights，先確認是 root 跳變、IK 補償、還是兩者疊加，再決定修法）。
+8. 若使用者裁決要正式接線：依 §8.4 補齊 regression tests、依 §8.3 移除除錯專用程式碼，
+   再考慮要不要把 `enableStepDownAssistPrototype` 開關轉成正式的一直啟用（或保留為可關閉的
+   tunable，待裁決）。落地後記得：`docs/29`（Foot IK 已知限制表）與 `docs/31`（附錄 B authored
+   值）需要 fold back。

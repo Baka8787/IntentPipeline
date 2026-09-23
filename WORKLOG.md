@@ -7,6 +7,31 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🟢 2026-09-23（一，續二）— **Q8 收斂 ＋ 正式接線提案 ＋ 上樓抖動另立研究輪**
+>
+> 📖 正本：`docs/42` §8（正式接線提案）、`docs/43`（上樓抖動研究輪，新檔）。
+>
+> 使用者裁決：Q8 不再追加壓低殘餘 1–4 幀掉出，把三輪 prototype 提煉成正式接線提案——
+> `docs/42` §8.1 列出 **R1–R10 已驗證機制規則**（每條對應一次真實失敗量測，建議原樣鎖進
+> 實作，例如 R6「Apply 前必須檢查本幀垂直分量已 ≤0」直接對應 Spike ③ 的起跳被吃掉 bug）、
+> §8.2 列出 3 個**待 tuning 參數**（`maxStepDownDistance`／`stepDownQueryLayers`／
+> `stepDownRetryWindow`，皆單一場次量出的實驗值）、§8.4 列出 EditMode／PlayMode regression
+> test 清單（最重要：`Gate_RejectsWhenAscending` 與 `StepDownAssist_ActiveJumpLaunch_NotClobbered`，
+> 保護 Spike ③ 的發現）。**本節只是提案，沒有動程式**，`enableStepDownAssistPrototype` 仍是
+> 預設關閉的 prototype 開關。
+>
+> 同時另開 `docs/43` 研究上樓抖動——`MotionDriver` 新增純觀測開關
+> `enableStepUpDiagnosticsPrototype`（與 step-down assist 完全獨立，不寫任何欄位、不影響
+> `finalMovement`），每幀印 `stepOffsetDelta`（`actualDY − requestedDY`，量 `characterController.
+> stepOffset` 內部頂了多少）＋ `pelvisY`／`leftFootW`／`rightFootW`。列了 H1（root 跳變）／
+> H2（IK 補償跟不上）／H3（疊加）三個假說，**尚未量測、尚未提出修法**。
+>
+> `dotnet build` 0 錯誤。**下一步在使用者**：Play Mode 走一輪 Walk 上樓梯（建議關掉
+> `enableStepDownAssistPrototype`，只開 `enableStepUpDiagnosticsPrototype` 避免 log 交錯），
+> 撈 Console log 驗證 H1/H2/H3。
+>
+> ---
+
 > # 🔵 2026-09-23（一，續）— **Near-Floor Following 研究輪**：Q8 三輪 Play 迭代，有意義改善、未完全通過
 >
 > 📖 正本：`docs/42-near-floor-following-step-down-study.md`。索引：`docs/00-map.md`。

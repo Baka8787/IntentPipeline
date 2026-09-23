@@ -195,6 +195,13 @@ namespace Project.Presentation.Motion
                  "這個是運動層的重試預算），且都是各自獨立場次量出來的實驗值。")]
         [SerializeField, Min(0f)] private float stepDownRetryWindow = 0.08f;
 
+        [Header("🔬 Step-Up Diagnostics — READ-ONLY PROTOTYPE（另案研究，2026-09-23）")]
+        [Tooltip("⚠️ 純量測，完全不改變任何行為（不寫 finalMovement，不影響 Move()）。" +
+                 "用來回答上樓抖動的根因：是 characterController.stepOffset 造成的一幀內 root 位置" +
+                 "跳變、還是 Foot IK／骨盆補償的問題、還是兩者疊加。每幀（開著時）印一行，" +
+                 "與 groundEdgeEventGrace／step-down assist 完全獨立，不共用任何邏輯。")]
+        [SerializeField] private bool enableStepUpDiagnosticsPrototype = false;
+
         [Header("Facing Execution")]
         // 朝向方向與「本幀該不該轉」都由 CharacterFacingSource 決定；此處只保留執行速率。
         [SerializeField, Min(0f)] private float aimFacingTurnSpeed = 10f;
@@ -544,6 +551,7 @@ namespace Project.Presentation.Motion
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             Vector3 posBeforeMove = transform.position;
+            Vector3 requestedMovementThisFrame = finalMovement;
 #endif
 
             // 總出口呼叫
@@ -553,6 +561,10 @@ namespace Project.Presentation.Motion
             if (enableStepDownAssistPrototype)
             {
                 LogStepDownAssistTrace(data, in debugSnap, posBeforeMove, transform.position);
+            }
+            if (enableStepUpDiagnosticsPrototype)
+            {
+                LogStepUpDiagnosticsTrace(data, requestedMovementThisFrame, posBeforeMove, transform.position);
             }
 #endif
         }
@@ -703,6 +715,52 @@ namespace Project.Presentation.Motion
                 " requestedDY=" + requestedDeltaY.ToString("F5") +
                 " actualDY=" + actualDeltaY.ToString("F5") +
                 " pelvisY=" + pelvisOffsetY.ToString("F5") +
+                " postGrounded=" + characterController.isGrounded);
+        }
+
+        /// <summary>
+        /// 🔬 READ-ONLY PROTOTYPE 專用（另案研究：上樓抖動）：純觀測，不寫任何欄位、不影響
+        /// `finalMovement`。目的是回答「上樓抖動是 root 一幀跳變、IK 補償、還是兩者疊加」——
+        /// `requestedDY` 是本幀重力積分算出來、實際餵給 `Move()` 的值（grounded 時通常約
+        /// `reboundForce × Time.deltaTime`，量級很小）；`actualDY` 是 `Move()` 真正造成的位移。
+        /// 兩者的落差（`actualDY − requestedDY`）如果是一筆明顯的正值，就是
+        /// `characterController.stepOffset` 內部把角色頂上去的訊號——這個機制完全不經過
+        /// `finalMovement`，我們餵多少requestedDY 都不影響它，純粹是 `Move()` 自己的碰撞解算。
+        /// </summary>
+        private void LogStepUpDiagnosticsTrace(PlayerRuntimeData data, Vector3 requestedMovement,
+            Vector3 posBefore, Vector3 posAfter)
+        {
+            if (!_debugFootIKControllerResolved)
+            {
+                _debugFootIKController = GetComponentInChildren<Project.Presentation.IK.FootIKController>();
+                _debugFootIKControllerResolved = true;
+            }
+
+            float pelvisOffsetY = float.NaN;
+            float leftFootWeight = float.NaN;
+            float rightFootWeight = float.NaN;
+            if (_debugFootIKController != null)
+            {
+                var target = _debugFootIKController.TargetData;
+                pelvisOffsetY = target.PelvisOffsetY;
+                leftFootWeight = target.LeftFootPositionWeight;
+                rightFootWeight = target.RightFootPositionWeight;
+            }
+
+            float requestedDeltaY = requestedMovement.y * Time.deltaTime;
+            float actualDeltaY = posAfter.y - posBefore.y;
+            float stepOffsetDelta = actualDeltaY - requestedDeltaY;
+
+            Debug.Log("[StepUpDiag] frame=" + Time.frameCount +
+                " pos=(" + posAfter.x.ToString("F3") + "," + posAfter.y.ToString("F3") + "," + posAfter.z.ToString("F3") + ")" +
+                " isGrounded=" + data.IsGrounded +
+                " hIntent=" + (data.MoveDirection.sqrMagnitude > 0.001f) +
+                " requestedDY=" + requestedDeltaY.ToString("F5") +
+                " actualDY=" + actualDeltaY.ToString("F5") +
+                " stepOffsetDelta=" + stepOffsetDelta.ToString("F5") +
+                " pelvisY=" + pelvisOffsetY.ToString("F5") +
+                " leftFootW=" + leftFootWeight.ToString("F3") +
+                " rightFootW=" + rightFootWeight.ToString("F3") +
                 " postGrounded=" + characterController.isGrounded);
         }
 #endif
