@@ -7,7 +7,7 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
-> # 🔵 2026-09-23（一，續）— **Near-Floor Following 研究輪**：只研究＋提案，⛔ 未實作未裁決
+> # 🔵 2026-09-23（一，續）— **Near-Floor Following 研究輪**：Spike 已跑，⛔ 未實作未裁決
 >
 > 📖 正本：`docs/42-near-floor-following-step-down-study.md`。索引：`docs/00-map.md`。
 >
@@ -15,10 +15,25 @@
 > `FStepDownResult` 研究 `MotionDriver` 是否缺通用機制。**一句話結論**：`ExecuteBaseMovement`
 > 永遠等同 UE 的 `PhysFalling`（水平垂直同一次 `Move()` 彈道式積分），沒有對應 `PhysWalking`
 > （主動貼地）層——落地聲／Falling 閃爍（已修）與 Foot IK 骨盆抽動（未修）是同一缺口的三個症狀。
-> 最小方案：只動 `ExecuteBaseMovement`，利用 `CharacterController.Move()` 自帶 sweep 給下探
-> 分量一個有界下限；**`ExecuteBaseMovement`／`ExecuteVerticalOnlyMovement` 既有切分剛好對應
-> UE Walking/Falling 模式切換，不需要新掛載點**。留 6 個待裁決問題（`docs/42` §6.3）。
-> **下一步在使用者：決定 Q1（`maxStepDownDistance` 放哪、初值）與 Q2 才能進 prototype。**
+>
+> ## Q1／Q2 使用者裁決
+> `maxStepDownDistance` 放 `MotionDriver` Grounding 設定（不進黑板），prototype 先用
+> 0.22–0.25m；assist 只在「上一幀已 grounded ＋ 本幀有效 horizontal locomotion」時生效，
+> 靜止不介入（保護既有 edge-standing 裁決）。
+>
+> ## Blocking Question 的 Spike 結果（`unity cmd eval_file`，用完即刪）
+> 🔴 **原方案（單次 Move 加無條件下壓分量）被推翻**：Spike 實測懸崖邊緣會被無條件全額
+> 提交下壓距離（單幀瞬移 0.22–0.25m），**不是 probe**。且原本的「只看 grounded」gating
+> 會把主動跳躍的正向速度直接覆寫成負的——起跳當幀完全跳不起來。
+> ⇒ **改為 Query（`Physics.CapsuleCast`，非提交）→ Apply（找到才 Move，找不到完全不介入）
+> 兩段式**，且 Apply 前須額外檢查本幀垂直分量已 ≤ 0（不只看 grounded）。
+> 找不到面時的 fallback 與現行 `reboundForce` 貼地力逐位元一致，不改變懸崖邊緣現有行為。
+> 方法論副產物：`CharacterController.Move()` 不認 `EditorSceneManager.NewPreviewScene()` 的隔離
+> 物理世界，下次要獨立驗證得用 Play Mode 或真實場景幾何。
+>
+> 留 8 個待裁決問題（`docs/42` §6.4，Q1／Q2 已裁決、新增 Q7／Q8）。
+> **下一步在使用者：Q3（與 Dynamic Capsule／Traversal 的交互）跟 Q7（Query 遮罩對齊哪份設定）
+> 需要先查過才能進 prototype；Q8（真實樓梯貼齊平滑度）需要 Play Mode 驗證。**
 >
 > ---
 

@@ -4,6 +4,10 @@
 > 改參考 Unreal `FindFloor` / `MoveAlongFloor` / `FStepDownResult` 的責任劃分，研究
 > `MotionDriver` 是否缺少一個**通用的** near-floor following／step-down 層。
 > 本輪只做兩件事：①**量測**現況缺口，②**提出最小方案**。**不實作、不裁決**。
+> 🔄 **2026-09-23 續**：使用者裁決 Q1／Q2（§6.0）後，對「單次 Move 加下壓分量」提出一個
+> blocking question 並要求先 Spike——**已用 `unity cmd eval_file` 在隔離 preview scene 跑 4 組
+> `CharacterController.Move()` 對照實驗回答（§6.1）：原方案不是 probe，會在懸崖邊緣造成一次性
+> 單幀瞬移，且原本的 gating 條件會吃掉主動跳躍。§6.2 是修正後的 Query→Apply 兩段式方案。**
 >
 > 對應程式：`Assets/Scripts/Presentation/Motion/MotionDriver.cs`
 > （`ExecuteBaseMovement`／`ExecuteVerticalOnlyMovement`／`GetGravityThisFrame`／`SyncGroundedState`）。
@@ -55,9 +59,15 @@ Unity 自己的（DOTS／ECS 實驗性）`com.unity.charactercontroller` 套件�
 （[討論串](https://discussions.unity.com/threads/charactercontroller-and-walking-down-a-stairs.101859/)）
 結論一致：`stepOffset` 的官方語意只涵蓋「往上踩」；下樓的標準 workaround 是**主動加一段下壓位移**
 （"Force player downwards the distance of a step as defined by the character controller"），
-本質上就是簡化版的 UE `AdjustFloorHeight`——**不需要重蓋一整套 UE 分層，只需要在既有的
-`characterController.Move()` sweep 前面多塞一段有界的向下分量**，讓 Unity 自己的碰撞掃描
-「順便」把下一階找到。這比照搬 UE 三層架構要小得多。
+本質上就是簡化版的 UE `AdjustFloorHeight`。
+
+> 🔄 **2026-09-23 修正**：本段原本樂觀地推論「不需要重蓋一整套 UE 分層，只需要在既有的
+> `characterController.Move()` sweep 前面多塞一段有界的向下分量，讓 Unity 自己的碰撞掃描『順便』
+> 把下一階找到」——**這個判斷已被 §6.1 的 Spike 推翻**：`characterController.Move()` 的 sweep 找不到
+> 面時**不會「什麼都不做」，而是無條件把請求的下壓距離全額提交成真實位移**（懸崖邊緣會造成一次性
+> 單幀瞬移）。UE 分成 `FindFloor`（Query）／`AdjustFloorHeight`（Apply）兩段**不是可以省略的架構
+> 潔癖，是必要的**——我們一樣需要一次獨立、非提交式的 `Physics.CapsuleCast` 當 Query 層，
+> 才能安全地只在「查到面」時才提交下壓。見 §6.1／§6.2 的修正版方案。
 
 ---
 
@@ -139,7 +149,7 @@ walk-vs-run 落地事件頻率**——舊 Console log（2026-09-22 場次）沒�
 | `MoveAlongFloor` + `AdjustFloorHeight`（有界貼齊） | `SnapToGround` + `GroundSnappingDistance` | ❌ 沒有——垂直分量只有彈道重力 | **完全缺** |
 | `MaxStepHeight`（上下都用的邊界） | 無對應欄位查到（該套件文件頁未列出） | `characterController.stepOffset = 0.3`，但**只對「往上」有效**（Unity 官方語意＋社群共識） | **有欄位、語意不對稱，不能直接重用** |
 | `PhysWalking` vs `PhysFalling`（模式切換） | 隱含在 `SnapToGround` 開關 | ✅ **意外地已經有對應的方法切換**：`ExecuteBaseMovement`（一般行走）vs `ExecuteVerticalOnlyMovement`（`DeathState`／`HurtState`／Jump 空中段專用，[呼叫點清單](Assets/Scripts/Core/StateMachine/States/JumpState.cs:328)） | **不是缺口，是現成的掛載點**（見 §6） |
-| `FStepDownResult`（避免重複 sweep） | —— | 不適用——我們沒有獨立 Query 層可以重複 sweep | 等 §6 方案定案後才有意義討論 |
+| `FStepDownResult`（避免重複 sweep） | —— | 🔄 **§6.1 Spike 後變成真實顧慮**：Query（`Physics.CapsuleCast`）＋ Apply（`characterController.Move()` 自己的 sweep）現在是兩次獨立的向下探測，同一幀可能重複掃描同一塊地——UE 用 `FStepDownResult` 轉發結果來避免；我們的最小方案第一版先接受這個重複成本（見 §6.4 Q3 的效能角度未列，補在此），要不要做等價的「轉發」留給 prototype 量出實際成本後再決定 | 不是本輪的阻斷項，但不再是「不適用」 |
 
 ---
 
@@ -159,29 +169,75 @@ walk-vs-run 落地事件頻率**——舊 Console log（2026-09-22 場次）沒�
 
 ## 6. 最小方案（提案，⛔ 未實作）
 
-### 6.1 核心構造
+### 6.0 使用者裁決（2026-09-23）
+
+- **Q1**：`maxStepDownDistance` 放 `MotionDriver` 的 Grounding/Movement 設定區（不進黑板）。
+  Prototype 先用 **0.22–0.25m**，以目前樓梯實測 0.195m 為驗證基準，**不視為最終 tuning 值**。
+- **Q2**：靜止不生效。**第一版只在「上一幀已 grounded」且「本幀存在有效 horizontal locomotion」
+  時允許 step-down assist**，避免破壞 `docs/38` 的 edge-standing 裁決。
+
+### 6.1 Blocking Question 的 Spike 結果（2026-09-23，用完即丟，程式已刪）
+
+> 使用者在拍板 Q1／Q2 之後，明確指出 §6.1 原稿（「單次 Move 加下壓分量」）有一個沒驗證的假設：
+> **這個下壓如果在 `maxStepDownDistance` 內找不到面，它到底會不會被真的提交成位移？**
+> 若會，就不是「純 probe」，而是每一幀都在冒著「莫名其妙往下多移動一截」的風險。
+> 這裡用 `unity cmd eval_file` 在一個隔離的 Editor preview scene 裡直接跑 4 組
+> `CharacterController.Move()` 對照實驗回答，不進正式測試套件、跑完即刪。
+
+**直接回答：會，而且是無條件全額提交。**
+
+| 測試 | 設置 | 結果 |
+|---|---|---|
+| **①單次 Move 下壓，懸崖（範圍內完全沒有面）** | 要求下壓 −0.25m，正下方到 −∞都是空的 | `actualDeltaY = −0.25000`（**逐位元等於請求值，全額提交**），`isGrounded` 之後為 `false` |
+| **②Query→Apply，同一個懸崖** | 先用 `PhysicsScene.CapsuleCast`（隔離場景、非全域 `Physics.*`）探 0.25m，沒找到才退回原本的貼地力 `-0.033m`（一幀 `reboundForce` 的量級） | `queryFoundSurface = False` ⇒ 套用 fallback，`actualDeltaY = −0.03300`——**與現行已上線行為逐位元一致，沒有額外下墜** |
+| **③naive 夾值套用在「跳躍起跳」那一幀** | 起跳當幀真實應為 `+0.09427`（向上，`Bake_Jump_place_ALL_short` 初速 5.6564 m/s × dt），若不分方向直接套用「至少 −0.25m」的夾值邏輯 | `actualDeltaY = 0.00000`——**起跳被整個吃掉**，角色停在原地不動，不是變矮或變慢，是完全沒跳 |
+
+**結論**：
+1. **①證實「單次 Move 下壓」不是 probe，是真實位移**——在 `maxStepDownDistance` 找不到面的那一幀，
+   角色會被**無條件**往下移動 0.22–0.25m。這在懸崖邊緣是一次性的視覺瞬移（約 60fps 下相當於單幀
+   13–15 m/s 的下墜速度），比現行「平滑加速的彈道墜落」更突兀，**不能接受**。
+2. **②證實「先查、找到才套用，找不到就退回現行小位移」是安全的**——`queryFoundSurface=False`
+   時退回的 `-0.033m` 與現行 `reboundForce` 貼地力（[MotionDriver.cs:162](Assets/Scripts/Presentation/Motion/MotionDriver.cs:162)＝−2 m/s）在
+   60fps 下的單幀量級完全一致，**逐位元不改變懸崖邊緣的現有行為**。
+3. **③是本輪額外揪出的第二個坑**：§6.1 原稿只寫了「grounded 條件」，沒寫「方向條件」。
+   起跳當幀 `data.IsGrounded`（上一幀）確實還是 `true`（起跳前搖仍在地上），如果 assist 邏輯只檢查
+   grounded、不檢查**這一幀重力積分出來的垂直分量本來是不是已經 ≤ 0**，就會把主動起跳的正向速度
+   直接改寫成負的，等於**讓角色永遠跳不起來**。
+
+⇒ **§6.1 的核心構造從「單次 Move 加下壓分量」改為「Query → Apply 兩段式」，且 Apply 前必須額外檢查
+「本幀重力積分出來的垂直分量已經 ≤ 0」（不只檢查 grounded）。**Unity `CharacterController.Move()`
+把 Query 與 Apply 合一的簡化空間**不成立**——這點推翻了本文件 §2 原本對 UE 「不需要另外寫 Query
+函式」的樂觀判斷，**必須有一次獨立、非提交式的向下 Query**（`Physics.CapsuleCast`，遮罩與
+`FootIKSettings.GroundLayers` 或 `characterController` 自身的碰撞遮罩一致）。
+
+**方法論副產物（記錄避免下次重踩）**：`CharacterController.Move()` 不會查詢
+`EditorSceneManager.NewPreviewScene()` 的隔離 `PhysicsScene`（它似乎只認全域／目前開啟場景的物理
+世界），即使物件本身用 `MoveGameObjectToScene` 放進 preview scene 也一樣。用 preview scene 隔離測
+`CharacterController.Move()`（而非顯式 `PhysicsScene.CapsuleCast`／`Raycast`）**會誤中目前開著的真實
+場景幾何**，得到看似合理但其實是量到別的東西的數字。本輪吃過一次虧（Test 3 的「合理」殘留值後來
+證實是撞到真實場景，不是合成的樓梯平台）。**下次要獨立驗證 `CharacterController.Move()` 對合成幾何
+的反應，只能用 Play Mode 的 `SceneManager.CreateScene(LocalPhysicsMode.Physics3D)`，或直接借用目前
+開著場景裡的真實樓梯（`HideAndDontSave` 臨時角色，不存檔）。**
+
+### 6.2 修訂後的核心構造
 
 在 `ExecuteBaseMovement`（**只有這個方法**，不動 `ExecuteVerticalOnlyMovement`）合併水平/垂直分量
-之前，若滿足：
-- 上一幀 `data.IsGrounded == true`（已經在走，不是剛跳起來／剛被打飛）
+之前，插入一段**兩階段**流程，只有同時滿足才生效：
+1. 上一幀 `data.IsGrounded == true`；
+2. **本幀 horizontal locomotion 有效**（`data.MoveDirection.sqrMagnitude` 不為零，呼應 Q2）；
+3. **本幀 `GetGravityThisFrame` 算出的垂直分量已經 ≤ 0**（不是正在主動起跳／被向上彈飛）。
 
-則把本幀垂直分量的下探距離**夾到至少** `maxStepDownDistance`（新欄位，非重用 `stepOffset`——
-理由見 §6.3 Q1），而不是純粹吃 `GetGravityThisFrame` 算出來的彈道值。之後照舊丟給
-`characterController.Move()`——**利用 `Move()` 自帶的 sweep 幫我們找地面，不需要另外開一次
-`Physics.Raycast` 當 Query 層**。
+三者同時成立才做：
+- **Query**：從目前膠囊位置，用與 `FootIKController.SampleGround` 同精神但獨立的一次
+  `Physics.CapsuleCast`（非 `Move()` 內建 sweep），向下探 `maxStepDownDistance`（0.22–0.25m，見 §6.0 Q1）。
+- **Apply**：查到 ⇒ 把本幀垂直分量**設為查到的實際距離**（不是盲設 `maxStepDownDistance`）；
+  沒查到 ⇒ **完全不介入**，照舊吃 `GetGravityThisFrame` 的彈道值——這正是 Spike ②驗證過的
+  「安全退化＝現行行為」路徑。
 
-這樣設計的原因：
-- `CharacterController.Move()` 的 sweep 本來就會在**第一個碰到的表面**停下——多給的下探距離
-  在平地上不會有任何效果（sweep 一碰到當前地面就停，跟現在行為逐位元相同），**只有在
-  `maxStepDownDistance` 內真的有更低的面時才會產生差異**。這與 UE `AdjustFloorHeight` 的
-  「在範圍內才修正、範圍外交給 Falling」精神一致，但**不需要另外寫一個 Query 函式**——
-  這是 Unity `CharacterController.Move()` 把 Query 與 Apply 合而為一的簡化空間。
-- **`ExecuteBaseMovement` vs `ExecuteVerticalOnlyMovement` 這個既有的方法切分，剛好就是
-  UE `PhysWalking` vs `PhysFalling` 的切分**——`DeathState`／`HurtState`／Jump 空中段本來就
-  不走 `ExecuteBaseMovement`，所以**這個方案完全不需要碰 StateMachine 或任何黑板欄位**，
-  只動 `MotionDriver` 一個類別內部。這是本輪最重要的發現：**掛載點已經存在，不必新建**。
+之後才丟給 `characterController.Move()`。**Query 用的是同一個 `characterController` 的碰撞遮罩／
+半徑／高度**，不是另開一套幾何定義，維持「單一真相」。
 
-### 6.2 明確排除的做法（避免重蹈覆轍）
+### 6.3 明確排除的做法（避免重蹈覆轍，含本輪新增兩條）
 
 - ⛔ 不修改 `IsGrounded` 的寫入語意本身（它仍然＝`characterController.isGrounded`，
   `docs/38` §13 的裁決維持不變）——本方案是讓**真實的碰撞結果**因為多探了一點距離而變成
@@ -191,19 +247,25 @@ walk-vs-run 落地事件頻率**——舊 Console log（2026-09-22 場次）沒�
   平滑一個仍然存在的斷點。
 - ⛔ 不重用 `characterController.stepOffset` 當作下探距離——它的官方語意只保證「往上」，
   混用會讓這個欄位變成「兩個方向都要改就要一起改」的隱性耦合。
+- 🆕 ⛔ **不做「單次 Move 加無條件下壓分量」**——Spike ①已證實這在懸崖邊緣會造成一次性的
+  單幀瞬移，不是安全的簡化。必須是 Query（非提交）→ Apply（提交）兩段式。
+- 🆕 ⛔ **assist 的 gating 條件不能只看 `IsGrounded`**——必須額外檢查本幀垂直分量的正負號
+  （Spike ③）。否則主動起跳／`ApplyJumpLaunch` 剛注入的正向速度會被寫死成負值，角色永遠跳不起來。
 
-### 6.3 待裁決 / 待量測（下一輪要先回答，才能談實作）
+### 6.4 待裁決 / 待量測（下一輪要先回答，才能談實作）
 
-| # | 問題 | 為什麼要先問 |
-|---|---|---|
-| **Q1** | `maxStepDownDistance` 放哪、預設多少？（新 `MotionDriver` 欄位，還是黑板？初值抄 `stepOffset` 的 0.3，還是另外量測？） | 值太大可能吃掉「應該要有 Falling 動畫」的小落差（例如故意跳下一個 0.4m 平台），值太小則涵蓋不了較陡的樓梯 |
-| **Q2** | 這個 assist 該不該在 `MoveDirection` 為零（原地站立）時也生效？ | 目前 §6.1 沒有特別排除，需要確認站在樓梯邊緣不動時會不會被緩慢「吸」下去，視覺是否奇怪 |
-| **Q3** | 與 `RootReachConstraint`／Dynamic Capsule Offset（`docs/27`／`docs/28`）／Traversal Collision Profile 是否有交互？ | 這三者也會在同一幀動 `characterController.center`／位移，本輪未讀那幾份程式碼確認相容性 |
-| **Q4** | `fallEntryGrace`／`groundEdgeEventGrace`（這次剛調的兩個 grace）要不要保留？ | 建議保留——它們是事件層的防禦，即使運動層不再閃，仍能擋住「其他角色沒套用這個 assist」「極端幾何」等邊界情況，屬於 defense-in-depth，不衝突 |
-| **Q5** | 需不需要先補一輪「Walk／Run 分開標記」的 Console 量測，把 §3.4 的理論模型換成實測？ | 目前 walk-vs-run 的解釋是推導，不是量到的；實作前建議至少用 `recordDebugTrace` 各錄一段驗證量級對不對 |
-| **Q6** | 敵人（`AIMovementSource` 也走 `ExecuteBaseMovement`）要不要一起吃到這個 assist？ | `MotionDriver` 是共用類別，理論上會自動套用；需要確認敵人的樓梯使用情境是否有不同需求 |
+| # | 問題 | 狀態 | 為什麼要先問 |
+|---|---|---|---|
+| ~~Q1~~ | `maxStepDownDistance` 放哪、預設多少？ | ✅ **已裁決**（§6.0）：`MotionDriver` 設定，prototype 0.22–0.25m | — |
+| ~~Q2~~ | assist 該不該在原地站立時生效？ | ✅ **已裁決**（§6.0）：不生效，只在有效 horizontal locomotion 時允許 | — |
+| **Q3** | 與 `RootReachConstraint`／Dynamic Capsule Offset（`docs/27`／`docs/28`）／Traversal Collision Profile 是否有交互？ | 待查 | 這三者也會在同一幀動 `characterController.center`／位移，本輪未讀那幾份程式碼確認相容性 |
+| **Q4** | `fallEntryGrace`／`groundEdgeEventGrace`（這次剛調的兩個 grace）要不要保留？ | 建議保留 | 它們是事件層的防禦，即使運動層不再閃，仍能擋住「其他角色沒套用這個 assist」「極端幾何」等邊界情況，屬於 defense-in-depth，不衝突 |
+| **Q5** | 需不需要先補一輪「Walk／Run 分開標記」的 Console 量測，把 §3.4 的理論模型換成實測？ | 待查 | 目前 walk-vs-run 的解釋是推導，不是量到的；實作前建議至少用 `recordDebugTrace` 各錄一段驗證量級對不對 |
+| **Q6** | 敵人（`AIMovementSource` 也走 `ExecuteBaseMovement`）要不要一起吃到這個 assist？ | 待查 | `MotionDriver` 是共用類別，理論上會自動套用；需要確認敵人的樓梯使用情境是否有不同需求 |
+| 🆕 **Q7** | Query 用的 `Physics.CapsuleCast` 遮罩該對齊哪一份既有設定？（`FootIKSettings.GroundLayers`？`characterController` 自身碰撞遮罩？另開一份？） | 待查 | Spike 為求簡化用 `~0`（全遮罩），正式實作不能這樣做 |
+| 🆕 **Q8** | Query→Apply 對「真實樓梯」的貼齊平滑度，需要在 Play Mode 或真實開啟場景中驗證——本輪 Spike 受限於 `CharacterController.Move()` 不認 preview scene 隔離物理，只驗證了「找不到面時安全退化」，**沒有**驗證「找到面時貼齊是否平滑無感」 | 待驗 | 見 §6.1 方法論副產物；下一輪需要 Play Mode 或借用真實場景幾何 |
 
-### 6.4 這是否構成需要開 ADR 的架構變更？
+### 6.5 這是否構成需要開 ADR 的架構變更？
 
 對照 CLAUDE.md 的 Trial 判準（黑板 schema／FSM 拓撲／管線順序／核心驅動介面／推翻既有不變量）：
 **本方案目前的最小形狀都不命中**——不新增黑板欄位、不改 FSM 拓撲、不改管線順序（`ExecuteBaseMovement`
