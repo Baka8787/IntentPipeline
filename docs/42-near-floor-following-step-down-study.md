@@ -258,28 +258,89 @@ walk-vs-run 落地事件頻率**——舊 Console log（2026-09-22 場次）沒�
 |---|---|---|---|
 | ~~Q1~~ | `maxStepDownDistance` 放哪、預設多少？ | ✅ **已裁決**（§6.0）：`MotionDriver` 設定，prototype 0.22–0.25m | — |
 | ~~Q2~~ | assist 該不該在原地站立時生效？ | ✅ **已裁決**（§6.0）：不生效，只在有效 horizontal locomotion 時允許 | — |
-| **Q3** | 與 `RootReachConstraint`／Dynamic Capsule Offset（`docs/27`／`docs/28`）／Traversal Collision Profile 是否有交互？ | 待查 | 這三者也會在同一幀動 `characterController.center`／位移，本輪未讀那幾份程式碼確認相容性 |
+| **Q3** | 與 `RootReachConstraint`／Dynamic Capsule Offset（`docs/27`／`docs/28`）／Traversal Collision Profile 是否有交互？ | ✅ **已查**（§6.5.1）：無交互，三者互斥執行 | 這三者也會在同一幀動 `characterController.center`／位移，本輪未讀那幾份程式碼確認相容性 |
 | **Q4** | `fallEntryGrace`／`groundEdgeEventGrace`（這次剛調的兩個 grace）要不要保留？ | 建議保留 | 它們是事件層的防禦，即使運動層不再閃，仍能擋住「其他角色沒套用這個 assist」「極端幾何」等邊界情況，屬於 defense-in-depth，不衝突 |
 | **Q5** | 需不需要先補一輪「Walk／Run 分開標記」的 Console 量測，把 §3.4 的理論模型換成實測？ | 待查 | 目前 walk-vs-run 的解釋是推導，不是量到的；實作前建議至少用 `recordDebugTrace` 各錄一段驗證量級對不對 |
 | **Q6** | 敵人（`AIMovementSource` 也走 `ExecuteBaseMovement`）要不要一起吃到這個 assist？ | 待查 | `MotionDriver` 是共用類別，理論上會自動套用；需要確認敵人的樓梯使用情境是否有不同需求 |
-| 🆕 **Q7** | Query 用的 `Physics.CapsuleCast` 遮罩該對齊哪一份既有設定？（`FootIKSettings.GroundLayers`？`characterController` 自身碰撞遮罩？另開一份？） | 待查 | Spike 為求簡化用 `~0`（全遮罩），正式實作不能這樣做 |
-| 🆕 **Q8** | Query→Apply 對「真實樓梯」的貼齊平滑度，需要在 Play Mode 或真實開啟場景中驗證——本輪 Spike 受限於 `CharacterController.Move()` 不認 preview scene 隔離物理，只驗證了「找不到面時安全退化」，**沒有**驗證「找到面時貼齊是否平滑無感」 | 待驗 | 見 §6.1 方法論副產物；下一輪需要 Play Mode 或借用真實場景幾何 |
+| **Q7** | Query 用的 `Physics.CapsuleCast` 遮罩該對齊哪一份既有設定？（`FootIKSettings.GroundLayers`？`characterController` 自身碰撞遮罩？另開一份？） | ✅ **已查**（§6.5.2）：獨立新欄位，預設 `~0` | Spike 為求簡化用 `~0`（全遮罩），正式實作不能這樣做 |
+| **Q8** | Query→Apply 對「真實樓梯」的貼齊平滑度，需要在 Play Mode 或真實開啟場景中驗證——本輪 Spike 受限於 `CharacterController.Move()` 不認 preview scene 隔離物理，只驗證了「找不到面時安全退化」，**沒有**驗證「找到面時貼齊是否平滑無感」 | 待驗 | 見 §6.1 方法論副產物；下一輪需要 Play Mode 或借用真實場景幾何 |
 
-### 6.5 這是否構成需要開 ADR 的架構變更？
+### 6.5 Q3／Q7 查證結果（2026-09-23，讀碼，非 Spike）
+
+#### 6.5.1 Q3：與其他 `characterController.center`／位移寫入者的交互——**無交互，三者互斥**
+
+讀 [MotionDriver.cs:559-636](Assets/Scripts/Presentation/Motion/MotionDriver.cs:559)（`BeginTraversalCollisionProfile`／`UpdateCapsuleOffset`）與
+[TraversalState.cs:376-413](Assets/Scripts/Core/StateMachine/States/TraversalState.cs:376) 後確認：
+
+1. **Traversal Collision Profile 與 Dynamic Capsule Offset 已經是單一寫入者、彼此已有 guard**：
+   `UpdateCapsuleOffset` 開頭就是 `if (_traversalCollisionProfileActive) return;`（程式註解自己寫著
+   「兩個寫入者同幀寫同一個欄位＝後寫的贏，行為取決於呼叫順序」，所以刻意用旗標讓其中一個直接讓路）。
+   這不是本輪才發現的問題，是既有架構已經解決的問題。
+2. **`UpdateCapsuleOffset(data)` 已經是 `ExecuteBaseMovement` 的第一行**
+   （[MotionDriver.cs:479](Assets/Scripts/Presentation/Motion/MotionDriver.cs:479)）——只要把 Query
+   步驟放在它**之後**（合併水平/垂直分量**之前**），Query 用的 `characterController.center/radius/height`
+   自動是本幀姿勢調整過的正確值，不需要額外同步。
+3. **Traversal Collision Profile 只在 `TraversalState` 執行期間有效**，而 `TraversalState` 有自己獨立的
+   執行路徑（不呼叫 `ExecuteBaseMovement`，見 §4 表格）——兩者在狀態機層級就是互斥的，
+   我的 assist 只掛在 `ExecuteBaseMovement`，永遠不會跟 Traversal Collision Profile 同一幀執行。
+4. **`RootReachConstraint` 根本不是 `characterController.center`／位移的寫入者**——它是
+   Traversal Warp Plan 求解階段（`TraversalWarpPlan.TryEvaluate`，Editor 烘焙與執行期共用的純函數）
+   對「目標腕點位置」的夾持，作用對象是**手部 IK 目標**，不是膠囊。跟 `characterController` 完全無關，
+   Q3 原本的疑慮是誤把它跟另外兩個「真的會寫 center」的系統歸在一起。
+5. **State 切換的時序也已經被既有紀律覆蓋**：`RestoreTraversalCollisionProfile()` 在
+   `TraversalState` 的退出路徑同步呼叫（[TraversalState.cs:413](Assets/Scripts/Core/StateMachine/States/TraversalState.cs:413)），
+   FSM 的 `OnExit`／下一狀態 `Update` 在同一影格內依序執行（不是非同步），所以不存在「本幀
+   `ExecuteBaseMovement` 跑的時候 profile 旗標還沒清乾淨」的競態。
+
+⇒ **Q3 結論：不需要新的協調機制。把 Query／Apply 放在 `UpdateCapsuleOffset(data)` 之後、
+`characterController.Move()` 之前即可，現有的三道 guard 已經確保這個位置讀到的膠囊幾何永遠是對的。**
+
+#### 6.5.2 Q7：Query 遮罩該對齊哪一份既有設定——**獨立新欄位，初值 `~0`**
+
+盤點了本專案所有已存在的 `LayerMask` 欄位：
+
+| 系統 | 欄位 | 值 |
+|---|---|---|
+| `FootIKSettings.GroundLayers`（[FootIKSettings.cs:18](Assets/Scripts/Presentation/IK/FootIKSettings.cs:18)） | `LayerMask`，程式碼預設 `~0` | X Bot 實際 authored 值：`m_Bits: 4294967295`（**Everything**，逐位元核對） |
+| `TraversalProbeSettings.ObstacleMask`（[TraversalProbeSettings.cs:9](Assets/Scripts/Core/Environment/TraversalProbeSettings.cs:9)） | 獨立 `LayerMask` 欄位 | 另外一份，不與 Foot IK 共用 |
+| `characterController.Move()` 本身 | 不吃 LayerMask 參數，走 Physics **Layer Collision Matrix** | `ProjectSettings/DynamicsManager.asset` 的 `m_LayerCollisionMatrix` **全部是 `f`**（逐位元核對）＝專案目前沒有停用任何一對 layer 的碰撞 |
+| `ProjectSettings/TagManager.asset` | 專案定義的 layer 清單 | 只有 `Default／TransparentFX／Ignore Raycast／Water／UI／Player／Enemy`——**沒有專用的 Ground／Environment layer**，場景幾何預設全部在 `Default` |
+
+三個事實疊起來：
+1. **這個專案還沒有「地面」專屬 layer 可以縮小範圍**——場景所有靜態幾何都在 `Default`，跟角色、
+   敵人共用的 layer 空間沒有做區分。
+2. **`characterController.Move()` 本身的真實碰撞範圍已經是「全部 layer」**（Collision Matrix 全開），
+   所以就算 Query 遮罩縮小，`Move()` 實際落地的表面還是可能包含 Query 沒查到的東西——**縮小 Query
+   遮罩換不到語意上的精確，只會讓 Query 跟 `Move()` 的認知不一致**（Query 說沒有、`Move()` 卻真的
+   撞到了）。在目前的 layer 配置下，`~0` 才是與 `Move()` 行為**一致**的選擇，不是偷懶。
+3. **既有慣例是「每個系統各自一份獨立欄位」**——`FootIKSettings` 與 `TraversalProbeSettings`
+   各自持有自己的 `LayerMask`，沒有互相引用。呼應這次 `groundEdgeEventGrace` 沒有重用
+   `JumpStateParams.FallEntryGrace` 的同一條理由：**Motion 層不該伸手進 Presentation/IK 或
+   Core/Environment 拿設定**，即使數值上一樣，也要各自宣告。
+
+⇒ **Q7 結論：`MotionDriver` 開一個新的、獨立序列化 `LayerMask` 欄位（暫名
+`stepDownQueryLayers`），初值 `~0`，與 `FootIKSettings.GroundLayers` 的現行慣例一致——這不是在
+「複製一個已知的不精確設定」，是在目前專案的 layer 配置下，`~0` 本來就是唯一與 `Move()` 真實
+碰撞範圍一致的選擇。若使用者未來新增專用的 Ground layer，三個系統（Foot IK／Traversal
+Probe／本欄位）需要**各自**更新，不會因為欄位獨立而漏改（因為每個都在 Inspector 上看得到）。**
+
+### 6.6 這是否構成需要開 ADR 的架構變更？
 
 對照 CLAUDE.md 的 Trial 判準（黑板 schema／FSM 拓撲／管線順序／核心驅動介面／推翻既有不變量）：
 **本方案目前的最小形狀都不命中**——不新增黑板欄位、不改 FSM 拓撲、不改管線順序（`ExecuteBaseMovement`
 內部的合併方式改變，呼叫時機不變）、不改任何核心驅動介面。**依現有 routing rule，屬於
 `docs/02`／`MotionDriver` 所在的子系統文件（`docs/29`／`docs/31`）的 Living Spec 增補，
-不需要開新 ADR。** 若後續發現 Q3 牽扯到與 Dynamic Capsule／Traversal 的所有權衝突到需要重新分配
-`characterController.center` 的寫入權，屆時再重新評估。
+不需要開新 ADR。** Q3 查證後確認不涉及所有權重新分配，這條「若牽扯到所有權衝突再重新評估」的
+但書可以拿掉——**本方案不會觸發 ADR 判準**。
 
 ---
 
 ## 7. 下一步
 
-1. 使用者裁決 §6.3 Q1／Q2（至少要有初步方向才能寫 prototype）。
-2. 若要精確化 §3.4，安排一輪標記步態的 Console 量測（Q5）。
-3. 讀過 `docs/27`／`docs/28`（Dynamic Capsule）與 `docs/30`（Traversal）確認 Q3 沒有寫入衝突後，
-   才進入 prototype／Trial。
-4. 落地後記得：`docs/29`（Foot IK 已知限制表）與 `docs/31`（附錄 B authored 值）需要 fold back。
+1. ~~使用者裁決 Q1／Q2~~ ✅ 已裁決（§6.0）。
+2. ~~Q3／Q7 讀碼查證~~ ✅ 已完成（§6.5）。
+3. 若要精確化 §3.4，安排一輪標記步態的 Console 量測（Q5）。
+4. **Q8 是目前唯一剩下的技術性阻斷項**：Query→Apply 對真實樓梯的貼齊平滑度需要 Play Mode 或
+   真實場景驗證（`CharacterController.Move()` 不認 preview scene 隔離物理，本輪 Spike 驗不到這塊）。
+5. Q6（敵人要不要吃到 assist）是產品決策，不是技術阻斷項，可以留到 prototype 出來後再談。
+6. 落地後記得：`docs/29`（Foot IK 已知限制表）與 `docs/31`（附錄 B authored 值）需要 fold back。

@@ -31,9 +31,24 @@
 > 方法論副產物：`CharacterController.Move()` 不認 `EditorSceneManager.NewPreviewScene()` 的隔離
 > 物理世界，下次要獨立驗證得用 Play Mode 或真實場景幾何。
 >
-> 留 8 個待裁決問題（`docs/42` §6.4，Q1／Q2 已裁決、新增 Q7／Q8）。
-> **下一步在使用者：Q3（與 Dynamic Capsule／Traversal 的交互）跟 Q7（Query 遮罩對齊哪份設定）
-> 需要先查過才能進 prototype；Q8（真實樓梯貼齊平滑度）需要 Play Mode 驗證。**
+> ## Q3／Q7 讀碼查證結果（2026-09-23，續）
+> **Q3（與 Dynamic Capsule Offset／Traversal Collision Profile／RootReachConstraint 交互）：
+> 無交互，三者互斥。** `UpdateCapsuleOffset` 已對 Traversal Collision Profile 有 guard
+> （`if (_traversalCollisionProfileActive) return;`），且已經是 `ExecuteBaseMovement` 第一行；
+> Traversal 有自己獨立的執行路徑，不走 `ExecuteBaseMovement`；`RootReachConstraint` 根本不是
+> `characterController.center` 的寫入者（是手部 IK 腕點夾持，跟膠囊無關）。**Query 步驟放在
+> `UpdateCapsuleOffset(data)` 之後即可，不需要新協調機制。**
+>
+> **Q7（Query 遮罩該對齊哪份設定）：獨立新欄位，初值 `~0`。** 盤點後發現本專案**沒有專用
+> Ground layer**（`TagManager.asset` 只有 Default/TransparentFX/Ignore Raycast/Water/UI/Player/Enemy），
+> 且 Physics Layer Collision Matrix 全開（`DynamicsManager.asset` 全部是 `f`）——`characterController.Move()`
+> 本身的真實碰撞範圍就是「全部 layer」，縮小 Query 遮罩只會讓 Query 跟 `Move()` 認知不一致。
+> `~0` 是目前配置下**唯一與 `Move()` 行為一致**的選擇，且比照 `FootIKSettings.GroundLayers`／
+> `TraversalProbeSettings.ObstacleMask` 各自獨立一份 `LayerMask` 的既有慣例，不跨模組共用。
+>
+> **Q3／Q7 已無阻斷，剩下的唯一技術性阻斷項是 Q8**（Query→Apply 對真實樓梯的貼齊平滑度——
+> `CharacterController.Move()` 不認 preview scene 隔離物理，驗不到，需要 Play Mode 或真實場景）。
+> Q4／Q5／Q6 都是可以留到 prototype 之後再談的次要問題，不擋進度。
 >
 > ---
 
