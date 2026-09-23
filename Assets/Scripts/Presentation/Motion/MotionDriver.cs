@@ -739,12 +739,18 @@ namespace Project.Presentation.Motion
             float pelvisOffsetY = float.NaN;
             float leftFootWeight = float.NaN;
             float rightFootWeight = float.NaN;
+            bool leftHasGround = false;
+            bool rightHasGround = false;
             if (_debugFootIKController != null)
             {
                 var target = _debugFootIKController.TargetData;
                 pelvisOffsetY = target.PelvisOffsetY;
                 leftFootWeight = target.LeftFootPositionWeight;
                 rightFootWeight = target.RightFootPositionWeight;
+
+                var ground = _debugFootIKController.GroundData;
+                leftHasGround = ground.Left.HasGround;
+                rightHasGround = ground.Right.HasGround;
             }
 
             float requestedDeltaY = requestedMovement.y * Time.deltaTime;
@@ -761,6 +767,8 @@ namespace Project.Presentation.Motion
                 " pelvisY=" + pelvisOffsetY.ToString("F5") +
                 " leftFootW=" + leftFootWeight.ToString("F3") +
                 " rightFootW=" + rightFootWeight.ToString("F3") +
+                " leftHasGround=" + leftHasGround +
+                " rightHasGround=" + rightHasGround +
                 " postGrounded=" + characterController.isGrounded);
         }
 #endif

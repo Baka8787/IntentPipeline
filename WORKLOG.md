@@ -7,6 +7,74 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🟣 2026-09-23 — **本輪總結：樓梯 IK 抖動全鏈路（下樓已修＋上樓已驗證方向）**
+>
+> 📖 正本索引：`docs/31`（音效／FSM，已修）、`docs/42`（下樓 step-down assist，已收斂為提案）、
+> `docs/43`（上樓抖動，已驗證方向）。以下每個細節都已個別記在對應文件與本檔下方的分段條目
+> （時間序：由新到舊），這裡只給**下一個 session 需要的總覽**。
+>
+> ## 這輪的完整故事線
+>
+> 使用者測 Foot IK 時發現下樓梯高頻率觸發落地聲，一路追下去發現這其實是**同一個缺口的多層
+> 下游症狀**：`MotionDriver.ExecuteBaseMovement` 沒有 UE 意義上的「Walking 模式」（主動貼地），
+> 水平垂直永遠在同一次 `CharacterController.Move()` 彈道式積分——下樓每一階都真的自由落體，
+> 上樓則是 `stepOffset` 內部逐幀量級不均的雜訊。兩個方向分開修：
+>
+> ### A. 下樓（`docs/31` ＋ `docs/42`，**已修並提交**）
+> 1. **落地聲/JumpTakeoff 音效灌爆**——`MotionDriver.groundEdgeEventGrace`（事件層 grace）已修，
+>    commit `d995a5a`。
+> 2. **反覆進 Falling 動畫**——X Bot `JumpStateParams.fallEntryGrace` 由隱含 0.1s 調到 0.35s，
+>    同一個 commit。
+> 3. **Query→Apply 兩段式 step-down assist prototype**（`docs/42`，三輪迭代：自碰撞 bug → 水平
+>    投影修正 → retry window 修正 Gate①單幀鎖死）——**已收斂**：樓梯掉出從「每階完整彈道落下
+>    0.1–0.3s」壓到「轉角處 1–4 幀短暫重試」，使用者體感確認「有優化但還有問題，比上樓好」。
+>    **已提煉成正式接線提案**（`docs/42` §8：R1–R10 已驗證機制規則、3 個待 tuning 參數、
+>    EditMode/PlayMode regression test 清單）——**⛔ 提案階段，未接線，未裁決是否正式採用**。
+>    `MotionDriver` 目前有 `enableStepDownAssistPrototype`（預設關閉的 prototype 開關，
+>    現場 X Bot 上是 **false**）。
+>
+> ### B. 上樓（`docs/43`，**量測與方向驗證已完成，未轉正式架構**）
+> 1. 假說量測：H3 成立——root 位置本身有 6.7× 幀間雜訊的連續修正（不是單一大跳變），Foot IK／
+>    骨盆的雙腳同時命中門檻把這個雜訊放大成延伸鎖零再追趕的節奏；`IsGrounded` 全程不閃，
+>    跟下樓是不同失效模式。
+> 2. 與 Codex 討論修法方向：**優先建議「分層 ramp collider（移動用 ramp、Foot IK 查詢用原本
+>    階梯幾何）＋ Pelvis 支撐語意重構」並行**，Presentation Reconciliation（視覺/物理 root
+>    解耦）降為保險層、且若採用不能是裸 `SmoothDamp`（違反 `docs/29` §I 既有裁決）。
+> 3. **單一樓梯 prototype 已驗證分層假說成立**：`Stairs_650_400_300_Prefab`（場景實例）
+>    改到新 layer、新建 ramp collider 供 Player 碰撞、Foot IK 遮罩排除 ramp——`stepOffsetDelta`
+>    雜訊從 6.7× 收斂到 2.4×、1963 幀 `IsGrounded` 全程未閃。**事先設的分岔條件（root 跳變消失
+>    但 pelvis 仍週期性歸零才動 Pelvis）未觸發，Pelvis 邏輯這輪完全沒動。**
+>
+> ## 🔴 現在磁碟／場景的真實狀態（下一個 session 開場務必先讀這段）
+>
+> - **程式**：`MotionDriver.cs` 有多個 prototype 開關，**全部預設關閉、皆已 commit**
+>   （`enableStepDownAssistPrototype`／`maxStepDownDistance`／`stepDownQueryLayers`／
+>   `stepDownRetryWindow`／`enableStepUpDiagnosticsPrototype`）。`RampPrototypeLayerSetup.cs`
+>   已 commit，但**只有在場景裡的 X Bot 掛了這個元件、且樓梯真的被搬到 TreadIKOnly layer 時
+>   才有實際效果**。
+> - **X Bot 目前的 Inspector 狀態**（未 commit，因為含場景與資產的即時調整）：
+>   `enableStepUpDiagnosticsPrototype = true`、`enableStepDownAssistPrototype = false`、
+>   `FootIKController.settings.GroundLayers` 已改成排除 `RampProto` 位元（`4294967287`，
+>   不是預設的 Everything）、掛了 `RampPrototypeLayerSetup` 元件。
+> - **場景（`SampleScene`）目前是 dirty、未存檔**：`Stairs_650_400_300_Prefab` 這個場景實例的
+>   layer 已改成 `TreadIKOnly`；新增了 `Stairs_650_400_300_RampProto`（純碰撞體 ramp）。
+> - **`ProjectSettings/TagManager.asset` 已新增兩個 layer**：index 3 = `RampProto`、
+>   index 8 = `TreadIKOnly`（這個是專案級檔案，若之後 commit 程式，這個也該一起看要不要留）。
+> - ⚠️ **上述場景/資產改動全部只影響這一道樓梯，且明確是 prototype**——下一個 session 如果
+>   決定不採用，回復方式：不存檔 `SampleScene`（Unity 重開或 revert 即可丟棄樓梯 layer 變更與
+>   ramp GameObject）、把 X Bot 的 `GroundLayers`／新開關改回預設、`TagManager.asset` 的兩個
+>   layer 名稱可以留著不用（不影響任何東西）或清空。
+>
+> ## 下一步（三條路，互不衝突，可以任選）
+> 1. **下樓**：依 `docs/42` §8 裁決是否正式接線（補 regression tests、移除除錯專用程式碼、
+>    決定 tuning 參數最終值）。
+> 2. **上樓**：若認可 ramp prototype 的結果，裁決要不要推廣到其餘 3 道樓梯、要不要存檔這次的
+>    實驗場景；若要正式接線，比照 `docs/42` §8 同一套紀律（機制規則 vs tunable 參數 vs
+>    regression tests）走一次。
+> 3. **兩者都先擱置**，等使用者評估完手感／決定產品優先順序再回來。
+>
+> ---
+
 > # 🟢 2026-09-23（一，續四）— **上樓抖動：與 Codex 討論修法方向，⛔ 未裁決**
 >
 > 📖 正本：`docs/43` §3。

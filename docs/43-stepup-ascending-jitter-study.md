@@ -16,7 +16,11 @@
 > 有明確上下游關係），且發現上樓跟下樓是不同失效模式——`IsGrounded` 全程不閃**。
 > 🔄 **續：已與 Codex 討論修法方向（§3）**——建議優先方向是「分層 ramp collider（移動用 ramp，
 > Foot IK 查詢用原本階梯幾何）＋ Pelvis 支撐語意重構」並行，Presentation Reconciliation
-> （視覺/物理 root 解耦）降為保險層。⛔ **仍是提案，未實作、未裁決是否採用。**
+> （視覺/物理 root 解耦）降為保險層。
+> 🔄 **續：單一樓梯 ramp collider prototype 已完成並驗證（§4）——H1 成立且已解決**：
+> `stepOffsetDelta` 從 6.7× 幀間雜訊收斂到 2.4× 平滑曲線，1963 幀 `IsGrounded` 全程未閃一次。
+> 使用者事先設的分岔條件（root 跳變消失但 pelvis 仍週期性歸零才動 Pelvis）**未觸發**，
+> 本輪不動 Pelvis 邏輯。⛔ **場景未存檔，只影響單一樓梯，未推廣、未轉正式架構。**
 
 ---
 
@@ -182,3 +186,71 @@ Codex 給的具體分工，記錄供未來參考，**本輪不實作**：
    不是本文件的範圍。
 3. 若核准，建議先做一道樓梯當 prototype 驗證，比照 `docs/42` 的量測方法論（Console log
    逐幀比對），再決定要不要推廣到其餘樓梯。
+
+---
+
+## 4. 單一樓梯 Ramp Collider Prototype（2026-09-23，使用者已核准，⛔ 僅此一道樓梯、未升格規範）
+
+### 4.1 使用者裁決的範圍
+
+核准對 `Stairs_650_400_300_Prefab`（場景實例）做 ramp collider prototype，**明確限縮**：
+- 第一輪**只驗證幾何分層**：CharacterController 僅碰 ramp、Foot IK 僅查真實階梯、**Pelvis 邏輯
+  完全不動**。
+- 沿用既有逐幀量測，至少比較 root Y delta／`IsGrounded`／左右腳 `HasHit`／左右腳 IK 權重／
+  `PelvisOffset`。
+- 若 root Y 逐階跳變明顯消失、但 pelvis 仍週期性歸零，才進下一輪設計「有效支撐集合」，
+  **不同一輪一起重構**。
+- Ramp layer 與 Foot IK 用的 layer 必須明確互斥，避免 IK 同時命中 ramp 與真實階梯。
+
+### 4.2 實作內容（皆可逆，僅影響這一道樓梯）
+
+| 改動 | 內容 |
+|---|---|
+| 新增 layer | `RampProto`（index 3）、`TreadIKOnly`（index 8），寫入 `ProjectSettings/TagManager.asset` |
+| 移動既有階梯 | `Stairs_650_400_300_Prefab`（**場景實例**，非 prefab 資產）的 layer 從 `Default` 改到 `TreadIKOnly`——只影響這一個實例 |
+| 新建 ramp | `Stairs_650_400_300_RampProto`（純 `BoxCollider`，無視覺 mesh），沿實測輪廓（raycast 掃出真實級高 0.195m、寬度 2.8m）算出的斜率 **31.4°**（遠低於 `slopeLimit` 45°），貼齊量到的底部 (11.7, 0.15)／頂部 (5.3, 4.05) 座標，layer=`RampProto` |
+| Foot IK 遮罩 | X Bot `FootIKController.settings.GroundLayers` 的 `m_Bits` 從 `4294967295`（Everything）改成 `4294967287`（排除 `RampProto` 那一位元）——IK 永遠查不到 ramp |
+| 新增元件 | `RampPrototypeLayerSetup.cs`（掛在 X Bot）：`Awake()` 呼叫 `Physics.IgnoreLayerCollision(Player, TreadIKOnly, true)`，讓角色物理上只碰 ramp。**Layer Collision Matrix 完全不影響 raycast**，只影響 CharacterController 的實際碰撞，所以這是唯一需要的隔離手段 |
+| Log 擴充 | `LogStepUpDiagnosticsTrace` 新增 `leftHasGround`／`rightHasGround`（原本只有平滑後的權重，沒有原始命中訊號） |
+
+Pelvis 相關程式碼**逐字未動**。
+
+### 4.3 量測結果（1963 幀，與 §2 的量測方法一致，同一道樓梯、同一使用者手感）
+
+**headline：整段 1963 幀 `postGrounded` 全部是 `True`，一次都沒有 `False`。**
+
+取一段跟 §2.2 直接可比對的真實爬階連續片段（frame 2977→3012，`pos.y` 0.853→1.336，同樣約
+4 階量級）：
+
+| 指標 | §2.2（真實階梯，修前） | §4.3（ramp，本輪） |
+|---|---|---|
+| `stepOffsetDelta` 範圍 | 0.018–0.121m（**6.7×** 幀間變化） | 0.026–0.062m（**2.4×** 幀間變化） |
+| `stepOffsetDelta` 波形 | 數值忽大忽小、無規律跳動 | **平滑曲線**，逐幀變化量本身也連續（不會像修前那樣鄰幀差 3–4 倍） |
+| `leftHasGround`／`rightHasGround` 掉出時長 | 未逐幀記錄（本輪才加這個欄位） | 最長連續 3 幀（frame 2985–2987 左腳、3009–3010 右腳）——符合正常擺盪相位，不是「等一整個踏面週期」 |
+| `pelvisY` 型態 | 連續 10+ 幀釘在 `0.00000`，之後一次追趕（見 §2.3） | 同一段只有**小幅短暫**偏移（-0.006 ~ -0.054），數幀內自行收斂回 0，沒有觀察到 §2.3 那種「壓平一大段再追趕」的節奏 |
+| 全程 1963 幀 `postGrounded=False` 次數 | 上一輪整體 trace 199 次（含混入的其他片段） | **0 次** |
+
+### 4.4 結論：幾何分層假說成立
+
+- **H1（root 位置雜訊）在這道樓梯上已經消失**：`stepOffsetDelta` 從「大幅度、無規律的逐階修正」
+  變成「小幅度、平滑的連續曲線」——因為 `characterController` 現在只碰一個連續斜坡，
+  `stepOffset` 解算不再需要處理任何離散台階。
+- **H2（Foot IK／骨盆放大）的最壞情形（延伸鎖零窗口）在這道樓梯上沒有再觀察到**——但這**不是**
+  證明 Pelvis 邏輯本身沒問題，是因為**上游的雜訊源頭被移除了，下游放大器沒有東西可以放大**。
+  §3.3 那個「雙腳都命中才算」的資料構造缺陷**仍然存在於程式碼裡**，只是這道樓梯的幾何佈局
+  暫時沒有把它逼出來。
+- 使用者事先設下的分岔條件（「root 跳變消失但 pelvis 仍週期性歸零 ⇒ 才進 Pelvis 重構」）
+  **本輪兩者一起改善，沒有觸發那個分岔**——照原定計畫，Pelvis 重構**不必**在本輪跟進，
+  留給日後有需要時（例如更複雜的樓梯幾何、更快的爬升速度）再評估。
+- **Ramp／TreadIKOnly 互斥驗證**：全程未觀察到 `queryHit`／`HasGround` 同時命中兩個 layer 的
+  異常訊號（Foot IK 排除 `RampProto` 位元後，命中來源只可能是 `TreadIKOnly` 或其他既有地面）。
+
+### 4.5 現況與待裁決
+
+- **這是單一樓梯的可逆實驗**，資產改動只影響 `Stairs_650_400_300_Prefab` 這一個場景實例
+  ＋ X Bot 的 `FootIKController.GroundLayers`＋新增兩個 layer 定義（layer 定義本身是專案級的，
+  但未使用不影響任何既有物件）。
+- 場景目前處於**未存檔**狀態（新建的 ramp GameObject、樓梯 layer 變更），使用者可自行決定
+  是否存檔／要不要推廣到其餘 3 道樓梯／是否要正式回頭處理 Pelvis 支撐語意（§3.3）。
+- 若要推廣到其餘樓梯或轉正式架構，建議依 `docs/42` §8 的規格（R1–R10 機制規則、regression
+  test 清單）同一套紀律走一次，本文件只覆蓋這一道樓梯的驗證。
