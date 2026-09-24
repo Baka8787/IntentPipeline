@@ -75,6 +75,8 @@ namespace Project.Presentation.IK
             _poseData.RightFootRotation = _animator.GetIKRotation(AvatarIKGoal.RightFoot);
             _poseData.LeftFootBottomHeight = _animator.leftFeetBottomHeight;   // Avatar 常數：數據真相來自 avatar
             _poseData.RightFootBottomHeight = _animator.rightFeetBottomHeight;
+            // 與腳位同一時刻擷取：之後 LateUpdate 才移動 root，Reader 不得拿移動後的 root 相減（見 PosePlaneY）。
+            _poseData.PosePlaneY = transform.position.y;
             _poseData.IsWarm = true;
 
             // === 入：Target 套用（骨盆補償：bodyPosition 每幀由動畫重算，疊加不跨幀累積）===

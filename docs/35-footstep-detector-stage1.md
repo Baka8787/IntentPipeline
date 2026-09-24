@@ -7,6 +7,12 @@
 >
 > **狀態**：Stage 0 ＋ Stage 1 已實作，EditMode **565 total／564 passed／0 failed／1 skipped**。
 > ⛔ **尚未經人工 Play 驗收**（animation feel／音色／3D 聽感）。Stage 2 未開工。
+>
+> 🔄 **2026-09-24（使用者裁決，`docs/44` §9.5–§9.6）：節奏的量測基準改為動畫自己的 pose 平面。**
+> `clearance` ＝ 腳底 − **與腳位同時擷取**的 pose 平面（`FootIKPoseData.PosePlaneY`），不再是「腳底 − 腳下地面」。
+> 地面觀測只用於材質解析與 Airborne 否決。參考系因此不會跳，§3 的 ①「參考系不連續」與
+> `GroundStepTolerance` 整段移除。原因：樓梯移動面上 root 比腳下踏面高 0～一級，舊基準讓踩住的腳看起來一直在下降，
+> 下樓的落腳大多被吃掉。§2 的門檻本來就是從動畫量的（平地上兩種基準相同），數值不變。
 
 ---
 
@@ -89,17 +95,17 @@
 每隻腳一個 `FootPlantTracker`（值型別，零配置），兩態 `Planted ⇄ Lifted`，**per-foot 完全獨立**。
 
 ```
-每帧輸入：腳底世界位置、腳下地面高度(來自 Foot IK)、Root 平面高度、deltaTime
+每帧輸入：腳底世界 XZ、腳底相對 pose 平面的高度、deltaTime
+         （🔄 2026-09-24：pose 平面與腳位同時擷取，見上方狀態欄）
 
-clearance = 腳底世界 Y − 地面高度          ← ⭐ 不是世界高度，也不是相對 root
-                                            （樓梯上只有這個量有意義）
+clearance = 腳底世界 Y − PosePlaneY       ← ⭐ 動畫本身的抬腳高度；root 的任何垂直位移都會相消
+                                            （舊版＝腳底 − 腳下地面，在樓梯移動面上失效）
 
-① 參考系不連續？  地面換階 or Root 平面被抬上一階 ⇒ 本帧速度視為 0、不擊發、不計行程
+① ~~參考系不連續~~（🔄 2026-09-24 移除：基準不會再跳）
 ② Planted → Lifted：clearance 相對上次落腳抬升 ≥ ReArmLift(0.025)
 ③ 上膛：下降速度 ≤ −ArmDescentSpeed(0.25)            ← Schmitt 上軌
 ④ 候選：下降速度回升到 ≥ −FireDescentSpeed(0.05)      ← Schmitt 下軌
 ⑤ 資格三檢（缺一不擊發，但**保留上膛**）：
-     · 非不連續帧
      · clearance ≤ ContactClearance(0.045)            ← 腳真的貼到地面了
      · 水平速度 ≤ PlantHorizontalSpeedMax(2.0)        ← ⭐ 不是擺盪中低點
 ⑥ 擊發並分類：抬腳行程 ≥ NormalStepLift(0.060) → Normal，否則 → Shuffle
@@ -115,7 +121,7 @@ clearance = 腳底世界 Y − 地面高度          ← ⭐ 不是世界高度�
 | `PlantHorizontalSpeedMax` | **2.0** | 真實落腳最快 0.91 | 擺盪中低點最慢 4.00 | 2.2× / 2.0× |
 | `ArmDescentSpeed` | **0.25** | 最慢真實跨步 0.85 | 最快 settling 0.28 | 3.4× / 1.1× |
 | `FireDescentSpeed` | **0.05** | — | — | Schmitt 下軌 |
-| `GroundStepTolerance` | **0.06** | 45° 斜坡單帧 0.033 | 樓梯級高 0.194 | 1.8× / 3.2× |
+| ~~`GroundStepTolerance`~~ | — | 🔄 2026-09-24 移除（基準不再跳） | | |
 
 > ⚠️ `ArmDescentSpeed` 對上界只有 1.1 倍餘裕，是全部門檻裡最緊的一條。
 > 它之所以可以這麼緊，是因為**它不是唯一防線**——0.28 m/s 的 settling 就算上膛，
@@ -146,7 +152,8 @@ FootstepDetector.Evaluate（管線順序 6.5 步驟②）
   ⇒ 讀到的恆為**本帧**的觀測，且**與 Hierarchy 順序無關**。
 * **`Collider` 目前沒有 runtime 讀取方**——它是 Stage 2 Surface Resolver 的接點，先把邊界收好，
   避免屆時為了拿 collider 而在腳步系統另建一套重複 raycast。
-* 沒有 Foot IK 時退化為以 Root 平面當地面：平地行為不變，樓梯／斜坡退步（有測試覆蓋）。
+* 🔄 2026-09-24：地面觀測**只用於材質與 Airborne 否決**。沒有 Foot IK 時節奏不受影響（材質退回 Unknown），
+  `ColdGround_StillDetects` 覆蓋。
 
 ---
 
@@ -162,9 +169,9 @@ FootstepDetector.Evaluate（管線順序 6.5 步驟②）
 | `SupportFootToeRoll_ProducesNothing` | 支撐腳滾動 0.0149 m 不得出聲（否則步頻加倍） |
 | `StopSettlingChatter_ProducesNothing` | 0.017／0.003／0.0015 的抖動全靜音 |
 | `StopAdjustment_IsClassifiedAsShuffle` | 0.033 m ＋ 0.40 m/s ⇒ Shuffle，不得用正常腳步音 |
-| `ClimbingStairs_DetectsPlantDespiteRisingWorldHeight` | 腳的世界 Y 全程上升時仍要偵測到落腳 |
-| `StairEdgeCrossing_DoesNotFireOrInflateLift` | 站在級緣上讓 ray 跳動，0 次擊發 |
-| `RootPlaneJump_IsTreatedAsDiscontinuity` | 角色被抬上一階的那帧不得擊發 |
+| ~~`ClimbingStairs_*`／`StairEdgeCrossing_*`／`RootPlaneJump_*`~~ | 🔄 2026-09-24 由下面兩條取代 |
+| `Timing_IsInvariantToCommonVerticalTranslation` | 常數高度／每帧 −8 cm 斜坡／每 7 帧跳一級，擊發帧完全相同 |
+| `Timing_IgnoresGroundObservation` | 踏面高度 0～0.4 m、每 2～3 帧換階、觀測時有時無，擊發帧與平地相同 |
 | `FootStartingAirborne_StillProducesSteps` | 腳從半空開始時基準要能下修 |
 | `HighHorizontalSpeed_SuppressesPlant` | 水平速度超標一律不算落腳 |
 | `JustLanded_ForcesBothFeetBackToPlanted` | 落地後不得殘留上膛而多播腳步 |

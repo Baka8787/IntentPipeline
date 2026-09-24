@@ -38,6 +38,18 @@ namespace Project.Presentation.IK
         public float RightFootBottomHeight;
 
         /// <summary>
+        /// 🆕（2026-09-24，`docs/44` §9.6）**與腳位同一時刻**擷取的 pose 平面（Animator 原點的世界 Y）。
+        /// 動畫腳位是相對這個平面評估出來的，所以「腳在動畫裡抬多高」＝ <c>腳位.y − PosePlaneY</c>。
+        ///
+        /// ⚠️ **為什麼不能改用 Reader 當下的 <c>transform.position.y</c>**：快照在 OnAnimatorIK 寫入，
+        /// 之後 LateUpdate（順序 6）才移動 root，Reader 在順序 6.5 讀到的是**移動後**的 root。
+        /// 平地上垂直位移為 0 所以看不出來；在樓梯移動面上 Run 每帧差 5–8 cm，
+        /// 直接污染支撐判斷與腳步節奏（實測，`docs/44` §9.5）。
+        /// ⚠️ 假設角色直立、Animator 無俯仰與非等比縮放（本框架的角色契約）。
+        /// </summary>
+        public float PosePlaneY;
+
+        /// <summary>
         /// Rig 首次寫入後恆為 true。Controller 據此避免消費未初始化的快照
         /// （IK pass 未開啟／Animator 未評估前，全零快照會產生無意義的 raycast）。
         /// </summary>

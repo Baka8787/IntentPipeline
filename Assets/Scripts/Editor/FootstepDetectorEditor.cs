@@ -59,8 +59,7 @@ namespace Project.Editor
                 if (e.Kind == FootstepKind.Normal) GUI.color = new Color(0.5f, 1f, 0.5f);
                 else if (e.Kind == FootstepKind.Shuffle) GUI.color = new Color(1f, 0.9f, 0.5f);
                 else if (e.Reason == FootstepSuppressReason.StillSwinging ||
-                         e.Reason == FootstepSuppressReason.AboveContactBand ||
-                         e.Reason == FootstepSuppressReason.GroundDiscontinuity) GUI.color = new Color(1f, 0.7f, 0.7f);
+                         e.Reason == FootstepSuppressReason.AboveContactBand) GUI.color = new Color(1f, 0.7f, 0.7f);
 
                 EditorGUILayout.LabelField(string.Format(
                     "{0,7:F2}  {1}    {2,-20}  {3,-7} {4}   {5}   {6,6:F3} {7,6:F2} {8,6:F2} {9,6:F3}",

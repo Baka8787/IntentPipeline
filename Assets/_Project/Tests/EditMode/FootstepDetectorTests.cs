@@ -15,7 +15,8 @@ namespace Project.Tests.EditMode
     /// 依賴它會讓這些測試的成敗取決於編輯器狀態而非演算法。這正是
     /// <c>FootPlantTracker.Advance</c> 與 <c>FootstepDetector.Detect</c> 收顯式時間步長的理由。
     ///
-    /// 也不需要 Animator、Physics 或任何 raycast——偵測只吃「腳底世界位置 ＋ 地面高度」序列。
+    /// 也不需要 Animator、Physics 或任何 raycast——偵測只吃「腳底水平位置 ＋ 相對 pose 平面的高度」序列
+    /// （🔄 2026-09-24：地面觀測不再參與節奏，見 `docs/44` §9.6）。
     ///
     /// 🔄（Stage 1）新增的測項直接編碼**磁碟上真實動畫量到的數值**（見 `docs/35` §2），
     /// 而不是憑感覺挑的假數字。因此它們同時是「不許再退回去」的回歸鎖。
@@ -51,11 +52,10 @@ namespace Project.Tests.EditMode
             ContactClearance = 0.045f,
             PlantHorizontalSpeedMax = 2.0f,
             SwingGateMinRootSpeed = 0.5f,
-            GroundStepTolerance = 0.06f,
         };
 
         // =====================================================================
-        // 驅動輔助：高度序列 →（地面恆為 0 的）世界位置序列
+        // 驅動輔助：高度序列（相對 pose 平面）→ tracker
         // =====================================================================
 
         /// <summary>一個抬腳→落腳循環：由 0 抬到 peak 再落回 0，各 steps 帧，末尾停兩帧讓速度歸零。</summary>
@@ -69,7 +69,7 @@ namespace Project.Tests.EditMode
             return heights;
         }
 
-        /// <summary>把高度序列餵進 tracker（腳水平不動、地面恆 0），回傳每帧的分類。</summary>
+        /// <summary>把高度序列（相對 pose 平面）餵進 tracker，回傳每帧的分類。</summary>
         private static List<FootstepKind> Feed(IEnumerable<float> heights, FootstepDetectionSettings settings,
             float dt = Dt, float horizontalStep = 0f, float rootHorizontalSpeed = MovingRootSpeed)
         {
@@ -78,7 +78,7 @@ namespace Project.Tests.EditMode
             float x = 0f;
             foreach (float h in heights)
             {
-                result.Add(tracker.Advance(new Vector3(x, h, 0f), true, 0f, 0f, rootHorizontalSpeed, dt, settings, out _));
+                result.Add(tracker.Advance(new Vector2(x, 0f), h, rootHorizontalSpeed, dt, settings, out _));
                 x += horizontalStep;
             }
             return result;
@@ -114,7 +114,7 @@ namespace Project.Tests.EditMode
         public void FirstSample_DoesNotProduceEvent()
         {
             var tracker = new FootPlantTracker();
-            FootstepKind k = tracker.Advance(Vector3.zero, true, 0f, 0f, MovingRootSpeed, Dt, Settings(), out FootstepSuppressReason r);
+            FootstepKind k = tracker.Advance(Vector2.zero, 0f, MovingRootSpeed, Dt, Settings(), out FootstepSuppressReason r);
             Assert.AreEqual(FootstepKind.None, k, "首次採樣沒有前一帧，算不出速度");
             Assert.AreEqual(FootstepSuppressReason.Warmup, r);
         }
@@ -135,14 +135,14 @@ namespace Project.Tests.EditMode
 
             foreach (float h in Stride(0.18f, 8))
             {
-                Assert.AreEqual(FootstepKind.None, tracker.Advance(new Vector3(0f, h, 0f), true, 0f, 0f, MovingRootSpeed, 0f, s, out _),
+                Assert.AreEqual(FootstepKind.None, tracker.Advance(new Vector2(0f, 0f), h, MovingRootSpeed, 0f, s, out _),
                     "deltaTime = 0 時不得產生事件");
             }
 
             int fired = 0;
             foreach (float h in Stride(0.18f, 8))
             {
-                if (tracker.Advance(new Vector3(0f, h, 0f), true, 0f, 0f, MovingRootSpeed, Dt, s, out _) != FootstepKind.None) fired++;
+                if (tracker.Advance(new Vector2(0f, 0f), h, MovingRootSpeed, Dt, s, out _) != FootstepKind.None) fired++;
             }
             Assert.AreEqual(1, fired, "凍結期間不得污染跨帧狀態——解除後偵測必須照常運作");
         }
@@ -186,7 +186,7 @@ namespace Project.Tests.EditMode
             for (int i = 0; i < profile.Count; i++)
             {
                 x += profile[i].vxz * Dt;
-                FootstepKind k = tracker.Advance(new Vector3(x, profile[i].h, 0f), true, 0f, 0f, MovingRootSpeed, Dt, s, out _);
+                FootstepKind k = tracker.Advance(new Vector2(x, 0f), profile[i].h, MovingRootSpeed, Dt, s, out _);
                 if (k != FootstepKind.None) fired.Add(i);
             }
 
@@ -338,91 +338,10 @@ namespace Project.Tests.EditMode
                 "角色正常移動時，水平速度閘必須照常擋掉擺盪中低點——修 bug 不得把這道閘廢掉");
         }
 
-        // =====================================================================
-        // ⭐ Stage 1 回歸鎖 ③：樓梯
-        // =====================================================================
-
-        /// <summary>
-        /// **上樓時 root 與腳的世界 Y 同時上升**，因此「腳的世界高度」完全不能代表接地關係。
-        /// 本測試讓腳的世界 Y **全程單調上升**（從 1.0 升到 1.25），但腳下地面同步上升，
-        /// 離地高度仍走出正常的抬起→落下 ⇒ 必須正確偵測到一次落腳。
-        /// 以世界高度為判準的舊演算法在這裡永遠不會擊發（因為 Y 從不下降）。
-        /// </summary>
-        [Test]
-        public void ClimbingStairs_DetectsPlantDespiteRisingWorldHeight()
-        {
-            FootstepDetectionSettings s = Settings();
-            var tracker = new FootPlantTracker();
-            int fired = 0;
-
-            float groundY = 1.0f;            // 這一階的高度
-            List<float> clearance = Stride(0.18f, 8);
-
-            for (int i = 0; i < clearance.Count; i++)
-            {
-                groundY += 0.004f;           // root／地面持續上升（走上斜向的一階）
-                float worldY = groundY + clearance[i];
-                if (tracker.Advance(new Vector3(0f, worldY, 0f), true, groundY, groundY, MovingRootSpeed, Dt, s, out _)
-                    != FootstepKind.None) fired++;
-            }
-
-            Assert.AreEqual(1, fired, "上樓時腳的世界 Y 全程上升，但相對地面的軌跡是一次完整的落腳");
-        }
-
-        /// <summary>
-        /// 跨過階梯**級緣**時，腳下地面在單帧內跳一整個級高（場景實測 0.194 m）。
-        /// 那一帧的離地高度與前一帧不可比 ⇒ 不得擊發，也不得把跳變灌進抬腳行程。
-        /// </summary>
-        [Test]
-        public void StairEdgeCrossing_DoesNotFireOrInflateLift()
-        {
-            FootstepDetectionSettings s = Settings();
-            var tracker = new FootPlantTracker();
-            int fired = 0;
-
-            // 腳貼著地面幾乎不動（站在級緣上輕微晃動），但 ray 在兩階之間來回跳。
-            float low = 1.0f, high = 1.194f;
-            for (int i = 0; i < 40; i++)
-            {
-                bool onHigh = (i / 2) % 2 == 0;      // 每兩帧換一階
-                float groundY = onHigh ? high : low;
-                float worldY = groundY + 0.004f * ((i % 3) - 1); // ±4 mm 抖動
-                if (tracker.Advance(new Vector3(0f, worldY, 0f), true, groundY, groundY, MovingRootSpeed, Dt, s, out _)
-                    != FootstepKind.None) fired++;
-            }
-
-            Assert.AreEqual(0, fired,
-                "站在級緣上讓 ray 在兩階之間跳動，不得產生任何腳步——這是樓梯誤觸發的主要來源");
-        }
-
-        /// <summary>
-        /// **真實缺陷的回歸鎖。** 角色被 `CharacterController` 的 step offset 抬上一階時，
-        /// **整個 Root 平面在單帧內跳一個級高**，腳的世界位置跟著整包上移。
-        /// 若只擋「腳下地面跳變」而不擋「Root 平面跳變」，差分會算出假的巨大速度。
-        ///
-        /// 實測（走真實場景樓梯 300 帧）：只擋前者時，每隔 8~9 帧就會在正常步距（26~34 帧）之外
-        /// 多擊發一次 ⇒ 這正是「樓梯腳步過密」。補上後者之後，擊發變成完整的左右交替。
-        /// </summary>
-        [Test]
-        public void RootPlaneJump_IsTreatedAsDiscontinuity()
-        {
-            FootstepDetectionSettings s = Settings();
-            var tracker = new FootPlantTracker();
-
-            // 腳穩穩踩在地上，地面觀測與 Root 平面一致。
-            tracker.Advance(new Vector3(0f, 1.0f, 0f), true, 1.0f, 1.0f, MovingRootSpeed, Dt, s, out _);
-
-            // 下一帧角色被抬上一階（級高 0.194）：Root 平面與腳一起上移，
-            // 但腳下的 ray 這一帧還打在舊的一階（例如腳懸在級緣外）。
-            FootstepKind k = tracker.Advance(new Vector3(0f, 1.194f, 0f), true, 1.0f, 1.194f, MovingRootSpeed, Dt, s,
-                out FootstepSuppressReason reason);
-
-            Assert.AreEqual(FootstepKind.None, k, "Root 平面跳變的那一帧不得擊發");
-            Assert.AreEqual(0f, tracker.VerticalSpeed,
-                "Root 平面跳一個級高時，前後兩帧的離地高度不可比 ⇒ 速度必須視為 0");
-            Assert.AreNotEqual(FootstepSuppressReason.Descending, reason,
-                "假速度不得讓 tracker 憑空上膛");
-        }
+        // 🔄（2026-09-24）原「Stage 1 回歸鎖 ③：樓梯」三條（上樓世界 Y 上升／級緣跳變／Root 平面跳變）
+        //    測的是「以腳下地面為基準時，參考系跳變要擋掉」。節奏改以 pose 平面量測後，參考系不會再跳，
+        //    那三種不連續偵測已從 tracker 移除；對應的保證改由 Detector 層的
+        //    `Timing_IsInvariantToCommonVerticalTranslation`／`Timing_IgnoresGroundObservation` 鎖住。
 
         /// <summary>
         /// **真實缺陷的回歸鎖。** 行程是相對「上次落腳的高度」量的，但初始化時那個基準
@@ -451,55 +370,12 @@ namespace Project.Tests.EditMode
             {
                 foreach (float h in cycle)
                 {
-                    if (tr.Advance(new Vector3(0f, h, 0f), true, 0f, 0f, MovingRootSpeed, Dt, s, out _) != FootstepKind.None) fired++;
+                    if (tr.Advance(new Vector2(0f, 0f), h, MovingRootSpeed, Dt, s, out _) != FootstepKind.None) fired++;
                 }
             }
 
             Assert.GreaterOrEqual(fired, 3,
                 "腳一開始懸在半空時，落腳基準必須能向下修正——否則這隻腳永遠不會出聲");
-        }
-
-        // =====================================================================
-        // 地面觀測缺席時的退化
-        // =====================================================================
-
-        [Test]
-        public void WithoutGroundObservation_FallsBackToRootPlane()
-        {
-            FootstepDetectionSettings s = Settings();
-            var tracker = new FootPlantTracker();
-            int fired = 0;
-
-            float rootY = 5.0f;
-            foreach (float h in Stride(0.18f, 8))
-            {
-                // hasGround = false ⇒ 必須改用 rootPlaneY 當基準
-                if (tracker.Advance(new Vector3(0f, rootY + h, 0f), false, 0f, rootY, MovingRootSpeed, Dt, s, out _)
-                    != FootstepKind.None) fired++;
-            }
-
-            Assert.AreEqual(1, fired, "沒有地面觀測時退回 Root 平面，平地行為必須與有觀測時一致");
-        }
-
-        [Test]
-        public void GroundAvailabilityChange_IsTreatedAsDiscontinuity()
-        {
-            FootstepDetectionSettings s = Settings();
-            var tracker = new FootPlantTracker();
-
-            // 有地面觀測：離地 0.0
-            tracker.Advance(new Vector3(0f, 1.0f, 0f), true, 1.0f, 1.0f, MovingRootSpeed, Dt, s, out _);
-
-            // 下一帧觀測消失、退回 Root 平面 0.2 ⇒ 離地瞬間變成 0.8。
-            // 若直接差分，會算出 0.8 / (1/60) = 48 m/s 的假速度。
-            FootstepKind k = tracker.Advance(new Vector3(0f, 1.0f, 0f), false, 0f, 0.2f, MovingRootSpeed, Dt, s,
-                out FootstepSuppressReason reason);
-
-            Assert.AreEqual(FootstepKind.None, k, "地面來源改變的那一帧不得擊發");
-            Assert.AreEqual(0f, tracker.VerticalSpeed,
-                "地面來源改變的那一帧，前後兩帧的離地高度不可比 ⇒ 速度必須視為 0，不得算出假的巨大速度");
-            Assert.AreNotEqual(FootstepSuppressReason.Descending, reason,
-                "假速度不得讓 tracker 誤以為腳正在高速下降（那會憑空上膛）");
         }
 
         // =====================================================================
@@ -525,16 +401,18 @@ namespace Project.Tests.EditMode
             return root.AddComponent<FootstepDetector>();
         }
 
-        private static FootIKPoseData Pose(float leftBottom, float rightBottom)
+        /// <param name="posePlaneY">與腳位同時擷取的 pose 平面；腳位 ＝ 平面 ＋ 動畫高度（模擬 root 的任意垂直位移）。</param>
+        private static FootIKPoseData Pose(float leftBottom, float rightBottom, float posePlaneY = 0f)
         {
             // FootBottomHeight 取 0，讓 FootPosition.y 直接等於腳底高度，測試意圖一目了然。
             return new FootIKPoseData
             {
                 IsWarm = true,
-                LeftFootPosition = new Vector3(0f, leftBottom, 0f),
-                RightFootPosition = new Vector3(0f, rightBottom, 0f),
+                LeftFootPosition = new Vector3(0f, posePlaneY + leftBottom, 0f),
+                RightFootPosition = new Vector3(0f, posePlaneY + rightBottom, 0f),
                 LeftFootBottomHeight = 0f,
                 RightFootBottomHeight = 0f,
+                PosePlaneY = posePlaneY,
             };
         }
 
@@ -556,7 +434,7 @@ namespace Project.Tests.EditMode
             var results = new List<PresentationEventData>();
             for (int i = 0; i < left.Count; i++)
             {
-                results.Add(detector.Detect(Pose(left[i], right[i]), ground, 0f, MovingRootSpeed, true, justLanded, Dt));
+                results.Add(detector.Detect(Pose(left[i], right[i]), ground, MovingRootSpeed, true, justLanded, Dt));
             }
             return results;
         }
@@ -567,18 +445,18 @@ namespace Project.Tests.EditMode
             FootstepDetector detector = CreateDetector();
             var cold = new FootIKPoseData(); // IsWarm = false
 
-            PresentationEventData e = detector.Detect(cold, FlatGround(), 0f, MovingRootSpeed, true, false, Dt);
+            PresentationEventData e = detector.Detect(cold, FlatGround(), MovingRootSpeed, true, false, Dt);
 
             Assert.IsFalse(e.LeftFootPlanted, "快照尚未被 Rig 寫過時不得消費全零數據");
             Assert.IsFalse(e.RightFootPlanted, "同上");
-            Assert.DoesNotThrow(() => detector.Detect(null, FlatGround(), 0f, MovingRootSpeed, true, false, Dt),
+            Assert.DoesNotThrow(() => detector.Detect(null, FlatGround(), MovingRootSpeed, true, false, Dt),
                 "pose 為 null（缺 Rig）必須安全靜默");
-            Assert.DoesNotThrow(() => detector.Detect(Pose(0f, 0f), null, 0f, MovingRootSpeed, true, false, Dt),
+            Assert.DoesNotThrow(() => detector.Detect(Pose(0f, 0f), null, MovingRootSpeed, true, false, Dt),
                 "ground 為 null（缺 FootIKController）必須安全退化，不得丟例外");
         }
 
         [Test]
-        public void ColdGround_FallsBackAndStillDetects()
+        public void ColdGround_StillDetects()
         {
             FootstepDetector detector = CreateDetector();
             List<float> stride = Stride(0.18f, 8);
@@ -588,10 +466,84 @@ namespace Project.Tests.EditMode
             int fired = 0;
             for (int i = 0; i < stride.Count; i++)
             {
-                // ground = null ⇒ 必須退回 rootPlaneY（此處 0）
-                if (detector.Detect(Pose(stride[i], flat[i]), null, 0f, MovingRootSpeed, true, false, Dt).LeftFootPlanted) fired++;
+                // ground = null ⇒ 節奏本來就不看地面觀測，照常偵測（材質退回 Unknown）
+                if (detector.Detect(Pose(stride[i], flat[i]), null, MovingRootSpeed, true, false, Dt).LeftFootPlanted) fired++;
             }
-            Assert.AreEqual(1, fired, "缺少地面觀測時，平地上的偵測必須與有觀測時等價");
+            Assert.AreEqual(1, fired, "缺少地面觀測時，偵測必須與有觀測時等價");
+        }
+
+        // =====================================================================
+        // ⭐ 2026-09-24 回歸鎖：節奏只看動畫（docs/44 §9.5–§9.6，使用者裁決）
+        // =====================================================================
+
+        /// <summary>左右交替的步態：每個週期左腳一步、右腳一步，另一腳踩著不動。</summary>
+        private static void AlternatingGait(int cycles, out List<float> left, out List<float> right)
+        {
+            left = new List<float>();
+            right = new List<float>();
+            List<float> stride = Stride(0.18f, 8);
+            for (int c = 0; c < cycles; c++)
+            {
+                foreach (float h in stride) { left.Add(h); right.Add(0f); }
+                foreach (float h in stride) { left.Add(0f); right.Add(h); }
+            }
+        }
+
+        private List<string> FireFrames(IReadOnlyList<float> left, IReadOnlyList<float> right,
+            System.Func<int, float> posePlane, System.Func<int, FootIKGroundData> ground)
+        {
+            FootstepDetector detector = CreateDetector();
+            var fired = new List<string>();
+            for (int i = 0; i < left.Count; i++)
+            {
+                PresentationEventData e = detector.Detect(Pose(left[i], right[i], posePlane(i)), ground(i),
+                    MovingRootSpeed, true, false, Dt);
+                if (e.LeftFootPlanted) fired.Add(i + "L");
+                if (e.RightFootPlanted) fired.Add(i + "R");
+            }
+            return fired;
+        }
+
+        /// <summary>
+        /// root 的任何垂直位移都不得改變落腳節奏：pose 平面與腳位同時擷取，位移會相消。
+        /// ① 常數高度（站在高處）② 平滑斜坡（每帧 −8 cm＝樓梯移動面上 Run 下樓的實測最大值）
+        /// ③ 單帧跳一級 0.194 m（未套用移動面的樓梯，step offset）。
+        /// ⭐ 舊版以「腳底 − 腳下地面」量，②③都會讓踩住的腳看起來在移動（`docs/44` §9.5）。
+        /// </summary>
+        [Test]
+        public void Timing_IsInvariantToCommonVerticalTranslation()
+        {
+            AlternatingGait(3, out List<float> left, out List<float> right);
+            List<string> baseline = FireFrames(left, right, _ => 0f, _ => FlatGround());
+            Assert.AreEqual(6, baseline.Count, "前提：三個週期、左右各一步 ⇒ 6 次");
+
+            CollectionAssert.AreEqual(baseline, FireFrames(left, right, _ => 3.7f, _ => FlatGround()),
+                "常數高度");
+            CollectionAssert.AreEqual(baseline, FireFrames(left, right, i => 3f - 0.08f * i, _ => FlatGround()),
+                "平滑斜坡（Run 下樓，每帧 −8 cm）");
+            CollectionAssert.AreEqual(baseline, FireFrames(left, right, i => 0.194f * (i / 7), _ => FlatGround()),
+                "每 7 帧跳一級（step offset）");
+        }
+
+        /// <summary>
+        /// 地面觀測（踏面）只決定材質，不重新定義節奏：腳下踏面比 pose 平面低 0～0.4 m、
+        /// 每 2～3 帧換一階、觀測時有時無——擊發帧必須與平地完全相同。
+        /// </summary>
+        [Test]
+        public void Timing_IgnoresGroundObservation()
+        {
+            AlternatingGait(3, out List<float> left, out List<float> right);
+            List<string> baseline = FireFrames(left, right, _ => 0f, _ => FlatGround());
+
+            FootIKGroundData Stairs(int i) => new FootIKGroundData
+            {
+                IsWarm = true,
+                Left = new FootGroundContact { HasGround = i % 5 != 0, GroundY = -0.194f * ((i / 2) % 3) },
+                Right = new FootGroundContact { HasGround = i % 7 != 0, GroundY = -0.194f * ((i / 3) % 2) - 0.02f },
+            };
+
+            CollectionAssert.AreEqual(baseline, FireFrames(left, right, _ => 0f, Stairs),
+                "踏面高度與有無觀測都不得影響擊發帧");
         }
 
         /// <summary>
@@ -616,7 +568,7 @@ namespace Project.Tests.EditMode
             FootstepDetector grounded = CreateDetector();
             int groundedFired = 0;
             for (int i = 0; i < stride.Count; i++)
-                if (grounded.Detect(Pose(stride[i], flat[i]), null, 0f, MovingRootSpeed, true, false, Dt)
+                if (grounded.Detect(Pose(stride[i], flat[i]), null, MovingRootSpeed, true, false, Dt)
                         .LeftFootPlanted) groundedFired++;
             Assert.AreEqual(1, groundedFired, "前提斷言：同一段資料在地面上必須擊發一次");
 
@@ -624,7 +576,7 @@ namespace Project.Tests.EditMode
             FootstepDetector airborne = CreateDetector();
             int airborneFired = 0;
             for (int i = 0; i < stride.Count; i++)
-                if (airborne.Detect(Pose(stride[i], flat[i]), null, 0f, MovingRootSpeed, false, false, Dt)
+                if (airborne.Detect(Pose(stride[i], flat[i]), null, MovingRootSpeed, false, false, Dt)
                         .LeftFootPlanted) airborneFired++;
 
             Assert.AreEqual(0, airborneFired,
@@ -646,7 +598,7 @@ namespace Project.Tests.EditMode
 
             int fired = 0;
             for (int i = 0; i < stride.Count; i++)
-                if (detector.Detect(Pose(stride[i], flat[i]), FlatGround(), 0f, MovingRootSpeed, false, false, Dt)
+                if (detector.Detect(Pose(stride[i], flat[i]), FlatGround(), MovingRootSpeed, false, false, Dt)
                         .LeftFootPlanted) fired++;
 
             Assert.AreEqual(1, fired, "有真實地面觀測時，isGrounded 不得否決回報");
@@ -666,12 +618,12 @@ namespace Project.Tests.EditMode
 
             // 空中走完一整個 stride（全部被抑制）
             for (int i = 0; i < stride.Count; i++)
-                detector.Detect(Pose(stride[i], flat[i]), null, 0f, MovingRootSpeed, false, false, Dt);
+                detector.Detect(Pose(stride[i], flat[i]), null, MovingRootSpeed, false, false, Dt);
 
             // 回到地面後，同樣的一個 stride 必須**正常擊發一次**
             int fired = 0;
             for (int i = 0; i < stride.Count; i++)
-                if (detector.Detect(Pose(stride[i], flat[i]), null, 0f, MovingRootSpeed, true, false, Dt)
+                if (detector.Detect(Pose(stride[i], flat[i]), null, MovingRootSpeed, true, false, Dt)
                         .LeftFootPlanted) fired++;
 
             Assert.AreEqual(1, fired, "空中被抑制的那段不得讓落地後的第一步失準");
@@ -725,16 +677,16 @@ namespace Project.Tests.EditMode
 
             // 先讓雙腳抬起並進入快速下降（上膛），但還沒踩到。
             float[] descent = { 0.20f, 0.16f, 0.12f, 0.08f };
-            foreach (float h in descent) detector.Detect(Pose(h, h), ground, 0f, MovingRootSpeed, true, false, Dt);
+            foreach (float h in descent) detector.Detect(Pose(h, h), ground, MovingRootSpeed, true, false, Dt);
 
             // 落地帧
-            detector.Detect(Pose(0.04f, 0.04f), ground, 0f, MovingRootSpeed, true, true, Dt);
+            detector.Detect(Pose(0.04f, 0.04f), ground, MovingRootSpeed, true, true, Dt);
 
             // 落地後貼地不動：若上膛狀態沒被收束，這幾帧會冒出腳步。
             int spurious = 0;
             for (int i = 0; i < 20; i++)
             {
-                PresentationEventData e = detector.Detect(Pose(0f, 0f), ground, 0f, MovingRootSpeed, true, false, Dt);
+                PresentationEventData e = detector.Detect(Pose(0f, 0f), ground, MovingRootSpeed, true, false, Dt);
                 if (e.LeftFootPlanted || e.RightFootPlanted) spurious++;
             }
 

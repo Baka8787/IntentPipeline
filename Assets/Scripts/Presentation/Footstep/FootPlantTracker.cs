@@ -52,11 +52,8 @@ namespace Project.Presentation.Footstep
                  "取 0.5：正常行走的世界速度約 2.2 m/s，跑步 4.7 ⇒ 正常移動時此閘恆生效。")]
         public float SwingGateMinRootSpeed = 0.5f;
 
-        [Tooltip("地面高度跳變容許值（公尺）：單帧內腳下地面高度變化超過此值，視為 ray 跨過了階梯級緣，\n" +
-                 "該帧的離地高度與上一帧不可比 ⇒ 不計速度、不擊發、不累計行程。\n" +
-                 "量測依據：場景樓梯級高 0.194 m；而擊發前提已把腳的水平速度限在 2.0 m/s，\n" +
-                 "即使 45° 斜坡單帧地面變化也僅 0.033 m。取 0.06。")]
-        public float GroundStepTolerance = 0.06f;
+        // 🔄（2026-09-24）`GroundStepTolerance` 已移除：節奏改以動畫自己的 pose 平面量測（見 FootPlantTracker），
+        //    量測參考系不會再跳，也就沒有「級緣不連續」要擋（`docs/44` §9.6）。
     }
 
     /// <summary>單腳偵測的相位。兩態，per-foot，左右完全獨立。</summary>
@@ -85,8 +82,6 @@ namespace Project.Presentation.Footstep
         Descending,
         /// <summary>這一段下降從未達到上膛門檻。</summary>
         NeverArmed,
-        /// <summary>腳下地面高度本帧跳變（跨過階梯級緣），資料不可比。</summary>
-        GroundDiscontinuity,
         /// <summary>下降結束了，但腳底離地仍超過接觸帶——腳還在空中。</summary>
         AboveContactBand,
         /// <summary>⭐ 下降結束且貼近地面，但腳仍以擺盪速度水平掠過——這是擺盪中低點，不是落腳。</summary>
@@ -128,7 +123,7 @@ namespace Project.Presentation.Footstep
     ///    「腳的世界高度」完全無法代表腳與地面的關係。
     ///
     /// **Stage 1 的判準**（四道，缺一不可）：
-    /// ① 相對**地面**（不是相對世界原點、也不是相對 root）抬起足夠行程 → 才重新上膛；
+    /// ① 相對**動畫自己的 pose 平面**抬起足夠行程 → 才重新上膛（🔄 2026-09-24，見下方）；
     /// ② 曾經真的在快速下降（Schmitt 上膛）；
     /// ③ 下降結束時**貼近地面**（離地 ≤ 接觸帶）；
     /// ④ 下降結束時**水平幾乎不動**（踩住的腳在世界空間是靜止的；擺盪中的腳不是）。
@@ -138,22 +133,30 @@ namespace Project.Presentation.Footstep
     ///
     /// ⚠️ **仍然沒有時間閘、沒有 cooldown。** 兩個參考實作都用固定 cooldown（0.33 s／0.3 s）
     /// 掩蓋偵測問題，代價是步頻上限——本專案 sprint 的步頻會直接被吃掉。
+    ///
+    /// ---
+    /// ## 🔄 2026-09-24：高度改以**動畫 pose 平面**量，不再以腳下地面量（`docs/44` §9.5–§9.6，使用者裁決）
+    ///
+    /// Stage 1 用「腳底 − 腳下地面」當離地高度。在樓梯移動面上這個量不再是離地高度：
+    /// root 走平滑斜面、比腳下踏面高 0～一級，動畫腳位跟著 root ⇒ 踩住的腳離踏面仍 0.1–0.4 m、
+    /// 每 2–3 帧換一階基準 ⇒ 下樓的落腳大多被吃掉（實測）。
+    /// 現在的高度 ＝「腳底 − 與腳位**同時**擷取的 pose 平面」，也就是**動畫本身**的抬腳高度：
+    /// - 節奏的唯一權威是動畫——地形決定腳放在哪（Foot IK）、踩到什麼材質（SurfaceResolver），不決定何時算一步；
+    /// - pose 與平面同時擷取，root 的任何垂直位移（斜面、step offset、樓梯）都會相消 ⇒
+    ///   量測參考系不會跳，舊版的三種「不連續」偵測因此整段移除（不是停用）。
     /// </summary>
     public struct FootPlantTracker
     {
         // --- 前一帧基準 ---
         private bool _hasPreviousSample;
         private float _previousClearance;
-        private float _previousGroundReference;
-        private bool _previousHadGround;
-        private float _previousRootPlaneY;
-        private Vector3 _previousFootPosition;
+        private Vector2 _previousFootXZ;
 
         // --- 相位與上膛 ---
         private bool _isLifted;
         private bool _isArmed;
 
-        // --- 行程累計（相對地面）---
+        // --- 行程累計（相對 pose 平面）---
         private float _clearanceAtLastPlant;
         private float _maxClearanceSinceLastPlant;
 
@@ -168,7 +171,7 @@ namespace Project.Presentation.Footstep
         /// <summary>是否已上膛（曾在本段下降達到上膛門檻）。</summary>
         public bool IsArmed => _isArmed;
 
-        /// <summary>最近一帧的腳底離地高度（公尺）。</summary>
+        /// <summary>最近一帧的腳底高度（公尺，相對 pose 平面）。</summary>
         public float Clearance => _lastClearance;
 
         /// <summary>最近一帧的垂直速度（m/s，負值＝下降）。</summary>
@@ -177,25 +180,25 @@ namespace Project.Presentation.Footstep
         /// <summary>最近一帧的腳部世界水平速度（m/s）。</summary>
         public float HorizontalSpeed => _lastHorizontalSpeed;
 
-        /// <summary>距上次落腳以來累積的抬腳行程（公尺，相對地面）。</summary>
+        /// <summary>距上次落腳以來累積的抬腳行程（公尺，相對 pose 平面）。</summary>
         public float LiftSinceLastPlant => _maxClearanceSinceLastPlant - _clearanceAtLastPlant;
 
         /// <summary>
         /// 推進一帧，回傳本帧的落腳分類（<see cref="FootstepKind.None"/> ＝無事件）。
         /// </summary>
-        /// <param name="footBottomWorldPosition">腳底的世界座標（IK goal 世界位置 − <c>FeetBottomHeight</c>，**pre-IK**）。</param>
-        /// <param name="hasGround">本帧腳下是否觀測到地面（來自 Foot IK 的共享觀測）。</param>
-        /// <param name="groundY">腳下地面高度（世界 Y）。<paramref name="hasGround"/> 為 false 時忽略。</param>
-        /// <param name="fallbackGroundReferenceY">沒有地面觀測時的退化基準（角色 Root 平面 Y）。</param>
+        /// <param name="footWorldXZ">腳底的世界水平位置（pre-IK）。只用來量水平速度（④）。</param>
+        /// <param name="footHeightAbovePosePlane">
+        /// 腳底相對 pose 平面的高度（pre-IK 腳位 − <c>FeetBottomHeight</c> − 同時擷取的 pose 平面）。
+        /// 這是**動畫本身**的抬腳高度；①②③全部以它判斷。
+        /// </param>
+        /// <param name="rootHorizontalSpeed">角色實際的世界水平速度（決定水平速度閘是否生效）。</param>
         /// <param name="deltaTime">本帧時間步長。<c>&lt;= 0</c>（暫停）時整段跳過且**不推進任何狀態**——
         /// 沒有時間流逝就沒有速度可算，比照 <c>MotionDriver.IsTimeFrozen</c>。</param>
         /// <param name="settings">偵測參數。</param>
         /// <param name="reason">本帧沒有擊發的原因（僅供 instrumentation）。</param>
         public FootstepKind Advance(
-            Vector3 footBottomWorldPosition,
-            bool hasGround,
-            float groundY,
-            float fallbackGroundReferenceY,
+            Vector2 footWorldXZ,
+            float footHeightAbovePosePlane,
             float rootHorizontalSpeed,
             float deltaTime,
             FootstepDetectionSettings settings,
@@ -207,56 +210,28 @@ namespace Project.Presentation.Footstep
                 return FootstepKind.None;
             }
 
-            // 地面基準：有觀測就用觀測，沒有就退回 Root 平面。
-            // ⚠️ Root 原點＝腳底＝膠囊底（ADR-001＋CapsuleFitter §0.3 規則 6），故可直接作為地面平面。
-            float groundReference = hasGround ? groundY : fallbackGroundReferenceY;
-            float clearance = footBottomWorldPosition.y - groundReference;
+            float clearance = footHeightAbovePosePlane;
             _lastClearance = clearance;
 
             if (!_hasPreviousSample)
             {
                 // 首次採樣：只建立基準，沒有前一帧就算不出速度。
-                SeedBaseline(footBottomWorldPosition, clearance, groundReference, hasGround, fallbackGroundReferenceY);
+                SeedBaseline(footWorldXZ, clearance);
                 reason = FootstepSuppressReason.Warmup;
                 return FootstepKind.None;
             }
 
-            // === 參考系不連續偵測（樓梯級緣）===
-            // 「離地高度」是相對量，它的前後兩帧要能相減，前提是**兩帧的參考系一樣**。
-            // 樓梯上有兩件事會讓這個前提失效，兩件都必須擋：
-            //
-            // ① **腳下的地面換了一階**：ray 跨過級緣，`groundY` 單帧跳一整個級高（場景實測 0.194 m）。
-            // ② **角色自己被抬上一階**：`CharacterController` 的 step offset 會在單帧內把整個
-            //    Root 平面抬高一個級高。此時腳的世界位置**跟著整包上移**，
-            //    即使腳相對角色根本沒動，差分也會算出一個巨大的假速度。
-            //    ⚠️ ②是實測抓到的——只擋①時，上樓每隔 8~9 帧就會多擊發一次
-            //    （正常步距是 26~34 帧），那正是使用者回報的「樓梯腳步過密」。
-            //
-            // 兩者都不是「腳的運動」，而是「量腳的那把尺跳了」。
-            bool groundSourceChanged = hasGround != _previousHadGround;
-            bool groundJumped = hasGround && _previousHadGround &&
-                                Mathf.Abs(groundReference - _previousGroundReference) > settings.GroundStepTolerance;
-            bool rootPlaneJumped = Mathf.Abs(fallbackGroundReferenceY - _previousRootPlaneY) > settings.GroundStepTolerance;
-            bool discontinuity = groundSourceChanged || groundJumped || rootPlaneJumped;
-
-            float verticalSpeed = discontinuity ? 0f : (clearance - _previousClearance) / deltaTime;
-
-            Vector3 horizontalDelta = footBottomWorldPosition - _previousFootPosition;
-            horizontalDelta.y = 0f;
-            float horizontalSpeed = horizontalDelta.magnitude / deltaTime;
+            float verticalSpeed = (clearance - _previousClearance) / deltaTime;
+            float horizontalSpeed = (footWorldXZ - _previousFootXZ).magnitude / deltaTime;
 
             _lastVerticalSpeed = verticalSpeed;
             _lastHorizontalSpeed = horizontalSpeed;
 
             // 基準前進（⚠️ 無論後面走哪一條分支都必須前進——「不回報」與「沒發生」是兩件事）。
             _previousClearance = clearance;
-            _previousGroundReference = groundReference;
-            _previousHadGround = hasGround;
-            _previousRootPlaneY = fallbackGroundReferenceY;
-            _previousFootPosition = footBottomWorldPosition;
+            _previousFootXZ = footWorldXZ;
 
-            // 行程累計：不連續的那一帧不採計（否則跨級緣會憑空灌進一整個級高的行程）。
-            if (!discontinuity && clearance > _maxClearanceSinceLastPlant)
+            if (clearance > _maxClearanceSinceLastPlant)
             {
                 _maxClearanceSinceLastPlant = clearance;
             }
@@ -270,7 +245,7 @@ namespace Project.Presentation.Footstep
             // 只在**尚未重新上膛**（仍是 Planted）時下修：那正是「還沒開始算這一步」的階段，
             // 把基準與行程一起拉到新的低點，等同於「腳其實是在這裡才算真的放下」。
             // 一旦進入 Lifted，基準就凍結——否則下降途中會邊走邊吃掉自己的行程。
-            if (!_isLifted && !discontinuity && clearance < _clearanceAtLastPlant)
+            if (!_isLifted && clearance < _clearanceAtLastPlant)
             {
                 _clearanceAtLastPlant = clearance;
                 _maxClearanceSinceLastPlant = clearance;
@@ -278,7 +253,7 @@ namespace Project.Presentation.Footstep
 
             float lift = _maxClearanceSinceLastPlant - _clearanceAtLastPlant;
 
-            // === ① Planted → Lifted：必須相對地面真的抬起來 ===
+            // === ① Planted → Lifted：必須相對 pose 平面真的抬起來 ===
             //     per-foot、純高度判準、無時間閘。收步 settling 與骨骼微震擋在這裡。
             if (!_isLifted)
             {
@@ -313,12 +288,6 @@ namespace Project.Presentation.Footstep
             // === ③ 下降結束＝落腳候選。三道資格檢查。===
             // ⚠️ 未通過時**刻意保留上膛狀態**：這一段下降確實發生過，只是還沒到真正的接觸點。
             //    清掉上膛會讓稍後真正踩地的那一帧無法擊發（舊版把真實踩地吃掉的成因之一）。
-
-            if (discontinuity)
-            {
-                reason = FootstepSuppressReason.GroundDiscontinuity;
-                return FootstepKind.None;
-            }
 
             if (clearance > settings.ContactClearance)
             {
@@ -376,14 +345,10 @@ namespace Project.Presentation.Footstep
             _maxClearanceSinceLastPlant = clearance;
         }
 
-        private void SeedBaseline(Vector3 footPosition, float clearance, float groundReference, bool hasGround,
-            float fallbackGroundReferenceY)
+        private void SeedBaseline(Vector2 footXZ, float clearance)
         {
             _previousClearance = clearance;
-            _previousGroundReference = groundReference;
-            _previousHadGround = hasGround;
-            _previousRootPlaneY = fallbackGroundReferenceY;
-            _previousFootPosition = footPosition;
+            _previousFootXZ = footXZ;
             _clearanceAtLastPlant = clearance;
             _maxClearanceSinceLastPlant = clearance;
             _hasPreviousSample = true;
