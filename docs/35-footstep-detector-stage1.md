@@ -348,3 +348,80 @@ EditMode **599 / 598 passed / 0 failed / 1 skipped**（+3）。
    本閘門**不會**介入 ⇒ 腳步聲仍可能出現。**若 Play 時 vault 也有問題請回報**——
    那會是另一個判準（需要的是「這個位移不是走路」而不是「離地」），不能靠加大這道閘門解決。
 3. **離開 traversal 的落地聲**照舊（`JustLanded` 路徑未動）。
+
+---
+
+## 6. ✅ 越界式落腳事件：「上膛後第一個符合資格的接觸帧」（2026-09-24，使用者裁決方向，Codex 兩輪審查，已實作）
+
+**問題（`docs/44` §9.7.2）**：畫面觸地 → 擊發，Walk 平地 200–300 ms、上樓 150 ms。音檔起音 ≈1 ms、音訊輸出估 21–43 ms ⇒ **主因是 §3 的 ④「等下降結束」**：
+Walk 動畫的腳碰到接觸帶之後，還有約 16 帧以 0.1–0.25 m/s 慢慢放平，④ 要等它放平停住才擊發。
+使用者裁決：「完全放平」不是最終規則；改成相位／越界式、更接近畫面觸地，但**保留 Stage 1 對擺盪期誤觸發的全部防線**；
+優先用「下降 ＋ 接觸帶越界 ＋ 步伐上膛／閂鎖」，不直接用 IK 權重。
+
+**新判準（🔄 修訂 1，依 Codex 第一輪審查；只改 ④，其餘不動）**：
+
+```
+② Planted → Lifted：抬腳行程 ≥ ReArmLift            （不變——步伐上膛的前提）
+③ 上膛：下降速度 ≤ −ArmDescentSpeed                 （不變——閂鎖打開）
+    🔄 上膛的那一帧不再直接 return，同一帧繼續做 ④′ 的檢查
+④′ 「上膛後第一個符合資格的接觸帧」：
+     已上膛 且 高度 ≤ ContactClearance 且
+       ・角色在移動（rootSpeed ≥ SwingGateMinRootSpeed）⇒ 水平速度 ≤ PlantHorizontalSpeedMax      ← 不再等下降結束
+       ・角色幾乎沒動（原地轉身、被牆擋住、起步停步的低速混合）⇒ 下降速度 ≥ −FireDescentSpeed   ← 保留舊的 Schmitt 下軌
+     ⇒ 擊發並關閉閂鎖（MarkPlanted）；在接觸帶內但不符合 ⇒ 保持上膛、閂鎖不關
+⑤ 分類：抬腳行程 ≥ NormalStepLift → Normal，否則靜音                （不變）
+```
+
+Codex 第一輪（1 High ＋ 2 Medium）：
+- **High**：水平速度閘在 rootSpeed < 0.5 時本來就關閉（為了「貼著牆跑」），此時若拿掉下軌就沒有任何擺盪防線 ⇒ 修訂：**只在水平閘生效時**拿掉下軌。
+- **Medium**：「armed ∧ in band ∧ slow」不是字面的「越界」，而是「上膛後第一個符合資格的帧」（在接觸帶內從快變慢也會擊發）⇒ 就用這個名字與語意，並測它。
+- **Medium**：提早擊發會有「同一步被吃掉／同一步擊發兩次」的路徑（擺盪低點誤擊發後回彈 < ReArmLift 會吃掉真正的落腳；> ReArmLift 會再上膛擊發第二次）
+  ⇒ 擋它的只有水平速度閘；在 ReArmLift 上下兩側各加一條測試，把行為鎖住。
+
+**離線重播（修訂版）**：擊發次數與實際完全相同（21／18／15／12），rootSpeed < 0.5 時新規則 0 次擊發；延遲同下表。
+
+**Stage 1 防線逐條對照**：
+
+| 防線 | 擋什麼 | 新規則 |
+|---|---|---|
+| `ReArmLift` | 停步 settling、骨骼微震、支撐腳滾動 | 保留 |
+| `ArmDescentSpeed`（Schmitt 上軌） | 沒有真正落下的腳 | 保留 |
+| `PlantHorizontalSpeedMax` | 擺盪中低點（WalkFwdLoop 的 0.044 m 低點，水平 4–7 m/s） | 保留——現在是**唯一**擋擺盪低點的一道，重要性提高 |
+| `ContactClearance` | 腳還在半空 | 保留 |
+| `NormalStepLift` | 停步收腳的小調整 | 保留 |
+| `FireDescentSpeed`（Schmitt 下軌） | 「下降尚未結束」 | 🔄 **只在角色移動時移除**（延遲的來源）；幾乎不動時保留（此時水平閘關閉，它是唯一的擺盪防線） |
+| `justLanded` 強制收束、Airborne 否決 | 落地重複、空中 | 保留（在 Detector 層，不受影響） |
+
+**離線重播（同一份探針資料；以現行規則重播能對上實際擊發 15/18～13/15）**：
+
+| | 擊發次數 現行→新 | Walk 平地延遲 | Walk 上樓 | Walk 下樓 | Run |
+|---|---|---|---|---|---|
+| 現行 | — | 16.5–18 帧 | 9 帧 | 1.5–4 帧 | 0–3 帧 |
+| 新規則 | **完全相同**（19/16/13/10） | **3 帧（50 ms）** | 5 帧 | **−4 帧（提早 67 ms）** | −1～3 帧 |
+
+⚠️ Walk 下樓變成**提早**：動畫的腳碰到 pose 平面時，畫面上的腳還要再往下搆到比移動面低的踏面。
+這個差距會隨骨盆模型改變（`docs/05` §3.5.4.3 讓身體下沉、腳更早搆到踏面）⇒ 最終數字要在骨盆落地後重量。
+
+**測試（提案）**：既有 Stage 1 回歸鎖全部保留（`MidSwingDip_*`、`SupportFootToeRoll_*`、`StopSettlingChatter_*`、`HighHorizontalSpeed_*`…）；
+新增「進入接觸帶的那一帧就擊發（不等放平）」、「在接觸帶內仍在擺盪 ⇒ 不擊發但保持上膛，慢下來那一帧擊發」、「一步只擊發一次（閂鎖）」。
+
+**Codex 第二輪**：可以實作；1 項 Low（門檻 0.5 m/s 上下的分支邊界）→ 加測試，等於門檻走「移動中」分支。
+
+**實作**（只動 `FootPlantTracker.Advance` 與 `FireDescentSpeed` 的 tooltip）：上膛不再 return；接觸帶檢查提前；
+移動中只看水平速度閘，幾乎不動時保留下軌。EditMode 新增 6 條：`Moving_FiresOnFirstContactFrame_WithoutWaitingForSettle`、
+`NearlyStationary_KeepsLowerRail`、`RootSpeedAtThreshold_TakesMovingBranch`、`ArmingFrame_CanFire`、
+`InBandButSwinging_FiresWhenItSlows`、`MidSwingDip_WithRebound_FiresOncePerStride`（回彈 0.020／0.035 m，ReArmLift 兩側）。
+`MidSwingDip_IsNotAPlant_*` 的斷言從「index > 50（放平之後）」改為「> 40（真正落下段，不是中低點 ≈35）」——它要守的東西不變。
+`Timing_IsInvariantToCommonVerticalTranslation` 的步態峰值改 0.17：0.18/8 有一帧剛好等於 0.045，浮點誤差會讓它跨門檻晚一帧。
+
+**Play Mode 實測（探針，議題 1 尚未落地）**，畫面觸地 → 擊發（中位數）：
+
+| | 修改前 | 修改後 |
+|---|---|---|
+| Walk 平地 | 12.5–18 帧（208–300 ms） | **3 帧（50 ms）** |
+| Walk 上樓 | 9 帧（150 ms） | **5 帧（83 ms）** |
+| Walk 下樓 | 2–4 帧（33–67 ms） | **−4 帧（提早 67 ms）** |
+| Run | 0–3 帧 | −1～3 帧 |
+
+擊發次數不變。⚠️ Walk 下樓提早：擊發當帧畫面上的腳還在低一階踏面上方 4.5–18 cm——取決於骨盆（議題 1），骨盆落地後重量。
+全套：EditMode 659／658／1 既有略過；PlayMode 91／90（唯一失敗是既有的 C0）。

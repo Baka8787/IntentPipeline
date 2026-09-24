@@ -17,6 +17,8 @@ namespace Project.Presentation.Footstep
         public float ArmDescentSpeed = 0.25f;
 
         [Tooltip("擊發門檻（m/s，填正值）：上膛後，下降速度回升到慢於此值即視為下降結束。\n" +
+                 "🔄（2026-09-24）**只在角色幾乎不動時使用**（root 速度 < SwingGateMinRootSpeed：原地轉身、被牆擋住）——\n" +
+                 "那時水平速度閘關閉，這是唯一的擺盪防線。角色移動時改為「進入接觸帶且不在擺盪」即擊發（docs/35 §6）。\n" +
                  "⚠️ 必須明顯小於上膛門檻——兩者形成 Schmitt trigger，速度在 0 附近抖動時無法重新上膛。")]
         public float FireDescentSpeed = 0.05f;
 
@@ -265,13 +267,10 @@ namespace Project.Presentation.Footstep
                 _isLifted = true;
             }
 
-            // === ② Schmitt 上膛：腳確實在快速下降 ===
-            if (verticalSpeed <= -settings.ArmDescentSpeed)
-            {
-                _isArmed = true;
-                reason = FootstepSuppressReason.Descending;
-                return FootstepKind.None;
-            }
+            // === ② Schmitt 上膛：腳確實在快速下降（＝步伐閂鎖打開）===
+            // 🔄（2026-09-24，`docs/35` §6）上膛的那一帧**不再直接 return**——同一帧繼續往下判斷，
+            //    快速落腳時上膛與進入接觸帶可能發生在同一帧。
+            if (verticalSpeed <= -settings.ArmDescentSpeed) _isArmed = true;
 
             if (!_isArmed)
             {
@@ -279,31 +278,41 @@ namespace Project.Presentation.Footstep
                 return FootstepKind.None;
             }
 
-            if (verticalSpeed < -settings.FireDescentSpeed)
-            {
-                reason = FootstepSuppressReason.Descending;
-                return FootstepKind.None;
-            }
-
-            // === ③ 下降結束＝落腳候選。三道資格檢查。===
+            // === ③ 上膛後第一個符合資格的接觸帧 ===
             // ⚠️ 未通過時**刻意保留上膛狀態**：這一段下降確實發生過，只是還沒到真正的接觸點。
             //    清掉上膛會讓稍後真正踩地的那一帧無法擊發（舊版把真實踩地吃掉的成因之一）。
 
             if (clearance > settings.ContactClearance)
             {
-                reason = FootstepSuppressReason.AboveContactBand;
+                reason = verticalSpeed < -settings.FireDescentSpeed
+                    ? FootstepSuppressReason.Descending
+                    : FootstepSuppressReason.AboveContactBand;
                 return FootstepKind.None;
             }
 
+            // 🔄（2026-09-24，`docs/35` §6，使用者裁決）**角色在移動時不再等「下降結束」**。
+            //    Walk 動畫的腳碰到接觸帶之後還有約 16 帧慢慢放平；等它放平停住才擊發，
+            //    比畫面上的觸地晚 200–300 ms（`docs/44` §9.7.2）。移動中改由水平速度閘單獨擋擺盪低點。
+            //
             // ⚠️ 水平速度閘**只有在角色真的在世界中位移時才有意義**。
             //    被牆擋住（或被任何東西卡住）時 root 不前進、動畫照跑 ⇒ 踩住的腳以動畫速度往後滑，
             //    而擺盪的腳以差不多的速度往前——**兩者的世界速度幾乎一樣，這個量裡已經沒有可分辨的資訊**。
             //    此時繼續套用只會讓每一步都被判成擺盪（＝貼牆跑完全沒有腳步聲）。
-            //    正確處置是關掉它，讓接觸帶／行程／下降三道接手。
+            //    ⇒ 角色幾乎不動時（原地轉身、被牆擋住、起步停步的低速混合），水平閘關閉，
+            //      **保留舊的 Schmitt 下軌**（等下降結束）作為唯一的擺盪防線——這一側的時機不變。
+            //    等於門檻時走「移動中」分支。
             bool swingGateApplies = rootHorizontalSpeed >= settings.SwingGateMinRootSpeed;
-            if (swingGateApplies && horizontalSpeed > settings.PlantHorizontalSpeedMax)
+            if (swingGateApplies)
             {
-                reason = FootstepSuppressReason.StillSwinging;
+                if (horizontalSpeed > settings.PlantHorizontalSpeedMax)
+                {
+                    reason = FootstepSuppressReason.StillSwinging;
+                    return FootstepKind.None;
+                }
+            }
+            else if (verticalSpeed < -settings.FireDescentSpeed)
+            {
+                reason = FootstepSuppressReason.Descending;
                 return FootstepKind.None;
             }
 

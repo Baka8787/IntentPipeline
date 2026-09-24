@@ -192,8 +192,10 @@ namespace Project.Tests.EditMode
 
             Assert.AreEqual(1, fired.Count,
                 "一次跨步只能擊發一次；中低點（index≈35）不得算數");
-            Assert.Greater(fired[0], 50,
-                "擊發必須落在真正的踩地段（序列末端），不是中低點");
+            // 🔄（2026-09-24）移動中不再等放平：擊發落在「真正落下段」（index 41 起）第一次進入接觸帶的帧，
+            //    而不是序列末端。這條要守的仍然是「不是中低點（index≈35）」。
+            Assert.Greater(fired[0], 40,
+                "擊發必須落在真正的落下段，不是中低點");
         }
 
         /// <summary>水平速度超過上限時，即使高度與下降都合格也不得擊發。</summary>
@@ -473,6 +475,124 @@ namespace Project.Tests.EditMode
         }
 
         // =====================================================================
+        // ⭐ 2026-09-24 回歸鎖：上膛後第一個符合資格的接觸帧（docs/35 §6）
+        // =====================================================================
+
+        /// <summary>快速落下進入接觸帶，之後還有一段慢慢放平（Walk 實測約 16 帧、0.1–0.25 m/s）。</summary>
+        private static List<float> StrideWithSlowSettle()
+        {
+            var heights = new List<float> { 0f };
+            for (int i = 1; i <= 10; i++) heights.Add(0.18f * i / 10f);            // 抬起
+            for (int i = 1; i <= 8; i++) heights.Add(Mathf.Lerp(0.18f, 0.040f, i / 8f)); // 快速落下，第 8 帧進入接觸帶
+            for (int i = 1; i <= 16; i++) heights.Add(Mathf.Lerp(0.040f, 0f, i / 16f));  // 慢慢放平（0.15 m/s）
+            heights.Add(0f); heights.Add(0f);
+            return heights;
+        }
+
+        private static int FirstFire(IReadOnlyList<FootstepKind> kinds)
+        {
+            for (int i = 0; i < kinds.Count; i++) if (kinds[i] != FootstepKind.None) return i;
+            return -1;
+        }
+
+        /// <summary>
+        /// ⭐ 使用者回報「腳步聲比畫面晚」的回歸鎖：角色移動時，進入接觸帶的那一帧就擊發，**不等放平**。
+        /// 舊版要等下降速度回升到 −0.05 m/s，Walk 因此晚 200–300 ms（docs/44 §9.7.2）。
+        /// </summary>
+        [Test]
+        public void Moving_FiresOnFirstContactFrame_WithoutWaitingForSettle()
+        {
+            List<FootstepKind> kinds = Feed(StrideWithSlowSettle(), Settings());
+            Assert.AreEqual(1, CountAny(kinds), "一步只擊發一次");
+            Assert.AreEqual(18, FirstFire(kinds), "進入接觸帶（index 18）的那一帧就擊發，不等後面 16 帧的放平");
+        }
+
+        /// <summary>
+        /// 角色幾乎不動（原地轉身、被牆擋住）時水平速度閘關閉，保留舊的下軌——擊發在放平結束後。
+        /// 這一側是唯一的擺盪防線，時機刻意不變（Codex 審查 High）。
+        /// </summary>
+        [Test]
+        public void NearlyStationary_KeepsLowerRail()
+        {
+            List<FootstepKind> kinds = Feed(StrideWithSlowSettle(), Settings(), rootHorizontalSpeed: 0.3f);
+            Assert.AreEqual(1, CountAny(kinds), "一步只擊發一次");
+            Assert.Greater(FirstFire(kinds), 30, "水平閘關閉時仍要等下降結束（放平段在 index 19–34）");
+        }
+
+        /// <summary>root 速度剛好等於門檻時走「移動中」分支（Codex 審查 Low：兩側各一條）。</summary>
+        [Test]
+        public void RootSpeedAtThreshold_TakesMovingBranch()
+        {
+            FootstepDetectionSettings s = Settings();
+            Assert.AreEqual(18, FirstFire(Feed(StrideWithSlowSettle(), s, rootHorizontalSpeed: s.SwingGateMinRootSpeed)),
+                "等於門檻 ⇒ 移動中分支");
+            Assert.Greater(FirstFire(Feed(StrideWithSlowSettle(), s, rootHorizontalSpeed: s.SwingGateMinRootSpeed - 0.01f)), 30,
+                "略低於門檻 ⇒ 保留下軌");
+        }
+
+        /// <summary>上膛（下降夠快）與進入接觸帶發生在同一帧時，那一帧就能擊發——上膛不再直接 return。</summary>
+        [Test]
+        public void ArmingFrame_CanFire()
+        {
+            var heights = new List<float> { 0f };
+            for (int i = 1; i <= 10; i++) heights.Add(0.18f * i / 10f);
+            heights.Add(0.178f);  // 開始下降，但還沒快到上膛（−0.12 m/s）
+            heights.Add(0.03f);   // 單帧 −8.9 m/s：上膛並進入接觸帶
+            heights.Add(0.03f); heights.Add(0.03f);
+            List<FootstepKind> kinds = Feed(heights, Settings());
+            Assert.AreEqual(1, CountAny(kinds));
+            Assert.AreEqual(12, FirstFire(kinds), "上膛與進入接觸帶同一帧 ⇒ 同一帧擊發");
+        }
+
+        /// <summary>在接觸帶內但仍以擺盪速度掠過 ⇒ 不擊發、保持上膛；慢下來的那一帧擊發（「第一個符合資格的帧」）。</summary>
+        [Test]
+        public void InBandButSwinging_FiresWhenItSlows()
+        {
+            FootstepDetectionSettings s = Settings();
+            var tracker = new FootPlantTracker();
+            var kinds = new List<FootstepKind>();
+            float x = 0f;
+            void Step(float h, float vxz) { x += vxz * Dt; kinds.Add(tracker.Advance(new Vector2(x, 0f), h, MovingRootSpeed, Dt, s, out _)); }
+            Step(0f, 0f);
+            for (int i = 1; i <= 10; i++) Step(0.18f * i / 10f, 3f);
+            for (int i = 1; i <= 8; i++) Step(Mathf.Lerp(0.18f, 0.03f, i / 8f), 4f);  // 進入接觸帶時仍在擺盪
+            for (int i = 0; i < 3; i++) Step(0.03f, 4f);
+            Step(0.03f, 0.2f);                                                       // 慢下來
+            Step(0.03f, 0.1f);
+            Assert.AreEqual(1, CountAny(kinds), "一步只擊發一次");
+            Assert.AreEqual(22, FirstFire(kinds), "擺盪期間不擊發；水平速度降下來的那一帧擊發");
+        }
+
+        /// <summary>
+        /// 同一步被吃掉／同一步擊發兩次的路徑（Codex 審查 Medium）：擺盪中低點之後回彈，
+        /// 回彈行程在 ReArmLift 以下或以上。只要中低點仍以擺盪速度掠過，兩種情況都必須**恰好一次**，落在真正落下段。
+        /// </summary>
+        [TestCase(0.020f)]
+        [TestCase(0.035f)]
+        public void MidSwingDip_WithRebound_FiresOncePerStride(float rebound)
+        {
+            FootstepDetectionSettings s = Settings();
+            var tracker = new FootPlantTracker();
+            var fired = new List<int>();
+            float x = 0f; int n = 0;
+            void Step(float h, float vxz)
+            {
+                x += vxz * Dt;
+                if (tracker.Advance(new Vector2(x, 0f), h, MovingRootSpeed, Dt, s, out _) != FootstepKind.None) fired.Add(n);
+                n++;
+            }
+            Step(0f, 0.03f);
+            for (int i = 1; i <= 20; i++) Step(0.18f * i / 20f, 3f);
+            for (int i = 1; i <= 10; i++) Step(Mathf.Lerp(0.18f, 0.03f, i / 10f), 4.8f);        // 中低點 0.03（在接觸帶內）
+            for (int i = 1; i <= 4; i++) Step(Mathf.Lerp(0.03f, 0.03f + rebound, i / 4f), 2.6f); // 回彈
+            int realStart = n;
+            for (int i = 1; i <= 12; i++) Step(Mathf.Lerp(0.03f + rebound, 0f, i / 12f), 0.5f);  // 真正落下
+            for (int i = 0; i < 3; i++) Step(0f, 0.02f);
+            Assert.AreEqual(1, fired.Count, $"回彈 {rebound} m：一步只擊發一次");
+            Assert.GreaterOrEqual(fired[0], realStart, "擊發在真正落下段，不是中低點");
+        }
+
+        // =====================================================================
         // ⭐ 2026-09-24 回歸鎖：節奏只看動畫（docs/44 §9.5–§9.6，使用者裁決）
         // =====================================================================
 
@@ -481,7 +601,9 @@ namespace Project.Tests.EditMode
         {
             left = new List<float>();
             right = new List<float>();
-            List<float> stride = Stride(0.18f, 8);
+            // ⚠️ 峰值 0.17（每帧 0.02125）而不是 0.18：0.18/8 會有一帧**剛好等於** ContactClearance 0.045，
+            //    加上 3.7 m 再減回來的浮點誤差就會跨過門檻、晚一帧——那是測資踩在門檻上，不是平移不變性失效。
+            List<float> stride = Stride(0.17f, 8);
             for (int c = 0; c < cycles; c++)
             {
                 foreach (float h in stride) { left.Add(h); right.Add(0f); }
