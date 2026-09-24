@@ -3,6 +3,7 @@ using UnityEngine;
 using Project.Core.Actions;
 
 [assembly: InternalsVisibleTo("Project.Tests.EditMode")]
+[assembly: InternalsVisibleTo("Project.Tests.PlayMode")]
 
 namespace Project.Presentation.CameraControl
 {

@@ -208,7 +208,8 @@ namespace Project.Core.Movement
 
             if (_stop.IsPlaying && TryGetActiveVariant(out LocomotionStopVariant variant))
             {
-                motionDriver.ExecuteBakedCurveMovement(
+                // 停步仍屬 locomotion：走專用入口，讓樓梯貼地輔助在停步滑行期間同樣生效（docs/44 §9.4）。
+                motionDriver.ExecuteLocomotionStopMovement(
                     variant.BakeData, _stop.NormalizedTime, _stop.PreviousNormalizedTime, data);
                 return;
             }

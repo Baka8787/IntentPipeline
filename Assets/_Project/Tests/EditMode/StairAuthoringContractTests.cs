@@ -168,6 +168,23 @@ namespace Project.Tests.EditMode
             Assert.AreEqual(0, mask & (1 << layer), "必須排除自身 layer，否則每次都打到自己");
         }
 
+        /// <summary>
+        /// Run 下樓的貼地（docs/44 §9.4）：兩個角色都開啟 step-down assist，且查詢遮罩**只有**移動面——
+        /// 一般斜坡與平台邊緣因此完全不受影響。
+        /// </summary>
+        [TestCase(PlayerPrefabPath)]
+        [TestCase(EnemyPrefabPath)]
+        public void Policy_StairGroundFollowing_IsEnabled_AndScopedToMovementSurfaceOnly(string prefabPath)
+        {
+            var driver = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath).GetComponent<Project.Presentation.Motion.MotionDriver>();
+            Assert.IsNotNull(driver, prefabPath);
+            var so = new SerializedObject(driver);
+            Assert.IsTrue(so.FindProperty("enableStepDownAssist").boolValue, $"{prefabPath}：樓梯貼地沒有開啟");
+            Assert.AreEqual(1 << MovementLayer, (int)so.FindProperty("stepDownQueryLayers.m_Bits").longValue,
+                $"{prefabPath}：step-down 遮罩必須只有 {StairMovementSurfaceGenerator.MovementLayerName}，否則會改變一般斜坡／平台邊緣的行為");
+            Assert.IsFalse(so.FindProperty("logStepDownAssist").boolValue, $"{prefabPath}：量測 log 不應在 prefab 上常開");
+        }
+
         [Test]
         public void Policy_CollisionPolicy_IsNotOwnedByARuntimeComponent()
         {
@@ -194,7 +211,7 @@ namespace Project.Tests.EditMode
         private static readonly MaskExpectation[] MaskTable =
         {
             new MaskExpectation { Intent = "腳落在看得到的踏面", TypeName = "Project.Presentation.IK.FootIKController", PropertyPath = "settings.GroundLayers", SeesTread = true, SeesMovement = false, ExpectedMask = -9 },
-            new MaskExpectation { Intent = "移動類查詢（step-down）", TypeName = "Project.Presentation.Motion.MotionDriver", PropertyPath = "stepDownQueryLayers", SeesTread = false, SeesMovement = true, ExpectedMask = -257 },
+            new MaskExpectation { Intent = "樓梯貼地（step-down）只作用在移動面", TypeName = "Project.Presentation.Motion.MotionDriver", PropertyPath = "stepDownQueryLayers", SeesTread = false, SeesMovement = true, ExpectedMask = 1 << 3 },
             new MaskExpectation { Intent = "瞄準打在看得到的幾何", TypeName = "Project.Presentation.CameraControl.AimResolver", PropertyPath = "aimRayMask", SeesTread = true, SeesMovement = false, ExpectedMask = 385 },
             new MaskExpectation { Intent = "相機被看得到的幾何擋住", TypeName = "Project.Presentation.CameraControl.ThirdPersonCamera", PropertyPath = "obstructionMask", SeesTread = true, SeesMovement = false, ExpectedMask = 257 },
             new MaskExpectation { Intent = "traversal 障礙是看得到的幾何", TypeName = "Project.Core.Environment.TraversalProbe", PropertyPath = "settings.obstacleMask", SeesTread = true, SeesMovement = false, ExpectedMask = 275 },

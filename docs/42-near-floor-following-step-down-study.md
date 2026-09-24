@@ -5,6 +5,12 @@
 > **Q8 已裁決收斂**（有意義改善、不再追加壓低殘餘掉出，見 §7.4）。§8 是**正式接線提案**——
 > 區分已驗證的機制規則（§8.1）與待 tuning 的參數（§8.2），含 regression test 清單（§8.4）；
 > ⛔ **仍只是提案，尚未實作、尚未裁決是否要真的接線**。上樓抖動已拆成獨立研究輪，見另一份文件。
+>
+> 🔄 **2026-09-24 更新——已接線，但只作用在樓梯移動面**：見 `docs/44` §9.4。
+> 欄位改名 `enableStepDownAssist`（X Bot、Y Bot 開啟），`stepDownQueryLayers` ＝ 只有 `CharacterMovementSurface`；
+> 一般地形行為不變。相對 §8 的兩處修訂：R1 另掛到 Locomotion Stop（`ExecuteLocomotionStopMovement`）；
+> gate ② 由「移動意圖」改為「本幀要求的水平速度」。§8.2 的數值仍是實驗值（未另做 tuning pass）。
+> 以下 §0–§8 保留為當時的研究紀錄，不回改。
 
 > **這份文件是什麼**：使用者在下樓梯 jitter 排查後明確要求——**不要針對 Stairs 寫特例**，
 > 改參考 Unreal `FindFloor` / `MoveAlongFloor` / `FStepDownResult` 的責任劃分，研究
@@ -465,7 +471,7 @@ frame 859: queryHit=True  slopeOk=True   lostSupportAge=0.036  ← 水平位移�
 
 | # | 規則 | 為什麼是規則，不是可調參數 | 對應證據 |
 |---|---|---|---|
-| R1 | **只掛在 `ExecuteBaseMovement`，絕不碰 `ExecuteVerticalOnlyMovement`** | 這個切分本來就對應 UE 的 Walking／Falling 模式，`DeathState`／`HurtState`／Jump 空中段天生免疫，不需要任何額外判斷 | §6.5.1 讀碼查證 |
+| R1 | **只掛在 `ExecuteBaseMovement`，絕不碰 `ExecuteVerticalOnlyMovement`**（🔄 2026-09-24：另掛 Locomotion Stop，見 `docs/44` §9.4） | 這個切分本來就對應 UE 的 Walking／Falling 模式，`DeathState`／`HurtState`／Jump 空中段天生免疫，不需要任何額外判斷 | §6.5.1 讀碼查證 |
 | R2 | **Query 必須是獨立、非提交的 `Physics.Capsule*`，絕不用 `characterController.Move()` 自帶 sweep 當探測** | 單次 Move 下壓在找不到面時會無條件全額提交位移，懸崖邊緣造成單幀瞬移 | §6.1 Spike ①（Editor-only 隔離場景實測） |
 | R3 | **Query 必須用多重命中（`CapsuleCastNonAlloc`）並過濾自身階層** | 單一命中的 `Physics.CapsuleCast` 幾乎必定先打中角色自己的 `CharacterController`（同形狀同位置），`queryDist` 會鎖死在 skin width，永遠看不到真正的地面 | §7.1 第一輪量測 |
 | R4 | **Query 起點必須加上「本幀即將套用的水平位移」，不能從移動前的位置直探** | 越過階緣時正下方不是立面（角度太陡）就是完全落空——下一階踏面在前方，不在正下方 | §7.2 第二輪量測 |
@@ -505,7 +511,7 @@ frame 859: queryHit=True  slopeOk=True   lostSupportAge=0.036  ← 水平位移�
 | 測試 | 驗證什麼 | 對應規則 |
 |---|---|---|
 | `Gate_RejectsWhenAscending` | `finalMovement.y > 0`（如剛注入的跳躍初速）⇒ gate 必須拒絕，不管 grounded 或 retry window 狀態 | R6，**最重要的一條**——直接對應 Spike ③ 的真實 bug |
-| `Gate_RejectsWhenNoHorizontalIntent` | `MoveDirection` 接近零 ⇒ gate 拒絕（保護 edge-standing，docs/38） | Q2 裁決 |
+| `Gate_RejectsWhenNoHorizontalIntent` | `MoveDirection` 接近零 ⇒ gate 拒絕（保護 edge-standing，docs/38）（🔄 2026-09-24：判準改為本幀要求的水平速度，見 `docs/44` §9.4） | Q2 裁決 |
 | `RetryWindow_AcceptsWithinWindow` / `RejectsBeyondWindow` | `lostSupportAge <= stepDownRetryWindow` 的邊界行為 | R7 |
 | `RetryWindow_ResetsWhenGrounded` | `IsGrounded` 為真時 age 歸零、非真時累加 `deltaTime`（同 `GroundEdgeEventTests` 的 `TrackGroundStateDivergence` 測試模式） | R7 |
 | `WalkableGate_RejectsSteeperThanSlopeLimit` / `AcceptsWithinSlopeLimit` | 法線夾角與 `characterController.slopeLimit` 的邊界行為 | R5 |

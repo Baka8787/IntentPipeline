@@ -7,6 +7,35 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🟩 2026-09-24（續七）— **樓梯：Run Down 修好，PlayMode 契約 20/20；待人工手感驗收**
+>
+> 📖 正本：`docs/44` §9.4。
+>
+> **已完成**：
+> - **Run Down 失地根因**：grounded 貼地力只有 2 m/s，Run 4.7 m/s 下 30–35° 需要 2.7–3.3 m/s ⇒ 每幀彈離斜面。
+>   不是移動面的錯。
+> - **修法**：啟用 `docs/42` 的 Query→Apply 貼地，但 **Query 只看 `CharacterMovementSurface`**（一般地形不變）。
+>   `enableStepDownAssistPrototype` → `enableStepDownAssist`（`FormerlySerializedAs`），X Bot／Y Bot 開啟、
+>   `stepDownQueryLayers`＝8；log 拆到 `logStepDownAssist`（預設關）；程式預設遮罩改 Nothing。
+> - **停步路徑**（Codex round 3）：新增 `MotionDriver.ExecuteLocomotionStopMovement`，`LocomotionModel` 停步分支改用它；
+>   Roll／Action 不變。gate ② 改為「本幀要求的水平速度 > 0.01 m/s」。
+> - X Bot `enableStepUpDiagnosticsPrototype` 關回 0（量測結束）。
+> - **PlayMode** `StairTraversalPlayModeTests`：20/20（兩道樓梯 × Player Walk／Run 上下、Run Down 中途停步、
+>   跳躍、開放邊緣墜落、Enemy 上下、查詢語意）。Run Down 失地 119→0／105→0。
+> - **全套**：EditMode 651／650 通過／1 既有略過；PlayMode 87／86 通過，唯一失敗是**既有的**
+>   `C0_TraversalDoesNotReportGroundEdgesFromIncidentalContact`（2026-09-23 `groundEdgeEventGrace` 造成）。
+> - Codex round 2–4 見 `docs/44` §9.4。
+>
+> **仍未解（刻意不在本輪範圍）**：Run Up 根部離移動面 0.18–0.23 m／骨盆下潛；Locomotion Stop 進入時 2 幀水平停頓
+> （平地同樣發生）；Walk 腳步聲同腳連擊；場景中另一道 ProBuilder `Stairs`（x≈7.9）未套用。
+>
+> **⚠️ 待使用者**：`SampleScene.unity` 仍未 commit（混有使用者自己的關卡編輯，見續六）；
+> 貼地目前在 prefab 上**預設開啟**——若手感不對，關掉 `enableStepDownAssist` 即回到原行為（Run Down 失地會回來）。
+>
+> **下一步**：人工 Play 手感驗收（`docs/44` §9.3）。
+>
+> ---
+
 > # 🟩 2026-09-24（續六）— **樓梯 authoring 契約：已套用、EditMode 全綠，Play 驗收進行中**
 >
 > 📖 正本：`docs/44`（新規格，非 ADR）。使用者授權自主推進，Codex 為第二審查者。

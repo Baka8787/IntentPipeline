@@ -3,7 +3,9 @@
 > **狀態（2026-09-24）**：方向已由使用者裁決（見 `docs/43` §10 → 本檔）。**不是 ADR**——這是跨系統的
 > physics-layer 契約，但不命中 ADR 四項觸發條件（使用者裁決：寫成獨立規格）。
 > **已套用（2026-09-24）**：layer、碰撞矩陣、prefab 遮罩、兩道樓梯的移動面；EditMode 全綠。
-> **尚未完成**：人工／執行期 Play 驗收（§9）。
+> **已套用（2026-09-24，§9.4）**：只看移動面的樓梯貼地（`docs/42` 機制）——修好 Run Down 失地與停步失地；
+> 樓梯 PlayMode 契約測試 20/20（Player Walk／Run 上下、停步、跳躍、邊緣墜落、Enemy 上下、查詢語意）。
+> **尚未完成**：人工 Play 手感驗收（§9.3）。
 > 研究背景與推導：`docs/43` §4（單一 ramp prototype）、§5–§9（Run／腳步聲診斷）、§10（推廣性分析）。
 
 ## 1. 目標與驗收
@@ -61,7 +63,7 @@
 | 語意 | 元件．欄位（所在 prefab） | 看 `StairTread` | 看 `CharacterMovementSurface` | 目前值 → 目標值 |
 |---|---|---|---|---|
 | 腳落在看得到的踏面 | `FootIKController.settings.GroundLayers`（X Bot、Y Bot） | ✅ | ❌ | X Bot −9（已正確）；**Y Bot −1 → −9** |
-| 移動類查詢（step-down，prototype 關閉中） | `MotionDriver.stepDownQueryLayers`（X Bot、Y Bot） | ❌ | ✅ | −1 → −257 |
+| 移動類查詢：樓梯貼地（§9.4） | `MotionDriver.stepDownQueryLayers`（X Bot、Y Bot） | ❌ | ✅（**只看它**） | −1 → −257 → **8（只有 `CharacterMovementSurface`）** |
 | 瞄準打在看得到的幾何 | `AimResolver.aimRayMask`（X Bot） | ✅ | ❌ | 129 → 385 |
 | 相機被看得到的幾何擋住 | `ThirdPersonCamera.obstructionMask`（Main Camera） | ✅ | ❌ | 1 → 257 |
 | traversal 障礙是看得到的幾何 | `TraversalProbe.settings.obstacleMask`（X Bot） | ✅ | ❌ | 19 → 275 |
@@ -127,8 +129,9 @@ Foot IK 的骨盆補償上限 `MaxPelvisOffset` ＝ 0.35 m ＞ 一級 0.195 m，
 - 場景中另一道 ProBuilder `Stairs`（x≈7.9）入口第一級 0.229（差 0.035 m）不通過——本輪未要求處理。
 - `Stairs_200x100x200_Prefab`（×2）的碰撞 mesh 本身就是斜坡（24.5°），產生器正確判定「不是階梯剖面」；
   它們的 Foot IK 會踩在斜坡上而非踏面，屬另一個問題，本規格不涵蓋。
-- 本契約只推廣 **Walk 上下樓**（`docs/43` §4 已用 Play 證明的部分）。Run Down 的 `isGrounded` 流失、
-  Run Up 的骨盆下潛、Walk 的腳步聲同腳連擊仍未解（`docs/43` §5–§9）。
+- ~~本契約只推廣 Walk 上下樓~~ → Run Down 的 `isGrounded` 流失已由 §9.4 的樓梯貼地修好。
+  **仍未解**：Run Up 的骨盆下潛／根部離移動面 0.18–0.23 m、Walk 的腳步聲同腳連擊（`docs/43` §5–§9）。
+- 樓梯貼地**只作用在移動面上**：一般斜坡、地形、平台邊緣的 Run 下坡仍是原本的彈道行為（§9.4 為什麼這樣劃界）。
 
 ## 9. 目前狀態與下一步
 
@@ -171,3 +174,77 @@ Foot IK 的骨盆補償上限 `MaxPelvisOffset` ＝ 0.35 m ＞ 一級 0.195 m，
 - Enemy：讓 Y Bot 追著玩家上下兩道樓梯，腳落在踏面上、不浮在斜坡上。
 - 相機靠近樓梯側面會被擋住；瞄準樓梯會打在踏面上；Ice 地面技能在樓梯上生成於踏面；
   投射物撞到樓梯；在樓梯旁嘗試 traversal 的行為與改動前一致。
+
+### 9.4 Run Down 失地 → 只看移動面的樓梯貼地（2026-09-24）
+
+**問題**：移動面套上後，Walk 上下樓、Run Up 都乾淨，但 **Run Down 在兩道樓梯上幾乎整段失地**
+（PlayMode 量測 `groundedFalse` 119／148 幀、105／121 幀；Foot IK 踩到踏面只有 48、29 幀）。
+
+**根因（量測＋算術，不是猜）**：grounded 時 `MotionDriver` 只給 −2 m/s 的貼地速度（`reboundForce`）。
+沿 θ 度斜面以水平速度 v 往下走，要貼住斜面需要垂直速度 v·tanθ：
+
+| | v | 29.7°（prototype） | 35.2°（`Stairs (1)`） | 貼地力 2 m/s 夠嗎 |
+|---|---|---|---|---|
+| Walk | 2.2 | 1.25 | 1.55 | ✅ |
+| Run | 4.7 | 2.68 | 3.31 | ❌ ⇒ 每幀離開斜面、彈道落回、再離開 |
+
+所以這不是移動面的錯，而是「平地的貼地力」本來就撐不住陡的 Run 下坡——`docs/42` 研究的正是這件事。
+
+**做法**：啟用 `docs/42` §8.1 已驗證的 Query→Apply 機制（R1–R10 原樣），**但 Query 只看 `CharacterMovementSurface`**
+（`stepDownQueryLayers` ＝ 8）。欄位改名 `enableStepDownAssistPrototype` → `enableStepDownAssist`
+（`FormerlySerializedAs` 保留序列化）；診斷 log 拆到獨立的 `logStepDownAssist`（預設關）；
+`stepDownQueryLayers` 程式預設改為 Nothing（Codex Low：`~0` 預設值會讓新掛的元件在任何地面上貼地）。
+X Bot、Y Bot 相同設定（Player／Enemy 同一契約）。
+
+**為什麼只看移動面，而不是全域貼地**：
+- 移動面是 authoring 過、經驗證器確認「坡度 ≤ slopeLimit − 5°、與踏面高差 ≤ 一級」的面——
+  在它上面貼地**不可能**把角色吸到不該去的地方。一般幾何沒有這個保證（平台邊緣、斜頂、道具）。
+- 全域啟用會改變所有非樓梯場景的下坡／邊緣行為 ⇒ 命中「不得改變與樓梯無關的 gameplay 行為」的停止條件。
+- 代價：非樓梯的陡坡 Run 下坡仍會彈跳（既有行為，不是本輪造成的）。要不要推廣成全域，是另一個決定。
+
+**停步路徑（Codex round 3 Medium）**：Run Down 中途放開搖桿時，Locomotion Stop 走
+`ExecuteBakedCurveMovement`，繞過貼地 ⇒ `Player_RunDown_StopMidStair_StaysGrounded` 兩道樓梯各 2 幀失地。修法：
+- 新增 `MotionDriver.ExecuteLocomotionStopMovement`（與 4 參數的 `ExecuteBakedCurveMovement` 完全相同，
+  只多了 Move 前套用貼地），`LocomotionModel.UpdateMotion` 的停步分支改呼叫它。
+- **Roll／Action 不變**（仍走原本的烘焙路徑）：authored motion 不被貼地改寫。Hurt／Death 走 vertical-only，本來就不受影響。
+- Gate ② 從「有移動意圖」（`MoveDirection`）改為「**本幀要求的水平速度 > 0.01 m/s**」：停步時意圖已歸零，但角色仍沿停步曲線滑行。
+  一般路徑的水平速度就是由意圖導出，兩者在那裡等價；靜止站在邊緣仍不觸發（`docs/38` 的保護不變）。
+  ⇒ 這一條**修訂** `docs/42` §8.1 R1（「只掛在 `ExecuteBaseMovement`」→ 再加上 Locomotion Stop）
+  與 §8.4 的 gate ② 定義。
+- 結果：停步 `groundedFalse` 2 → 0（兩道樓梯）。
+
+**PlayMode 結果（`Assets/_Project/Tests/PlayMode/StairTraversalPlayModeTests.cs`，20/20）**：
+
+| 案例 | prototype 樓梯 | `Stairs (1)` |
+|---|---|---|
+| Player Walk Up／Down | ✅ 0 失地、IK 踏面 496／613 | ✅ 0 失地、IK 踏面 373／487 |
+| Player Run Up | ✅ 0 失地；根部離移動面 0.18 m（見下） | ✅ 0 失地；0.23 m |
+| Player Run Down | ✅ **失地 119 → 0**、IK 踏面 48 → 285 | ✅ **失地 105 → 0**、IK 踏面 29 → 258 |
+| Player Run Down 中途停步 | ✅ 失地 2 → 0 | ✅ 失地 2 → 0 |
+| Player 從樓梯上跳（上／下） | ✅ 跳躍峰值高出移動面 3.7／2.0 m | ✅ 3.7／2.3 m |
+| Player 從頂端開放邊緣走出去 | — | ✅ 正常墜落並進入 Falling |
+| Enemy Up／Down（NavMesh 追擊） | ✅ 0 失地、IK 全在踏面 | ✅ 0 失地、IK 全在踏面 |
+| 查詢語意（Foot IK／Aim／Traversal／Ice／Camera／投射物 → 踏面；Move → 移動面） | ✅ | ✅ |
+
+每個 traversal 案例都斷言：沒有 Jump／Falling 狀態、沒有 JustLanded／JustLeftGround、Foot IK 命中踏面 ≥ 90%
+且從不命中移動面、根部高度連續（Δv_y 門檻）、側向不偏離樓梯。
+測試注意事項：Y Bot 的 Animator 預設 `CullUpdateTransforms`，離開畫面時 IK pass 會被跳過、留下過期命中
+⇒ 測試中改為 `AlwaysAnimate`（只在測試實例上，prefab 不變）。
+
+**全套**：EditMode 651 個，650 通過、0 失敗、1 略過（既有）。PlayMode 87 個，86 通過、1 失敗——
+`C0_TraversalDoesNotReportGroundEdgesFromIncidentalContact`，**既有失敗**，來自 2026-09-23 的
+`groundEdgeEventGrace` 改動（陽性對照期待的落地邊沿被 grace 延後），與本輪無關，已另立待辦。
+
+**已觀察、未修（不屬本輪範圍）**：
+- **Run Up 根部離移動面 0.18–0.23 m（穩定、不跳動）**：很可能就是 `docs/43` 已知的 Run Up 骨盆下潛的另一面，
+  屬 Foot IK／pelvis 範圍，本輪依指示不動。
+- **Locomotion Stop 進入時的 2 幀水平停頓**：停步第 1 幀水平速度 4.70 → 0，下一幀跳到 6.6；
+  **平地上同樣發生**（既有），樓梯上只是因此看得到垂直速度尖峰。屬停步曲線／播放頭，已另立待辦。
+- 場景中另一道 ProBuilder `Stairs`（x≈7.9）未套用（§8）。
+
+**Codex 審查**：
+- round 2：同意 Run Down 根因、停步停頓與 C0 的診斷；建議貼地只看移動面（採用）。
+- round 3：1 Medium（停步繞過貼地 → 已修，見上）；2 Low（`stepDownQueryLayers` 預設 `~0` → 改 Nothing；PlayMode 測試檔未追蹤 → 納入 commit）。
+- round 4（停步修法）：程式無缺陷——確認一般路徑不會因推擠、擊退、只轉向而新觸發貼地（水平速度只來自
+  `MoveDirection × 速度`），停步入口與 4 參數版本逐步相同、只有一次 `Move()`，Roll／Action 不受影響、無依賴方向問題。
+  1 Medium（本節當時不存在 → 即本節）；1 Low（診斷欄位仍叫 intent → 改名 `HasRequestedHorizontalMotion`／log `hMotion`）。

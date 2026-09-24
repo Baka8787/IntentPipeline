@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Serialization;
 using Project.Core.Blackboard;
 
 namespace Project.Presentation.Motion
@@ -169,23 +170,29 @@ namespace Project.Presentation.Motion
                  "獨立成欄位是因為 Motion 層不應反向依賴 StateMachine.States 的實作細節。")]
         [SerializeField, Min(0f)] private float groundEdgeEventGrace = 0.1f;
 
-        [Header("🔬 Step-Down Assist — PROTOTYPE（docs/42，2026-09-23）")]
-        [Tooltip("⚠️ 局部、可撤銷的量測用 prototype，尚未升格正式架構（docs/42 §6.6 尚未決定要不要接線）。\n" +
-                 "預設關閉。開啟後 ExecuteBaseMovement 在特定條件下會用一次獨立的 Physics.CapsuleCast " +
-                 "Query，找到在 maxStepDownDistance 內、且法線夾角 ≤ characterController.slopeLimit 的可站表面時，" +
-                 "直接把本幀垂直分量設成查到的距離（Apply）；查不到／不滿足條件則完全不介入，" +
-                 "現行彈道重力行為逐位元不變。目的只是量測 Q8：Walk 下樓梯能不能從「逐階彈道落下」" +
-                 "變成連續支撐，不是先調好看。")]
-        [SerializeField] private bool enableStepDownAssistPrototype = false;
+        [Header("Step-Down Assist（docs/42 機制 ＋ docs/44 §5：只作用在樓梯移動面）")]
+        [Tooltip("開啟後 locomotion（ExecuteBaseMovement 與停步曲線）在「失地未久、本幀有水平位移、本幀沒有往上」時，從本幀即將到達的水平位置" +
+                 "用一次獨立的 CapsuleCast 往下找 stepDownQueryLayers 上的可站表面；找到就把本幀垂直分量設成" +
+                 "查到的距離，找不到就完全不介入（懸崖、跳躍行為逐位元不變）。\n" +
+                 "⭐ 作用範圍由 stepDownQueryLayers 決定：角色 prefab 設為**只看 CharacterMovementSurface**，" +
+                 "因此只在產生式樓梯移動面上生效——一般斜坡與平台邊緣完全不受影響。\n" +
+                 "為什麼需要：貼地速度 reboundForce（−2 m/s）小於 Run 沿 30–35° 下坡所需的 4.7·tanθ ≈ 2.7–3.3 m/s，" +
+                 "膠囊會逐帧略離坡面（docs/44 §9.4）。")]
+        [FormerlySerializedAs("enableStepDownAssistPrototype")]
+        [SerializeField] private bool enableStepDownAssist = false;
 
-        [Tooltip("Query 向下搜尋距離。docs/42 §6.0：prototype 先用 0.22–0.25m，以樓梯實測級高 0.195m 為" +
-                 "驗證基準，不是最終 tuning 值。")]
+        [Tooltip("逐帧輸出 [StepDownAssist] 量測 log（僅 Editor／Development Build）。與機制本身的開關分開。")]
+        [SerializeField] private bool logStepDownAssist = false;
+
+        [Tooltip("Query 向下搜尋距離。以樓梯級高 0.195 m 為基準（docs/42 §6.0）。" +
+                 "Run 沿 35° 下坡每帧所需下移約 0.055 m @60fps，遠小於此值。")]
         [SerializeField, Min(0f)] private float maxStepDownDistance = 0.25f;
 
-        [Tooltip("docs/42 §6.5.2：專案目前沒有專用 Ground layer 且 Physics Layer Collision Matrix 全開，" +
-                 "~0（Everything）是唯一與 characterController.Move() 真實碰撞範圍一致的選擇。" +
+        [Tooltip("Query 遮罩＝本機制的作用範圍。角色 prefab 設為只看 CharacterMovementSurface（docs/44 §5）。" +
+                 "預設為空（Nothing）：沒有明確設定的元件即使開了開關也查不到任何面，是 no-op——" +
+                 "避免舊資料或新角色意外對所有地面生效。" +
                  "獨立欄位，不重用 FootIKSettings.GroundLayers（Motion 不跨模組讀 Presentation/IK 設定）。")]
-        [SerializeField] private LayerMask stepDownQueryLayers = ~0;
+        [SerializeField] private LayerMask stepDownQueryLayers;
 
         [Tooltip("🔬 實驗值，非最終 tuning。2026-09-23 第三輪 Play 量測發現 Gate①（上一幀是否 grounded）" +
                  "只有單幀記憶——一旦被某幀的 slope gate 誤判擋下（樓梯轉角常見），就永久停用直到角色自己" +
@@ -542,9 +549,9 @@ namespace Project.Presentation.Motion
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             StepDownAssistDebugSnapshot debugSnap = default;
 #endif
-            if (enableStepDownAssistPrototype)
+            if (enableStepDownAssist)
             {
-                finalMovement = ApplyStepDownAssistPrototype(data, finalMovement
+                finalMovement = ApplyStepDownAssist(data, finalMovement
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                     , ref debugSnap
 #endif
@@ -566,7 +573,7 @@ namespace Project.Presentation.Motion
 #endif
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-            if (enableStepDownAssistPrototype)
+            if (enableStepDownAssist && logStepDownAssist)
             {
                 LogStepDownAssistTrace(data, in debugSnap, posBeforeMove, transform.position);
             }
@@ -577,18 +584,23 @@ namespace Project.Presentation.Motion
 #endif
         }
 
-        // 🔬 PROTOTYPE（docs/42 §6.2／§6.5）：Query（非提交）→ Apply（找到才提交）兩段式，
-        // 局部、可撤銷，尚未升格正式架構。三個 gate 同時成立才介入：
+        // Query（非提交）→ Apply（找到才提交）兩段式（docs/42 §6.2／§8 的 R1–R10）。作用範圍由
+        // stepDownQueryLayers 決定——角色 prefab 只看 CharacterMovementSurface（docs/44 §5）。三個 gate 同時成立才介入：
         //   ①連續失地時間在 stepDownRetryWindow 內（🔄 2026-09-23 第三輪修正：原本是「上一幀
         //     是否 grounded」的單幀記憶，量測證實一旦被某幀 slope gate 誤判擋下（樓梯轉角常見），
         //     就永久停用直到角色自己彈道式撞到東西為止，量到最長 42 幀＝0.7s 的掉出，比完全沒有
         //     assist 還久。改成短時間窗口重試，不是單純移除——真的掉落夠久還是要放手）
-        //   ②本幀有效 horizontal locomotion（Q2 裁決：靜止不生效，保護 docs/38 的 edge-standing）
+        //   ②本幀真的有水平位移（Q2 裁決：靜止不生效，保護 docs/38 的 edge-standing）。
+        //     🔄 2026-09-24：由「有移動意圖」改為「本幀有水平速度」——Locomotion Stop 期間意圖已歸零、
+        //     角色仍沿停步曲線滑行；一般路徑的水平速度就是由意圖導出，兩者在那裡等價（docs/44 §9.4）。
         //   ③本幀重力積分出來的垂直分量已經 ≤ 0（不是正在主動起跳——docs/42 §6.1 Spike ③：
         //     只看 grounded 會把 ApplyJumpLaunch 剛注入的正向速度直接覆寫成負的）
         // Query 用獨立的 Physics.CapsuleCast（不是 characterController.Move() 自帶的 sweep——
         // docs/42 §6.1 Spike ①證實後者找不到面時仍會無條件全額提交位移，不是安全的簡化）。
-        private Vector3 ApplyStepDownAssistPrototype(PlayerRuntimeData data, Vector3 finalMovement
+        /// <summary>水平速度低於 0.01 m/s 視為靜止（gate ②）。</summary>
+        private const float MinimumAssistHorizontalSpeedSqr = 0.0001f;
+
+        private Vector3 ApplyStepDownAssist(PlayerRuntimeData data, Vector3 finalMovement
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             , ref StepDownAssistDebugSnapshot debugSnap
 #endif
@@ -600,18 +612,18 @@ namespace Project.Presentation.Motion
             else _stepDownTimeSinceGrounded += Time.deltaTime;
 
             bool withinRetryWindow = data.IsGrounded || _stepDownTimeSinceGrounded <= stepDownRetryWindow;
-            bool hasHorizontalIntent = data.MoveDirection.sqrMagnitude > 0.001f;
+            bool hasRequestedHorizontalMotion = finalMovement.x * finalMovement.x + finalMovement.z * finalMovement.z > MinimumAssistHorizontalSpeedSqr;
             bool alreadyDescending = finalMovement.y <= 0f;
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             debugSnap.PreviouslyGrounded = data.IsGrounded;
             debugSnap.WithinRetryWindow = withinRetryWindow;
             debugSnap.LostSupportAge = _stepDownTimeSinceGrounded;
-            debugSnap.HasHorizontalIntent = hasHorizontalIntent;
+            debugSnap.HasRequestedHorizontalMotion = hasRequestedHorizontalMotion;
             debugSnap.PreAssistVerticalVelocity = finalMovement.y;
 #endif
 
-            if (!withinRetryWindow || !hasHorizontalIntent || !alreadyDescending) return finalMovement;
+            if (!withinRetryWindow || !hasRequestedHorizontalMotion || !alreadyDescending) return finalMovement;
 
             // 🔴 2026-09-23 第二輪 Play 量測踩到的坑：從「本幀移動前」的位置直直往下探，
             // 角色快越過一階邊緣時正下方不是階梯立面（角度太陡，被 slope gate 擋掉）就是完全落空
@@ -680,7 +692,7 @@ namespace Project.Presentation.Motion
             public bool PreviouslyGrounded;
             public bool WithinRetryWindow;
             public float LostSupportAge;
-            public bool HasHorizontalIntent;
+            public bool HasRequestedHorizontalMotion;
             public float PreAssistVerticalVelocity;
             public bool QueryHit;
             public float QueryDistance;
@@ -714,7 +726,7 @@ namespace Project.Presentation.Motion
                 " prevGrounded=" + snap.PreviouslyGrounded +
                 " retryWindow=" + snap.WithinRetryWindow +
                 " lostSupportAge=" + snap.LostSupportAge.ToString("F5") +
-                " hIntent=" + snap.HasHorizontalIntent +
+                " hMotion=" + snap.HasRequestedHorizontalMotion +
                 " preY=" + snap.PreAssistVerticalVelocity.ToString("F5") +
                 " queryHit=" + snap.QueryHit +
                 " queryDist=" + snap.QueryDistance.ToString("F5") +
@@ -843,6 +855,28 @@ namespace Project.Presentation.Motion
             float currentTime = Mathf.Max(0f, normalizedTime * bakeData.Duration);
             float previousTime = Mathf.Clamp(previousNormalizedTime * bakeData.Duration, 0f, currentTime);
             ExecuteBakedCurveMovementAtTimes(bakeData, currentTime, previousTime, true, data);
+        }
+
+        /// <summary>
+        /// Locomotion Stop 專用的烘焙曲線執行：與上方 4 參數版本相同，但 Move 前套用樓梯貼地輔助。
+        /// 停步是 locomotion 的尾段——在樓梯移動面上 Run Down 放手時，角色仍以數 m/s 沿停步曲線滑行，
+        /// 與 ExecuteBaseMovement 同樣需要貼地（docs/44 §9.4）。Roll／Action 不走這裡。
+        /// </summary>
+        public void ExecuteLocomotionStopMovement(
+            MotionBakeData bakeData,
+            float normalizedTime,
+            float previousNormalizedTime,
+            PlayerRuntimeData data)
+        {
+            if (bakeData == null) return;
+            if (IsTimeFrozen) return;
+
+            ApplyFacingRequest();
+            UpdateCapsuleOffset(data);
+
+            float currentTime = Mathf.Max(0f, normalizedTime * bakeData.Duration);
+            float previousTime = Mathf.Clamp(previousNormalizedTime * bakeData.Duration, 0f, currentTime);
+            ExecuteBakedCurveMovementAtTimes(bakeData, currentTime, previousTime, true, data, applyStepDownAssist: true);
         }
 
         public void BeginTraversalCollisionProfile(in TraversalCollisionProfile profile)
@@ -2478,7 +2512,8 @@ namespace Project.Presentation.Motion
             float currentTime,
             float previousTime,
             bool usePlayheadDeltaSpeed,
-            PlayerRuntimeData data)
+            PlayerRuntimeData data,
+            bool applyStepDownAssist = false)
         {
             float currentSpeed = bakeData.GetSpeedAt(currentTime);
             float worldSpeed = currentSpeed;
@@ -2505,6 +2540,30 @@ namespace Project.Presentation.Motion
             }
 
             Vector3 finalMovement = horizontalVelocity + GetGravityThisFrame(data);
+
+            // 只有 Locomotion Stop 會帶 true（見 ExecuteLocomotionStopMovement）。
+            // Roll／Action 的 authored motion 維持原樣，不被貼地輔助改寫。
+            if (applyStepDownAssist && enableStepDownAssist)
+            {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                StepDownAssistDebugSnapshot debugSnap = default;
+                Vector3 posBeforeMove = transform.position;
+#endif
+                finalMovement = ApplyStepDownAssist(data, finalMovement
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                    , ref debugSnap
+#endif
+                );
+                characterController.Move(finalMovement * Time.deltaTime);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                if (logStepDownAssist)
+                {
+                    LogStepDownAssistTrace(data, in debugSnap, posBeforeMove, transform.position);
+                }
+#endif
+                return;
+            }
+
             characterController.Move(finalMovement * Time.deltaTime);
         }
 

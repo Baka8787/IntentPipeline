@@ -429,11 +429,12 @@ MonoBehaviour:
   gravity: -9.81
   reboundForce: -2
   groundEdgeEventGrace: 0.1
-  enableStepDownAssistPrototype: 0
+  enableStepDownAssist: 1
+  logStepDownAssist: 0
   maxStepDownDistance: 0.25
   stepDownQueryLayers:
     serializedVersion: 2
-    m_Bits: 4294967039
+    m_Bits: 8
   stepDownRetryWindow: 0.08
   enableStepUpDiagnosticsPrototype: 0
   aimFacingTurnSpeed: 8
