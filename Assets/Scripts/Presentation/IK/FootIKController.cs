@@ -90,8 +90,23 @@ namespace Project.Presentation.IK
 #endif
         }
 
+        /// <summary>身體參考面的 8 個世界固定取樣方向（與角色朝向無關，docs/05 §3.5.4.3）。唯讀、只配置一次。</summary>
+        private static readonly Vector2[] ReferenceDirections =
+        {
+            new Vector2(1f, 0f), new Vector2(0.70710678f, 0.70710678f), new Vector2(0f, 1f), new Vector2(-0.70710678f, 0.70710678f),
+            new Vector2(-1f, 0f), new Vector2(-0.70710678f, -0.70710678f), new Vector2(0f, -1f), new Vector2(0.70710678f, -0.70710678f),
+        };
+
+        /// <summary>root 支撐查詢往下的額外距離（公尺）：起點在 root 上方 RaycastUpOffset，往下打到 root 下方這麼深。</summary>
+        private const float RootSupportProbeDepth = 0.2f;
+
+        /// <summary>角色移動真正會碰的世界（與 CharacterController.Move 同一份碰撞矩陣推導）。Awake 快取一次。</summary>
+        private int _movementMask;
+
         private void Awake()
         {
+            _movementMask = MotionDriver.MovementCollisionMask(gameObject.layer);
+
             // 🔄（M3.x-A）**只建立自己寫的那條管道**。擁有權跟著寫入權走：
             //     Target 由本類別寫 → 本類別擁有其生命週期，注入給 Rig 讀；
             //     Pose 由 Rig 寫 → **Rig 擁有其生命週期**，本類別只是它的 Reader 之一。
@@ -178,17 +193,29 @@ namespace Project.Presentation.IK
             float rightStance = ComputeFootWeight(_poseData.RightFootPosition.y - posePlaneY,
                 settings.FootGroundedHeightMin, settings.FootGroundedHeightMax);
 
-            // === ② 骨盆補償：依支撐量加權的下沉需求（夾限＋平滑）===
+            // === ② 骨盆補償 ===
             // 🔄（2026-09-24，`docs/44` §9.6）取代「雙腳都命中才補、取較低者」：
             //    擺盪腳的 ray 會先探到下一階（樓梯下行時更低），舊規則讓它整個拉動骨盆 ⇒ 一級一個的鋸齒。
             //    現在每隻腳只按它**正在支撐的程度**要求骨盆下沉；擺盪腳仍照常取得踏面做 IK 落點（③不變）。
             //    ⛔ 不是新的 HasGround 閘門：沒有命中的腳只是「沒有下沉需求」，不會讓整個骨盆歸零。
-            float pelvisTarget = ikAllowed
-                ? ComputeSupportedPelvisOffset(
+            float pelvisTarget = 0f;
+            if (ikAllowed)
+            {
+                float supportNeed = ComputeSupportedPelvisOffset(
                     left.HasHit, left.GroundY, leftStance,
                     right.HasHit, right.GroundY, rightStance,
-                    rootY, settings.MaxPelvisOffset)
-                : 0f;
+                    rootY, settings.MaxPelvisOffset);
+                pelvisTarget = supportNeed;
+
+                // 🆕（2026-09-24，docs/05 §3.5.4.3）在代理移動面（樓梯）上，身體改為跟隨參考面包絡。
+                //    上面的逐腳需求在樓梯上必然隨步伐週期擺盪（實測：髖骨 dv95 4.7–7.3 m/s），
+                //    不論怎麼加權都一樣——需求必須來自地形本身，而不是腳現在在哪。
+                if (settings.ReferenceSampleRadius > 0f)
+                {
+                    float referenceOffset = ComputeReferenceOffset(rootY, out bool rootOnProxy);
+                    pelvisTarget = CombinePelvisTarget(referenceOffset, rootOnProxy, supportNeed);
+                }
+            }
             _targetData.PelvisOffsetY = Mathf.MoveTowards(_targetData.PelvisOffsetY, pelvisTarget, settings.PelvisSmoothSpeed * Time.deltaTime);
 
             // === ③ 各腳最終目標與權重 ===
@@ -447,6 +474,95 @@ namespace Project.Presentation.IK
             ankleTargetBeforeLift.y += lift;
             return (ankleTargetBeforeLift - soleNormal * footBottomHeight).y;
         }
+
+        /// <summary>
+        /// 身體參考面包絡 Kref（docs/05 §3.5.4.3）。在 root 周圍 8 個世界固定方向、半徑 <c>ReferenceSampleRadius</c> 處
+        /// 往下打「移動世界」射線，取最低者相對 root 的高差（夾限在 [−MaxPelvisOffset, 0]）。
+        ///
+        /// 「代理面」＝角色移動會碰、但 Foot IK 看不到的面（<c>移動世界 &amp; ~GroundLayers</c>，由遮罩推導、不寫 layer 名）。
+        /// - 命中代理面 ⇒ 用命中高度。
+        /// - root 站在代理面上時，沒命中代理面的取樣改用 max(非代理命中, root 支撐平面的延伸)：
+        ///   樓梯側邊／開放頂端下方的地面被延伸平面蓋掉，不會把身體往下拉；樓梯底的地面與斜面起點同高，數值連續。
+        /// - root 不在代理面上 ⇒ 只計代理面命中（一般地形逐位元不變，從平台走向樓梯時自然預先下沉）。
+        ///
+        /// root 支撐查詢：起點 root 上方 <c>RaycastUpOffset</c>，往下到 root 下方 <see cref="RootSupportProbeDepth"/>；
+        /// 沒命中 ⇒ 視為不在代理面上（Codex 審查：刻意的語意邊界）。全部使用 Raycast out 多載，零配置。
+        /// </summary>
+        private float ComputeReferenceOffset(float rootY, out bool rootOnProxy)
+        {
+            int proxyMask = _movementMask & ~settings.GroundLayers.value;
+            Vector3 root = transform.position;
+            float up = settings.RaycastUpOffset;
+
+            rootOnProxy = false;
+            Vector3 supportPoint = root;
+            Vector3 supportNormal = Vector3.up;
+            if (Physics.Raycast(root + Vector3.up * up, Vector3.down, out RaycastHit rootHit,
+                    up + RootSupportProbeDepth, _movementMask, QueryTriggerInteraction.Ignore))
+            {
+                rootOnProxy = IsInMask(proxyMask, rootHit.collider.gameObject.layer);
+                supportPoint = rootHit.point;
+                supportNormal = rootHit.normal;
+            }
+
+            float radius = settings.ReferenceSampleRadius;
+            float max = settings.MaxPelvisOffset;
+            float sampleDistance = up + radius + max;
+            float referenceOffset = 0f;
+            for (int k = 0; k < ReferenceDirections.Length; k++)
+            {
+                Vector2 dir = ReferenceDirections[k];
+                float x = root.x + dir.x * radius;
+                float z = root.z + dir.y * radius;
+                bool hasHit = Physics.Raycast(new Vector3(x, root.y + up, z), Vector3.down, out RaycastHit hit,
+                    sampleDistance, _movementMask, QueryTriggerInteraction.Ignore);
+                bool hitIsProxy = hasHit && IsInMask(proxyMask, hit.collider.gameObject.layer);
+                float planeY = rootOnProxy ? ExtrapolateSupportPlaneY(supportPoint, supportNormal, x, z) : 0f;
+
+                if (TryReferenceSampleHeight(hasHit, hitIsProxy, hasHit ? hit.point.y : 0f, rootOnProxy, planeY,
+                        out float height))
+                {
+                    referenceOffset = Mathf.Min(referenceOffset, Mathf.Clamp(height - rootY, -max, 0f));
+                }
+            }
+            return referenceOffset;
+        }
+
+        private static bool IsInMask(int mask, int layer) => (mask & (1 << layer)) != 0;
+
+        /// <summary>
+        /// （純函數）單一參考取樣的高度。回傳 false ＝ 這個取樣不計入包絡。
+        /// </summary>
+        public static bool TryReferenceSampleHeight(bool hasHit, bool hitIsProxy, float hitY,
+            bool rootOnProxy, float supportPlaneY, out float height)
+        {
+            if (hasHit && hitIsProxy)
+            {
+                height = hitY;
+                return true;
+            }
+            if (rootOnProxy)
+            {
+                height = hasHit ? Mathf.Max(hitY, supportPlaneY) : supportPlaneY;
+                return true;
+            }
+            height = 0f;
+            return false;
+        }
+
+        /// <summary>（純函數）root 支撐平面在 (x, z) 的高度。法線近乎水平（退化）時退回支撐點高度。</summary>
+        public static float ExtrapolateSupportPlaneY(Vector3 point, Vector3 normal, float x, float z)
+        {
+            if (normal.y < 0.01f) return point.y;
+            return point.y - (normal.x * (x - point.x) + normal.z * (z - point.z)) / normal.y;
+        }
+
+        /// <summary>
+        /// （純函數）骨盆目標：root 在代理面上 ⇒ 只看參考面包絡；否則取包絡與逐腳支撐需求較深者
+        /// （包絡此時只含代理面命中 ⇒ 一般地形上恆為 0，行為不變）。兩個模式的交界由樓梯契約 I6／I7 保證兩邊 ≈ 0。
+        /// </summary>
+        public static float CombinePelvisTarget(float referenceOffset, bool rootOnProxy, float supportNeed)
+            => rootOnProxy ? referenceOffset : Mathf.Min(referenceOffset, supportNeed);
 
         /// <summary>
         /// （純函數）Q2 骨盆補償，🔄 2026-09-24 改為**支撐加權**（`docs/44` §9.6）。

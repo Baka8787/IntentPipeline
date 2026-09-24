@@ -241,6 +241,48 @@ namespace Project.Tests.PlayMode
             Assert.IsTrue(landed, $"{label}：起跳後沒有落地（{summary}）");
         }
 
+        // ================================================================ 身體參考面（docs/05 §3.5.4.3）
+
+        /// <summary>
+        /// 身體參考面以 8 個世界固定方向取樣——站在樓梯中段原地轉 90°／180°，骨盆目標不得改變
+        /// （Codex 審查 High：沿 facing 取樣時，轉身會讓身體高度改變整段樓梯修正量）。
+        /// 也確認在樓梯上骨盆確實被參考面拉低（否則這條測試等於空轉）。
+        /// </summary>
+        [UnityTest]
+        public IEnumerator Player_BodyReference_IsIndependentOfFacing(
+            [Values("Stairs_650_400_300_Prefab", "Stairs (1)")] string stairName)
+        {
+            yield return LoadScene();
+            StairFrame stair = StairFrame.Find(_scene, stairName);
+            CharacterPipelineRunner player = FindRunner("X Bot");
+            SetActive("Y Bot", false);
+            AimCamera(player, stair.Ascent);
+            AlwaysAnimate(player);
+            var footIK = player.GetComponentInChildren<FootIKController>();
+
+            Teleport(player, stair, 0f, stair.Ascent);
+            for (int i = 0; i < 60; i++) yield return null;
+            float facingUp = footIK.TargetData.PelvisOffsetY;
+
+            var readings = new List<string> { $"0°:{facingUp:F3}" };
+            float worst = 0f;
+            foreach (float yaw in new[] { 90f, 180f, 270f, 45f })
+            {
+                player.transform.rotation = Quaternion.LookRotation(Quaternion.Euler(0f, yaw, 0f) * stair.Ascent, Vector3.up);
+                for (int i = 0; i < 60; i++) yield return null;
+                float p = footIK.TargetData.PelvisOffsetY;
+                readings.Add($"{yaw}°:{p:F3}");
+                worst = Mathf.Max(worst, Mathf.Abs(p - facingUp));
+            }
+            string label = $"[StairPlayMode] body reference {stairName}: " + string.Join(" ", readings);
+            Debug.Log(label);
+            TestContext.WriteLine(label);
+            yield return UnloadScene();
+
+            Assert.Less(facingUp, -0.2f, $"{stairName}：站在樓梯中段時骨盆應被參考面拉低（{label}）");
+            Assert.Less(worst, 0.01f, $"{stairName}：原地轉身不得改變骨盆（{label}）");
+        }
+
         /// <summary>
         /// `Stairs (1)` 頂端是開放邊緣（下方 3.7 m 是地面）：走出去必須正常墜落，樓梯貼地不得把角色黏在半空。
         /// </summary>

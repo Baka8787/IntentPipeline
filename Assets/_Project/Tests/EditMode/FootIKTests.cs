@@ -338,6 +338,70 @@ namespace Project.Tests.EditMode
                 "支撐量夾在 [0,1]：超出範圍的輸入不得放大或反轉需求");
         }
 
+        // === 身體參考面包絡（docs/05 §3.5.4.3，2026-09-24）===
+
+        [Test]
+        public void ReferenceSample_ProxyHit_UsesHitHeight()
+        {
+            Assert.IsTrue(FootIKController.TryReferenceSampleHeight(true, true, 0.74f, false, 0f, out float h));
+            Assert.AreEqual(0.74f, h, Epsilon, "打到代理面（樓梯移動面）就用它的高度，不論 root 在哪");
+        }
+
+        /// <summary>一般地形不受影響：root 不在代理面上時，非代理命中（平台邊緣下方的地面、路緣）不計入。</summary>
+        [Test]
+        public void ReferenceSample_OffProxy_NonProxyHit_IsNotCounted()
+        {
+            Assert.IsFalse(FootIKController.TryReferenceSampleHeight(true, false, -0.3f, false, 0f, out _),
+                "站在平台上、0.45 m 外是低 0.3 m 的地面 ⇒ 不得讓身體蹲下");
+            Assert.IsFalse(FootIKController.TryReferenceSampleHeight(false, false, 0f, false, 0f, out _),
+                "沒命中也不計入");
+        }
+
+        /// <summary>樓梯側邊／開放頂端：懸崖下方的地面被 root 支撐平面的延伸蓋掉。</summary>
+        [Test]
+        public void ReferenceSample_OnProxy_CliffBelow_IsCoveredBySupportPlane()
+        {
+            Assert.IsTrue(FootIKController.TryReferenceSampleHeight(true, false, -2.0f, true, 1.30f, out float h));
+            Assert.AreEqual(1.30f, h, Epsilon, "側邊下方 2 m 的地面不得把身體往下拉");
+            Assert.IsTrue(FootIKController.TryReferenceSampleHeight(false, false, 0f, true, 1.30f, out h));
+            Assert.AreEqual(1.30f, h, Epsilon, "沒命中（開放頂端外）＝延伸平面");
+        }
+
+        /// <summary>樓梯底：斜面延伸到地面以下，地面比延伸平面高 ⇒ 用地面——這讓取樣點跨過底邊時數值連續。</summary>
+        [Test]
+        public void ReferenceSample_OnProxy_FloorAboveExtendedPlane_UsesFloor()
+        {
+            Assert.IsTrue(FootIKController.TryReferenceSampleHeight(true, false, 0f, true, -0.12f, out float h));
+            Assert.AreEqual(0f, h, Epsilon);
+        }
+
+        [Test]
+        public void ExtrapolateSupportPlane_FlatAndSloped()
+        {
+            Vector3 point = new Vector3(1f, 2f, 3f);
+            Assert.AreEqual(2f, FootIKController.ExtrapolateSupportPlaneY(point, Vector3.up, 5f, -4f), Epsilon, "水平面到處同高");
+
+            // 沿 +x 上升 30° 的斜面：法線 (−sin30, cos30, 0)
+            Vector3 n = new Vector3(-Mathf.Sin(30f * Mathf.Deg2Rad), Mathf.Cos(30f * Mathf.Deg2Rad), 0f);
+            Assert.AreEqual(2f + 0.45f * Mathf.Tan(30f * Mathf.Deg2Rad),
+                FootIKController.ExtrapolateSupportPlaneY(point, n, 1.45f, 3f), Epsilon, "往上坡 0.45 m ⇒ 高 0.45·tan30");
+            Assert.AreEqual(2f, FootIKController.ExtrapolateSupportPlaneY(point, n, 1f, 10f), Epsilon, "沿等高線方向不變");
+
+            Assert.AreEqual(2f, FootIKController.ExtrapolateSupportPlaneY(point, Vector3.right, 9f, 9f), Epsilon,
+                "法線近乎水平（退化）⇒ 退回支撐點高度，不得除以零");
+        }
+
+        [Test]
+        public void CombinePelvisTarget_OnProxyUsesReferenceOnly_OffProxyTakesDeeper()
+        {
+            Assert.AreEqual(-0.26f, FootIKController.CombinePelvisTarget(-0.26f, true, -0.33f), Epsilon,
+                "在樓梯移動面上只看包絡——逐腳需求（隨步伐擺盪）不參與");
+            Assert.AreEqual(-0.33f, FootIKController.CombinePelvisTarget(-0.26f, false, -0.33f), Epsilon,
+                "不在移動面上 ⇒ 取較深者");
+            Assert.AreEqual(-0.1f, FootIKController.CombinePelvisTarget(0f, false, -0.1f), Epsilon,
+                "一般地形（包絡 0）⇒ 等同原本的逐腳支撐需求");
+        }
+
         // 註（M3.5 最終形）：M3.2 的 ComputeHeightFade／ClampReach 純函數已隨實驗機制移除，
         // 對應 7 條測試一併退場（總數回 42）——實驗結論與復刻指引見 changelog v0.18.2~v0.18.6。
 

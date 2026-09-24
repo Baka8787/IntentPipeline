@@ -55,5 +55,13 @@ namespace Project.Presentation.IK
 
         [Tooltip("骨盆偏移的收斂速率（每秒）。")]
         public float PelvisSmoothSpeed = 5f;
+
+        [Tooltip("🆕（2026-09-24，docs/05 §3.5.4.3）身體參考面的取樣半徑（公尺）。0 ＝ 關閉（行為與之前逐位元相同）。\n" +
+                 "在「代理移動面」（角色移動會碰、腳看不到的面，例如樓梯的 CharacterMovementSurface）上，\n" +
+                 "身體高度改為跟隨 root 周圍 8 個世界固定方向、此半徑處的移動面包絡——連續、與朝向無關；\n" +
+                 "腳仍由 IK 搆真實踏面（彎膝吸收）。\n" +
+                 "推導（X Bot）：支撐腳離髖部最大水平距離 Walk 0.29／Run 0.23 m，加上踏面可比移動面低一級（約半個踏面深度）⇒ 0.45。\n" +
+                 "⚠️ 每個角色的動畫不同，必須各自量測；未量測的角色保持 0。")]
+        [Min(0f)] public float ReferenceSampleRadius = 0f;
     }
 }

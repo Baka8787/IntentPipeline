@@ -4551,6 +4551,7 @@ MonoBehaviour:
     WeightSmoothSpeed: 8
     MaxPelvisOffset: 0.35
     PelvisSmoothSpeed: 5
+    ReferenceSampleRadius: 0.45
   drawFootIKRuntimeLines: 1
   drawFootIKSceneGizmos: 1
 --- !u!114 &1780814311861303900
@@ -4692,7 +4693,6 @@ MonoBehaviour:
     ContactClearance: 0.045
     PlantHorizontalSpeedMax: 2
     SwingGateMinRootSpeed: 0.5
-    GroundStepTolerance: 0.06
   recordDebugTrace: 1
   enableFootstepConsoleTrace: 0
   surfaceMap: {fileID: 11400000, guid: 3739daca706202746b7f4f2e0f605200, type: 2}
