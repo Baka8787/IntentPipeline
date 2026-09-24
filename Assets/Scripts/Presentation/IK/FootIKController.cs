@@ -103,6 +103,10 @@ namespace Project.Presentation.IK
         /// <summary>角色移動真正會碰的世界（與 CharacterController.Move 同一份碰撞矩陣推導）。Awake 快取一次。</summary>
         private int _movementMask;
 
+        // 🧪（T3 原型，docs/45 §6–§7）每隻腳刻意跨帧保存的接觸／鎖腳狀態（只存數值）。原型關閉時每帧重設。
+        private FootContactState _leftContact;
+        private FootContactState _rightContact;
+
         private void Awake()
         {
             _movementMask = MotionDriver.MovementCollisionMask(gameObject.layer);
@@ -153,6 +157,8 @@ namespace Project.Presentation.IK
             // IsWarm：快照尚未被 Rig 寫過（IK pass 未開／Animator 未評估）前不消費全零數據。
             if (_targetData == null || _poseData == null || !_poseData.IsWarm)
             {
+                _leftContact.Reset();
+                _rightContact.Reset();
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                 _debugLeftFoot = default;
                 _debugRightFoot = default;
@@ -219,15 +225,36 @@ namespace Project.Presentation.IK
             _targetData.PelvisOffsetY = Mathf.MoveTowards(_targetData.PelvisOffsetY, pelvisTarget, settings.PelvisSmoothSpeed * Time.deltaTime);
 
             // === ③ 各腳最終目標與權重 ===
+            // PresentationPipeline 直接呼叫 Tick、不看元件是否啟用（Codex Medium 1）：停用時 T3 狀態必須每帧維持重設，
+            // 不能只靠 OnDisable 那一次。舊路徑的行為維持原樣。
+            bool contact = settings.UseContactPrototype && isActiveAndEnabled;
             ResolveFoot(in left, _poseData.LeftFootRotation, _poseData.LeftFootBottomHeight,
-                leftStance, ikAllowed,
+                leftStance, ikAllowed, contact,
                 ref _targetData.LeftFootPosition, ref _targetData.LeftFootRotation,
                 ref _targetData.LeftFootPositionWeight, ref _targetData.LeftFootRotationWeight);
 
             ResolveFoot(in right, _poseData.RightFootRotation, _poseData.RightFootBottomHeight,
-                rightStance, ikAllowed,
+                rightStance, ikAllowed, contact,
                 ref _targetData.RightFootPosition, ref _targetData.RightFootRotation,
                 ref _targetData.RightFootPositionWeight, ref _targetData.RightFootRotationWeight);
+
+            // === ③' 🧪 T3：位置目標改由接觸構建（旋轉維持 ③ 的結果）===
+            if (contact)
+            {
+                ResolveContactPosition(ref _leftContact, _poseData.LeftFootPosition, _poseData.LeftFootRotation,
+                    _poseData.LeftFootBottomHeight, leftStance, ikAllowed, posePlaneY,
+                    _targetData.LeftFootRotation, _targetData.LeftFootRotationWeight,
+                    ref _targetData.LeftFootPosition, ref _targetData.LeftFootPositionWeight);
+                ResolveContactPosition(ref _rightContact, _poseData.RightFootPosition, _poseData.RightFootRotation,
+                    _poseData.RightFootBottomHeight, rightStance, ikAllowed, posePlaneY,
+                    _targetData.RightFootRotation, _targetData.RightFootRotationWeight,
+                    ref _targetData.RightFootPosition, ref _targetData.RightFootPositionWeight);
+            }
+            else
+            {
+                _leftContact.Reset();
+                _rightContact.Reset();
+            }
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             RecordFootDebug(
@@ -362,7 +389,7 @@ namespace Project.Presentation.IK
         /// ③ 單腳最終求解（M3.1）：目標＋法線對齊旋轉＋單因子 Pose 權重 → MoveTowards 平滑。
         /// </summary>
         private void ResolveFoot(in FootSample sample, Quaternion poseRotation,
-            float footBottomHeight, float stanceWeight, bool ikAllowed,
+            float footBottomHeight, float stanceWeight, bool ikAllowed, bool contactOwnsPosition,
             ref Vector3 targetPosition, ref Quaternion targetRotation,
             ref float positionWeight, ref float rotationWeight)
         {
@@ -371,7 +398,8 @@ namespace Project.Presentation.IK
             {
                 // 位置由 ankle ray 的泰勒斯修正決定；Heel/Toe（若完整命中）只追加垂直戳穿殘差。
                 // 因此腳踝維持動畫 XZ，不會被斜面法線水平推離原本的垂直 ray。
-                targetPosition = sample.TargetPosition;
+                // 🧪 T3 開啟時位置由 ResolveContactPosition 決定（本函式只負責旋轉，Codex High 2）。
+                if (!contactOwnsPosition) targetPosition = sample.TargetPosition;
 
                 // 腳掌對齊地面法線；基準是動畫原始 goal 旋轉（非骨骼現值）——無反饋、不累積。
                 // 保留俯仰式（v1 凍結基線）：FromToRotation(worldUp, n) 只把世界 up 轉到法線，
@@ -388,8 +416,130 @@ namespace Project.Presentation.IK
             }
 
             float step = settings.WeightSmoothSpeed * Time.deltaTime;
-            positionWeight = Mathf.MoveTowards(positionWeight, goalWeight, step);
+            if (!contactOwnsPosition) positionWeight = Mathf.MoveTowards(positionWeight, goalWeight, step);
             rotationWeight = Mathf.MoveTowards(rotationWeight, goalWeight, step);
+        }
+
+        /// <summary>
+        /// 🧪（T3 原型，docs/45 §6–§7）位置目標的接觸構建。旋轉目標與旋轉權重由 <see cref="ResolveFoot"/> 決定、這裡只讀。
+        ///
+        /// ① 一帧外插 pose（目標下一帧才套用；位置權重為 1 時不外插會讓擺盪腳落後一帧）。
+        /// ② β ＝ 支撐量 × 速度相位；鎖腳狀態轉移 ⇒ 本帧目標水平位置（動畫／鎖定點／釋放混合）。
+        /// ③ 擺盪參考：該水平位置下方的**移動面** ＋ 動畫離地高度（樓梯上是踏面前緣連線的包絡，不會穿進台階）。
+        /// ④ 帶朝向的最小抬升：以即將顯示的腳朝向（pose 旋轉朝 IK 旋轉目標依旋轉權重插值）取腳跟／腳踝底／腳尖，
+        ///    各自下方查 <c>GroundLayers</c>；穿透一律抬起，懸空只依 β 下拉。
+        /// 失效（IK 不允許）⇒ 狀態整體重設、位置權重平滑歸零；不連續（瞬移）⇒ 鎖腳重設、這一帧不外插。
+        /// </summary>
+        private void ResolveContactPosition(ref FootContactState state, Vector3 posePosition, Quaternion poseRotation,
+            float footBottomHeight, float stance, bool ikAllowed, float posePlaneY,
+            Quaternion rotationTarget, float rotationWeight,
+            ref Vector3 targetPosition, ref float positionWeight)
+        {
+            float dt = Time.deltaTime;
+            float weightStep = settings.WeightSmoothSpeed * dt;
+            if (!ikAllowed)
+            {
+                state.Reset();
+                positionWeight = Mathf.MoveTowards(positionWeight, 0f, weightStep);
+                return;
+            }
+
+            // ①
+            bool continuous = FootContactSolver.PredictPose(ref state, posePosition, posePosition.y - posePlaneY,
+                dt, settings.MaxPoseStepPerFrame, out Vector3 predicted, out float predictedHeight, out float footSpeed);
+            if (!continuous)
+            {
+                state.Phase = FootLockPhase.Unlocked;
+                state.ReleaseBlend = 0f;
+                state.PrevContactValid = false;
+            }
+
+            // ②
+            float beta = FootContactSolver.ComputeContactBeta(stance, footSpeed,
+                settings.ContactPhaseSpeedMin, settings.ContactPhaseSpeedMax);
+            FootLockPhase phaseBefore = state.Phase;
+            FootContactSolver.StepLock(ref state, beta, predicted, dt,
+                settings.LockBeta, settings.UnlockBeta, settings.UnlockRadius, settings.ReleaseTime);
+            // 鎖定當帧：支撐尚未選定，先用即時查詢，再把決定抬升的那一點下方的地面記成鎖定支撐。
+            bool supportSelected = state.Phase == FootLockPhase.Locked && phaseBefore == FootLockPhase.Locked;
+            Vector3 horizontal = FootContactSolver.ResolveHorizontal(in state, predicted);
+
+            // ③ 移動面沒命中（例如腳懸在平台邊緣外）⇒ 退回 pose 平面（＝動畫原本的高度）。
+            //    起點用 pose 平面、不加動畫腳高：擺盪腳抬高時起點若跟著抬高，射線會搆不到後腳下方的移動面
+            //    （上樓後腳在 root 下方 0.3–0.4 m），落空退回 pose 平面 ⇒ 目標跳 25–55 cm（第一次 Play 量測）。
+            //    起點再加上「到 root 的水平距離」（45° 錐）：腳離 root 0.7 m 以上時（後腳、鎖定中的腳），
+            //    上坡側的移動面會高過 pose 平面 ＋ 0.5，起點落在斜面裡面 ⇒ 射線從內部出發、打不到它（第二次 Play 量測）。
+            float up = settings.RaycastUpOffset;
+            Vector3 root = transform.position;
+            float reach = new Vector2(horizontal.x - root.x, horizontal.z - root.z).magnitude;
+            float probeDistance = up + settings.RaycastDistance;
+            float referenceY = posePlaneY;
+            if (Physics.Raycast(new Vector3(horizontal.x, posePlaneY + up + reach, horizontal.z), Vector3.down,
+                    out RaycastHit referenceHit, probeDistance + 2f * reach, _movementMask, QueryTriggerInteraction.Ignore))
+            {
+                referenceY = referenceHit.point.y;
+            }
+            Vector3 ankle = new Vector3(horizontal.x, referenceY + predictedHeight, horizontal.z);
+
+            // ④
+            Quaternion shownRotation = Quaternion.Slerp(poseRotation, rotationTarget, rotationWeight);
+            float contactDelta = float.NegativeInfinity;
+            float supportY = 0f;
+            int supportPoint = 0;
+            bool hasContact = false; // 有可用於求解的地面（含鎖定支撐）
+            bool liveHit = false;    // 本帧真的有射線命中——只有它能決定「接觸是否有效」
+            AccumulateContact(in state, supportSelected, 0, ankle, shownRotation, footBottomHeight, -Mathf.Max(0f, settings.HeelOffset),
+                probeDistance, ref contactDelta, ref supportY, ref supportPoint, ref hasContact, ref liveHit);
+            AccumulateContact(in state, supportSelected, 1, ankle, shownRotation, footBottomHeight, 0f,
+                probeDistance, ref contactDelta, ref supportY, ref supportPoint, ref hasContact, ref liveHit);
+            AccumulateContact(in state, supportSelected, 2, ankle, shownRotation, footBottomHeight, Mathf.Max(0f, settings.ToeOffset),
+                probeDistance, ref contactDelta, ref supportY, ref supportPoint, ref hasContact, ref liveHit);
+            if (state.Phase == FootLockPhase.Locked && !supportSelected && hasContact)
+            {
+                state.LockedSupportY = supportY;
+                state.LockedSupportPoint = supportPoint;
+            }
+
+            float lift = hasContact ? FootContactSolver.ComputeMinimumLift(contactDelta, beta) : 0f;
+            float height = FootContactSolver.ResolveHeight(in state, ankle.y + lift, hasContact, ankle.y + contactDelta);
+            if (state.Phase == FootLockPhase.Locked) state.LockedHeight = height;
+            targetPosition = new Vector3(ankle.x, height, ankle.z);
+            positionWeight = Mathf.MoveTowards(positionWeight, 1f, weightStep);
+
+            state.PrevContactValid = liveHit;
+            state.DebugBeta = beta;
+            state.DebugLift = lift;
+        }
+
+        /// <summary>
+        /// 🧪 T3：一個腳底端點下方的地面（<c>GroundLayers</c>；鎖定中另以鎖定支撐為下限），累積最大有號穿透量，
+        /// 並記下決定它的那一點的地面高度（鎖定當帧用來選定支撐）。
+        /// </summary>
+        private void AccumulateContact(in FootContactState state, bool supportSelected, int pointIndex, Vector3 ankle, Quaternion rotation,
+            float footBottomHeight, float forwardOffset, float distance,
+            ref float contactDelta, ref float supportY, ref int supportPoint, ref bool hasContact, ref bool liveHit)
+        {
+            Vector3 point = FootContactSolver.SolePoint(ankle, rotation, footBottomHeight, forwardOffset);
+            Vector3 origin = new Vector3(point.x, Mathf.Max(point.y, ankle.y) + settings.RaycastUpOffset, point.z);
+            bool hasHit = Physics.Raycast(origin, Vector3.down, out RaycastHit hit, distance,
+                settings.GroundLayers, QueryTriggerInteraction.Ignore);
+            liveHit |= hasHit;
+            if (!FootContactSolver.ContactGround(in state, supportSelected, pointIndex, hasHit, hasHit ? hit.point.y : 0f,
+                    out float groundY)) return;
+            float delta = groundY - point.y;
+            if (delta > contactDelta)
+            {
+                contactDelta = delta;
+                supportY = groundY;
+                supportPoint = pointIndex;
+            }
+            hasContact = true;
+        }
+
+        private void OnDisable()
+        {
+            _leftContact.Reset();
+            _rightContact.Reset();
         }
 
         /// <summary>

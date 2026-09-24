@@ -63,5 +63,32 @@ namespace Project.Presentation.IK
                  "推導（X Bot）：支撐腳離髖部最大水平距離 Walk 0.29／Run 0.23 m，加上踏面可比移動面低一級（約半個踏面深度）⇒ 0.45。\n" +
                  "⚠️ 每個角色的動畫不同，必須各自量測；未量測的角色保持 0。")]
         [Min(0f)] public float ReferenceSampleRadius = 0f;
+
+        [Header("🧪 T3 腳部接觸原型（docs/45 §6–§7；預設關閉，只在 X Bot 開啟）")]
+        [Tooltip("開啟後**位置**目標改由 T3 構建：擺盪時腳相對移動面保留動畫離地高度，落腳時以帶朝向的最小抬升貼上接觸面，" +
+                 "踩住後鎖住水平位置。位置權重維持 1；旋轉權重與旋轉目標不變（Codex High 2）。\n" +
+                 "關閉 ＝ 與原型之前逐位元相同。⚠️ 原型：未量測的角色保持關閉。")]
+        public bool UseContactPrototype = false;
+
+        [Tooltip("落腳相位 β 的速度貢獻：動畫腳水平速度 ≤ 此值（m/s）⇒ 1。")]
+        [Min(0f)] public float ContactPhaseSpeedMin = 1f;
+
+        [Tooltip("落腳相位 β 的速度貢獻：動畫腳水平速度 ≥ 此值（m/s）⇒ 0。")]
+        [Min(0f)] public float ContactPhaseSpeedMax = 4f;
+
+        [Tooltip("β ≥ 此值（且上一帧有接觸）⇒ 鎖住腳的水平位置。")]
+        [Range(0f, 1f)] public float LockBeta = 0.95f;
+
+        [Tooltip("鎖定中 β < 此值 ⇒ 開始釋放（與 LockBeta 構成滯後）。")]
+        [Range(0f, 1f)] public float UnlockBeta = 0.7f;
+
+        [Tooltip("鎖定中動畫腳離鎖定點的水平距離 > 此值（公尺）⇒ 開始釋放。需大於動畫支撐腳本身的滑移（實測 4–9 cm）。")]
+        [Min(0f)] public float UnlockRadius = 0.2f;
+
+        [Tooltip("釋放時從鎖定點平滑回到動畫腳位的時間（秒）。")]
+        [Min(0f)] public float ReleaseTime = 0.12f;
+
+        [Tooltip("動畫腳一帧位移超過此值（公尺）視為瞬移／不連續：狀態與速度歷史立即重設。")]
+        [Min(0f)] public float MaxPoseStepPerFrame = 0.5f;
     }
 }

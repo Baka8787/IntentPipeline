@@ -306,6 +306,7 @@ PlayMode `Player_BodyReference_IsIndependentOfFacing`（兩道樓梯，站在中
 #### 3.5.4.4 📝 研究：IK 貼地時機（2026-09-25，⛔ 只離線模擬，未實作；❓ 待使用者裁決）
 
 > 🔎 外部架構校準（UE Foot Placement、AC Syndicate GDC 2016、Johansen 2009）：`docs/45`。結論：T 系列方向正確，但落腳端需改為「每步一個落點＋鎖腳」。
+> 🧪 **T3 執行期原型已實作（`docs/45` §8）**：開關 `FootIKSettings.UseContactPrototype`（X Bot 開、Y Bot 關；關閉時逐位元不變），純函數在 `FootContactSolver.cs`。擺盪穿透 > 3 cm 27–48% → 1–5%，腳步對齊 Walk +8 → −1 帧；未解：停步外插、進鎖前跨階緣、腿過伸。⚠️ 未人工 Play 驗收。
 
 **使用者要求**：優先處理 IK 貼地時機（腳步偵測器已在動畫最早的穩定落腳點，不再動）。
 現行權重只看動畫腳高（`FootGroundedHeightMin/Max` 0.08／0.25 m），滑行中的低腳會被貼地。

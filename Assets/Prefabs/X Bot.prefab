@@ -4552,6 +4552,14 @@ MonoBehaviour:
     MaxPelvisOffset: 0.35
     PelvisSmoothSpeed: 5
     ReferenceSampleRadius: 0.45
+    UseContactPrototype: 1
+    ContactPhaseSpeedMin: 1
+    ContactPhaseSpeedMax: 4
+    LockBeta: 0.95
+    UnlockBeta: 0.7
+    UnlockRadius: 0.2
+    ReleaseTime: 0.12
+    MaxPoseStepPerFrame: 0.5
   drawFootIKRuntimeLines: 1
   drawFootIKSceneGizmos: 1
 --- !u!114 &1780814311861303900
