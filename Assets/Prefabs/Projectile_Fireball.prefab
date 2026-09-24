@@ -100,7 +100,7 @@ MonoBehaviour:
   damage: 20
   sweepMask:
     serializedVersion: 2
-    m_Bits: 4294967295
+    m_Bits: 4294967287
   visualRoot: {fileID: 0}
   detachedVisualLifetime: 4
   impactEffectPrefab: {fileID: 0}

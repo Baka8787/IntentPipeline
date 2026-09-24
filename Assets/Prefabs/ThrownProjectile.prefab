@@ -98,6 +98,15 @@ MonoBehaviour:
   appliesSlow: 1
   slowDuration: 7
   damage: 15
+  sweepMask:
+    serializedVersion: 2
+    m_Bits: 4294967287
+  visualRoot: {fileID: 0}
+  detachedVisualLifetime: 4
+  impactEffectPrefab: {fileID: 0}
+  impactEffectLifetime: 2
+  impactAudio: {fileID: 0}
+  drawHitDebug: 1
 --- !u!1 &2496302247940507569
 GameObject:
   m_ObjectHideFlags: 0

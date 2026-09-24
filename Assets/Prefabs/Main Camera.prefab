@@ -160,11 +160,14 @@ MonoBehaviour:
   aimResolver: {fileID: -7878490306621728629, guid: 1166b9756cdbe5b49a34559de0988bf0, type: 3}
   obstructionMask:
     serializedVersion: 2
-    m_Bits: 1
+    m_Bits: 257
   probeRadius: 0.25
   collisionSkin: 0.1
   minDistance: 0.6
   returnSpeed: 6
+  hideTargetBelowDistance: 0.95
+  hideDistanceHysteresis: 0.15
+  suppressedRenderers: []
   mouseSensitivity: 0.1
   minPitch: -20
   maxPitch: 60

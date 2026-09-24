@@ -1145,11 +1145,13 @@ namespace Project.Presentation.Motion
         /// 角色**貼著牆站定時起點就已重疊**，cast 會回 `distance = 0` ⇒ 又變回舊行為。
         /// 縮一個 skin 之後，「貼牆」在幾何上不再算重疊，掃得出真正的可行距離。
         ///
-        /// <para><b>排除自己</b></para>
-        /// 角色自己的 `CharacterController` 也是 collider，必須排除，否則每次都命中自己。
-        /// v1 直接排除**自身 layer**（Player=6／Enemy=7 分屬不同 layer，因此玩家仍會被敵人夾住）。
-        /// ⛔ 尚未開放 authored layer mask——第二個需求出現前不建（trigger 已由
-        /// <c>QueryTriggerInteraction.Ignore</c> 擋掉，近戰 hitbox 因此不影響）。
+        /// <para><b>查詢的世界＝膠囊實際碰撞的世界</b></para>
+        /// 遮罩由專案 Layer Collision Matrix 推導（<see cref="MovementCollisionMask"/>）：只看本角色 layer
+        /// 會碰撞的 layer，並排除自身 layer（自己的 `CharacterController` 也是 collider）。
+        /// 🔄 2026-09-24（`docs/44` §5）：原本是「排除自身以外全部」，會看見角色刻意忽略的
+        /// `StairTread` 階梯，於是在樓梯上用角色根本碰不到的踢面夾住偏移。查詢與移動必須問同一個世界。
+        /// Player=6／Enemy=7 分屬不同 layer，因此玩家仍會被敵人夾住（trigger 由
+        /// <c>QueryTriggerInteraction.Ignore</c> 擋掉，近戰 hitbox 不影響）。
         ///
         /// <para><b>零配置</b></para>
         /// `Physics.CapsuleCast` 的 <c>out RaycastHit</c> 多載不配置；每角色每幀一次。
@@ -1176,7 +1178,12 @@ namespace Project.Presentation.Motion
             Vector3 top = worldBase + Vector3.up * halfCylinder;
             Vector3 bottom = worldBase - Vector3.up * halfCylinder;
 
-            int mask = ~(1 << gameObject.layer);
+            if (!_capsuleClampMaskResolved)
+            {
+                _capsuleClampMask = MovementCollisionMask(gameObject.layer);
+                _capsuleClampMaskResolved = true;
+            }
+            int mask = _capsuleClampMask;
             float allowedDistance = requestedDistance;
 
             if (Physics.CapsuleCast(
@@ -1195,6 +1202,24 @@ namespace Project.Presentation.Motion
             return CapsuleOffsetSolver.ClampToAllowedDistance(
                 planarOffset, allowedDistance, requestedDistance);
         }
+
+        /// <summary>
+        /// 與 <paramref name="layer"/> 上的 CharacterController 實際碰撞的 layer（專案 Layer Collision Matrix），
+        /// 排除自身 layer。移動類查詢必須用它，才會與 `Move()` 看見同一個世界（`docs/44` §5）。
+        /// </summary>
+        internal static int MovementCollisionMask(int layer)
+        {
+            int mask = 0;
+            for (int other = 0; other < 32; other++)
+            {
+                if (other == layer) continue;
+                if (!Physics.GetIgnoreLayerCollision(layer, other)) mask |= 1 << other;
+            }
+            return mask;
+        }
+
+        private int _capsuleClampMask;
+        private bool _capsuleClampMaskResolved;
 
         private const float CapsuleClampEpsilon = 0.0001f;
         private const float CapsuleClampEpsilonSqr = CapsuleClampEpsilon * CapsuleClampEpsilon;

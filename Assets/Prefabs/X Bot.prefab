@@ -56,7 +56,7 @@ MonoBehaviour:
   effectLifetime: 3
   groundMask:
     serializedVersion: 2
-    m_Bits: 51
+    m_Bits: 307
   targetMask:
     serializedVersion: 2
     m_Bits: 128
@@ -4354,6 +4354,14 @@ MonoBehaviour:
   overrideMoveSpeed: 0
   gravity: -9.81
   reboundForce: -2
+  groundEdgeEventGrace: 0.1
+  enableStepDownAssistPrototype: 0
+  maxStepDownDistance: 0.25
+  stepDownQueryLayers:
+    serializedVersion: 2
+    m_Bits: 4294967039
+  stepDownRetryWindow: 0.08
+  enableStepUpDiagnosticsPrototype: 1
   aimFacingTurnSpeed: 10
   capsuleOffset:
     Enabled: 1
@@ -4530,7 +4538,7 @@ MonoBehaviour:
   settings:
     GroundLayers:
       serializedVersion: 2
-      m_Bits: 4294967295
+      m_Bits: 4294967287
     RaycastUpOffset: 0.25
     RaycastDistance: 0.85
     HeelOffset: 0.025
@@ -4684,7 +4692,8 @@ MonoBehaviour:
     PlantHorizontalSpeedMax: 2
     SwingGateMinRootSpeed: 0.5
     GroundStepTolerance: 0.06
-  recordDebugTrace: 0
+  recordDebugTrace: 1
+  enableFootstepConsoleTrace: 0
   surfaceMap: {fileID: 11400000, guid: 3739daca706202746b7f4f2e0f605200, type: 2}
 --- !u!114 &-7971596924591842964
 MonoBehaviour:
@@ -4719,7 +4728,7 @@ MonoBehaviour:
   maxAimDistance: 60
   aimRayMask:
     serializedVersion: 2
-    m_Bits: 129
+    m_Bits: 385
 --- !u!114 &-930000000000000001
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -4806,7 +4815,7 @@ MonoBehaviour:
   settings:
     obstacleMask:
       serializedVersion: 2
-      m_Bits: 19
+      m_Bits: 275
     scanStep: 0.1
     scanCeiling: 2.7
     forwardScanDistance: 1.25

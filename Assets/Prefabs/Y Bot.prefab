@@ -428,6 +428,14 @@ MonoBehaviour:
   overrideMoveSpeed: 0
   gravity: -9.81
   reboundForce: -2
+  groundEdgeEventGrace: 0.1
+  enableStepDownAssistPrototype: 0
+  maxStepDownDistance: 0.25
+  stepDownQueryLayers:
+    serializedVersion: 2
+    m_Bits: 4294967039
+  stepDownRetryWindow: 0.08
+  enableStepUpDiagnosticsPrototype: 0
   aimFacingTurnSpeed: 8
   capsuleOffset:
     Enabled: 1
@@ -604,7 +612,7 @@ MonoBehaviour:
   settings:
     GroundLayers:
       serializedVersion: 2
-      m_Bits: 4294967295
+      m_Bits: 4294967287
     RaycastUpOffset: 0.25
     RaycastDistance: 0.85
     HeelOffset: 0.025
@@ -674,6 +682,7 @@ MonoBehaviour:
     SwingGateMinRootSpeed: 0.5
     GroundStepTolerance: 0.06
   recordDebugTrace: 0
+  enableFootstepConsoleTrace: 0
   surfaceMap: {fileID: 11400000, guid: 3739daca706202746b7f4f2e0f605200, type: 2}
 --- !u!195 &1492802606816328124
 NavMeshAgent:

@@ -7,6 +7,257 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🟩 2026-09-24（續六）— **樓梯 authoring 契約：已套用、EditMode 全綠，Play 驗收進行中**
+>
+> 📖 正本：`docs/44`（新規格，非 ADR）。使用者授權自主推進，Codex 為第二審查者。
+>
+> **已完成**：
+> - 工具：`Assets/Scripts/Editor/Tools/StairProfileAnalyzer.cs`（純函數）、`StairMovementSurfaceGenerator.cs`
+>   （交易式產生／驗證／選單 `Tools/Project/Stairs/`）。
+> - 資產：layer 3／8 改名 `CharacterMovementSurface`／`StairTread`；碰撞矩陣進 `DynamicsManager`；
+>   5 個 prefab 的遮罩依 `docs/44` §5；刪除 `RampPrototypeLayerSetup`；`MotionDriver` 膠囊偏移夾持改用
+>   碰撞矩陣推導的遮罩（Codex 抓到的遺漏）。
+> - 場景：刪手擺 ramp；prototype 樓梯**原本懸空 0.302 m**，依量測下移貼地；兩道樓梯由同一工具產生移動面，
+>   驗證器全過（殘差 1.3／1.4 mm、偏離 0）。
+> - EditMode：649 / 648 通過 / 0 失敗 / 1 既有略過；契約測試 25 個全過。
+> - Codex 審查：7 Medium 全修、1 Low 入文件（`docs/44` §9.2）。
+>
+> **⚠️ `SampleScene.unity` 未 commit**：檔案裡同時有本工作的移動面／樓梯下移，以及**使用者先前未 commit 的
+> 關卡編輯**（`Stairs (1)`、`Cube (4)` 等都不在 HEAD）。Unity 場景無法安全拆分 ⇒ 由使用者決定怎麼 commit。
+> 在那之前，乾淨 checkout 的場景契約測試會失敗（場景沒有移動面）。
+>
+> **下一步**：Play 驗收（`docs/44` §9.3）。
+>
+> ---
+
+> # 🟤 2026-09-24（續五）— **Generalization：`Stairs (1)` 證明樓梯支援尚未完成**
+>
+> 📖 正本：`docs/43` §10。⛔ 研究＋提案，未實作、未改資產（全部是 live Editor 唯讀查詢）。
+>
+> 使用者糾正：換一道樓梯就變差 ⇒ 只證明了**單一道** prototype，不是樓梯支援完成。
+>
+> - **必要差異**：`Stairs (1)` 是 ProBuilder 場景物件（非 prefab、非等比縮放），只有一顆 Default
+>   layer 的階梯 collider——**prototype 的任何一項改動都沒有**，所以它的表現就是修前基準
+>   （Walk Down `isGrounded=false` 26–29% vs ramp 0%；骨盆頂到 0.35 上限）。幾何也不同：級高相同
+>   0.194，但踏面 0.275 vs 0.343，坡度 35.2° vs 29.7°。
+> - **prototype 本身不是規格**：ramp 手擺，比自己的 nosing line 陡 1.7°，與踏面高差 −0.375～+0.065 m；
+>   照抄到 `Stairs (1)` 會錯 0.49 m。且 Run Down／Run Up 在 prototype 上也沒過。
+> - 🔴 **稽核發現 prototype 造成的新問題**：把階梯移到 `TreadIKOnly` 後，相機（mask=1）、
+>   瞄準（129）、traversal（19）、Ice 地面技能（51）都**看不見這道樓梯**；敵人 Y Bot 同時碰踏面與
+>   ramp（prototype 對敵人無效），且敵人 Foot IK 會踩在看不見的 ramp 上。
+> - **提案**：兩個語意 layer（`StairTread`＝視覺／接觸、`CharacterMovementSurface`＝移動），全域規則
+>   G1–G3（碰撞矩陣進專案設定、遮罩規則、prefab 內 IK 遮罩）＋每道樓梯不變量 I1–I5；Editor 產生器
+>   （通過 Gate A／B）＋EditMode 驗證測試。驗收改為「至少兩道幾何不同的樓梯通過 Play」。
+> - **待裁決 D1–D4**（`docs/43` §10.8）：ramp 平面規則、layer 名稱與專案層改動、spec 還是 ADR、實作順序。
+>
+> ---
+
+> # ⚫ 2026-09-24（續四）— **`CollisionFlags` REJECTED：與 `isGrounded` 逐位元相同**
+>
+> 📖 正本：`docs/43` §9.6–§9.7。只讀不改（僅保留先前加的量測 log）。
+>
+> 第三輪 1988 帧 `[StepUpDiag]`：`collisionBelow` 與 `postGrounded`（`characterController.isGrounded`）
+> **1988/1988 完全一致**；先前看到的「分歧」是 log 的 `isGrounded` 欄位（`data.IsGrounded`）晚一帧
+> 造成的假象（與前一帧 `collisionBelow` 1976/1976 一致）。⇒「`IsGrounded=false` 但
+> `Below=true`」這個母體**結構上不存在**，不需要 ramp 資料就能否決。§9.3 的 25% 數字已標註作廢。
+>
+> **四個候選全部否決**（`StateType.Jump`／`JustLanded` 重組／`IsGroundedConfirmed`／
+> `CollisionFlags`）。`MotionDriver` 沒有現成、零成本的「可走表面支撐」訊號；要有，就得新增一次
+> 查詢，那是新的設計決定，需另開提案。
+>
+> **待清理（等使用者決定）**：`MotionDriver.ExecuteBaseMovement` 的 `CollisionFlags` 量測欄位
+> 已無用途，可移除；X Bot 上 `enableFootstepConsoleTrace` 仍開著（場景未存檔）。
+> ⚠️ 三輪 Play 測試都在 `Stairs (1)`（x≈−23～−17），不在 ramp prototype（x≈5–12, z≈9–12）。
+>
+> ---
+
+> # ⚪ 2026-09-24（續三）— **`CollisionFlags` 量測第一輪：測錯地點，需補測**
+>
+> 📖 正本：`docs/43` §9（新增）。`MotionDriver.cs` 加了純量測（接住 `Move()` 原本丟棄的
+> `CollisionFlags` 回傳值，寫進既有 `[StepUpDiag]` log 的 `collisionFlags`／`collisionBelow`
+> 兩欄，零行為改變，0 error）。
+>
+> **🔴 這輪測試資料核對出地點不對**：用 `unity cmd eval_file` 查場景座標，比對角色軌跡
+> （x≈−12~−22, z≈0.75~4.17），對上的是 **`Stairs (1)`**（layer=Default，**一般未改造的樓梯**），
+> 不是 `docs/42`～`docs/43` 一直在驗證的 `Stairs_650_400_300_Prefab`／`RampProto`（x≈5~12,
+> z≈9~12）。且 `[State]` log 只有 Idle↔Move 切換，**沒有任何 Jump/Falling 進場**——沒測到主動
+> 跳躍或平台邊緣墜落；三段 Down pass 最高只到 2.6 m/s，**沒有 Run 速度資料**。
+>
+> **已量到但不是這輪要回答的問題**：平地 Sprint 對照組（167 帧）`isGrounded`／`collisionBelow`
+> 100% 一致；未改造樓梯 Walk Down（3 段）裡，`isGrounded=False` 的帧只有約 25% 同時
+> `collisionBelow=True`，且存在量級相近的反向不一致（`G=T,B=F`）——雙向都有噪音，不是單向更穩定。
+> **這批數字保留在 §9.3 供參考，但不能拿來回答「CollisionFlags 能不能解決 Ramp Run Down 吃案」**，
+> 地點與速度都對不上。
+>
+> **下一步**：`enableStepUpDiagnosticsPrototype` 與新欄位已就緒，不需要再改程式，只需要在正確
+> 地點（`Stairs_650_400_300_RampProto`）重測 Ramp Walk Down／Ramp Run Down／主動跳躍／平台邊緣
+> 墜落。
+>
+> ---
+
+> # 🔵 2026-09-24（續二）— **`IsGroundedConfirmed` 提案 REJECTED：真實 Replay 驗證，淨效果是平手**
+>
+> 📖 正本：`docs/43` §8（新增）。⛔ 只讀不改，未新增任何欄位、未修改任何判定邏輯。
+>
+> 使用者裁決：不要信「原始閃爍收斂成更少次確認轉換」這句話本身，要求真的把 Run Down trace
+> 帶著唯一假設性代換（`IsGrounded → IsGroundedConfirmed`）跑過 `FootstepDetector` 真實判定邏輯，
+> 不是手推。用 `unity cmd eval_file` 反射呼叫 `MotionDriver.TrackGroundStateDivergence`／
+> `ShouldConfirmGroundStateChange`（**正式程式碼本身，不是複刻**），逐帧餵入這次測試的真實
+> `postGrounded` 序列（100 帧，frame 480–580，來源 `[StepUpDiag]` 逐帧無漏）。
+>
+> **結果：REJECTED**——確認轉換確實只發生 2 次（離地 f516、落地 f563，與 §7.2 手推方向一致），
+> 但**總抑制帧數幾乎不變**（raw 39/100 帧 vs confirmed 40/100 帧，≈0.47s vs ≈0.48s）。轉換次數
+> 變少 ≠ 抑制總量變少，只是**重新分布**：救回 5 帧（f509/511/513-515，分歧累積中但尚未確認離地）
+> ／新增抑制 6 帧（f523/536/552-553/558-559），且**新增的 6 帧全部發生在 `raw grounded=True`
+> 的瞬間**——角色物理上已經確認觸地，只是「確認」還沒追上，導致這個提案會在角色剛踩到東西的
+> 那一刻硬生生吃掉那一步，尤其 f558/559 正好卡在下坡結束、動作恢復正常的**落地安定尾段**，
+> 反而延後了正常腳步聲恢復的時機。**淨值是負的，不建議採用。**
+>
+> **第三個訊號盤點（使用者要求）**：檢查 `MotionDriver` 是否已有「可走表面支撐」語意。結論：
+> **沒有，但找到一個零成本候選**——`ExecuteBaseMovement` 呼叫 `characterController.Move()`
+> 時完全沒接收回傳的 `CollisionFlags`（Unity 每次 Move 免費算好，目前直接丟掉）。⚠️ **未驗證**
+> 在這個場景下有沒有用，需要另一輪量測（加一條讀 `CollisionFlags` 的純觀測 log）才能判斷，
+> 本節不提案新增欄位。`StepDownAssist` 的 `slopeOk` 查詢與 `FootIKGroundData.HasGround` 都不
+> 符合「零額外查詢」或「角色整體支撐」的要求，已排除。
+>
+> ## 現況
+> 下樓腳步聲吃案問題**目前沒有已驗證可用的修法**——三個候選（`StateType.Jump`／`JustLanded`
+> 重組／`IsGroundedConfirmed`）都已否決，`CollisionFlags` 是唯一還沒驗證過的候選。回到研究階段，
+> 不進實作。下一步（若要繼續）：先加 `CollisionFlags` 觀測 log、重跑 Run Down 測一輪，再談是否
+> 提案。
+>
+> ---
+
+> # 🟡 2026-09-24（續）— **下樓腳步聲吃案：訊號歸屬盤點 ＋ 最小提案（⛔ 只提案，未實作）**
+>
+> 📖 正本：`docs/43` §7（新增）。範圍明確限縮：**只處理 Run/Walk 下樓吃案**，Run 上樓的
+> Pelvis／`FootPlantTracker` 內部守門（§5.2／§6.4）**不動、不在本節範圍**。
+>
+> **盤點結論**：黑板上與「是否空中」相關的訊號只有 `IsGrounded`（逐幀原始值，無去抖動）與
+> `JustLanded`／`JustLeftGround`（有 `groundEdgeEventGrace` 0.1s 去抖動，但只是**邊沿事件**，
+> 不是連續狀態）。`FullBodyStateMachine.CurrentState.Type`（`StateType.Jump`）**目前完全沒有
+> 發布進黑板**，只有 Editor／Debug 面板讀得到。
+>
+> **兩個候選都比對過，不建議**：
+> - `StateType.Jump`——① 架構上违反依賴方向且違反 `FootstepDetector.cs` 自己寫明的「不該知道
+>   有哪些狀態存在」設計原則（當初為了修 Climb2m 假腳步聲刻意做的選擇）；② **用本輪實測資料
+>   驗證過會更差**——`fallEntryGrace`（0.35s）的重置規則是「任何一幀 `isGrounded=true` 就整個
+>   歸零」，比 `MotionDriver` 的確認邏輯更敏感，Run Down 那段實測資料裡 FSM **一次都沒有**判定
+>   為 Falling。
+> - `JustLanded`／`JustLeftGround` 本身——是邊沿不是狀態，撐不住逐幀的 Airborne 抑制閘門，
+>   若在 `FootstepDetector` 自己拼湊區間狀態，等於重新發明 `MotionDriver` 已經算好的東西。
+>
+> **推薦方案**：`MotionDriver.SyncGroundedState` 內部早就有一個 private 的 `_wasGrounded`——
+> 這正是「已確認接地狀態」的**連續值**，`JustLanded`／`JustLeftGround` 只是它的邊沿投影。
+> 提案新增黑板欄位 `IsGroundedConfirmed`，唯一 Writer 仍是 `SyncGroundedState`（同一函式、同一組
+> 既有變數，只多寫一行），`FootstepDetector` 的 Airborne 閘門改讀這個而非原始 `IsGrounded`。
+> **用本輪 Run Down 實測序列逐幀重建驗證**：5 次原始閃爍會被收斂成 1 段乾淨的「真的離地」區間
+> （約 0.53s，兩個翻轉點與實測到的 `ForcePlanted` 時間點吻合），且不引入任何新計時器——完全重用
+> 已存在、已被信任的 `groundEdgeEventGrace` 邏輯。
+>
+> **ADR 判斷**：命中「黑板 schema 變更」觸發條件，但參考 `JustLanded`／`JustLeftGround` 當初
+> 新增的先例（單純增補、不動 FSM 拓撲／管線順序／驅動介面），建議走 Living Spec 增補，不必開
+> 新 ADR——**這是建議，不是裁決**。
+>
+> 6 組 regression case（平地 Sprint／Ramp Walk Down／Ramp Run Down／主動跳躍／平台邊緣墜落／
+> 落地）已設計但未寫測試，見 `docs/43` §7.5。**⛔ 本節只到提案為止，未新增任何欄位、未改
+> `SyncGroundedState`／`FootstepDetector`／任何判定邏輯**，下一步待使用者裁決是否採用。
+>
+> ---
+
+> # 🟠 2026-09-24 — **`[FootstepTrace]` 事件級驗證：Run 下樓假說確認成立，Run／Walk 上樓另有獨立成因**
+>
+> 📖 正本：`docs/43` §6（新增）。⛔ 只讀不改，除了新增的觀測 log 本身，未動任何判定邏輯／
+> grace／cooldown／IK／Pelvis／ramp。
+>
+> **追加的程式**：`FootstepDetector.cs` 新增獨立、預設關閉的 `enableFootstepConsoleTrace`
+> （與既有 `recordDebugTrace` Inspector 面板 trace 完全分離），只在「有事件或抑制原因改變」時
+> 輸出一行 `[FootstepTrace]` Console log（frame／foot／`FootstepKind`／`FootstepSuppressReason`／
+> 原始 `IsGrounded`／`FootPlantTracker` 的 phase／armed／clearance／`ForcePlanted`／locomotion
+> 速度／IK `HasGround`＋權重相關性欄位）。`unity cmd recompile` 驗證 0 error，已在 X Bot 上開啟
+> （與 `enableStepUpDiagnosticsPrototype` 同時開、`enableStepDownAssistPrototype` 仍關閉）。
+>
+> ## 結果
+>
+> **平地對照組（250 帧 Sprint）**：`FootstepDetector` 完全健康——左右完美交替、間隔穩定
+> 10–21 帧，零抑制。**確立偵測器本身沒有全域性缺陷，異常是樓梯／ramp 地形特有的。**
+>
+> **Run 下樓（58 帧，4.06 m/s）：假說 CONFIRMED，且比預期更嚴重**——`isGrounded` 5 次閃爍、
+> 10 次 `Airborne` 抑制（雙腳×5），**整段 0 次 `Fired`**（不是間隔變長，是完全沒有任何一聲正常
+> 腳步）。`ForcePlanted` 全程 0 次，排除「多餘 Landing 音效」的可能性——純粹是原始（未經
+> `groundEdgeEventGrace` 過濾的）`IsGrounded` 閃爍直接餵給 `FootstepDetector` 的 Airborne 閘門，
+> 導致大量吃案。
+>
+> **Run 上樓（2 段樣本）：獨立於 §5.2 已確認的 Pelvis/Foot IK 視覺缺陷**——不是同一個病灶。
+> 擊發率過低（平地 13–21 帧一次 → 樓梯段拉長到 40–101 帧一次），成因是零星
+> `GroundDiscontinuity`／`NeverArmed` 死路，外加一次 `ForcePlanted` 清空了上膛進度。
+>
+> 🔴 **超出原提問範圍的新發現**：**Walk 上下樓的「root 乾淨」不等於「腳步聲乾淨」**——即使
+> `postGrounded` 全程 `True`（§4 已驗證），`FootPlantTracker` 仍反覆讓某一隻腳的步伐被
+> discontinuity 吃掉，音效序列上出現同一隻腳連續擊發 2–4 次（f610/670/716/753 連續四次右腳等）。
+> **左右交替在偵測器層的異常機制是「另一腳缺席」，不是「腳的身分算錯」**——沒有觀察到真正的
+> 誤判，只有「該響的那次沒有響」。
+>
+> ## 下一步（等使用者裁決，本節未提出任何修法）
+> Run 下樓（Airborne 整段吃案）與 Run／Walk 上樓（零星 discontinuity 死路）是**兩個獨立成因**，
+> 不要假設同一個修法能一起解。`docs/43` §6.7 有完整對照表。
+>
+> ---
+
+> # 🔴 2026-09-23（續五）— **Ramp 是否也解下樓？Walk 通過、Run 上／下樓各自曝出新問題**
+>
+> 📖 正本：`docs/43` §5（新增）。⛔ 只讀不改，`enableStepDownAssistPrototype` 全程保持關閉，
+> Pelvis／Foot IK／Jump/Falling/StepDown 邏輯**逐字未動**。
+>
+> **任務**：既然 CharacterController 上下樓都只碰 ramp（§4 已驗證上樓），驗證 ramp 是否同時解決
+> 下樓問題，決定 `docs/42` 的 Query→Apply StepDown Assist 是否還需要正式接線。
+>
+> ## 分岔裁決結果（Walk 速度，對應原始任務範圍）
+>
+> **通過**：Walk 下樓 4 次＋Walk 上樓 4 次（合計 1350 帧，兩次獨立 Play 測試皆同款結果）
+> `postGrounded` **全程 0 次 False**，`stepOffsetDelta` 維持 0.005–0.08 平滑帶，全程**沒有任何
+> 一次**觸發 FSM 的 Falling／Landing 狀態切換。**Walk 速度下 ramp geometry 已完整取代 StepDown
+> Assist 的需求，`docs/42` 的 Query→Apply 機制對這道樓梯的 Walk 使用情境不需要正式接線。**
+>
+> ## 使用者人工複測追加：Sprint（Run）上／下樓，發現兩個 ramp 沒有解決的新問題
+>
+> 使用者體感明確裁決：「`IsGrounded` 穩定 ≠ 呈現問題已解」——Sprint 上樓視覺仍不自然、樓梯上
+> 腳步聲節奏不規律。追加 Run 測試後，**證實體感是對的，且拆解出兩個獨立、不同機制的問題**：
+>
+> 1. **Run 上樓**：root／碰撞層乾淨（3 段合計 194 帧 `postGrounded` 0 次 False），但 Pelvis／
+>    Foot IK 權重層被 Run 速度重新暴露——`pelvisY` 出現 ±0.25m 深下潛（是 Walk 時 §4.3 量到的
+>    −0.054m 的 4.5 倍），單腳 IK 權重被夾在 0 或 1 長達 14–24 帧。**這正是 `docs/43` §3.3 當時
+>    預告、但 Walk 速度沒有逼出來的「雙腳都命中才算，否則鎖零」資料模型缺陷**——不是新 bug，
+>    是既有缺陷被 Run 步頻重新餵飽。修法方向仍是 §3.3 已指出的「有效支撐集合」重構，本輪只是
+>    把預告變成已驗證的症狀。
+> 2. **Run 下樓**：root 位置本身連續平滑（無彈道式不連續），但 `characterController.isGrounded`
+>    這顆旗標本身在同一段裡有 69–73/83 帧回報 False（分散成多段 10–25 帧的閃爍，不是一次長墜
+>    落）——與 Walk 下樓的乾淨結果形成鮮明對比。FSM 沒有被污染（閃爍都短於 `fallEntryGrace`
+>    0.35s，Falling 動畫沒有誤觸發），但 `FootstepDetector` 直接讀**沒有 grace 過濾**的原始
+>    `IsGrounded`，閃爍期間大量真實腳步被判定 `Airborne` 而靜音——**這是下樓腳步聲不規律最直接
+>    的成因**，且是 ramp 沒有完全解決的部分（不是離散級高的彈道下墜，較像 Unity
+>    `CharacterController.isGrounded` 在快速下坡本身就不穩定的已知侷限）。
+>
+> **排除的假說**：一度懷疑 Run 速度下 root 逐帧位移太大會頻繁觸發 `FootPlantTracker` 的
+> `rootPlaneJumped`（0.06m）不連續守門，**用資料驗證後推翻**——194 帧裡只中了 1 帧，量級與 Walk
+> 對照組相近，不是主要矛盾。
+>
+> **已知缺口（本輪刻意沒有補）**：完全沒有腳步聲事件本身的 Console 紀錄（`FootstepDetector`
+> 的既有 debug 只有 Editor 面板，非 log）——上面兩點腳步聲成因是「讀地面／IK 訊號 + 讀程式碼」
+> 推導的**假說**，不是直接量到的事件序列。下一步建議（未執行）：暫時給
+> `FootstepDetector.Detect` 加一條純觀測 `Debug.Log`（欄位已經都在 `TraceEntry` 裡，換管道即
+> 可），重跑一次 Run Up／Down 才能把假說換成確認。
+>
+> ## 下一步（等使用者裁決）
+> 1. **下樓 StepDown Assist**：Walk 已證明不需要，Run 下樓的問題是 `IsGrounded` 旗標閃爍（不是
+>    彈道掉落），`docs/42` 現有機制本來就不是為了修這個，**不建議直接拿 StepDown Assist 去補**，
+>    需要另外評估。
+> 2. **上樓 Pelvis 重構**：Run 已把 §3.3 的預告變成確認的症狀，若要正式修，方向已經寫在 §3.3。
+> 3. **腳步聲診斷**：加 `FootstepDetector` 的觀測 `Debug.Log`、重跑 Run Up/Down，把假說變確認。
+> 三者互相獨立，可任選其一或都先擱置。
+>
+> ---
+
 > # 🟣 2026-09-23 — **本輪總結：樓梯 IK 抖動全鏈路（下樓已修＋上樓已驗證方向）**
 >
 > 📖 正本索引：`docs/31`（音效／FSM，已修）、`docs/42`（下樓 step-down assist，已收斂為提案）、
