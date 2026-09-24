@@ -25,6 +25,13 @@ namespace Project.Presentation.IK
         /// <summary>釋放進度：1 ＝ 仍在鎖定點，0 ＝ 已回到動畫腳位。只在 <see cref="FootLockPhase.Releasing"/> 有意義。</summary>
         public float ReleaseBlend;
 
+        /// <summary>
+        /// 釋放開始那一帧的「鎖定點 − 動畫腳位」（水平）。釋放期間目標 ＝ 當下動畫腳位 ＋ smoothstep(ReleaseBlend) × 這個偏移：
+        /// 腳立刻跟上動畫的移動，只有「開始時的差距」逐漸消失——不再朝一個留在原地的鎖定點插值
+        /// （舊寫法下動畫腳一離開，目標就越拖越遠：Run 釋放中落後髖部 p90 0.62 m，docs/45 §9）。
+        /// </summary>
+        public Vector3 ReleaseOffset;
+
         /// <summary>上一帧的 pose 腳踝（世界）與其相對 pose 平面的高度——一帧外插與腳速的唯一來源。</summary>
         public bool HasHistory;
         public Vector3 PrevPosePosition;
@@ -128,7 +135,8 @@ namespace Project.Presentation.IK
             => contactDelta >= 0f ? contactDelta : Mathf.Clamp01(beta) * contactDelta;
 
         /// <summary>
-        /// 目前狀態下的目標水平位置：未鎖 ⇒ 動畫（外插後）；鎖定 ⇒ 鎖定點；釋放中 ⇒ 兩者以 smoothstep(ReleaseBlend) 混合。
+        /// 目前狀態下的目標水平位置：未鎖 ⇒ 動畫（外插後）；鎖定 ⇒ 鎖定點；
+        /// 釋放中 ⇒ 動畫 ＋ smoothstep(ReleaseBlend) × 釋放開始時凍結的偏移（見 <see cref="FootContactState.ReleaseOffset"/>）。
         /// </summary>
         public static Vector3 ResolveHorizontal(in FootContactState state, Vector3 animationPosition)
         {
@@ -138,8 +146,8 @@ namespace Project.Presentation.IK
                     return new Vector3(state.LockPosition.x, animationPosition.y, state.LockPosition.z);
                 case FootLockPhase.Releasing:
                     float s = ReleaseWeight(in state);
-                    return new Vector3(Mathf.Lerp(animationPosition.x, state.LockPosition.x, s), animationPosition.y,
-                        Mathf.Lerp(animationPosition.z, state.LockPosition.z, s));
+                    return new Vector3(animationPosition.x + s * state.ReleaseOffset.x, animationPosition.y,
+                        animationPosition.z + s * state.ReleaseOffset.z);
                 default:
                     return animationPosition;
             }
@@ -206,6 +214,8 @@ namespace Project.Presentation.IK
                     {
                         state.Phase = FootLockPhase.Releasing;
                         state.ReleaseBlend = 1f;
+                        // 與傳進來的動畫腳位同一個參數凍結 ⇒ 轉移當帧的目標正好是鎖定點（不跳）。
+                        state.ReleaseOffset = new Vector3(-dx, 0f, -dz);
                     }
                     break;
 

@@ -400,6 +400,8 @@ PlayMode `Player_BodyReference_IsIndependentOfFacing`（兩道樓梯，站在中
 ②J 不是字面的候選——另加 NomCap 並列，兩者是不同的姿勢政策，要由使用者選；③水平搆不到時「直接 −0.35」不連續——改為垂直最近姿勢。
 執行期資料來源：髖位與腿長放進 `FootIKPoseData`（Rig 仍是唯一 Writer、只寫事實，不違反 A11），優先用 `bodyPosition ＋ bodyRotation × 由 avatar 量得的髖偏移`，除非探針證明 `OnAnimatorIK` 開頭的 UpperLeg 骨骼是本帧且未被污染。
 
+> ✅ **裁決（2026-09-25）：(a)**——維持包絡骨盆，改從需求端下手。後續量測與 F1（凍結偏移的釋放）見 `docs/45` §9。
+
 **❓ 待使用者裁決**（沒答案前不得改骨盆的執行期行為）：
 - (a) 維持包絡，改從需求端下手（建議先做 T3 釋放時機，其次腳端可達性）；
 - (b) 先接受折衷：J ＋ 彈簧（高約 7 cm、每步起伏約 8 cm、Walk 髖加速度約 7 倍），做成開關給人工 Play 判斷；

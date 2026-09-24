@@ -192,29 +192,52 @@ namespace Project.Tests.EditMode
         }
 
         [Test]
-        public void Release_BlendsBackToAnimation_ThenUnlocks_WithoutJumps()
+        public void Release_FollowsMovingAnimation_WithDecayingFrozenOffset()
         {
+            // 鎖在 0；動畫腳離開 0.25 m 觸發釋放，之後以每帧 0.1 m（6 m/s 擺盪）繼續前進。
             var state = ReadyToLock();
             FootContactSolver.StepLock(ref state, 1f, Vector3.zero, Dt, 0.95f, 0.7f, 0.2f, 0.12f);
-            FootContactSolver.StepLock(ref state, 0f, Vector3.zero, Dt, 0.95f, 0.7f, 0.2f, 0.12f);
+            Vector3 anim = new Vector3(0.25f, 0f, 0f);
+            FootContactSolver.StepLock(ref state, 1f, anim, Dt, 0.95f, 0.7f, 0.2f, 0.12f);
             Assert.AreEqual(FootLockPhase.Releasing, state.Phase);
+            Assert.AreEqual(0f, FootContactSolver.ResolveHorizontal(in state, anim).x, Epsilon,
+                "轉移當帧目標正好是鎖定點（偏移與傳進 StepLock 的動畫腳位同一個參數凍結）。");
 
-            Vector3 anim = new Vector3(0.3f, 0f, 0f);
-            float previousX = FootContactSolver.ResolveHorizontal(in state, anim).x;
+            float previousTrail = anim.x - FootContactSolver.ResolveHorizontal(in state, anim).x;
+            float previousX = 0f;
             int frames = 0;
             while (state.Phase == FootLockPhase.Releasing && frames < 100)
             {
+                anim.x += 0.1f;
                 FootContactSolver.StepLock(ref state, 0f, anim, Dt, 0.95f, 0.7f, 0.2f, 0.12f);
                 float x = FootContactSolver.ResolveHorizontal(in state, anim).x;
-                Assert.GreaterOrEqual(x, previousX - Epsilon, "釋放單調回到動畫腳位。");
-                Assert.Less(x - previousX, 0.3f * 0.25f, "釋放是平滑過渡，不是瞬移。");
+                float trail = anim.x - x;
+                Assert.LessOrEqual(trail, previousTrail + Epsilon,
+                    "落後動畫的距離只會縮小：不再朝留在原地的鎖定點插值（舊寫法會越拖越遠）。");
+                Assert.LessOrEqual(trail, 0.25f + Epsilon, "落後量不超過釋放開始時的差距。");
+                Assert.Less(x - previousX, 0.1f + 0.25f * 0.25f, "每帧位移 ≤ 動畫位移 ＋ 偏移的平滑衰減，不是瞬移。");
+                previousTrail = trail;
                 previousX = x;
                 frames++;
             }
 
             Assert.AreEqual(FootLockPhase.Unlocked, state.Phase);
-            Assert.AreEqual(0.3f, previousX, Epsilon, "釋放完成時正好回到動畫腳位。");
+            Assert.AreEqual(anim.x, previousX, Epsilon, "釋放完成時正好回到動畫腳位。");
             Assert.AreEqual(Mathf.CeilToInt(0.12f / Dt), frames, 1, "釋放時間 ≈ ReleaseTime。");
+        }
+
+        [Test]
+        public void Release_OffsetIsClearedByReset()
+        {
+            var state = ReadyToLock();
+            FootContactSolver.StepLock(ref state, 1f, Vector3.zero, Dt, 0.95f, 0.7f, 0.2f, 0.12f);
+            FootContactSolver.StepLock(ref state, 1f, new Vector3(0.3f, 0f, 0f), Dt, 0.95f, 0.7f, 0.2f, 0.12f);
+            Assert.AreNotEqual(Vector3.zero, state.ReleaseOffset);
+
+            state.Reset();
+
+            Assert.AreEqual(Vector3.zero, state.ReleaseOffset);
+            Assert.AreEqual(new Vector3(0.5f, 0f, 0f), FootContactSolver.ResolveHorizontal(in state, new Vector3(0.5f, 0f, 0f)));
         }
 
         [Test]
