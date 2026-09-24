@@ -199,7 +199,9 @@ namespace Project.Presentation.Motion
         [Tooltip("⚠️ 純量測，完全不改變任何行為（不寫 finalMovement，不影響 Move()）。" +
                  "用來回答上樓抖動的根因：是 characterController.stepOffset 造成的一幀內 root 位置" +
                  "跳變、還是 Foot IK／骨盆補償的問題、還是兩者疊加。每幀（開著時）印一行，" +
-                 "與 groundEdgeEventGrace／step-down assist 完全獨立，不共用任何邏輯。")]
+                 "與 groundEdgeEventGrace／step-down assist 完全獨立，不共用任何邏輯。" +
+                 "🆕（docs/43 §9）同時量測 Move() 回傳的 CollisionFlags（含 collisionBelow）——" +
+                 "同款純量測，只是接住既有回傳值，不發任何新查詢、不寫黑板。")]
         [SerializeField] private bool enableStepUpDiagnosticsPrototype = false;
 
         [Header("Facing Execution")]
@@ -555,7 +557,13 @@ namespace Project.Presentation.Motion
 #endif
 
             // 總出口呼叫
+            // 🔬 MEASUREMENT-ONLY（docs/43 §9）：接住 Move() 回傳的 CollisionFlags 只為了 Editor／
+            // Dev Build 下的量測 log——**不消費它做任何判定**，行為與接住之前逐位元相同。
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            CollisionFlags moveCollisionFlags = characterController.Move(finalMovement * Time.deltaTime);
+#else
             characterController.Move(finalMovement * Time.deltaTime);
+#endif
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (enableStepDownAssistPrototype)
@@ -564,7 +572,7 @@ namespace Project.Presentation.Motion
             }
             if (enableStepUpDiagnosticsPrototype)
             {
-                LogStepUpDiagnosticsTrace(data, requestedMovementThisFrame, posBeforeMove, transform.position);
+                LogStepUpDiagnosticsTrace(data, requestedMovementThisFrame, posBeforeMove, transform.position, moveCollisionFlags);
             }
 #endif
         }
@@ -728,7 +736,7 @@ namespace Project.Presentation.Motion
         /// `finalMovement`，我們餵多少requestedDY 都不影響它，純粹是 `Move()` 自己的碰撞解算。
         /// </summary>
         private void LogStepUpDiagnosticsTrace(PlayerRuntimeData data, Vector3 requestedMovement,
-            Vector3 posBefore, Vector3 posAfter)
+            Vector3 posBefore, Vector3 posAfter, CollisionFlags moveCollisionFlags)
         {
             if (!_debugFootIKControllerResolved)
             {
@@ -769,7 +777,9 @@ namespace Project.Presentation.Motion
                 " rightFootW=" + rightFootWeight.ToString("F3") +
                 " leftHasGround=" + leftHasGround +
                 " rightHasGround=" + rightHasGround +
-                " postGrounded=" + characterController.isGrounded);
+                " postGrounded=" + characterController.isGrounded +
+                " collisionFlags=" + moveCollisionFlags +
+                " collisionBelow=" + ((moveCollisionFlags & CollisionFlags.Below) != 0));
         }
 #endif
 

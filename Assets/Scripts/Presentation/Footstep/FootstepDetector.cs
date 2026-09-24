@@ -38,6 +38,14 @@ namespace Project.Presentation.Footstep
                  "檢視方式：選取本元件，於 Inspector 底部的「Footstep Trace」面板。")]
         [SerializeField] private bool recordDebugTrace;
 
+        // 🔬 PROTOTYPE（docs/43 §5.7）：與 recordDebugTrace（Inspector 面板）完全獨立的第二條輸出，
+        // 純粹為了能用 `unity cmd console` 撈到逐次判定結果，供 Console log 分析用。
+        // ⛔ 只多一個輸出管道，不改變任何判定邏輯、不影響 recordDebugTrace 既有行為。
+        [Tooltip("把落腳偵測的判定結果也輸出到 Console（獨立於上面的 Inspector 面板 trace）。\n" +
+                 "同款「只在擊發或抑制原因改變時寫一筆」的節流，不逐帧輸出。\n" +
+                 "🔬 PROTOTYPE，僅供 docs/43 §5 的 Run Up/Down 腳步聲診斷用，純觀測、零行為影響。")]
+        [SerializeField] private bool enableFootstepConsoleTrace;
+
         [Header("Surface（🆕 Stage 2）")]
         [Tooltip("聲學材質對應表。**未綁定時所有事件的 Surface 皆為 Unknown**，消費端會退回它自己的 default。\n" +
                  "一張場景設定一次即可——demo map 實測只需要 6 筆。")]
@@ -67,6 +75,15 @@ namespace Project.Presentation.Footstep
         private Vector3 _previousRootPosition;
         private bool _hasPreviousRootPosition;
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        // 🔬 PROTOTYPE（docs/43 §5.7）：**只給 Console trace 讀 IK 權重當相關性欄位**，
+        // 不參與 Detect 的任何判定——偵測邏輯完全不知道這個欄位存在，見類別頂端的職責邊界。
+        // ⛔ 刻意包在 UNITY_EDITOR||DEVELOPMENT_BUILD 內，production build 不持有這個參考。
+        private FootIKController _diagFootIKController;
+        private FootstepSuppressReason _lastConsoleLeftReason = FootstepSuppressReason.None;
+        private FootstepSuppressReason _lastConsoleRightReason = FootstepSuppressReason.None;
+#endif
+
         private void Awake()
         {
             var rig = GetComponentInChildren<FootIKRig>();
@@ -94,6 +111,9 @@ namespace Project.Presentation.Footstep
             {
                 // Controller 以欄位初始式持有它（早於所有 Awake），故此處同樣不需要關心 Awake 順序。
                 _groundData = ikController.GroundData;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                _diagFootIKController = ikController; // 只給 §5.7 的 Console trace 讀權重相關性欄位。
+#endif
             }
 
             if (surfaceMap == null)
@@ -233,6 +253,13 @@ namespace Project.Presentation.Footstep
                 RecordTrace(false, left, leftReason, in _leftTracker, leftHasGround);
                 RecordTrace(true, right, rightReason, in _rightTracker, rightHasGround);
             }
+            if (enableFootstepConsoleTrace)
+            {
+                LogFootstepConsoleTrace(false, left, leftReason, in _leftTracker, leftHasGround,
+                    isGrounded, justLanded, rootHorizontalSpeed);
+                LogFootstepConsoleTrace(true, right, rightReason, in _rightTracker, rightHasGround,
+                    isGrounded, justLanded, rootHorizontalSpeed);
+            }
 #endif
 
             events.LeftFootstep = left;
@@ -335,6 +362,52 @@ namespace Project.Presentation.Footstep
             };
             _traceHead = (_traceHead + 1) % TraceCapacity;
             if (_traceCount < TraceCapacity) _traceCount++;
+        }
+
+        /// <summary>
+        /// 🔬 PROTOTYPE（docs/43 §5.7）：`RecordTrace` 的 Console 版本，**獨立的 last-reason 狀態**
+        /// （`_lastConsoleLeftReason`／`_lastConsoleRightReason`），不與 Inspector 面板共用，兩條
+        /// 輸出互不影響。同款「只在擊發或抑制原因改變時寫一筆」節流。
+        /// ⚠️ 純觀測：只讀已經算好的 <paramref name="kind"/>／<paramref name="reason"/>／
+        /// <paramref name="tracker"/>，不影響任何判定；<c>ikWeight</c>／<c>ikHasGround</c> 只是
+        /// 額外讀 Foot IK 的相關性欄位供人工比對，偵測邏輯本身完全不知道它們存在。
+        /// </summary>
+        private void LogFootstepConsoleTrace(bool isRight, FootstepKind kind, FootstepSuppressReason reason,
+            in FootPlantTracker tracker, bool hasGround, bool isGrounded, bool justLanded, float rootHorizontalSpeed)
+        {
+            FootstepSuppressReason last = isRight ? _lastConsoleRightReason : _lastConsoleLeftReason;
+            bool interesting = kind != FootstepKind.None || reason != last || justLanded;
+            if (isRight) _lastConsoleRightReason = reason; else _lastConsoleLeftReason = reason;
+            if (!interesting) return;
+
+            float ikWeight = float.NaN;
+            bool ikHasGround = false;
+            if (_diagFootIKController != null)
+            {
+                var target = _diagFootIKController.TargetData;
+                ikWeight = isRight ? target.RightFootPositionWeight : target.LeftFootPositionWeight;
+                var ground = _diagFootIKController.GroundData;
+                ikHasGround = isRight ? ground.Right.HasGround : ground.Left.HasGround;
+            }
+
+            Debug.Log("[FootstepTrace] frame=" + Time.frameCount +
+                " t=" + Time.time.ToString("F3") +
+                " foot=" + (isRight ? "R" : "L") +
+                " kind=" + kind +
+                " fired=" + (kind != FootstepKind.None) +
+                " reason=" + reason +
+                " isGrounded=" + isGrounded +
+                " phase=" + tracker.Phase +
+                " armed=" + tracker.IsArmed +
+                " clearance=" + tracker.Clearance.ToString("F5") +
+                " vSpeed=" + tracker.VerticalSpeed.ToString("F4") +
+                " hSpeed=" + tracker.HorizontalSpeed.ToString("F4") +
+                " liftSinceLastPlant=" + tracker.LiftSinceLastPlant.ToString("F4") +
+                " forcePlanted=" + justLanded +
+                " rootHorizontalSpeed=" + rootHorizontalSpeed.ToString("F3") +
+                " detectorHasGround=" + hasGround +
+                " ikHasGround=" + ikHasGround +
+                " ikWeight=" + ikWeight.ToString("F3"));
         }
 #endif
     }
