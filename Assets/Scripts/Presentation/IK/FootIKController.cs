@@ -168,20 +168,37 @@ namespace Project.Presentation.IK
             PublishGroundContact(in right, ref _groundData.Right);
             _groundData.IsWarm = true;
 
-            // === ② 骨盆補償：沉向較低的腳（夾限＋平滑）===
-            float pelvisTarget = (ikAllowed && left.HasHit && right.HasHit)
-                ? ComputePelvisOffset(left.GroundY, right.GroundY, rootY, settings.MaxPelvisOffset)
+            // === ①'' 支撐量（stance）：動畫裡這隻腳離 pose 平面多高 ===
+            // ⚠️ 必須用 pose **同一時刻**的平面（PosePlaneY），不是本帧已被 LateUpdate 移動過的 rootY
+            //    ——在樓梯移動面上兩者每帧差 5–8 cm（`docs/44` §9.5）。
+            //    同一個量同時決定 IK 權重（③）與骨盆貢獻（②），兩者對「哪隻腳在支撐」不會各說各話。
+            float posePlaneY = _poseData.PosePlaneY;
+            float leftStance = ComputeFootWeight(_poseData.LeftFootPosition.y - posePlaneY,
+                settings.FootGroundedHeightMin, settings.FootGroundedHeightMax);
+            float rightStance = ComputeFootWeight(_poseData.RightFootPosition.y - posePlaneY,
+                settings.FootGroundedHeightMin, settings.FootGroundedHeightMax);
+
+            // === ② 骨盆補償：依支撐量加權的下沉需求（夾限＋平滑）===
+            // 🔄（2026-09-24，`docs/44` §9.6）取代「雙腳都命中才補、取較低者」：
+            //    擺盪腳的 ray 會先探到下一階（樓梯下行時更低），舊規則讓它整個拉動骨盆 ⇒ 一級一個的鋸齒。
+            //    現在每隻腳只按它**正在支撐的程度**要求骨盆下沉；擺盪腳仍照常取得踏面做 IK 落點（③不變）。
+            //    ⛔ 不是新的 HasGround 閘門：沒有命中的腳只是「沒有下沉需求」，不會讓整個骨盆歸零。
+            float pelvisTarget = ikAllowed
+                ? ComputeSupportedPelvisOffset(
+                    left.HasHit, left.GroundY, leftStance,
+                    right.HasHit, right.GroundY, rightStance,
+                    rootY, settings.MaxPelvisOffset)
                 : 0f;
             _targetData.PelvisOffsetY = Mathf.MoveTowards(_targetData.PelvisOffsetY, pelvisTarget, settings.PelvisSmoothSpeed * Time.deltaTime);
 
             // === ③ 各腳最終目標與權重 ===
-            ResolveFoot(in left, _poseData.LeftFootPosition, _poseData.LeftFootRotation, _poseData.LeftFootBottomHeight,
-                rootY, ikAllowed,
+            ResolveFoot(in left, _poseData.LeftFootRotation, _poseData.LeftFootBottomHeight,
+                leftStance, ikAllowed,
                 ref _targetData.LeftFootPosition, ref _targetData.LeftFootRotation,
                 ref _targetData.LeftFootPositionWeight, ref _targetData.LeftFootRotationWeight);
 
-            ResolveFoot(in right, _poseData.RightFootPosition, _poseData.RightFootRotation, _poseData.RightFootBottomHeight,
-                rootY, ikAllowed,
+            ResolveFoot(in right, _poseData.RightFootRotation, _poseData.RightFootBottomHeight,
+                rightStance, ikAllowed,
                 ref _targetData.RightFootPosition, ref _targetData.RightFootRotation,
                 ref _targetData.RightFootPositionWeight, ref _targetData.RightFootRotationWeight);
 
@@ -317,8 +334,8 @@ namespace Project.Presentation.IK
         /// <summary>
         /// ③ 單腳最終求解（M3.1）：目標＋法線對齊旋轉＋單因子 Pose 權重 → MoveTowards 平滑。
         /// </summary>
-        private void ResolveFoot(in FootSample sample, Vector3 posePosition, Quaternion poseRotation,
-            float footBottomHeight, float rootY, bool ikAllowed,
+        private void ResolveFoot(in FootSample sample, Quaternion poseRotation,
+            float footBottomHeight, float stanceWeight, bool ikAllowed,
             ref Vector3 targetPosition, ref Quaternion targetRotation,
             ref float positionWeight, ref float rotationWeight)
         {
@@ -339,7 +356,8 @@ namespace Project.Presentation.IK
                 targetRotation = sample.TargetRotation;
 
                 // 單因子權重＝Pose Heuristic（二態系統：窄帶外恆 0 或 1，腳不是全 IK 就是全動畫）。
-                goalWeight = ComputeFootWeight(posePosition.y - rootY, settings.FootGroundedHeightMin, settings.FootGroundedHeightMax);
+                // 🔄（2026-09-24）stance 由 Tick 以 pose 同時刻的平面算好傳入（見 ①''）。
+                goalWeight = stanceWeight;
             }
 
             float step = settings.WeightSmoothSpeed * Time.deltaTime;
@@ -431,14 +449,27 @@ namespace Project.Presentation.IK
         }
 
         /// <summary>
-        /// （純函數）Q2 骨盆補償：取雙腳地面命中點中較低者相對 Root 平面的差（恆 ≤0），
-        /// 夾在 [-maxOffset, 0]——不可無限下降。
-        /// 高於 Root 平面（上坡側）不上抬——骨盆只下沉、不上頂，抬升交給 CharacterController 的地面跟隨。
+        /// （純函數）Q2 骨盆補償，🔄 2026-09-24 改為**支撐加權**（`docs/44` §9.6）。
+        ///
+        /// 每隻腳的下沉需求 ＝ 支撐量 × 夾限後的高差（腳下地面 − Root，恆 ≤0，下限 −maxOffset）；
+        /// 骨盆目標取兩者較深者。
+        /// - 支撐量 1（動畫裡正踩著）⇒ 需求等同舊規則；支撐量 0（擺盪中）⇒ 沒有需求，
+        ///   即使它的 ray 已經探到更低的下一階。
+        /// - 沒有地面命中 ⇒ 這隻腳沒有需求（不是讓整個骨盆歸零）。
+        /// - 高於 Root 平面（上坡側）不上抬——骨盆只下沉、不上頂，抬升交給 CharacterController 的地面跟隨。
+        ///
+        /// 連續性：支撐量對動畫腳高是連續的，<c>min</c> 換邊只產生斜率折點、沒有值的跳變；
+        /// 剩下唯一的跳變是「腳下踏面換階」時的 支撐量 × 級高，由呼叫端既有的 MoveTowards 限速。
         /// </summary>
-        public static float ComputePelvisOffset(float leftGroundY, float rightGroundY, float rootY, float maxOffset)
+        public static float ComputeSupportedPelvisOffset(
+            bool leftHasGround, float leftGroundY, float leftSupport,
+            bool rightHasGround, float rightGroundY, float rightSupport,
+            float rootY, float maxOffset)
         {
-            float lowest = Mathf.Min(leftGroundY, rightGroundY) - rootY;
-            return Mathf.Clamp(lowest, -Mathf.Abs(maxOffset), 0f);
+            float max = Mathf.Abs(maxOffset);
+            float left = leftHasGround ? Mathf.Clamp01(leftSupport) * Mathf.Clamp(leftGroundY - rootY, -max, 0f) : 0f;
+            float right = rightHasGround ? Mathf.Clamp01(rightSupport) * Mathf.Clamp(rightGroundY - rootY, -max, 0f) : 0f;
+            return Mathf.Min(left, right);
         }
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD

@@ -269,34 +269,73 @@ namespace Project.Tests.EditMode
                 "退化配置下，高度 > min 應回 0");
         }
 
-        // === ComputePelvisOffset（Q2：雙腳地面高差 → 骨盆下沉）===
+        // === ComputeSupportedPelvisOffset（Q2：🔄 2026-09-24 支撐加權，docs/44 §9.6）===
+        // 參數順序：左（命中, 地面Y, 支撐量）、右（命中, 地面Y, 支撐量）、rootY、maxOffset
 
         [Test]
         public void PelvisOffset_FlatGround_ReturnsZero()
         {
-            Assert.AreEqual(0f, FootIKController.ComputePelvisOffset(1f, 1f, 1f, 0.35f), Epsilon,
+            Assert.AreEqual(0f, FootIKController.ComputeSupportedPelvisOffset(true, 1f, 1f, true, 1f, 1f, 1f, 0.35f), Epsilon,
                 "平地（雙腳命中點＝Root 平面）不應有骨盆補償");
         }
 
         [Test]
-        public void PelvisOffset_LowerFoot_ReturnsNegativeDelta()
+        public void PelvisOffset_BothSupporting_TakesTheLowerFoot()
         {
-            Assert.AreEqual(-0.2f, FootIKController.ComputePelvisOffset(0.8f, 1.0f, 1f, 0.35f), Epsilon,
-                "低腳在 Root 平面下 0.2m 時，骨盆應下沉 0.2m（取較低腳）");
+            Assert.AreEqual(-0.2f, FootIKController.ComputeSupportedPelvisOffset(true, 0.8f, 1f, true, 1.0f, 1f, 1f, 0.35f), Epsilon,
+                "兩腳都在支撐時與舊規則相同：取較低腳（低 0.2 m ⇒ 下沉 0.2 m）");
         }
 
         [Test]
         public void PelvisOffset_ExceedsMaxDrop_IsClamped()
         {
-            Assert.AreEqual(-0.35f, FootIKController.ComputePelvisOffset(0.4f, 1.0f, 1f, 0.35f), Epsilon,
+            Assert.AreEqual(-0.35f, FootIKController.ComputeSupportedPelvisOffset(true, 0.4f, 1f, true, 1.0f, 1f, 1f, 0.35f), Epsilon,
                 "高差超過 maxPelvisDrop 時應夾在最大下沉量（低腳搆不到屬設計極限）");
         }
 
         [Test]
         public void PelvisOffset_GroundAboveRoot_ClampsToZero()
         {
-            Assert.AreEqual(0f, FootIKController.ComputePelvisOffset(1.1f, 1.2f, 1f, 0.35f), Epsilon,
+            Assert.AreEqual(0f, FootIKController.ComputeSupportedPelvisOffset(true, 1.1f, 1f, true, 1.2f, 1f, 1f, 0.35f), Epsilon,
                 "地面高於 Root 平面（上坡側）不得上抬——骨盆只下沉，抬升交給 CharacterController 地面跟隨");
+        }
+
+        /// <summary>
+        /// ⭐ 樓梯「跳動」的回歸鎖（docs/44 §9.5）：下樓時擺盪腳的 ray 先探到更低的下一階。
+        /// 它還在空中（支撐量 0），不得拉動骨盆——骨盆只聽正在支撐的那隻腳。
+        /// </summary>
+        [Test]
+        public void PelvisOffset_SwingFootLookahead_DoesNotPullPelvis()
+        {
+            Assert.AreEqual(-0.05f, FootIKController.ComputeSupportedPelvisOffset(true, 0.95f, 1f, true, 0.62f, 0f, 1f, 0.35f), Epsilon,
+                "擺盪腳（支撐 0）探到低 0.38 m 的下一階，骨盆仍只依支撐腳下沉 0.05 m");
+        }
+
+        [Test]
+        public void PelvisOffset_PartialSupport_ContributesProportionally()
+        {
+            Assert.AreEqual(-0.1f, FootIKController.ComputeSupportedPelvisOffset(true, 1f, 1f, true, 0.8f, 0.5f, 1f, 0.35f), Epsilon,
+                "正在落下的腳（支撐 0.5）只貢獻一半的需求；隨它踩實，骨盆連續地沉到它的踏面");
+        }
+
+        /// <summary>
+        /// ⛔ 舊規則「任一腳沒命中 ⇒ 整個骨盆歸零」就是 Run 上樓骨盆被鎖在 0 的原因（docs/43）。
+        /// 沒命中只代表「這隻腳沒有需求」，不是整體閘門。
+        /// </summary>
+        [Test]
+        public void PelvisOffset_MissingHit_RemovesOnlyThatFootsRequirement()
+        {
+            Assert.AreEqual(-0.15f, FootIKController.ComputeSupportedPelvisOffset(true, 0.85f, 1f, false, 0f, 1f, 1f, 0.35f), Epsilon,
+                "右腳沒命中時，骨盆仍依左腳（支撐、低 0.15 m）下沉");
+            Assert.AreEqual(0f, FootIKController.ComputeSupportedPelvisOffset(false, 0f, 1f, false, 0f, 1f, 1f, 0.35f), Epsilon,
+                "兩腳都沒命中 ⇒ 沒有任何需求");
+        }
+
+        [Test]
+        public void PelvisOffset_SupportOutsideUnitRange_IsClamped()
+        {
+            Assert.AreEqual(-0.2f, FootIKController.ComputeSupportedPelvisOffset(true, 0.8f, 3f, true, 1f, -1f, 1f, 0.35f), Epsilon,
+                "支撐量夾在 [0,1]：超出範圍的輸入不得放大或反轉需求");
         }
 
         // 註（M3.5 最終形）：M3.2 的 ComputeHeightFade／ClampReach 純函數已隨實驗機制移除，

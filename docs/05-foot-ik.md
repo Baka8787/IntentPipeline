@@ -170,6 +170,33 @@ sample.TargetPosition.y += lift;
 結構上屬同一類缺陷。但 **probe 證明這條路徑本次根本沒觸發** ⇒ 依專案紀律
 （`CLAUDE.md`：沒有證據支撐的防呆一律擋下）**不加防呆**。它是潛在風險，不是已觀察到的缺陷。
 
+#### 3.5.4.2 支撐加權骨盆 ＋ pose 同時刻的支撐量（2026-09-24，使用者裁決；正本推導見 `docs/44` §9.5–§9.6）
+
+> **症狀**：樓梯移動面（`docs/44`）上下樓「跳動明顯」。量測：骨盆補償在 0 與 −0.35 m（上限）之間鋸齒，
+> 髖骨垂直速度逐帧變化 p95 是平地的 10–20 倍；Run 上樓則被雙腳命中閘門鎖在 0。
+
+**兩個改動：**
+
+1. **支撐量改用 pose 同時刻的平面**：`FootIKPoseData.PosePlaneY`（Rig 在 OnAnimatorIK 與腳位一起寫入）。
+   原本用 Tick 當下的 `transform.position.y`，但 root 在快照之後（LateUpdate）才移動——在移動面上 Run 每帧差 5–8 cm。
+   同一個 stance 量同時是 IK 目標權重（③）與骨盆貢獻（②），兩者對「哪隻腳在支撐」不會各說各話。平地上逐位元不變。
+2. **骨盆 ＝ 支撐加權的下沉需求**（`ComputeSupportedPelvisOffset`，取代 `ComputePelvisOffset`）：
+
+   ```
+   need_i = HasHit_i ? stance_i × Clamp(GroundY_i − rootY, −MaxPelvisOffset, 0) : 0
+   target = ikAllowed ? min(need_L, need_R) : 0          （之後 MoveTowards，速率不變）
+   ```
+
+   - 擺盪腳（stance 0）的 ray 仍照常取得下一階供 IK 落點，但**不拉動骨盆**。
+   - ⛔ 不是新的 HasGround 閘門：沒命中的腳只是「沒有需求」，不再讓整個骨盆歸零（舊規則讓 Run 上樓骨盆鎖在 0）。
+   - `min` 換邊只有斜率折點；剩下的值跳變只有「落下中的腳換階」時的 stance × 級高，由既有 MoveTowards 限速。
+   - 符合 Natural Pose > Terrain > Contact：沒有新增 Fade／Gate／權重補丁，不縮小活動空間。
+
+**量測結果（`docs/44` §9.6）**：上限命中歸零；多數情境髖骨抖動下降（Walk 上樓 −35%、Run 下樓 −30～−43%）。
+⚠️ **殘留**：髖骨在世界空間呈「階梯狀」——單支撐期間髖部維持在支撐踏面上方固定高度（root 持續下降、骨盆同步回升），
+換腳時再以 −6～−8 m/s 下沉一級。這是「支撐腿長度不變」的幾何結果，不是訊號錯誤；Run 上樓因骨盆不再被鎖 0 也出現同樣的形狀。
+要讓髖部沿斜面平滑移動，需要讓支撐腿在單支撐期間彎曲（骨盆不再只追「目前支撐踏面」）——這是新的骨盆模型，**待使用者裁決**。
+
 #### 3.5.5 Level 1 rigid sole approximation（🆕 2026-08-31，L1 落地；**視覺驗收暫時通過**）
 
 > **狀態**：Level 1 完成，**不再繼續修**。剩餘誤差已降級為 `docs/03` §1.3-**L7**（設計接受）。
