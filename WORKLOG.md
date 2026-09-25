@@ -7,6 +7,22 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🟧 2026-09-25（續十九）— **站直原型已實作（X Bot 開啟）；⚠️ Codex 實作審查未完成（額度用盡）、人工 Play 未做**
+>
+> 📖 正本：`docs/05` §3.5.4.6（「執行期原型」小節）；摘要 `docs/44` §9.16。
+>
+> - 程式：`StandingPostureSolver.cs`（新）、`FootIKController.ResolveStandingPosture`（T3 解完兩腳後才算骨盆）、`FootIKSettings`（`UseStandingPosturePrototype` 預設關）、
+>   `FootIKRig`／`FootIKPoseData`（髖位＋腿長事實）。關閉時逐位元不變。
+> - **髖位來源實測**：`OnAnimatorIK` 開頭讀 UpperLeg 骨骼 ＝ 本帧 pre-IK 髖位（≤ 0.01 cm）；bodyPosition＋常數偏移差 2–9 cm ⇒ Rig 直接讀骨骼。
+> - 探針：放開按鍵 1.65–2.17 s 後站直，骨盆 −5～−22 cm（包絡 −33.5／−35）、膝 22–24°；站立時腳不滑、不浮、搆得到；回到包絡 0.28–0.52 s。
+>   **起步後 0.5 s 骨盆降 13–29 cm，峰值 0.76–2.92 m/s**（proto Walk 往下起步最大，畫面髖部加速度 17 → 106 m/s²）。
+> - 測試：EditMode 702／701／1 既有略過；PlayMode 99／98（既有 C0）。`Player_BodyReference_IsIndependentOfFacing` 改為明確只測包絡；新增站直 PlayMode 測試。
+> - ⏳ **下一步**：①Codex 實作審查（2026-09-26 18:14 後；審查提示已備妥：規格 §3.5.4.6 ＋ 本次 diff）；②審查通過後最終探針量測；
+>   ③**人工 Play**：兩道樓梯、Walk／Run、上下中段停 ≥ 2 s、往上／往下起步、站著原地轉向——**重點看「站直後往下起步」像不像突然蹲下**。
+>   還原：取消 `X Bot.prefab` → FootIKController → `UseStandingPosturePrototype`。
+>
+> ---
+
 > # 🟨 2026-09-25（續十八）— **停在樓梯上時站直：狀態提案＋離線重播＋Codex 審過；❓ 待核准原型，未改行為**
 >
 > 📖 正本：`docs/05` §3.5.4.6；摘要 `docs/44` §9.15。分析 `Temp/StairProbe/stop_sim.py`（用完即丟）。探針加了樓梯中段 2.5 s 停步（上、下各一次；未 commit）。

@@ -90,5 +90,32 @@ namespace Project.Presentation.IK
 
         [Tooltip("動畫腳一帧位移超過此值（公尺）視為瞬移／不連續：狀態與速度歷史立即重設。")]
         [Min(0f)] public float MaxPoseStepPerFrame = 0.5f;
+
+        [Header("🧪 停在樓梯上時站直（docs/05 §3.5.4.6；需要 T3 開啟；預設關閉，只在 X Bot 開啟）")]
+        [Tooltip("開啟後：移動中骨盆照舊（參考面包絡）；靜止後骨盆以彈簧升到「兩腳都搆得到」的最高點（永不低於包絡），" +
+                 "一有移動意圖或 root／腳開始動就立即回到包絡。關閉 ＝ 與原型之前逐位元相同。")]
+        public bool UseStandingPosturePrototype = false;
+
+        [Tooltip("偏好站姿：兩腳都以此伸展比（髖→踝 ／ 腿長）搆到目標的最高骨盆。平地待機本身約 1.0；留一點餘裕避免卡在 Leg Stretch。")]
+        [Range(0.9f, 1f)] public float StandingPreferredExtension = 0.995f;
+
+        [Tooltip("靜止判定：root 水平速度（m/s）低於此值。")]
+        [Min(0f)] public float StandingRootSpeedMax = 0.05f;
+
+        [Tooltip("靜止判定：兩隻動畫腳的水平速度（m/s）都低於此值。")]
+        [Min(0f)] public float StandingFootSpeedMax = 0.2f;
+
+        [Tooltip("連續靜止這麼多帧才進入 Settling。")]
+        [Min(1)] public int StandingSettleFrames = 6;
+
+        [Tooltip("站起來的臨界阻尼彈簧角頻率（rad/s）。6 ≈ 0.75 s 升到位。")]
+        [Min(0.1f)] public float StandingRiseOmega = 6f;
+
+        [Tooltip("回到包絡的臨界阻尼彈簧角頻率（rad/s）。硬性可達上限另外保證腳搆得到。")]
+        [Min(0.1f)] public float StandingReturnOmega = 15f;
+
+        [Tooltip("交回 Moving 的條件：離包絡的距離（公尺）與速度（m/s）都低於這兩個值。")]
+        [Min(0f)] public float StandingHandbackTolerance = 0.01f;
+        [Min(0f)] public float StandingHandbackSpeed = 0.05f;
     }
 }

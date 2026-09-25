@@ -107,6 +107,19 @@ namespace Project.Presentation.IK
         private FootContactState _leftContact;
         private FootContactState _rightContact;
 
+        // 🧪（站直原型，docs/05 §3.5.4.6）姿勢狀態與它需要的一帧歷史（只存數值）。原型關閉時每帧重設。
+        private PostureState _posture;
+        private Vector3 _postureRoot;
+        private Vector3 _postureLeftHip;
+        private Vector3 _postureRightHip;
+        private bool _postureHasHistory;
+
+        private void ResetPosture()
+        {
+            _posture.Reset();
+            _postureHasHistory = false;
+        }
+
         private void Awake()
         {
             _movementMask = MotionDriver.MovementCollisionMask(gameObject.layer);
@@ -159,6 +172,7 @@ namespace Project.Presentation.IK
             {
                 _leftContact.Reset();
                 _rightContact.Reset();
+                ResetPosture();
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                 _debugLeftFoot = default;
                 _debugRightFoot = default;
@@ -222,12 +236,18 @@ namespace Project.Presentation.IK
                     pelvisTarget = CombinePelvisTarget(referenceOffset, rootOnProxy, supportNeed);
                 }
             }
-            _targetData.PelvisOffsetY = Mathf.MoveTowards(_targetData.PelvisOffsetY, pelvisTarget, settings.PelvisSmoothSpeed * Time.deltaTime);
-
-            // === ③ 各腳最終目標與權重 ===
             // PresentationPipeline 直接呼叫 Tick、不看元件是否啟用（Codex Medium 1）：停用時 T3 狀態必須每帧維持重設，
             // 不能只靠 OnDisable 那一次。舊路徑的行為維持原樣。
             bool contact = settings.UseContactPrototype && isActiveAndEnabled;
+            // 🧪 站直原型需要 T3（本帧的腳目標與即時接觸）；關閉時骨盆照舊在這裡更新（逐位元不變）。
+            bool posture = contact && settings.UseStandingPosturePrototype;
+            if (!posture)
+            {
+                _targetData.PelvisOffsetY = Mathf.MoveTowards(_targetData.PelvisOffsetY, pelvisTarget, settings.PelvisSmoothSpeed * Time.deltaTime);
+                ResetPosture();
+            }
+
+            // === ③ 各腳最終目標與權重 ===
             ResolveFoot(in left, _poseData.LeftFootRotation, _poseData.LeftFootBottomHeight,
                 leftStance, ikAllowed, contact,
                 ref _targetData.LeftFootPosition, ref _targetData.LeftFootRotation,
@@ -244,11 +264,20 @@ namespace Project.Presentation.IK
                 ResolveContactPosition(ref _leftContact, _poseData.LeftFootPosition, _poseData.LeftFootRotation,
                     _poseData.LeftFootBottomHeight, leftStance, ikAllowed, posePlaneY,
                     _targetData.LeftFootRotation, _targetData.LeftFootRotationWeight,
-                    ref _targetData.LeftFootPosition, ref _targetData.LeftFootPositionWeight);
+                    ref _targetData.LeftFootPosition, ref _targetData.LeftFootPositionWeight,
+                    out float leftFootSpeed, out bool leftLive);
                 ResolveContactPosition(ref _rightContact, _poseData.RightFootPosition, _poseData.RightFootRotation,
                     _poseData.RightFootBottomHeight, rightStance, ikAllowed, posePlaneY,
                     _targetData.RightFootRotation, _targetData.RightFootRotationWeight,
-                    ref _targetData.RightFootPosition, ref _targetData.RightFootPositionWeight);
+                    ref _targetData.RightFootPosition, ref _targetData.RightFootPositionWeight,
+                    out float rightFootSpeed, out bool rightLive);
+
+                // === ④ 🧪 站直原型：必須在 T3 解完本帧兩腳之後（Codex High）——與本帧寫出的腳目標一起在下一帧套用 ===
+                if (posture)
+                {
+                    ResolveStandingPosture(data, ikAllowed, pelvisTarget, leftStance, rightStance,
+                        leftFootSpeed, rightFootSpeed, leftLive, rightLive);
+                }
             }
             else
             {
@@ -433,10 +462,13 @@ namespace Project.Presentation.IK
         private void ResolveContactPosition(ref FootContactState state, Vector3 posePosition, Quaternion poseRotation,
             float footBottomHeight, float stance, bool ikAllowed, float posePlaneY,
             Quaternion rotationTarget, float rotationWeight,
-            ref Vector3 targetPosition, ref float positionWeight)
+            ref Vector3 targetPosition, ref float positionWeight,
+            out float animatedFootSpeed, out bool liveContact)
         {
             float dt = Time.deltaTime;
             float weightStep = settings.WeightSmoothSpeed * dt;
+            animatedFootSpeed = 0f;
+            liveContact = false;
             if (!ikAllowed)
             {
                 state.Reset();
@@ -509,6 +541,8 @@ namespace Project.Presentation.IK
             state.PrevContactValid = liveHit;
             state.DebugBeta = beta;
             state.DebugLift = lift;
+            animatedFootSpeed = footSpeed;
+            liveContact = liveHit;
         }
 
         /// <summary>
@@ -536,8 +570,77 @@ namespace Project.Presentation.IK
             hasContact = true;
         }
 
+        /// <summary>
+        /// 🧪（站直原型，docs/05 §3.5.4.6）Moving → Settling → Upright → Return → Moving。
+        /// 輸入全是本帧的事實：包絡目標 E（既有）、本帧 T3 腳目標、同時刻的動畫髖位（一帧外插，與腳目標同一套用帧）、
+        /// root 與動畫腳速度、兩腳即時接觸、移動意圖（黑板唯讀）。⛔ 不讀 FSM 狀態名稱、不動鎖腳（V1 不重新落定）。
+        /// </summary>
+        private void ResolveStandingPosture(PlayerRuntimeData data, bool ikAllowed, float envelope,
+            float leftStance, float rightStance, float leftFootSpeed, float rightFootSpeed, bool leftLive, bool rightLive)
+        {
+            float dt = Time.deltaTime;
+            Vector3 root = transform.position;
+            Vector3 leftHip = _poseData.LeftHipPosition, rightHip = _poseData.RightHipPosition;
+            float leftLeg = _poseData.LeftLegLength, rightLeg = _poseData.RightLegLength;
+
+            // 失效：IK 不允許、沒有腿骨事實 ⇒ 既有行為（MoveTowards 到本帧目標；IK 不允許時目標是 0）並重設。
+            // 瞬移（root 一帧位移超過上限）⇒ 歷史與彈簧重設，照既有路徑走。
+            float maxStep = settings.MaxPoseStepPerFrame;
+            bool teleported = _postureHasHistory && (root - _postureRoot).sqrMagnitude > maxStep * maxStep;
+            if (!ikAllowed || leftLeg <= 0f || rightLeg <= 0f || teleported)
+            {
+                ResetPosture();
+                _targetData.PelvisOffsetY = Mathf.MoveTowards(_targetData.PelvisOffsetY, envelope, settings.PelvisSmoothSpeed * dt);
+                _postureRoot = root;
+                _postureLeftHip = leftHip;
+                _postureRightHip = rightHip;
+                _postureHasHistory = ikAllowed && leftLeg > 0f && rightLeg > 0f;
+                return;
+            }
+
+            float rootSpeed = 0f;
+            Vector3 leftHipNext = leftHip, rightHipNext = rightHip;
+            // 沒有上一帧歷史（重設後第一帧）就量不到速度 ⇒ 這一帧不算靜止（不能把「量不到」當成 0）。
+            bool haveSpeed = _postureHasHistory && dt > 0f;
+            if (haveSpeed)
+            {
+                rootSpeed = new Vector2(root.x - _postureRoot.x, root.z - _postureRoot.z).magnitude / dt;
+                // 骨盆下一帧才套用：與 T3 腳目標同一個一帧外插慣例（離線重播就是這樣配對的）。
+                leftHipNext = 2f * leftHip - _postureLeftHip;
+                rightHipNext = 2f * rightHip - _postureRightHip;
+            }
+            _postureRoot = root;
+            _postureLeftHip = leftHip;
+            _postureRightHip = rightHip;
+            _postureHasHistory = true;
+
+            Vector3 leftTarget = _targetData.LeftFootPosition, rightTarget = _targetData.RightFootPosition;
+            // R：偏好站姿（兩腳都以偏好伸展比搆到）；C：支撐加權、完全伸直的硬性上限——兩者分開（Codex High）。
+            float preferred = Mathf.Min(
+                StandingPostureSolver.LegBound(leftHipNext, leftTarget, settings.StandingPreferredExtension * leftLeg),
+                StandingPostureSolver.LegBound(rightHipNext, rightTarget, settings.StandingPreferredExtension * rightLeg));
+            float hard = Mathf.Min(
+                Mathf.Clamp01(1.25f * leftStance) * Mathf.Min(0f, StandingPostureSolver.LegBound(leftHipNext, leftTarget, leftLeg)),
+                Mathf.Clamp01(1.25f * rightStance) * Mathf.Min(0f, StandingPostureSolver.LegBound(rightHipNext, rightTarget, rightLeg)));
+
+            bool still = haveSpeed
+                && data.MovementIntent.DesiredSpeedNormalized <= 0f
+                && rootSpeed < settings.StandingRootSpeedMax
+                && leftFootSpeed < settings.StandingFootSpeedMax && rightFootSpeed < settings.StandingFootSpeedMax
+                && leftLive && rightLive;
+
+            var input = new PostureInputs { Envelope = envelope, Preferred = preferred, HardLimit = hard, Still = still };
+            StandingPostureSolver.Step(ref _posture, in input, dt, ref _targetData.PelvisOffsetY,
+                settings.PelvisSmoothSpeed, settings.StandingSettleFrames, settings.StandingRiseOmega, settings.StandingReturnOmega,
+                settings.StandingHandbackTolerance, settings.StandingHandbackSpeed);
+            _posture.DebugEnvelope = envelope;
+            _posture.DebugPreferred = preferred;
+            _posture.DebugHardLimit = hard;
+        }
+
         private void OnDisable()
         {
+            ResetPosture();
             _leftContact.Reset();
             _rightContact.Reset();
         }

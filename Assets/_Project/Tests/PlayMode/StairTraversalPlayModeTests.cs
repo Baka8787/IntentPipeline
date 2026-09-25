@@ -259,6 +259,10 @@ namespace Project.Tests.PlayMode
             AimCamera(player, stair.Ascent);
             AlwaysAnimate(player);
             var footIK = player.GetComponentInChildren<FootIKController>();
+            // 本測試釘的是「參考面包絡」（移動中的身體參考）與朝向無關。站直原型（docs/05 §3.5.4.6）刻意讓**靜止站立**時的骨盆
+            // 跟隨實際的腳下支撐（側身站在樓梯上兩腳落在不同階 ⇒ 高度不同），那是新的基線、由
+            // Player_StandingPosture_RisesAboveEnvelope_WithFeetReachable 驗證。這裡明確只測包絡本身。
+            SetStandingPosture(footIK, false);
 
             Teleport(player, stair, 0f, stair.Ascent);
             for (int i = 0; i < 60; i++) yield return null;
@@ -281,6 +285,57 @@ namespace Project.Tests.PlayMode
 
             Assert.Less(facingUp, -0.2f, $"{stairName}：站在樓梯中段時骨盆應被參考面拉低（{label}）");
             Assert.Less(worst, 0.01f, $"{stairName}：原地轉身不得改變骨盆（{label}）");
+        }
+
+        /// <summary>
+        /// 🧪 站直原型（docs/05 §3.5.4.6，X Bot 開啟）：停在樓梯中段站著 ⇒ 骨盆高於包絡（站直），兩腳仍搆得到 T3 目標；
+        /// 原地轉向（不同朝向讓兩腳落在不同階）後重新站定，腳仍搆得到。高度隨實際支撐改變是刻意的。
+        /// </summary>
+        [UnityTest]
+        public IEnumerator Player_StandingPosture_RisesAboveEnvelope_WithFeetReachable(
+            [Values("Stairs_650_400_300_Prefab", "Stairs (1)")] string stairName)
+        {
+            yield return LoadScene();
+            StairFrame stair = StairFrame.Find(_scene, stairName);
+            CharacterPipelineRunner player = FindRunner("X Bot");
+            SetActive("Y Bot", false);
+            AimCamera(player, stair.Ascent);
+            AlwaysAnimate(player);
+            var footIK = player.GetComponentInChildren<FootIKController>();
+            SetStandingPosture(footIK, true);
+            Animator animator = null;
+            foreach (Animator a in player.GetComponentsInChildren<Animator>(true)) if (a.isHuman) animator = a;
+            Transform leftFoot = animator.GetBoneTransform(HumanBodyBones.LeftFoot);
+            Transform rightFoot = animator.GetBoneTransform(HumanBodyBones.RightFoot);
+
+            var readings = new List<string>();
+            float lowestPelvis = 0f, worstReach = 0f;
+            foreach (float yaw in new[] { 0f, 90f, 180f })
+            {
+                Teleport(player, stair, 0f, Quaternion.Euler(0f, yaw, 0f) * stair.Ascent);
+                for (int i = 0; i < 180; i++) yield return null; // 3 s：偵測靜止 ＋ 站起來
+                float pelvis = footIK.TargetData.PelvisOffsetY;
+                // 站著不動 ⇒ root 不移動，畫面腳位就是上一帧套用的目標（沒有議題 3 的位移）
+                float reach = Mathf.Max(Vector3.Distance(leftFoot.position, footIK.TargetData.LeftFootPosition),
+                    Vector3.Distance(rightFoot.position, footIK.TargetData.RightFootPosition));
+                readings.Add($"{yaw}°: pelvis {pelvis:F3} reach {reach:F3}");
+                if (yaw == 0f) lowestPelvis = pelvis;
+                worstReach = Mathf.Max(worstReach, reach);
+            }
+            string label = $"[StairPlayMode] standing posture {stairName}: " + string.Join(" | ", readings);
+            Debug.Log(label);
+            TestContext.WriteLine(label);
+            yield return UnloadScene();
+
+            Assert.Greater(lowestPelvis, -0.30f, $"{stairName}：面向上方站著時應站直、高於包絡（−0.335／−0.35）（{label}）");
+            Assert.Less(worstReach, 0.02f, $"{stairName}：站直後兩腳仍須搆到 T3 目標（{label}）");
+        }
+
+        private static void SetStandingPosture(FootIKController footIK, bool enabled)
+        {
+            object settings = typeof(FootIKController).GetField("settings",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).GetValue(footIK);
+            settings.GetType().GetField("UseStandingPosturePrototype").SetValue(settings, enabled);
         }
 
         /// <summary>

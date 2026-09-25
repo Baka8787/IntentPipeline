@@ -15,6 +15,7 @@ namespace Project.Presentation.IK
     /// 不做：raycast、讀黑板、IsGrounded／狀態判斷、權重演算法——兩個方向都是純轉接
     /// （讀值→賦值），零決策分支（null 防護屬防禦線）。
     /// 🆕（M3.5 最終形）M3.2 為 Reach Clamp 加的腿骨快取與髖／腿長量測已隨該機制移除。
+    /// 🧪（2026-09-25）站直原型重新需要髖位與腿長：仍只是**事實**（OnAnimatorIK 開頭讀骨骼位置），可達性判斷全在 Controller。
     /// </summary>
     [RequireComponent(typeof(Animator))]
     public class FootIKRig : MonoBehaviour
@@ -55,9 +56,35 @@ namespace Project.Presentation.IK
             _targetData = targetData;
         }
 
+        // 🧪 站直原型的髖位事實來源（docs/05 §3.5.4.6）。只讀骨骼位置、不做任何判斷。
+        private Transform _leftUpperLeg, _leftLowerLeg, _leftFoot;
+        private Transform _rightUpperLeg, _rightLowerLeg, _rightFoot;
+
         private void Awake()
         {
             _animator = GetComponent<Animator>();
+            if (_animator != null && _animator.isHuman)
+            {
+                _leftUpperLeg = _animator.GetBoneTransform(HumanBodyBones.LeftUpperLeg);
+                _leftLowerLeg = _animator.GetBoneTransform(HumanBodyBones.LeftLowerLeg);
+                _leftFoot = _animator.GetBoneTransform(HumanBodyBones.LeftFoot);
+                _rightUpperLeg = _animator.GetBoneTransform(HumanBodyBones.RightUpperLeg);
+                _rightLowerLeg = _animator.GetBoneTransform(HumanBodyBones.RightLowerLeg);
+                _rightFoot = _animator.GetBoneTransform(HumanBodyBones.RightFoot);
+            }
+        }
+
+        /// <summary>腿的事實：髖位與腿長（骨骼缺一就回傳 0 腿長，讀取方據此停用）。純讀值，無決策。</summary>
+        private static void ReadLeg(Transform upper, Transform lower, Transform foot, out Vector3 hip, out float length)
+        {
+            if (upper == null || lower == null || foot == null)
+            {
+                hip = Vector3.zero;
+                length = 0f;
+                return;
+            }
+            hip = upper.position;
+            length = Vector3.Distance(upper.position, lower.position) + Vector3.Distance(lower.position, foot.position);
         }
 
         private void OnAnimatorIK(int layerIndex)
@@ -77,6 +104,9 @@ namespace Project.Presentation.IK
             _poseData.RightFootBottomHeight = _animator.rightFeetBottomHeight;
             // 與腳位同一時刻擷取：之後 LateUpdate 才移動 root，Reader 不得拿移動後的 root 相減（見 PosePlaneY）。
             _poseData.PosePlaneY = transform.position.y;
+            // 🧪 同一時刻的髖位：此刻 transform 是本帧的 FK 姿勢（IK 與 bodyPosition 偏移都還沒套用，實測驗證）。
+            ReadLeg(_leftUpperLeg, _leftLowerLeg, _leftFoot, out _poseData.LeftHipPosition, out _poseData.LeftLegLength);
+            ReadLeg(_rightUpperLeg, _rightLowerLeg, _rightFoot, out _poseData.RightHipPosition, out _poseData.RightLegLength);
             _poseData.IsWarm = true;
 
             // === 入：Target 套用（骨盆補償：bodyPosition 每幀由動畫重算，疊加不跨幀累積）===

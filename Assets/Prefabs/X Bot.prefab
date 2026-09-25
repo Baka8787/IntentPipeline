@@ -4560,6 +4560,15 @@ MonoBehaviour:
     UnlockRadius: 0.2
     ReleaseTime: 0.12
     MaxPoseStepPerFrame: 0.5
+    UseStandingPosturePrototype: 1
+    StandingPreferredExtension: 0.995
+    StandingRootSpeedMax: 0.05
+    StandingFootSpeedMax: 0.2
+    StandingSettleFrames: 6
+    StandingRiseOmega: 6
+    StandingReturnOmega: 15
+    StandingHandbackTolerance: 0.01
+    StandingHandbackSpeed: 0.05
   drawFootIKRuntimeLines: 1
   drawFootIKSceneGizmos: 1
 --- !u!114 &1780814311861303900

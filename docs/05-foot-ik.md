@@ -471,7 +471,44 @@ PlayMode `Player_BodyReference_IsIndependentOfFacing`（兩道樓梯，站在中
 5. 其他：髖位由 Rig 寫進 `FootIKPoseData`（事實；優先 `bodyPosition ＋ bodyRotation × 由 avatar 量得的髖偏移`，先用探針對照 UpperLeg 骨骼）；
    不需要 ADR（Presentation 內的局部政策，寫 Living Spec）。測試：E > U、C < E、進出連續、夾住後放開、失去 `ikAllowed`、瞬移、`dt＝0`、關閉時逐位元相同。
 
-**❓ 待使用者**：是否以上述規則做 X Bot 限定、開關控制的執行期原型（需先擴充 `FootIKPoseData` 的髖位事實）。
+> ✅ 使用者核准（2026-09-25）：做 X Bot 限定、開關控制的執行期原型——見下方。
+
+##### 🧪 執行期原型（2026-09-25；X Bot 開啟、Y Bot 關閉；⚠️ Codex 實作審查**尚未完成**（額度用盡），人工 Play 驗收未做）
+
+**程式**：`StandingPostureSolver.cs`（新：`PosturePhase`／`PostureState`／`PostureInputs`、`LegBound`、`SpringStep`、`Step`）、
+`FootIKController.ResolveStandingPosture`、`FootIKSettings`（`UseStandingPosturePrototype` 等，預設關）、`FootIKRig`／`FootIKPoseData`（髖位與腿長事實）。
+開關關閉（或 T3 關閉）時骨盆照舊在 ② 之後以 MoveTowards 更新，逐位元不變。
+
+- **髖位來源已實測驗證**：探針元件在 `OnAnimatorIK` 記錄候選值，與「帧末骨骼扣回 LateUpdate 的 root 位移與已套用骨盆」重建的本帧 pre-IK 髖位比對：
+  **UpperLeg 骨骼在 `OnAnimatorIK` 開頭就是本帧 FK 姿勢（誤差 ≤ 0.01 cm）**；`bodyPosition ＋ 常數偏移` 反而差 1.8–2.8 cm（p50），最多 9 cm。
+  ⇒ Rig 直接讀骨骼（仍只是事實，唯一 Writer 不變）。先前「transform 可能是上一帧」的顧慮在這個 rig 上不成立。
+- 順序：原型開啟時骨盆改在 ③' T3 解完兩腳**之後**計算（④），`ResolveContactPosition` 回傳本帧的動畫腳速度與即時接觸。
+- 偏好上限 R（0.995）與硬性上限 C（1.0、支撐加權）分開；目標 min(max(E, min(R,0)), C)；C 夾住時向上速度歸零；速度跨 Settling／Upright／Return 延續，
+  進入 Settling 以上一帧位移為種子；Return 不夾 p ≥ E（E 是包絡原始目標，會跳）；`dt ≤ 0` 不推進；重設後第一帧量不到 root 速度 ⇒ 不算靜止（自審發現）。
+- 靜止：`MovementIntent.DesiredSpeedNormalized ≤ 0` ∧ root < 0.05 m/s ∧ 兩隻動畫腳 < 0.2 m/s ∧ 兩腳即時接觸，連續 6 帧。不讀 FSM 狀態名稱；V1 不動鎖腳。
+
+**執行期量測**（`StairFeelProbe`：兩道樓梯 × Walk／Run；上樓中段停 2.5 s → 往上重新起步；下樓中段停 2.5 s → 往上方點 8 帧原地轉向 → 再站 2 s → 往下重新起步；
+對照 = 同情境只開 T3）：
+
+| 指標 | 只開 T3（包絡） | T3 ＋ 站直原型 |
+|---|---|---|
+| 放開按鍵 → Upright | — | **1.65–2.17 s**（轉向後 1.33–1.43 s） |
+| 站立骨盆 | −33.5／−35 cm | **−5.0～−22.2 cm** |
+| 站立膝彎／伸展比 | 65–102°／0.68–0.86 | **22–24°／0.983–0.990**（轉向後一次兩腳不同階：79°） |
+| 站立時腳搆不到 p95／滑動／浮空 p95 | 0／0／≤ 0.4 cm | **0／0／≤ 0.7 cm** |
+| 回到包絡 | — | 0.28–0.52 s |
+| 起步後 0.5 s 內骨盆下沉 | 0 | **13–29 cm**，峰值 0.76–2.92 m/s |
+| 起步後 0.5 s 畫面髖部垂直加速度峰值 | 17–68 m/s² | 34–106 m/s²（proto Walk 往下起步：17 → **106**） |
+| 起步時腳搆不到 | 1.4–11 cm | 相同（既有 T3，與姿勢無關） |
+
+- **人工驗收的關鍵情境**：prototype 樓梯 Walk、下樓中段停步後往下起步——骨盆在 0.5 s 內降 24 cm、峰值 2.9 m/s。這就是「起步時突然蹲下」要看的地方。
+  `Stairs (1)` Run 轉向後那一窗的 3.69 m/s 在只開 T3 時也一樣（Run 點一下會跑出去，包絡本身在跟）。
+- 測試：`StandingPostureSolverTests` 13 個；PlayMode 新增 `Player_StandingPosture_RisesAboveEnvelope_WithFeetReachable`（兩道樓梯，三個朝向站定後骨盆高於包絡、腳搆得到）。
+  既有的 `Player_BodyReference_IsIndependentOfFacing` 改為**明確只測包絡本身**（在測試內關閉站直原型）：站直時的骨盆刻意跟隨實際支撐、會隨朝向改變，那是新基線，由新測試驗證——
+  不是測試豁免機制（CLAUDE.md「Architecture Invariants Track the Effective Baseline」）。
+- 全套：EditMode 702／701／1 既有略過；PlayMode 99／98（唯一失敗是既有 C0）。
+- 資產：`X Bot.prefab` `UseStandingPosturePrototype` ＝ 1（Editor API）。還原：取消這個勾。⚠️ 只有 Unity 匯入成功，沒有專門測試保護。
+- **未完成**：Codex 實作審查（使用者要求在最終 Play 驗證之前；Codex 額度 2026-09-26 18:14 恢復）；人工 Play（下樓起步是否像突然蹲下）。
 
 #### 3.5.5 Level 1 rigid sole approximation（🆕 2026-08-31，L1 落地；**視覺驗收暫時通過**）
 

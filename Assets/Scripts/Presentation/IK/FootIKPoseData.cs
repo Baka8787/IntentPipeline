@@ -50,6 +50,19 @@ namespace Project.Presentation.IK
         public float PosePlaneY;
 
         /// <summary>
+        /// 🧪（2026-09-25，站直原型，`docs/05` §3.5.4.6）**與腳位同一時刻**的動畫髖關節（UpperLeg 骨骼）世界位置：IK 與骨盆偏移都還沒套用。
+        /// ✅ 已實測驗證來源：在 <c>OnAnimatorIK</c> 開頭讀 UpperLeg 骨骼，與「帧末骨骼扣回 root 位移與骨盆偏移」重建的本帧 pre-IK 髖位
+        /// 差 ≤ 0.01 cm（四種跑法全部）——Unity 在 IK pass 之前已經把本帧 FK 姿勢寫進 transform；
+        /// 改用 bodyPosition ＋ 常數偏移反而差 2–9 cm（質心隨姿勢移動）。沒有對應骨骼時為 0，腿長也為 0。
+        /// </summary>
+        public Vector3 LeftHipPosition;
+        public Vector3 RightHipPosition;
+
+        /// <summary>🧪 同一時刻由骨骼量得的腿長（大腿 ＋ 小腿，公尺）。0 ＝ 沒有可用的腿骨（原型自動停用）。</summary>
+        public float LeftLegLength;
+        public float RightLegLength;
+
+        /// <summary>
         /// Rig 首次寫入後恆為 true。Controller 據此避免消費未初始化的快照
         /// （IK pass 未開啟／Animator 未評估前，全零快照會產生無意義的 raycast）。
         /// </summary>
