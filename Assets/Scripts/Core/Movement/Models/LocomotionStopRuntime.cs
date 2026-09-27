@@ -31,6 +31,15 @@ namespace Project.Core.Movement
         public float PreviousNormalizedTime => _previousNormalizedTime;
         public float ElapsedRealTime => _elapsedRealTime;
 
+        /// <summary>
+        /// 已 Play 但 Stop 的播放頭尚未前進（docs/07 R8）：Play 當帧讀到 0，且新 state 的第一次評估不推進時間，
+        /// 實測固定 2 帧。這段期間以播放頭差換算的位移必然是 0，不能交給曲線驅動。
+        /// </summary>
+        public bool IsAwaitingPlayhead => IsPlaying && _normalizedTime <= 0f;
+
+        /// <summary>Pending 或等待播放頭期間：維持 release-entry 的 locomotion 位移，曲線尚未接手。</summary>
+        public bool HoldsEntryMotion => IsPending || IsAwaitingPlayhead;
+
         public int Begin(LocomotionStopTier tier, int variantIndex)
             => BeginInternal(tier, variantIndex, false, 0f);
 

@@ -841,6 +841,7 @@ Stop 起始帧允許出現上表那一筆已知配置，且必須能對上數量
 | R5 | Stop 起始帧的閉包配置 | 破壞「每帧 0 B」的直覺讀數 | §10.5 已量化並寫進 §7.4 判讀規則；根治＝償還 dev-spec §5 的回調 ObjectPool 待辦 |
 | R6 | 中斷判定晚一帧（Jump／Roll） | 16 ms | 該帧位移已由 override 接手，無雙重位移；不為此新增介面方法 |
 | R7 | 中斷回移動的頓挫（§10.3） | 手感 | §11.3-V8 實測；解法已預先分析（§13.2） |
+| R8 | ✅ **已修（2026-09-27）：Stop 入場 2 帧 root 停滯＋第 3 帧半速** | 修正前每次 Stop 開始 root 位移正好 2 帧為 0、第 3 帧約半速（`StairFeelProbe` 36／36 入口；平地是水平頓挫，樓梯上畫面骨盆垂直速度同帧掉到約 0，是「停步時骨盆先變慢」的第一個偏離帧，見 `docs/05` §3.5.4.6） | **逐帧紀錄確認三個原因**（throwaway `StopEntryLogger`：播放頭前後值、Δ、SpeedCurve 取樣、指令位移、CC 實際位移，兩者逐毫米一致）：①Play 當帧 `Advance(GetNormalizedTime())` 讀到 0；②新 state 的第一次動畫評估**不推進時間**（該帧 LateUpdate 讀到的播放頭仍是 0.0000）⇒ 第 2 帧 Δt_clip＝0；③烘焙器 `MotionBakeEditor` 對第 0 個樣本固定寫 `SpeedCurve.AddKey(0, 0)`（後向差分沒有前一個樣本）——四支 Stop bake 都是 (0,0)→(1/60, 1.46–3.51)，第一段梯形平均被拉成一半。**修法（只在 Stop 路徑，減速曲線逐字不變）**：`LocomotionStopRuntime.HoldsEntryMotion`＝Pending ∨（Playing ∧ 播放頭仍為 0），期間 `LocomotionModel` 沿用 Pending 既有語意（smoother 暫停、`ExecuteBaseMovement` 維持 release-entry 位移），播放頭一前進曲線從 t=0 接手；`MotionDriver.ExecuteLocomotionStopMovement` 取速度樣本時略過佔位 key（`minSpeedSampleTime = 1/SampleRate`），播放頭差不動。**修後**：31／31 入口無停滯；Run 4.70→4.70→4.54–4.77（連續）；Walk 2.29→2.01（LU）／2.23（RU）——剩下的是 §8.5 早已記錄的入場速度落差（`p` 取捨），不屬 R8。副作用：停步距離多約 2 帧入場速度（樓梯實測 +5～+14 cm）。測試：`LocomotionStopTests` 新增 2 條、`LocomotionStopEntryPlayModeTests` 1 條。⚠️ 烘焙器的 (0,0) 佔位 key **未修**：它影響所有 bake（含 `AutoAverageSpeed` ⇒ locomotion 滿速／Mixer 門檻），屬全域資料變更，待使用者裁決 |
 
 ### 13.2 延後項（附觸發條件與已預先分析的解法）
 

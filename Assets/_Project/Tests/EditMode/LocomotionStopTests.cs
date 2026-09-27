@@ -205,6 +205,70 @@ namespace Project.Tests.EditMode
         }
 
         [Test]
+        public void Runtime_HoldsEntryMotionUntilPlayheadAdvances()
+        {
+            var runtime = new LocomotionStopRuntime();
+            runtime.Begin(LocomotionStopTier.Run, 0);
+            Assert.IsTrue(runtime.IsPlaying);
+            Assert.IsTrue(runtime.IsAwaitingPlayhead, "Play 當帧播放頭仍是 0。");
+            Assert.IsTrue(runtime.HoldsEntryMotion);
+
+            runtime.Advance(0f, 1f / 60f);
+            Assert.IsTrue(runtime.IsAwaitingPlayhead, "新 state 的第一次評估不推進時間（docs/07 R8 實測第 2 帧）。");
+
+            runtime.Advance(0.017f, 1f / 60f);
+            Assert.IsFalse(runtime.IsAwaitingPlayhead);
+            Assert.IsFalse(runtime.HoldsEntryMotion, "播放頭一前進就交給曲線。");
+            Assert.AreEqual(0f, runtime.PreviousNormalizedTime, "曲線從 t=0 起積分——減速形狀不被跳過。");
+
+            var pending = new LocomotionStopRuntime();
+            pending.BeginPending(LocomotionStopTier.Walk, 0, 0.5f);
+            Assert.IsTrue(pending.HoldsEntryMotion);
+            Assert.IsFalse(pending.IsAwaitingPlayhead, "Pending 不是 Playing。");
+        }
+
+        [Test]
+        public void Model_HoldsReleaseEntrySpeedUntilStopPlayheadAdvances()
+        {
+            var go = new GameObject("LocomotionPlayheadHoldUnderTest");
+            _created.Add(go);
+            LocomotionModel model = go.AddComponent<LocomotionModel>();
+            LocomotionStopTestFacade facade = go.AddComponent<LocomotionStopTestFacade>();
+
+            LocomotionStopVariant runVariant = Variant(-0.2f, "RunStop");
+            SetPrivateField(model, "runLoopBakeData", runVariant.BakeData);
+            SetPrivateField(model, "runStopVariants", new[] { runVariant });
+
+            var smoother = default(LocomotionSpeedSmoother);
+            var runIntent = new MovementIntentData { DesiredSpeedNormalized = 0.75f, DesiredDirection = Vector3.forward };
+            for (int i = 0; i < 120; i++)
+                smoother.Tick(in runIntent, 0.12f, 0.18f, 720f, 1f / 60f);
+            float entrySpeed = smoother.Speed;
+
+            SetPrivateField(model, "_smoother", smoother);
+            SetPrivateField(model, "_wasIntending", true);
+            facade.Play("Idle");
+            facade.RootNormalizedTime = 0f;
+            var data = new PlayerRuntimeData { IsGrounded = true };
+            data.MovementIntent = default;
+
+            // 放開帧（Play）與下一帧：播放頭 0 ⇒ 維持 release-entry 速度，不先 B9 衰減。
+            for (int frame = 0; frame < 2; frame++)
+            {
+                SetPrivateField(model, "_lastMotionFrame", Time.frameCount - 1);
+                model.Tick(data, facade, 1f / 60f);
+                Assert.AreEqual("RunStop", facade.LastPlayedKey);
+                Assert.AreEqual(entrySpeed, data.MoveSpeed, 0.000001f, $"frame {frame}：播放頭未前進期間不得開始減速。");
+            }
+
+            // 播放頭前進 ⇒ 曲線接手，smoother 恢復既有 B9（Stop 期間 MoveSpeed 不寫曲線速度，docs/07 §10.2）。
+            facade.RootNormalizedTime = 0.017f;
+            SetPrivateField(model, "_lastMotionFrame", Time.frameCount - 1);
+            model.Tick(data, facade, 1f / 60f);
+            Assert.Less(data.MoveSpeed, entrySpeed);
+        }
+
+        [Test]
         public void Model_ReleaseUsesPreDecaySpeedForRunTier()
         {
             var go = new GameObject("LocomotionReleaseUnderTest");

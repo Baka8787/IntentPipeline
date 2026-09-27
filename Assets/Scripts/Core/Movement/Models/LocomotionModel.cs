@@ -126,7 +126,8 @@ namespace Project.Core.Movement
             // Pending Walk Stop 是本 model 的私有 dynamics：維持 release-entry 速度／方向走到最近 authored
             // 入場相位，避免先 B9 減速、播放 Stop 時又被曲線重新推動。其他時候仍逐字走既有 smoother。
             // 輸出依然只由 MovementIntent ＋ 本 dynamics 導出，沒有第二寫入者或手填輸出。
-            if (!_stop.IsPending)
+            // 已 Play 但播放頭尚未前進的帧（docs/07 R8）同樣維持 release-entry，曲線到第一個有效播放頭差才接手。
+            if (!_stop.HoldsEntryMotion)
             {
                 _smoother.Tick(
                     in movementIntent,
@@ -206,7 +207,8 @@ namespace Project.Core.Movement
             // 只有 ambient Idle/Move 會 delegate 到此，故不需讓 model 認識 StateType。
             _lastMotionFrame = Time.frameCount;
 
-            if (_stop.IsPlaying && TryGetActiveVariant(out LocomotionStopVariant variant))
+            // 播放頭尚未前進時 Δt_clip＝0，曲線驅動只會產生 0 位移（docs/07 R8）⇒ 沿用 release-entry 位移。
+            if (_stop.IsPlaying && !_stop.IsAwaitingPlayhead && TryGetActiveVariant(out LocomotionStopVariant variant))
             {
                 // 停步仍屬 locomotion：走專用入口，讓樓梯貼地輔助在停步滑行期間同樣生效（docs/44 §9.4）。
                 motionDriver.ExecuteLocomotionStopMovement(

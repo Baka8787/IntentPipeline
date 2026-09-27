@@ -876,7 +876,12 @@ namespace Project.Presentation.Motion
 
             float currentTime = Mathf.Max(0f, normalizedTime * bakeData.Duration);
             float previousTime = Mathf.Clamp(previousNormalizedTime * bakeData.Duration, 0f, currentTime);
-            ExecuteBakedCurveMovementAtTimes(bakeData, currentTime, previousTime, true, data, applyStepDownAssist: true);
+            // 烘焙器的 SpeedCurve 第 0 個 key 固定是 (0, 0)——後向差分沒有前一個樣本的邊界佔位值，不是 authored 速度
+            // （docs/07 §8.5 的 SpeedCurve(0⁺) 同源）。Stop 從 t=0 起播，第一段梯形若積到它會變半速（docs/07 R8）。
+            // 只在取速度樣本時略過這個佔位 key；播放頭差（決定位移時間窗）與其後整條減速曲線逐字不變。
+            float firstMeasuredSpeedTime = bakeData.SampleRate > 0f ? 1f / bakeData.SampleRate : 0f;
+            ExecuteBakedCurveMovementAtTimes(bakeData, currentTime, previousTime, true, data,
+                applyStepDownAssist: true, minSpeedSampleTime: firstMeasuredSpeedTime);
         }
 
         public void BeginTraversalCollisionProfile(in TraversalCollisionProfile profile)
@@ -2513,15 +2518,16 @@ namespace Project.Presentation.Motion
             float previousTime,
             bool usePlayheadDeltaSpeed,
             PlayerRuntimeData data,
-            bool applyStepDownAssist = false)
+            bool applyStepDownAssist = false,
+            float minSpeedSampleTime = 0f)
         {
-            float currentSpeed = bakeData.GetSpeedAt(currentTime);
+            float currentSpeed = bakeData.GetSpeedAt(Mathf.Max(currentTime, minSpeedSampleTime));
             float worldSpeed = currentSpeed;
 
             if (usePlayheadDeltaSpeed)
             {
                 float clipDeltaTime = Mathf.Max(0f, currentTime - previousTime);
-                float previousSpeed = bakeData.GetSpeedAt(previousTime);
+                float previousSpeed = bakeData.GetSpeedAt(Mathf.Max(previousTime, minSpeedSampleTime));
                 float averageClipSpeed = 0.5f * (previousSpeed + currentSpeed);
                 worldSpeed = clipDeltaTime > 0f
                     ? averageClipSpeed * (clipDeltaTime / Time.deltaTime)
