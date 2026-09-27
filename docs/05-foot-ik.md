@@ -407,7 +407,227 @@ PlayMode `Player_BodyReference_IsIndependentOfFacing`（兩道樓梯，站在中
 - (b) 先接受折衷：J ＋ 彈簧（高約 7 cm、每步起伏約 8 cm、Walk 髖加速度約 7 倍），做成開關給人工 Play 判斷；
 - (c) 字面候選（NomCap）——不建議：腿打直到 Leg Stretch，且起伏 ≈ 已否決的逐腳模型。
 
-#### 3.5.4.6 📝 提案：停在樓梯上時站直（Moving → Settling → Upright → Return；2026-09-25，⛔ 只離線重播，未實作；❓ 待使用者核准原型）
+#### 3.5.4.6 停步站直：Early Recovery → Primary Support Rise → 尾腳前瞻上限 → Final Settle（2026-09-27 夜執行期原型；X Bot 開啟；⏳ 待人工 Play）
+
+##### 現行合約（2026-09-27 夜，取代 support-leg＋quintic 與工作樹未記錄的 WT scalar-speed 實驗）
+
+移動中的 Terrain Envelope E、T3 腳接觸／鎖腳語意、`FootstepDetector`、Issue 3、root／膠囊與 Y Bot 都不變；
+全程不讀 FSM／animation／Locomotion Stop 狀態——只讀黑板移動意圖、root 運動學速度與 T3 自己的腳狀態。
+
+| 段 | 現行定義 |
+|---|---|
+| reliable foot | T3 `Locked` ∧ β ≥ `LockBeta` ∧ pose 水平腳速 < `StandingReliableFootSpeedMax` 0.3 m/s ∧ live contact；無歷史／不連續帧不可靠 |
+| **① EarlyRecovery**（`PosturePhase` 4） | 移動意圖 >0 → 0 的邊沿、且放開當下 root ≥ `StandingEarlyReleaseMinRootSpeed` 0.1 m/s ⇒ 進入（從 Moving 或仍在追隨包絡的 Return）。包絡路徑 `base` 原封不動繼續；抬升量 `a` 以 ω＝`StandingEarlyLiftOmega` 6 的臨界阻尼彈簧追 `w·max(0, U−base)`，`w＝clamp01(1−rootSpeed/rootSpeed@release)`；上限 `max(0, C−base)`，頂到時以 ≤`StandingEarlyLiftRetreatSpeed` 1 m/s 退讓，不瞬間下拉。移動意圖恢復 ⇒ Return（位置、速度承接） |
+| primary edge | 沒有移動意圖、**新** reliable edge、root ≤ `StandingFinalSupportSpeedMax` 1.35 m/s ⇒ ②（從 Moving／EarlyRecovery／Return） |
+| **② StopProgress**（Primary Support Rise） | 鎖存支撐腳 F、畫面上的支撐髖（pre-IK 髖＋當帧已套用 offset）、上下腿長；**承接速度** `L̇₀`＝畫面支撐髖相對 F 的徑向速度（帧 e−1→e）。支撐腿長 cubic Hermite 從 `(L₀, L̇₀)` 到 `(0.995·leg, 0)`，時長 `T＝min(D, 1.5·ΔL/L̇₀)`；D 依尾腳 T3 相位：`Unlocked∧β≥0.8∧下降` 0.18 s／`Locked∧live` 或 `Releasing∧β≥0.6∧下降` 0.20 s／其餘 0.40 s（`StandingRiseDuration*`）。逐帧以固定 F＋本帧（外插）primary 髖 XZ 反解骨盆，並 ≤ primary 全長可達。無單調保持、不從 0 速度重起 |
+| **③ 尾腳前瞻可達上限** | 只在尾腳 T3 `Locked` 時：鎖定內第一個可靠帧鎖存它的目標（**每次鎖定只一次**，不逐帧更新、不讀即時射線），離開 `Locked` 即清除。`cap＝LegBound(尾髖, 鎖存點, 尾腿全長)`；單邊 C1 飽和 `SaturateBelow`：低於 `cap−m` 完全不動，以上指數逼近、永不超過；帶寬 `m＝min(StandingTrailingCapBand 3 cm, cap−骨盆)` 在第一次套用時鎖定 ⇒ 啟用帧輸出不變。上升途中上限消失 ⇒ 被壓住的差距以 ω＝`StandingTrailingCapReleaseOmega` 10 的彈簧從靜止收掉 |
+| 擺盪尾腳 | `Releasing`／`Unlocked` ⇒ 不給任何預測上限（即時目標可在觸發後再跳一整階） |
+| **④ Final Standing Settle** | 尾腳曾不可靠後的新 reliable edge ⇒ `TrailingSettled`；之後只做 `min(骨盆, C)`。伸展時間到且已落定 ⇒ `Upright`（既有：U 高於骨盆才以 ω6 小幅上調；≤ C） |
+| Return | 移動意圖恢復、primary 失去可靠支撐、Upright 任一腳不可靠 ⇒ Return：清掉上限與抬升，位置與速度原樣承接，ω15 彈簧回 E。可達夾只管**高於包絡**的部分：`≤ max(C, E)`，頂到時以 ≤1 m/s 退讓（跑下樓時 C 會瞬間掉到包絡以下，照 C 夾曾單帧下拉 12 cm）。貼近 E 且近乎靜止才交回 Moving |
+| invalidation | `dt≤0` 不推進；IK 失效、pose／腿長無效、瞬移、元件關閉或原型關閉一律 reset，回既有 E 路徑 |
+
+**程式**：`StandingPostureSolver.cs`（`PostureTuning`／`PostureState`／`Step`）、`FootIKController.ResolveStandingPosture`（組 `PostureInputs`，含本帧未外插髖位）、`FootIKSettings`（新增 9 個欄位，C# 預設值；X Bot prefab 未改）。
+
+##### 執行期驗證（2026-09-27 夜；`StairFeelProbe` 16 runs：兩道樓梯 × Walk／Run × early-cancel 0.30／0.45／0.60 s）
+
+before＝工作樹 WT runtime（post-R8，同一 probe 序列）；after＝本節合約。畫面骨盆＝`hipsY`；視窗＝第一支撐 → 尾腳落定＋0.25 s。
+
+| 停步 | 單帧最大（cm） | 峰值速度（m/s） | 峰值加速度（m/s²） | 落定修正（cm） | 落定時膝 primary／trailing | 尾腳 |
+|---|---|---|---|---|---|---|
+| proto_Walk 上 | 4.70 → **1.94** | 2.82 → 1.16 | 75 → 13 | −0.35 → −0.07 | 20°／23° | 擺盪 |
+| proto_Walk 下 | 1.06 → 1.69 | 0.64 → 1.01 | 32 → 23 | −0.57 → **0.00** | 23°／25° | 已鎖（上限 17 帧） |
+| s1_Walk 上 | 1.74 → 1.57 | 1.04 → 0.94 | 27 → 18 | −0.40 → **0.00** | 22°／25° | 已鎖（18 帧） |
+| **s1_Walk 下（跨 18 cm 階）** | **13.60 → 2.11** | **8.16 → 1.27** | **526 → 39** | **−13.62 → +0.02** | 76°／21° | 已鎖（21 帧；啟用 Δv −0.11 m/s） |
+| proto_Run 上 | 0.78 → 1.34 | 0.47 → 0.80 | 4 → 16 | +0.56 → −0.21 | **77°／78° → 16°／20°** | 擺盪 |
+| proto_Run 下 | 2.26 → **0.84** | 1.36 → 0.50 | 43 → 13 | −0.53 → −0.41 | 19°／18° | 擺盪 |
+| s1_Run 上 | 3.96 → **2.06** | 2.38 → 1.24 | 68 → 10 | −0.79 → −0.34 | 18°／18° | 擺盪 |
+| s1_Run 下 | 1.24 → 1.23 | 0.74 → 0.74 | 33 → 19 | +0.35 → +0.35 | 22°／23° | 擺盪 |
+
+- **沒有 13–17 cm 落定修正**：全部 ≤0.41 cm。尾腳落定時都搆得到（離全長 −1.1～−2.3 cm）。s1_Walk 下 primary 膝 76°＝跨階站姿本身（上階那隻腿必須彎），不是半蹲殘留。
+- WT 在 proto_Run 上樓其實**沒有站起來**（落定時膝 77°、尾腳離全長 −20 cm，之後 0.5 s 才慢慢升）；新鏈 0.18 s 內站直。WT 的第一支撐帧速度跳動（proto_Walk 上 0.6→2.8 m/s）與末端硬停都消失。
+- 尾腳仍在擺盪、因此**沒有預測上限**的：全部 Run 停步、proto_Walk 上／quick——鎖存只在落定帧出現，交給 ④，落定修正 −0.41～+0.35 cm。
+- rise-then-drop：proto_Run 上樓 0→1——站直後 Upright 跟著 C 以 ≤0.3 cm／帧下修 2.6 cm（④ 的最小修正），不是尾腳 bob；其餘不增加。
+- **取消**（24 early-cancel ＋ 4 quick-stop）：取消前已抬升 0.30 s ≤2.3 cm、0.45 s ≤7.7 cm、0.60 s ≤10.4 cm（Run 上樓），與離線預估一致；取消後 offset 單帧 ≤1.8 cm。
+  quick-stop（第一支撐後 0.27 s 重按）因為這次**真的站直了**，Return 從直立降回跑步包絡：峰值 1.9 m/s（3.1 cm／帧），臨界阻尼、無跳動（WT 在同情境從未站起，所以沒有這段）。
+- **初版執行期發現並修正**：WT 殘留的 Return 以 C 硬夾——跑下樓時 C 可瞬間低於包絡（−0.45 vs −0.31），early-cancel 下樓因此單帧下拉 12 cm。改為 `≤ max(C,E)`＋有限退讓後 0.82 cm／帧（與 before 相同）。
+- **回歸**：T3 鎖腳相位全部帧一致；T3 目標與腳步事件只在 probe 瞬移回起點的那幾帧（`ecwarm`）不同，其餘 0 差異；root 差 ≤0.01 cm。
+- **測試**：`StandingPostureSolverTests` 25 條（重寫）；EditMode 718／717／0 failed／1 skipped；完整 PlayMode 116／107／1 failed（既有 `C0_…IncidentalContact`）／8 skipped（probe 設計）。
+
+##### 支撐腿 candidate 離線 gate（2026-09-27）
+
+在改 runtime 前，以同一批 8 次 stop trace 重播固定 primary foot＋live primary hip 的幾何 candidate（
+`Temp/StairProbe/support_leg_candidate_sim.py`）。另比較過「完全鎖死 entry hip」與「膝角插值」兩個版本：前者會因 root／動畫髖繼續移動而產生 reach error／錯誤末端膝角，
+後者把峰值加速度推到 73.4 m/s²；兩者都淘汰。採用版本只鎖 entry 事實與 support foot，逐幀用 primary hip XZ 反解垂直高度。
+
+- 相對舊 E→U，offset 單帧峰值依案例為 1.99–4.32 cm（舊 1.59–4.12）、速度 1.20–2.59 m/s、加速度 14.0–54.3 m/s²；**數值不保證全面變小**，這次目的不是偷偷調 duration／curve，而是把可見位移與單支撐腿伸展建立正確因果。
+- 支撐膝在 primary→final 間連續由約 64–105° 伸到約 8–18°（離線），latched-primary reach error 0；尾腳最大 reach error 0.58 cm；預估 final join 最小修正 0–0.73 cm。
+- 7／8 在 0.15–0.37 s 進入 target leg length ±0.5 cm；`proto_Walk/upstop` final 約 18°，未進嚴格 0.5 cm 門檻，但已接近 Idle 膝角，留給 Play 判斷，不用調 curve 掩蓋。
+
+##### 執行期驗證（2026-09-27 support-leg candidate）
+
+`StairFeelProbe.Probe_UpTurnDown` 保留原本兩道樓梯 × Walk／Run × T3／T3Posture 的 **8 個情境**；原本的上／下樓長停完整跑完後，
+每個情境再回到樓梯中段做 quick-stop。T3Posture 的四個 restart 分配為 primary 後約 0.10／0.25／0.50 s；這樣不會讓新增案例改變原 8 個 baseline 的 gait phase／落腳幾何。
+
+- 8／8 stair probe 通過；`StandingPostureSolverTests` **20／20**；完整 EditMode **709／708 passed／0 failed／1 skipped**。
+- primary → final 仍是 11–25 帧。實際 pelvis world-Y 在 primary 後 **0.017–0.067 s** 已上升 >0.5 cm；即使 offset 暫被 monotonic hold，動畫髖＋固定支撐腿仍連續伸展，不會多等半蹲。
+- latched support foot 的 XYZ drift **0**、primary switch 0；支撐膝由 64–106° 連續伸到 **1.6–19.5°**；latched-primary reach error ≤0.02 cm、尾腳 ≤0.32 cm。
+- final plant 不跳 U：4／8 高度原樣保留，4／8 只做 two-foot C 所需的 **0.16／0.48／0.68／0.72 cm** 向下殘差修正。StopProgress 期間沒有重複 >1 cm rise/drop，可靠腳水平 slide 0。
+- offset 峰值 **2.59 m/s／54.4 m/s²**；實際 pelvis world-Y 峰值 **2.65 m/s／52.6 m/s²**。這不是調參改善，Play 必須確認「膝伸直帶動身體」的因果是否已消除 teleport 感。
+- quick restart 仍直接進既有 Return、位置不重設；純函數測試逐值守住承接速度。moving Terrain Envelope、T3、FootstepDetector、Issue 3、root／膠囊均未改。
+
+本 slice **不調** 0.18／0.20／0.40、quintic、spring 或 clamp。Play 先只判斷幾何因果；若仍不對，回到支撐腿軌跡本身，不得退回 E→U 或「兩腳都落定後才開始升」。
+
+##### 速度承接比較（2026-09-27 晚；⛔ 只量測，未改 runtime）
+
+**問題**：使用者要求進入恢復時骨盆保留既有速度（C0／C1 連續、不 ease-out、不從零重新規劃），並以「維持約既有停步速度」為驗收條件。
+改 runtime 前，在同一批 8 次正式停步上比較五個模型；一律量**畫面上的** primary 髖（帧 i+1 的 pre-IK UpperLeg ＋ 帧 i 的 output）。
+OLD＝失敗的 E→U trace；SLQ＝上方 support-leg＋quintic（已記錄）；WT＝工作樹中**未記錄**的 scalar-speed MoveTowards 實驗（見 WORKLOG）；
+C1＝固定支撐腳、腿長以 cubic Hermite 從「本帧顯示腿長／顯示的腿伸展速度」走到 0.995·leg、末速 0、無 monotonic hold；C2＝同 C1 但 quintic（起始加速度 0）。
+重播腳本 `velocity_carry_sim.py` 為 throwaway（原 `Temp/StairProbe/*` 已被 Unity 重啟清空，trace 以 `StairFeelProbe` 重跑重建，entry 帧與舊 trace 逐帧一致）。
+
+| 量 | 結果（8 次） |
+|---|---|
+| 進入時的骨盆速度 | 上樓 +0.07／+0.41／+0.86／+1.05 m/s；下樓 −0.25～−0.53 m/s（身體仍在落到支撐腿上）。**全部來自動畫髖**：進入前 envelope offset 速度 = 0 |
+| 進入時的腿伸展速度 | −0.55～+0.45 m/s；需要的平均伸展速度（到尾腳落定）0.33–1.12 m/s ⇒ **只靠既有速度在任何一案都到不了站直** |
+| OLD 進入首帧 Δv | ≈0（−0.04～+0.10 m/s）——失敗 trace **沒有**在進入時重設或減速；問題在其後加速到峰值 1.0–2.6 m/s、1.7–4.3 cm／帧 |
+| SLQ | 首帧同 OLD，但下樓 4 案次帧被 monotonic hold 反轉 +0.31～+0.62 m/s；上樓 s1_Walk 先掉 0.41→0.30 再衝 2.7 m/s |
+| WT（工作樹） | 進入單帧跳 **+0.43～+1.81 m/s**、下樓由降轉升；2／8 尾腳落定時仍差 11.2／6.2 cm（膝 59°／45°）、join 1.56 cm；末端硬停 ⇒ **淘汰** |
+| C1 | 上樓進入 Δv ≤0.07 m/s；下樓 +0.19～+0.39（＝一帧的起始加速度，非重設）；峰值 0.92–2.12 m/s、1.54–3.53 cm／帧，8／8 都比 OLD 低 9–23%；支撐膝 63–106°→11–18°；join ≤0.35 cm |
+| C2 | 進入 Δv ≤0.12 m/s（最連續）；但峰值 1.21–2.58 m/s、2.0–4.3 cm／帧，約同 OLD ⇒ C1 的峰值下降主要來自曲線形狀，不是速度承接本身 |
+
+**真正的槓桿是截止時間預測**：3／8（兩道 Walk 停步與 proto_Walk 下樓）D bucket 取 0.20 s，但尾腳實際 0.383 s 才落定 ⇒ 0.2 s 就衝到站直再乾等。
+以真實窗口當 T（oracle，runtime 拿不到）重跑 C1：這三案 1.54–3.53 → **0.98–1.89 cm／帧**、峰值 → 0.59–1.14 m/s。
+另兩案（proto_Run 上樓、s1_Run 下樓）窗口確實只有 0.183 s：即使 oracle 仍需 2.7–2.9 cm／帧、1.6–1.7 m/s——這是「尾腳落定時已站直」這個要求下的平滑下限。
+
+**結論**：「高速但連續」可以做到（C1／C2 皆無重設），但「維持約既有速度」這個驗收條件與資料衝突——恢復必須在 0.18–0.42 s 內**加速**到既有速度的數倍。
+可見的逐帧大位移主要由 D 預測錯誤（過短）造成，不是速度重設。❓ 待使用者：①採用 C1（或 C2）取代 WT；②D 的預測規則（Locked＋live 尾腳目前給 0.20 s，實測仍會再走一步）；③0.183 s 窗口是否允許在尾腳落定後稍晚完成。
+
+##### 停步前的動量來源：從放開按鍵往回追（2026-09-27 晚；⛔ 只量測）
+
+**問題**：使用者觀察到骨盆在最後支撐之前就先變慢。從放開按鍵追到 Idle，把畫面骨盆 Y 拆成
+`rootY`（膠囊沿樓梯）＋ `hipsLocalY − 已套用 offset`（動畫髖相對 root）＋ 已套用 IK offset，逐帧看速度。
+資料：`StairFeelProbe` 8 次正式停步（raw trace 重建，見上節）；腳本 throwaway。
+
+| | proto_Run 上 | proto_Run 下 | proto_Walk 上 | proto_Walk 下 | s1_Run 上 | s1_Run 下 | s1_Walk 上 | s1_Walk 下 |
+|---|---|---|---|---|---|---|---|---|
+| 停步前畫面垂直速度（m/s） | +2.69 | −2.19 | +1.37 | −1.32 | +2.96 | −2.15 | +1.63 | −1.63 |
+| **root 停滯**（放開後 s；速度變化） | 0.033；+1.75→−0.90 | 0.033；−2.61→+1.12 | 0.317；+1.69→+0.16 | 0.200；−0.90→−0.11 | 0.033；+4.36→+0.54 | 0.033；−2.99→−0.26 | 0.233；+2.00→+0.01 | 0.050；−1.26→−0.05 |
+| 第一支撐（s）／當時 root 剩停步前的 % | 0.800／9% | 0.550／30% | 0.567／56% | 0.750／20% | 0.550／25% | 0.800／13% | 0.783／20% | 0.600／21% |
+| 放開→第一支撐：root／動畫髖／offset（cm） | +99.6／+0.8／+1.6 | −69.8／+8.2／−9.1 | +59.8／−3.0／0 | −62.5／+5.6／0 | +83.5／+3.1／0 | −128.8／+0.7／0 | +82.7／+4.4／0 | −53.1／+1.8／0 |
+| 尾腳落定／FSM Idle（s） | 0.983／1.233 | 0.967／1.000 | 0.917／1.333 | 1.133／1.367 | 0.967／1.000 | 0.983／1.233 | 1.167／1.400 | 0.983／1.217 |
+
+**第一個實質偏離帧＝root 停滯帧**：Run 放開後 2 帧；Walk 等 Pending Stop 到入場相位（0.05–0.32 s），停滯前畫面速度仍跟著停步前的步態。
+停滯本身是**正好 2 帧 root 位移 0、第 3 帧約半速**，之後才是停步曲線的線性減速。全部 probe 的 36 個 locomotion stop 入口
+（上／下樓、`settle`、`quickstop`；Walk／Run；T3 與 T3Posture）**無一例外**，與 Foot IK 無關。
+
+五個假設逐一判定：
+
+1. **動畫髖自己變慢**——部分成立、屬暫態：Run 停步 clip 在放開後約 0.17 s 有 −1.8～−2.0 m/s 的煞車下沉（proto／s1 Run 上樓畫面速度因此再掉到 0.2 m/s）；
+   但放開→第一支撐的淨變化只有 −3～+8 cm，不是主因。Walk ≤0.6 m/s。
+2. **包絡目標不再跟坡度**——不成立：6／8 的 E 整段釘在下限（−0.35／−0.335）不動；E 本來就沒有「跟坡度速度」這回事。
+3. **offset 抵消動畫剩餘上升**——不成立：第一支撐前 offset 速度 6／8 為 0；proto_Run／s1_Run 下樓只有 ≤0.54 m/s 的同向（向下）變化。
+4. **恢復太晚、繼承已慢的骨盆**——成立：第一支撐在放開後 0.55–0.80 s，root 只剩停步前的 9–56%；這段畫面垂直速度 ＝ 坡度（0.57–0.70，停步前後不變）× root 水平速度。
+5. **停步轉場改了身體高度基準**——高度基準不成立（坡度比不變、E 不變、FSM 到尾腳落定後才進 Idle）；**但轉場本身造成 2 帧 root 停滯**——這是 Motion 層缺陷，見 `docs/07` §13.1 新增條目。
+
+**結論**：骨盆動量確實在 StopProgress 之前就流失，來源依序是 ①Locomotion Stop 入場的 2 帧 root 停滯（可見頓挫，缺陷）②停步曲線的 root 減速 × 樓梯坡度（authored，正確）③Run 停步 clip 的煞車下沉（authored，暫態）。
+Foot IK（包絡／offset）在第一支撐前完全沒有參與減速。要讓骨盆「穿過最後支撐步仍保有垂直運動」，
+在現行架構下只能由 offset 在 root 減速期間（第一支撐之前）就開始補償——那是新的姿勢政策，❓ 待使用者決定是否研究。
+
+> ✅ 2026-09-27 更新：①root 停滯（`docs/07` R8）已修並重量——36→0 個停滯入口，第一支撐前畫面骨盆不再有 0.03–0.32 s 的速度崩落；
+> root 仍依停步曲線在第一支撐時只剩 9–56%。②下方「Early Stop Recovery」為使用者要求的後續量測。
+
+##### Early Stop Recovery 離線量測（2026-09-27；⛔ 只量測，未改 runtime）
+
+**使用者裁決的三段責任**：①Early Stop Recovery——確認是真的停步後，在 root 還在減速時就開始釋放深的移動包絡 offset；
+②Primary Support Recovery——第一個可靠終端支撐腳建立後交給支撐腿伸展模型；③Final Standing Settle——尾腳落定只做剩餘的雙腳修正。
+Motion 層的停步減速與姿勢恢復維持分開：①**只用 Foot IK 自己擁有的訊號**（黑板移動意圖＝0 的邊沿、root 運動學速度），不讀 Locomotion Stop 狀態。
+
+**重播模型**（post-R8 trace；8 次正式停步＋8 次 quick-stop；三段共用同一個 ②C1 支撐腿模型與 ③最小 C 修正，只換 ① 的政策）：
+
+| 項 | 定義 |
+|---|---|
+| 停步進度 | `w = clamp01(1 − rootH / rootH_release)`——運動學，Walk Pending 維持速度期間自然為 0 |
+| 目標 | 抬升量 `a` 疊在**原封不動的**移動包絡路徑上：`a_target = w · max(0, U − base)`，U＝既有 upright bound（R／C） |
+| 上限 | `a ≤ max(0, C − base)`（C＝既有支撐加權硬可達）；頂到時以 ≤1 m/s 退讓（soft），對照組硬夾（hard） |
+| 動態 | 臨界阻尼 ω＝6 或 10；取消（意圖恢復）⇒ 既有 Return |
+
+| 風險／效益 | B0（只在第一支撐才開始） | Early lift（soft ω6／ω10） |
+|---|---|---|
+| **腳搆不到**（Locked＋live 的腳） | — | **12／12 與 B0 相同**（抬升被 C 以下的餘裕封頂） |
+| **重複起落** | — | 只有 Run 下樓：頂到快速下降的 C 時退讓 1.15–1.67 cm／帧，多 1 次 rise-then-drop（s1_Run 下樓；ω10 另含 s1_Run 上樓） |
+| **取消的停步提早站起** | — | 放開後 0.2 s 內抬升 ≈0 cm；0.3 s ≤1.2 cm（ω10 s1_Run 上樓 4.3）；0.4 s ≤8.3 cm。第一支撐之後才取消的 quick-stop 兩者相同。⚠️ **0.3 s～第一支撐之間取消** probe 沒有覆蓋 |
+| **交給第一支撐時的不連續** | Δv +0.05～+0.46 m/s | ω6 ≤0.18、ω10 ≤0.15 m/s |
+| 第一支撐時已抬升 | 0 | Run 上樓 17–23 cm（proto）／6.7–8.8（s1）；s1_Walk 上樓 8.6–13.1；Run 下樓 3.5–6.8；Walk ≤5.3 |
+| 支撐窗內峰值（proto_Run 上樓） | 2.35 m/s、3.91 cm／帧 | 0.82／0.48 m/s、1.36／0.80 cm／帧 |
+| 支撐窗內峰值（s1_Walk 上樓） | 1.64 m/s、2.73 cm／帧 | 0.98／0.75 m/s、1.64／1.25 cm／帧 |
+| 支撐窗內峰值（Run quick-stop） | 2.42／2.90 m/s | 0.87–0.52／1.40–1.03 m/s |
+
+上樓的畫面骨盆從「先減速到 0.1 m/s、第一支撐後再衝到 2.35 m/s」變成減速期間保持 1.5–2 m/s、支撐後只剩 0.45–0.8 m/s 的小尾巴——正是使用者描述的「帶著既有垂直運動穿過最後支撐步」。
+proto_Walk 上樓幾乎沒有效果（第一支撐時 root 還有 56%，w 小）。
+
+**另一個獨立發現（與 Early lift 無關）**：R8 修正後 s1_Walk 下樓多走約 22 cm，最終站姿**跨在台階邊緣**（兩腳目標高差 18.3 cm，修前 0.3 cm）。
+只看 primary 支撐腿的軌跡（C1／SLQ／工作樹 WT 都一樣）先把骨盆抬到 −0.07，尾腳落定時雙腳 C＝−0.24 ⇒ **單帧下修 13.6–17 cm**（實錄 WT runtime 亦同）。
+「尾腳落定前不得重定義主軌跡、落定只做最小修正」在跨階站姿下不成立——②Primary Support Recovery 需要處理，❓ 待設計。
+
+> ✅ 使用者裁決（2026-09-27）：R8 維持 `bb9b6f2`；烘焙器 (0,0) 不全域改；Early lift 暫用 soft ω6（不定案 tuning）；補「放開後 ~0.3 s～第一支撐之間取消」的 probe；
+> **跨階站姿**：primary 支撐腿＝骨盆上升的唯一驅動者，尾腳＝**前瞻可達上限**（只封頂、不牽引）：`FinalCandidate = min(PrimarySupportDesired, TrailingFootReachCap)`。
+
+##### 尾腳前瞻可達上限（Trailing reach cap）離線量測（2026-09-27；⛔ 只量測，未改 runtime）
+
+**尾腳落點何時「夠可靠」——從既有 T3 狀態判定**（post-R8 trace，8 正式＋4 quick-stop 有 primary 的停步）：
+
+| 類型 | 停步 | 第一支撐時尾腳的 T3 狀態 | 結論 |
+|---|---|---|---|
+| **L：尾腳已鎖** | proto_Walk 下、s1_Walk 上／下／quick | 全程 `Locked`；XZ 漂移 0；只是動畫腳滾動／抬起而暫時「不可靠」（hSpd ≤0.87、β ≥0.77） | **從第一支撐起可用**：T3 已承諾落點。以「本次鎖定中最後可靠的那一帧」鎖存目標，與最終落點差 0.8–1.9 cm |
+| **S：尾腳擺盪** | 全部 Run、proto_Walk 上／quick | `Releasing`→`Unlocked`，到落定才 `Locked`（0.18–0.42 s） | 擺盪中的即時目標**不可用**：`β≥0.8∧下降` 在落定前 0.08–0.18 s 觸發、多半差 1.8–3.5 cm，但 proto_Walk quick **觸發後目標又跳一整階（18.9 cm）**——腳跨過階緣。⇒ 擺盪腳不給上限 |
+
+`s1_Walk/stop` 的尾腳是 L 類：即時目標 Y 隨抬腳漂 +6 cm、且有一帧射線打到上一階 +17 cm——**正是不能讓即時射線牽引骨盆的原因**；鎖存值不受影響。
+
+**規則（重播版本）**：
+- 鎖存：尾腳 T3 `Locked` 且本帧可靠 ⇒ 若本次鎖定尚未鎖存，記下目標（**每次鎖定只鎖存一次**；runtime 對應 `FootLockState.LockedSupportY` 在鎖定內為常數）。離開 `Locked` ⇒ 清除。
+- 上限：`cap = latch.y + sqrt(L_trail² − h²) − trailingHip.y`（L＝尾腿全長，h＝尾髖到落點水平距離）——顯示高度只隨 h 平滑變化，**不帶動畫髖 bob**。
+- 套用：**單邊 C1 飽和**——低於 `cap − m` 原樣不動；以上 `cap − m·exp(−x/m)`，永不超過 cap。`m = min(3 cm, cap − 骨盆)` **在啟用當帧鎖定** ⇒ 啟用帧輸出不變。
+- 持續到 Final Standing Settle 之後（落定帧不換鎖存值）；取消（Return／reset）即清除——cap 只會往下限，移除不會造成上跳。
+
+| 驗收項 | `s1_Walk/stop`（跨 18 cm） | 其他 11 次 |
+|---|---|---|
+| 落定帧修正 | **−17.37 → +0.01 cm** | L 類 −0.53～−0.16 → −0.02～0.00 cm；S 類與無 cap **逐帧相同**（上限從未提前啟用） |
+| 尾腳在落定時搆得到 | 搆得到（餘裕 0.03 cm；無 cap 時擺盪期間最多**搆不到 18 cm** 達 0.3 s） | 全部搆得到 |
+| 啟用時不連續 | Δv −0.11 m/s | ≤0.20 m/s；最大 s1_Walk quick −0.53（仍在無 cap 支撐上升本身 ≤0.70 m/s 的逐帧範圍內） |
+| 支撐上升連續 | 升到上限前與無 cap 相同；單帧最大 17.35 → 2.06 cm | 未改變 |
+| 尾腳造成的逐步 bob | rise-then-drop 1 → 0 | L 類 1 → 0；S 類不變 |
+
+被淘汰的版本（都量過）：hard `min`（啟用 Δv −1.14 m/s）；對稱 smooth-min（在帶內也會往下拉 ⇒ S 類落定帧多 −0.5 m/s）；落定帧才放開上限（上跳 +0.43～+0.88 cm）；每帧重新鎖存（鎖存值更新 ⇒ 落定帧上跳）。
+
+**Early-cancel probe（新增）**：`StairFeelProbe` 在既有序列後瞬移回起點，上樓剛進樓梯即放開、下樓剛起步即放開，放開後 0.30／0.45／0.60 s 重按（參數 `earlyCancelDelay` 18／27／36 帧；18 的那次沿用既有檔名，所以既有 baseline 不變）。24 個取消窗口，重播 B0 vs Early lift ω6 soft＋trailing cap：
+
+- 取消前已抬升：0.30 s ≤1.9 cm；0.45 s ≤7.0 cm（proto_Run 上樓）；0.60 s ≤10.4 cm（Run 上樓）。24 個中有 6 個在取消前已進入 primary。
+- 重按後的下降速度與腳搆不到：**24／24 與 B0 相同**（3–7.6 cm／帧的大值是角色重新跑下樓的 root 運動，B0 同值）。
+- 取消後頭幾帧 offset 上升（lift 的速度承接進 Return）≤0.85 cm；有 primary 的 6 個與 B0 差 ≤0.12 cm ⇒ **cap 釋放無跳動**。
+- ❓ 0.45–0.60 s 取消的 Run 上樓在取消前已抬 7–10 cm：是否可接受是手感判斷，需要人工 Play。
+
+##### 可見跳動診斷（2026-09-27；只加 trace，未改行為）
+
+人工 Play 錄影確認站直段有肉眼可見的逐帧跳升，因此先凍結 duration／quintic／spring 與支撐政策，對上述 8 次正式樓梯停步逐帧記錄
+`actual Hips Y`、`PelvisOffsetY`、StopProgress candidate、E／U／C、q、primary、支撐腳世界位置／髖踝距離／膝角、尾腳 T3 phase／live／reliable，
+以及 phase edge、hard clamp、monotonic hold、spring、velocity reset。原始 trace 由 `StairFeelProbe` 輸出，濃縮／圖表由
+`Temp/StairProbe/diagnose_stop_discontinuity.py` 產生。
+
+**結論：主因在 StopProgress target trajectory，不是下游 solver 的額外不連續。**
+
+- 8 次 primary→trailing plant 共找到 **67 個 ≥1 cm 的單帧骨盆位移**；每一個都與 candidate 的同帧位移完全相等（最大誤差 0），單帧峰值 **1.59–4.12 cm**。
+  StopProgress 這段沒有跑 spring，而是直接以 `max(previous,candidate)` 寫輸出；因此連續的 quintic 在 60 Hz 取樣後仍可形成視覺上的大步幅。
+- 這 67 帧中 hard-C clamp／spring／velocity reset／monotonic hold 都是 **0**；primary support 改選也是 **0**。所以不是「spring 算完又被 clamp 取代」、不是 phase transition 重設速度，也不是支撐腳切換。
+- U／C 確實可因雙腳幾何變動在 StopProgress 中跳動（最壞 U 14.91 cm、C 6.27 cm），但 **trailing final join 當帧**的 U／C 變化僅 0–0.53 cm、輸出變化 ≤0.36 cm，並不是錄影中主要跳升。
+  `s1_Run/upstop` 的 frame 8163→8164 另有明確單帧事件：U −0.1623→−0.0708（+9.15 cm）、C +2.01 cm；當時 primary R 仍 Locked＋reliable，
+  trailing L 仍 Unlocked＋unreliable，但 L target Y 3.1427→3.2676（+12.49 cm），使 controlling preferred bound 從 trailing L 的 −0.1623 切到 primary R 的 −0.0709。
+  這是 moving trailing target 經 live two-foot R 污染 U，不是 primary 幾何或 phase edge；舊 E→U candidate 因而同帧 +1.68 cm。新 support-leg candidate 完全不讀該 U，所以此問題已隔離但保留 trace 供後續獨立修正。
+- primary 的 T3 target 水平位置全程固定（XZ drift 0）；Y 因既有接觸高度求解仍有 0.08–0.98 cm 漂移。支撐腿髖踝距離 0.54–0.75 m → 0.88–0.89 m、膝 64–106° → 0–16.2°，證實跳升發生在腿伸展過程，不是腳水平滑動。
+- 時序是固定的一帧管線延遲：本帧 LateUpdate 的 solver output 在下一幀 OnAnimatorIK 套用，8 案對齊誤差 ≤0.005 cm（CSV 四／五位小數量化）；沒有一帧讀舊腳、下一帧突然改讀新腳的交錯。
+
+此診斷直接導向上面的現行 support-leg extension：candidate 的幾何來源已更換；duration／curve／spring 未調。
+
+##### 歷史基線（2026-09-25 Settling 原型，已被 StopProgress 取代）
 
 **使用者要求**：移動中維持參考面包絡（不動）；**停下來站在樓梯上時**，身體往直立回復。⛔ 不是把 `PelvisOffsetY` lerp 回 0——
 先算「目前支撐的兩隻腳都還搆得到」的最高骨盆，必要時才讓非必要的鎖腳重新落定。
@@ -611,6 +831,101 @@ PlayMode `Player_BodyReference_IsIndependentOfFacing`（兩道樓梯，站在中
 
 **若採用**：只改 `FootIKController.ResolveStandingPosture` 的 `still` 條件（root 門檻 `StandingRootSpeedMax` 0.05 → 1.0，拿掉兩腳速度條件），其餘不動——
 比 StopRecovery 小得多，Codex 審查的對象仍是 `4c27527` ＋ 這一處。
+
+> ⚠️ **2026-09-26 使用者把目標收斂得更嚴格**：不是「早一點開始」即可，而是「第一支最終支撐腳穩定＝恢復開始；第二腳穩定＝恢復結束」。
+> 因此上面的 root-only 結論與已套用、未 commit 的 `root < 1.0 × 6 帧` 只保留為比較基線，**不是建議的最終模型**；新結論如下。
+
+##### 📝 研究：支撐腳 → 尾腳落定的 StopProgress 映射（2026-09-26，⛔ 只量測／離線重播，未改執行期）
+
+**目標語意**：
+
+`第一支最終支撐腳可靠落定 = upright recovery 0%`<br>
+`尾腳完成最後回收並可靠落定 = upright recovery 100%`
+
+不能再用「兩腳都停了才站起來」，也不能只把 root 速度門檻放寬或只加大彈簧。恢復期間要讓支撐膝與骨盆連續伸展，尾腳加入最終約束時不得跳。
+
+**資料與重跑**：2026-09-26 重新啟動 Unity 6.5，跑既有 `StairFeelProbe.Probe_UpTurnDown`：兩道樓梯 × Walk／Run × T3／T3Posture，**8／8 通過**；
+逐帧 CSV 在 `Temp/StairProbe/*_t3p.csv`（throwaway，不進版控）。固定 60 Hz；表中 frame 是 probe 已校正的 `Time.frameCount - 1`。
+
+**量測定義（避免用結果反推訊號）**：
+
+- `reliable foot` ＝ T3 `Locked` ∧ β ≥ 0.95 ∧ animation-pose 水平腳速 < 0.3 m/s ∧ 本帧 live contact。表中的「最終」只在離線標註時要求之後連續 ≥ 12 帧；執行期 proposal **不等待**這 12 帧。
+- `primary plant` ＝兩腳各自最後一段可靠支撐的起點中，較早者；`final plant` ＝另一腳最後一段可靠支撐的起點。
+- `trailing lift` ＝結束在 final plant 的最後一次 animation-pose 腳部回收：由最後局部最低點後上升 5 mm 的首帧標記；`apex` ＝其後最後一個 > 2 cm 局部峰值。這只用腳位運動學，不讀動畫狀態名稱。
+- `upright bound U` ＝現有 `min(max(E, min(R, 0)), C)`；reach error ＝ `max(0, |hip + pelvis − T3 target| − 0.889 m)`。
+
+**逐幀時間線（時間都相對按鍵釋放）**：
+
+| 情境 | release frame | primary reliable plant | trailing lift | trailing apex | final reliable plant | P→F 間隔 |
+|---|---:|---:|---:|---:|---:|---:|
+| prototype Run 上 | 3039 | L 3087 / +0.800 s | R 3060 / +0.350 | 3074 / +0.583 | R 3098 / +0.983 | 11 f / 0.183 s |
+| prototype Run 下 | 3232 | R 3265 / +0.550 s | L 3250 / +0.300 | 3269 / +0.617 | L 3290 / +0.967 | 25 f / 0.417 s |
+| prototype Walk 上 | 1282 | L 1316 / +0.567 s | R 1310 / +0.467 | 1319 / +0.617 | R 1337 / +0.917 | 21 f / 0.350 s |
+| prototype Walk 下 | 1532 | L 1577 / +0.750 s | R 1580 / +0.800 | 1589 / +0.950 | R 1600 / +1.133 | 23 f / 0.383 s |
+| `Stairs (1)` Run 上 | 6601 | R 6634 / +0.550 s | L 6619 / +0.300 | 6638 / +0.617 | L 6659 / +0.967 | 25 f / 0.417 s |
+| `Stairs (1)` Run 下 | 6789 | L 6837 / +0.800 s | R 6810 / +0.350 | 6824 / +0.583 | R 6848 / +0.983 | 11 f / 0.183 s |
+| `Stairs (1)` Walk 上 | 4919 | L 4966 / +0.783 s | R 4969 / +0.833 | 4978 / +0.983 | R 4989 / +1.167 | 23 f / 0.383 s |
+| `Stairs (1)` Walk 下 | 5137 | L 5173 / +0.600 s | R 5176 / +0.650 | 5185 / +0.800 | R 5196 / +0.983 | 23 f / 0.383 s |
+
+**同一 P→F 區間的姿勢／可達性**（pelvis、E、U 是 root-relative offset；負值＝下沉）：
+
+| 情境 | root 速度 P→F | 當前 pelvis / E @P | U @P→@F | 支撐膝 @P | 支撐腳 reach error @P |
+|---|---:|---:|---:|---:|---:|
+| prototype Run 上 | 0.438 → 0.264 m/s | −30.1 / −33.4 cm | −13.0 → −17.2 cm | 76.3° | 0 |
+| prototype Run 下 | 1.158 → 0 | −35.0 / −35.0 cm | −12.9 → −4.7 cm | 81.3° | 0 |
+| prototype Walk 上 | 1.290 → 0.354 | −33.5 / −33.5 cm | −33.5 → −16.5 cm | 105.1° | 0 |
+| prototype Walk 下 | 0.468 → 0 | −30.5 / −33.5 cm | −12.2 → −11.1 cm | 78.3° | 0 |
+| `Stairs (1)` Run 上 | 1.158 → 0 | −35.0 / −35.0 cm | −16.8 → −20.1 cm | 106.9° | 0 |
+| `Stairs (1)` Run 下 | 0.444 → 0.264 | −32.3 / −35.0 cm | −14.9 → −10.6 cm | 74.8° | 0 |
+| `Stairs (1)` Walk 上 | 0.462 → 0 | −30.5 / −35.0 cm | −7.7 → −10.3 cm | 91.1° | 0 |
+| `Stairs (1)` Walk 下 | 0.468 → 0 | −33.5 / −35.0 cm | −23.5 → −21.8 cm | 60.3° | 0 |
+
+8／8 的 root 在 P→F 淨減速；區間只有 **0.183–0.417 s**。這個下限很重要：最壞情境要在 11 帧內升約 24 cm，任何嚴格滿足「F 時已直立」的模型都不可能同時維持現行 0.6 m/s 左右的慢速上升。
+
+**「哪一次 plant 才是 final primary」的因果可辨識性**：單看 `Locked`／β，執行期無法知道一隻剛落地的腳未來還會不會抬起；要立即開始就必須接受一個預測訊號、延遲確認、或動畫語意。
+本批資料最簡單的預測器仍是 root 速度，但它只負責**分類 plant edge**、不負責驅動整段上升：
+
+- final primary 的 root 速度＝**0.438–1.290 m/s**；
+- 更早、之後還會再走一步的 reliable-plant edge＝**1.428–4.698 m/s**；
+- `v_final = 1.35 m/s` 在 8 次內全分開，最小裕度只有 **0.138 m/s**。現行工作樹的 1.0 m/s 會錯過 1.158／1.290 的兩次真正 primary，故不符合「primary plant 當下開始」。
+
+⇒ 1.35 只能是 X Bot prototype 的 classifier，不是架構常數；必須加不同 clip／速度／短停的 probe 才能決定是否可保留。完全拿掉 classifier 會重現 §「停步語意」的假起點。
+
+**離線比較（同一 8 段 CSV）**：
+
+| 模型 | 恢復開始 | final plant 時離 U | final 支撐膝 | P→F reach error max（支撐／尾腳） | pelvis v／a max | >1 cm 重複下降 | final join 單帧差 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| legacy Settling（root < 0.05 ＋兩腳 < 0.2，6 f，ω6） | +0.95–1.30 s | **12.6–28.8 cm** | 63.3–96.6° | 0／0.2 cm | 0.36 m/s／13.0 m/s² | 0 | ≤0.59 cm |
+| 工作樹 root-gated early recovery（root < 1.0，6 f，ω6） | +0.52–0.77 s | **2.9–14.2 cm** | 33.0–68.6° | 0／0.2 cm | 0.61／9.5 | 0 | ≤0.89 cm |
+| **StopProgress mapping（下述 proposal）** | **primary frame 本身**；可見 >5 mm 於 +0.033–0.083 s | **preferred U 內 0.5 cm** | **12.7–19.5°** | **0／0.2 cm** | **2.41／41.8** | **0** | **≤0.36 cm** |
+
+逐情境在 final plant 的「仍低於 U」：legacy＝16.3／28.8／16.9／21.2／14.9／24.4／23.4／12.6 cm；root-gated＝5.8／14.2／11.0／4.7／4.1／13.1／4.5／2.9 cm；StopProgress＝0（單調保持可能比 preferred 高最多 0.5 cm，但仍低於 hard limit C）。
+
+**建議的最小因果模型（尚未實作）**：
+
+1. `Moving → StopRecovery`：沒有移動意圖，且**新**的 reliable-plant edge 通過 `v_final` classifier；這隻是 primary，另一隻是 trailing。這一帧 progress＝0，記住 foot identity、`startPelvis`／前一帧輸出與速度。不要等 6 帧，也不要等兩腳。
+2. 用 primary 當下的 trailing T3 狀態只分兩個已量到的剩餘步長：
+   - trailing `Unlocked` ∧ β ≥ 0.8 ∧ pose 垂直速度 < 0（已在最後下降）⇒ `D = 0.18 s`；
+   - 其餘（仍 Locked／Releasing／上升）⇒ `D = 0.40 s`。
+   兩群實測真值分別是 0.183 s（2 次）與 0.350–0.417 s（6 次）。
+3. `q = smootherstep5(clamp01((now − primaryTime) / D))`，`smootherstep5(x)=6x⁵−15x⁴+10x³`。每帧仍用現有兩腳幾何算 `U(t)=min(max(E,min(R,0)),C)`；候選骨盆 `candidate = lerp(E,U,q)`。
+4. StopRecovery 的輸出只上升：`pelvis = min(max(previousPelvis, candidate), C)`。也就是姿勢不因 preferred bound 的小幅回擺而反覆下降；**只有 hard reach limit C** 能立即壓低以保接觸。
+5. trailing 出現 final reliable-plant edge ⇒ q＝1、進 Upright。離線中這個 latch 前已在 U 內 0.5 cm，加入第二腳的單帧差 ≤ 0.36 cm，不是「第二腳一到才開始站」。
+6. 任一時刻移動意圖恢復或 primary 失效 ⇒ 進既有 Return，位置不重設、以最後兩帧輸出速度為 seed，ω15 回 E；`dt≤0`／teleport／IK 失效沿用現有 Reset。全程不讀 FSM／animation state 名稱。
+
+這不是「提高 spring stiffness」：StopRecovery 本身改成明確的 0→1 姿勢映射；ω6 只保留給既有 Upright 微調（若仍需要），Return 仍是 ω15。
+
+**符合／未證明的驗收項**：
+
+- ✅ 第一支最終支撐腳事件當帧開始 progress；沒有額外等 root 完全靜止／兩腳靜止。
+- ✅ 8／8 在 final plant 已到 preferred upright 內 0.5 cm，膝 12.7–19.5°；支撐 reach error 0，尾腳 0.2 cm 是三模型共同的原資料誤差。
+- ✅ T3 腳目標與鎖點完全不改；離線無新增浮／滑的運動學條件，無 >1 cm 重複下降，final join ≤0.36 cm。
+- ⚠️ 嚴格 endpoint 的代價是最短 11 帧情境 pelvis 峰值 **2.41 m/s／41.8 m/s²**。數學上連續但視覺是否像「太快站直」只能 Play 判斷；不能用離線數字宣稱 feel 通過。
+- ⚠️ 現有長停後 Return 可原樣復用並攜帶速度；**<1 s 快速重新移動仍沒有資料**。實作前 probe 必須增加 primary 後 0.10／0.25／0.50 s restart，驗證沒有先升再砸回包絡。
+- ⚠️ `v_final` 的 0.138 m/s 分離裕度很窄。至少要補平地、斜坡、不同起始速度／混合權重；若重疊，T3 contact 本身不提供足夠未來資訊，應升級為 motion/stop planner 公開的語意事件，而不是偷讀動畫 state 名稱。
+
+**實作範圍（若核准）**：Presentation 內局部政策，不改黑板、不改 ownership、不需 ADR。改 `StandingPostureSolver`／`ResolveStandingPosture` 的狀態與 inputs，補純函數 EditMode 測試；
+PlayMode probe 加 final-plant endpoint、單調性、join step、reach 與三種 quick-restart。工作樹已套用的 root-only 版本應被此模型**取代**，不是疊在它上面。
 
 #### 3.5.5 Level 1 rigid sole approximation（🆕 2026-08-31，L1 落地；**視覺驗收暫時通過**）
 

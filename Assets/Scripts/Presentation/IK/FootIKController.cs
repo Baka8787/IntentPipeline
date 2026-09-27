@@ -265,18 +265,18 @@ namespace Project.Presentation.IK
                     _poseData.LeftFootBottomHeight, leftStance, ikAllowed, posePlaneY,
                     _targetData.LeftFootRotation, _targetData.LeftFootRotationWeight,
                     ref _targetData.LeftFootPosition, ref _targetData.LeftFootPositionWeight,
-                    out float leftFootSpeed, out bool leftLive);
+                    out PostureFootInputs leftPosture);
                 ResolveContactPosition(ref _rightContact, _poseData.RightFootPosition, _poseData.RightFootRotation,
                     _poseData.RightFootBottomHeight, rightStance, ikAllowed, posePlaneY,
                     _targetData.RightFootRotation, _targetData.RightFootRotationWeight,
                     ref _targetData.RightFootPosition, ref _targetData.RightFootPositionWeight,
-                    out float rightFootSpeed, out bool rightLive);
+                    out PostureFootInputs rightPosture);
 
                 // === ④ 🧪 站直原型：必須在 T3 解完本帧兩腳之後（Codex High）——與本帧寫出的腳目標一起在下一帧套用 ===
                 if (posture)
                 {
                     ResolveStandingPosture(data, ikAllowed, pelvisTarget, leftStance, rightStance,
-                        leftFootSpeed, rightFootSpeed, leftLive, rightLive);
+                        in leftPosture, in rightPosture);
                 }
             }
             else
@@ -463,12 +463,11 @@ namespace Project.Presentation.IK
             float footBottomHeight, float stance, bool ikAllowed, float posePlaneY,
             Quaternion rotationTarget, float rotationWeight,
             ref Vector3 targetPosition, ref float positionWeight,
-            out float animatedFootSpeed, out bool liveContact)
+            out PostureFootInputs postureFoot)
         {
             float dt = Time.deltaTime;
             float weightStep = settings.WeightSmoothSpeed * dt;
-            animatedFootSpeed = 0f;
-            liveContact = false;
+            postureFoot = default;
             if (!ikAllowed)
             {
                 state.Reset();
@@ -477,8 +476,12 @@ namespace Project.Presentation.IK
             }
 
             // ①
-            bool continuous = FootContactSolver.PredictPose(ref state, posePosition, posePosition.y - posePlaneY,
+            bool hadHistory = state.HasHistory;
+            float previousPoseHeight = state.PrevPoseHeight;
+            float poseHeight = posePosition.y - posePlaneY;
+            bool continuous = FootContactSolver.PredictPose(ref state, posePosition, poseHeight,
                 dt, settings.MaxPoseStepPerFrame, out Vector3 predicted, out float predictedHeight, out float footSpeed);
+            float verticalSpeed = continuous && hadHistory ? (poseHeight - previousPoseHeight) / dt : 0f;
             if (!continuous)
             {
                 state.Phase = FootLockPhase.Unlocked;
@@ -541,8 +544,19 @@ namespace Project.Presentation.IK
             state.PrevContactValid = liveHit;
             state.DebugBeta = beta;
             state.DebugLift = lift;
-            animatedFootSpeed = footSpeed;
-            liveContact = liveHit;
+            postureFoot = new PostureFootInputs
+            {
+                Phase = state.Phase,
+                Beta = beta,
+                HorizontalSpeed = footSpeed,
+                VerticalSpeed = verticalSpeed,
+                LiveContact = liveHit,
+                Reliable = continuous
+                    && liveHit
+                    && state.Phase == FootLockPhase.Locked
+                    && beta >= settings.LockBeta
+                    && footSpeed < settings.StandingReliableFootSpeedMax,
+            };
         }
 
         /// <summary>
@@ -571,12 +585,12 @@ namespace Project.Presentation.IK
         }
 
         /// <summary>
-        /// 🧪（站直原型，docs/05 §3.5.4.6）Moving → Settling → Upright → Return → Moving。
+        /// 停步站直（docs/05 §3.5.4.6）Moving → EarlyRecovery → StopProgress → Upright → Return → Moving。
         /// 輸入全是本帧的事實：包絡目標 E（既有）、本帧 T3 腳目標、同時刻的動畫髖位（一帧外插，與腳目標同一套用帧）、
-        /// root 與動畫腳速度、兩腳即時接觸、移動意圖（黑板唯讀）。⛔ 不讀 FSM 狀態名稱、不動鎖腳（V1 不重新落定）。
+        /// root 速度、兩腳即時接觸、移動意圖（黑板唯讀）。⛔ 不讀 FSM 狀態名稱、不動鎖腳（V1 不重新落定）。
         /// </summary>
         private void ResolveStandingPosture(PlayerRuntimeData data, bool ikAllowed, float envelope,
-            float leftStance, float rightStance, float leftFootSpeed, float rightFootSpeed, bool leftLive, bool rightLive)
+            float leftStance, float rightStance, in PostureFootInputs leftPosture, in PostureFootInputs rightPosture)
         {
             float dt = Time.deltaTime;
             Vector3 root = transform.position;
@@ -600,7 +614,7 @@ namespace Project.Presentation.IK
 
             float rootSpeed = 0f;
             Vector3 leftHipNext = leftHip, rightHipNext = rightHip;
-            // 沒有上一帧歷史（重設後第一帧）就量不到速度 ⇒ 這一帧不算靜止（不能把「量不到」當成 0）。
+            // 沒有上一帧歷史（重設後第一帧）就量不到速度；新可靠落腳邊沿仍是唯一開始訊號。
             bool haveSpeed = _postureHasHistory && dt > 0f;
             if (haveSpeed)
             {
@@ -623,16 +637,45 @@ namespace Project.Presentation.IK
                 Mathf.Clamp01(1.25f * leftStance) * Mathf.Min(0f, StandingPostureSolver.LegBound(leftHipNext, leftTarget, leftLeg)),
                 Mathf.Clamp01(1.25f * rightStance) * Mathf.Min(0f, StandingPostureSolver.LegBound(rightHipNext, rightTarget, rightLeg)));
 
-            bool still = haveSpeed
-                && data.MovementIntent.DesiredSpeedNormalized <= 0f
-                && rootSpeed < settings.StandingRootSpeedMax
-                && leftFootSpeed < settings.StandingFootSpeedMax && rightFootSpeed < settings.StandingFootSpeedMax
-                && leftLive && rightLive;
-
-            var input = new PostureInputs { Envelope = envelope, Preferred = preferred, HardLimit = hard, Still = still };
-            StandingPostureSolver.Step(ref _posture, in input, dt, ref _targetData.PelvisOffsetY,
-                settings.PelvisSmoothSpeed, settings.StandingSettleFrames, settings.StandingRiseOmega, settings.StandingReturnOmega,
-                settings.StandingHandbackTolerance, settings.StandingHandbackSpeed);
+            var input = new PostureInputs
+            {
+                Envelope = envelope,
+                Preferred = preferred,
+                HardLimit = hard,
+                RootSpeed = haveSpeed ? rootSpeed : float.PositiveInfinity,
+                MovementRequested = data.MovementIntent.DesiredSpeedNormalized > 0f,
+                PreferredExtension = settings.StandingPreferredExtension,
+                LeftHip = leftHipNext,
+                RightHip = rightHipNext,
+                LeftHipCurrent = leftHip,
+                RightHipCurrent = rightHip,
+                LeftTarget = leftTarget,
+                RightTarget = rightTarget,
+                LeftUpperLegLength = _poseData.LeftUpperLegLength,
+                LeftLowerLegLength = _poseData.LeftLowerLegLength,
+                RightUpperLegLength = _poseData.RightUpperLegLength,
+                RightLowerLegLength = _poseData.RightLowerLegLength,
+                Left = leftPosture,
+                Right = rightPosture,
+            };
+            var tuning = new PostureTuning
+            {
+                MovingSpeed = settings.PelvisSmoothSpeed,
+                FinalSupportSpeedMax = settings.StandingFinalSupportSpeedMax,
+                UprightOmega = settings.StandingRiseOmega,
+                ReturnOmega = settings.StandingReturnOmega,
+                HandbackTolerance = settings.StandingHandbackTolerance,
+                HandbackSpeed = settings.StandingHandbackSpeed,
+                EarlyLiftOmega = settings.StandingEarlyLiftOmega,
+                EarlyLiftRetreatSpeed = settings.StandingEarlyLiftRetreatSpeed,
+                EarlyReleaseMinRootSpeed = settings.StandingEarlyReleaseMinRootSpeed,
+                TrailingCapBand = settings.StandingTrailingCapBand,
+                TrailingCapReleaseOmega = settings.StandingTrailingCapReleaseOmega,
+                RiseDurationNearSettle = settings.StandingRiseDurationNearSettle,
+                RiseDurationSettling = settings.StandingRiseDurationSettling,
+                RiseDurationDefault = settings.StandingRiseDurationDefault,
+            };
+            StandingPostureSolver.Step(ref _posture, in input, dt, ref _targetData.PelvisOffsetY, in tuning);
             _posture.DebugEnvelope = envelope;
             _posture.DebugPreferred = preferred;
             _posture.DebugHardLimit = hard;

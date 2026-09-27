@@ -4562,9 +4562,13 @@ MonoBehaviour:
     MaxPoseStepPerFrame: 0.5
     UseStandingPosturePrototype: 1
     StandingPreferredExtension: 0.995
-    StandingRootSpeedMax: 0.05
-    StandingFootSpeedMax: 0.2
-    StandingSettleFrames: 6
+    StandingFinalSupportSpeedMax: 1.35
+    StandingReliableFootSpeedMax: 0.3
+    StandingDescendingBetaMin: 0.8
+    StandingShortRecoveryDuration: 0.18
+    StandingNearSettleBetaMin: 0.6
+    StandingNearSettleRecoveryDuration: 0.2
+    StandingNormalRecoveryDuration: 0.4
     StandingRiseOmega: 6
     StandingReturnOmega: 15
     StandingHandbackTolerance: 0.01

@@ -74,17 +74,22 @@ namespace Project.Presentation.IK
             }
         }
 
-        /// <summary>腿的事實：髖位與腿長（骨骼缺一就回傳 0 腿長，讀取方據此停用）。純讀值，無決策。</summary>
-        private static void ReadLeg(Transform upper, Transform lower, Transform foot, out Vector3 hip, out float length)
+        /// <summary>腿的事實：髖位與上下腿長（骨骼缺一就回傳 0，讀取方據此停用）。純讀值，無決策。</summary>
+        private static void ReadLeg(Transform upper, Transform lower, Transform foot,
+            out Vector3 hip, out float upperLength, out float lowerLength, out float length)
         {
             if (upper == null || lower == null || foot == null)
             {
                 hip = Vector3.zero;
+                upperLength = 0f;
+                lowerLength = 0f;
                 length = 0f;
                 return;
             }
             hip = upper.position;
-            length = Vector3.Distance(upper.position, lower.position) + Vector3.Distance(lower.position, foot.position);
+            upperLength = Vector3.Distance(upper.position, lower.position);
+            lowerLength = Vector3.Distance(lower.position, foot.position);
+            length = upperLength + lowerLength;
         }
 
         private void OnAnimatorIK(int layerIndex)
@@ -105,8 +110,12 @@ namespace Project.Presentation.IK
             // 與腳位同一時刻擷取：之後 LateUpdate 才移動 root，Reader 不得拿移動後的 root 相減（見 PosePlaneY）。
             _poseData.PosePlaneY = transform.position.y;
             // 🧪 同一時刻的髖位：此刻 transform 是本帧的 FK 姿勢（IK 與 bodyPosition 偏移都還沒套用，實測驗證）。
-            ReadLeg(_leftUpperLeg, _leftLowerLeg, _leftFoot, out _poseData.LeftHipPosition, out _poseData.LeftLegLength);
-            ReadLeg(_rightUpperLeg, _rightLowerLeg, _rightFoot, out _poseData.RightHipPosition, out _poseData.RightLegLength);
+            ReadLeg(_leftUpperLeg, _leftLowerLeg, _leftFoot,
+                out _poseData.LeftHipPosition, out _poseData.LeftUpperLegLength,
+                out _poseData.LeftLowerLegLength, out _poseData.LeftLegLength);
+            ReadLeg(_rightUpperLeg, _rightLowerLeg, _rightFoot,
+                out _poseData.RightHipPosition, out _poseData.RightUpperLegLength,
+                out _poseData.RightLowerLegLength, out _poseData.RightLegLength);
             _poseData.IsWarm = true;
 
             // === 入：Target 套用（骨盆補償：bodyPosition 每幀由動畫重算，疊加不跨幀累積）===

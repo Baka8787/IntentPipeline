@@ -663,3 +663,19 @@ StopRecovery（從最後的支撐腳開始、後腳落定才加入約束）早 0
 正本：`docs/05` §3.5.4.6「停步節奏對照平地」。平地停步 0.37–0.63 s 接近待機（邊走最後兩步邊站直）；現行 Settling 1.50–1.98 s。
 最簡單的合格規則：只把「靜止」改成「沒有移動意圖 ∧ root < 1.0 m/s（持續 6 帧）」⇒ 1.02–1.48 s，腳搆得到、無重複起伏、平順度同現行。
 放開按鍵就開始會照每一步的階起伏（10–13 次、4.8 m/s）。剩下 0.4–0.85 s 的差距來自樓梯上最後兩步踩在不同階，這批資料裡去不掉。
+
+### 9.19 StopProgress：primary support → trailing settle（2026-09-26，已實作；⏳ 待人工 Play feel）
+
+正本：`docs/05` §3.5.4.6「支撐腳 → 尾腳落定的 StopProgress 映射」。使用者把目標收斂為：第一支**最終**支撐腳可靠落定就開始伸展，第二腳可靠落定時已直立。
+重跑 8 個 T3Posture stop：P→F 只有 0.183–0.417 s。legacy Settling 在 F 仍低 12.6–28.8 cm；工作樹的 root < 1.0 早恢復仍低 2.9–14.2 cm。
+現行用 reliable-plant edge 啟動、T3 尾腳相位選 0.18／0.20 near-settle／0.40 s 的五次 smootherstep，將 E→U 明確映射；只允許 C 向下修正，尾腳可靠 edge latch 100%。
+root ≤1.35 只分類 final-primary plant，不再直接開始／控制 recovery；不讀動畫狀態名。
+
+PlayMode 8／8 ＋ quick restart 實測：primary 後 0.033–0.067 s 可見上升、F 時 U deficit 0、支撐 reach 0、鎖定目標 slide 0、重複下降 0；baseline join ≤0.36 cm（全部額外事件 ≤0.38 cm）。
+pelvis 峰值 2.47 m/s／41.8 m/s²；0.117／0.267／0.517 s restart 沒有位置／速度重設。嚴格 endpoint 的 feel 仍需人工 Play；若過急只調 duration／quintic，不退回兩腳落定後才升。
+
+### 9.20 停步站直四段鏈（2026-09-27 夜，執行期原型；⏳ 待人工 Play feel）
+
+正本：`docs/05` §3.5.4.6「現行合約」與「執行期驗證」。§9.19 的 support-leg＋quintic 與其後工作樹的 WT scalar-speed 實驗**都已被取代**：
+①放開後依 root 減速進度釋放包絡（ω6）→ ②第一可靠支撐後由支撐腿伸展驅動、承接進入速度 → ③已 T3 鎖定的尾腳只當前瞻可達上限（每次鎖定鎖存一次、單邊飽和）→ ④尾腳落定只做兩腳最小修正。
+s1_Walk 下樓跨 18 cm 階的落定修正 −13.62 → +0.02 cm；8 個正式停步落定修正全部 ≤0.41 cm；early-cancel 24 窗口與 quick-stop 取消皆連續。

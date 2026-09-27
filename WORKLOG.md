@@ -7,6 +7,122 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🟨 2026-09-27（深夜二）— **停步站直四段鏈：執行期原型已實作並量測；⏳ 待人工 Play**
+>
+> 📖 正本：`docs/05` §3.5.4.6「現行合約」「執行期驗證」。取代工作樹未記錄的 WT 實驗（非疊加）。
+>
+> - ①EarlyRecovery（新 `PosturePhase` 4，ω6 soft）→ ②Primary Support Rise（Hermite，承接畫面支撐腿伸展速度）→ ③尾腳前瞻上限（T3 Locked 才有；每次鎖定鎖存一次；單邊飽和、啟用帧不變）→ ④Final Settle（只 `min(骨盆,C)`）。
+> - s1_Walk 下（跨 18 cm）：落定修正 **−13.62 → +0.02 cm**、單帧 13.6 → 2.1 cm、峰值 8.2 → 1.3 m/s。8 正式停步落定修正 ≤0.41 cm；WT 在 proto_Run 上樓其實沒站起（膝 77°）→ 16°。
+> - 擺盪尾腳（無預測上限）：全部 Run 停步、proto_Walk 上／quick。取消前抬升 ≤2.3／7.7／10.4 cm（0.30／0.45／0.60 s）。
+> - 實作中抓到：WT 殘留的 Return 以 C 硬夾，跑下樓 C 低於包絡 ⇒ 單帧下拉 12 cm。改 `≤max(C,E)`＋1 m/s 有限退讓。
+> - 測試：EditMode **718／717／0 failed／1 skipped**（`StandingPostureSolverTests` 重寫 25 條）；stair probe 16／16（8 by design skipped）；完整 PlayMode **116／107／1 failed（既有 C0）／8 skipped**。
+> - ⚠️ `X Bot.prefab` 必須與程式一起 commit（`FormerlySerializedAs`：HEAD 的 0.05 會被讀成 FinalSupportSpeedMax）；內有 5 個舊 quintic 版孤兒欄位，Unity 會忽略、未重存 prefab 清除。
+> - ⏳ 人工 Play：兩道樓梯 Walk／Run 上下停、放開後 0.3–0.6 s 重按、第一支撐後立即重按；重點看 s1_Walk 下樓跨階站姿、Run 取消前抬升 7–10 cm 是否可接受、quick-stop 重按從直立降回跑步。
+>
+> ---
+
+> # 🟨 2026-09-27（深夜）— **跨階站姿：尾腳前瞻可達上限離線驗證通過；early-cancel probe 已補；⛔ 姿勢 runtime 仍未改**
+>
+> 📖 正本：`docs/05` §3.5.4.6「尾腳前瞻可達上限」。使用者裁決：R8＝`bb9b6f2` 定案；烘焙器 (0,0) 不改；Early lift 暫用 soft ω6；ω10／重烘焙凍結到幾何問題解決。
+>
+> - **落點可靠判定**：尾腳 T3 `Locked` ＋ 本次鎖定中「第一次可靠」時鎖存（每次鎖定一次）。擺盪腳不給上限——即時目標會在觸發後再跳一整階（proto_Walk quick 18.9 cm）。
+> - `s1_Walk/stop`：落定修正 −17.37 → +0.01 cm；尾腳全程搆得到；啟用 Δv −0.11 m/s；單帧最大 17.35 → 2.06 cm；bob 1 → 0。擺盪類 8 次與無 cap 逐帧相同。
+> - 套用＝單邊 C1 飽和（帶寬啟用時鎖定 ≤3 cm），持續到落定之後；淘汰 hard min／對稱 smooth-min／落定放開／每帧重鎖存（均量過）。
+> - **Early-cancel probe**：`StairFeelProbe` 參數 `earlyCancelDelay` 18／27／36（既有 baseline 檔名不變）。24 窗口：取消前抬升 ≤1.9／7.0／10.4 cm（0.30／0.45／0.60 s），重按後下降與搆不到與 B0 相同，cap 釋放無跳動。
+> - ❓ 下一步待使用者：是否把「Early lift ω6 soft ＋ C1 支撐腿（承接速度）＋ trailing cap」落成 runtime（取代工作樹未記錄的 WT）；runtime 會直接用 `LockedSupportY` 取代離線鎖存近似。
+> - Git：本 slice 只有文件（docs/05、WORKLOG 與前面未 commit 的段落混在一起）＋未追蹤的 probe——未 commit，待使用者決定怎麼切。
+>
+> ---
+
+> # 🟩 2026-09-27（夜）— **R8 已修（Stop 入場 root 停滯）；Early Stop Recovery 離線量測完成；⛔ 姿勢 runtime 未改**
+>
+> 📖 正本：`docs/07` §13.1 R8；`docs/05` §3.5.4.6「Early Stop Recovery 離線量測」。
+>
+> - **R8 根因（逐帧紀錄確認）**：①Play 當帧讀到播放頭 0；②新 state 第一次評估不推進時間；③烘焙器第 0 個 speed key 固定 (0,0) ⇒ 第 3 帧半速。
+>   **修法**：`LocomotionStopRuntime.HoldsEntryMotion`（Pending ∨ 播放頭仍 0）期間沿用 Pending 語意；`ExecuteLocomotionStopMovement` 取速度樣本略過佔位 key。減速曲線逐字不變。
+>   修後 31／31 入口無停滯。EditMode 710／709／0 failed／1 skipped；新 PlayMode 測試 1／1；stair probe 8／8。
+>   完整 PlayMode 100／98：`C0_…IncidentalContact`（既有）＋ `Climb2m_RealPrefab_…`（1.8／2.05 時過時不過）。**A/B 已排除 R8**：暫時換回 pre-R8 檔案重跑，同樣失敗／翻轉（該測試全程按住 W、不觸發 Stop）；推定與工作樹其他未提交改動有關，未追。
+> - ⚠️ 烘焙器 (0,0) 佔位 key 本身**未修**（全域：`AutoAverageSpeed` 會變）——❓ 待使用者。
+> - **Early lift**（w＝root 減速進度、疊在包絡上、C 以下封頂、soft 退讓）：腳搆不到 12／12 不變；交接 Δv ≤0.18；上樓支撐窗峰值 2.35→0.48–0.82 m/s。
+>   風險：Run 下樓退讓 ≤1.67 cm／帧 1 次；0.3 s～第一支撐之間取消的停步未覆蓋（需新 probe 情境）。
+> - **新發現**：R8 後 s1_Walk 下樓最終站姿跨階（高差 18 cm）⇒ 只看 primary 的支撐腿軌跡在尾腳落定時單帧下修 13.6–17 cm（WT runtime 亦同）。Primary Support Recovery 需處理。
+> - 🧹 throwaway：`StopEntryLogger` 已刪；`StairFeelProbe` 仍是未追蹤的探針。工作樹仍含未記錄的 WT 姿勢實驗（見下一則）。
+>
+> ---
+
+> # 🟧 2026-09-27（晚）— **速度承接比較：進入時沒有速度重設；真正槓桿是 D 預測過短；⚠️ 工作樹有未記錄的 WT 實驗；⛔ 只量測**
+>
+> 📖 正本：`docs/05` §3.5.4.6「速度承接比較」。
+>
+> - ⚠️ **工作樹 ≠ 上一則 handoff**：`StandingPostureSolver.cs`／`FootIKSettings.cs`／`StandingPostureSolverTests.cs`（03:14–03:15）已改成 scalar-speed MoveTowards
+>   （3D 髖速度量值當垂直速率、拿掉 D／quintic；Upright 需伸展完成）。**沒有文件、未 commit、非本會話所寫**。實測進入單帧跳 0.43–1.81 m/s、2／8 到不了站直 ⇒ 建議淘汰。
+> - `Temp/` 在 19:30 被 Unity 重啟清空（原 trace 與 Codex 的 throwaway 腳本都沒了）；已用 `StairFeelProbe` 重跑（8／8）重建，entry 帧逐帧一致。
+> - 失敗 trace 進入首帧 Δv≈0；可見跳動是其後加速到 1.0–2.6 m/s。進入速度 −0.53～+1.05 m/s，只靠它任何一案都到不了站直。
+> - C1（support-leg 腿長 cubic Hermite，承接顯示的伸展速度，無 monotonic hold）：連續、峰值比 OLD 低 9–23%、join ≤0.35 cm。
+>   3／8 Walk 案 D=0.20 但尾腳 0.383 s 才落定——若 T 對準真實窗口，逐帧位移減半（≤1.9 cm）。
+> - ❓ 待使用者：①C1／C2 取代 WT？②D 預測規則；③0.183 s 窗口可否在尾腳落定後稍晚完成。Runtime 本會話未改。
+> - **往回追（放開按鍵→Idle）**：骨盆動量在 StopProgress **之前**就流失。第一個偏離帧＝**Locomotion Stop 入場 2 帧 root 停滯**（位移正好 0、第 3 帧半速；36／36 stop 入口都有，與 Foot IK 無關）→ `docs/07` R8 🔴。
+>   之後是停步曲線 root 減速 × 樓梯坡度（authored）＋ Run 停步 clip 約 0.17 s 的煞車下沉（暫態）。包絡 E／IK offset 在第一支撐前 6／8 完全不動 ⇒ 不是 Foot IK。
+>   第一支撐時 root 只剩 9–56%。❓ 待使用者：先修 R8？是否研究「offset 在 root 減速期就開始補償」的新姿勢政策？
+>
+> ---
+
+> # 🟨 2026-09-27 — **StopProgress 已改為 primary support-leg 幾何 candidate；⏳ 待人工 Play feel**
+>
+> 📖 正本：`docs/05` §3.5.4.6。離線：`Temp/StairProbe/support_leg_candidate_sim.py`；執行期比較：`diagnose_stop_discontinuity.py`／`compare_support_leg_runtime.py`。
+>
+> - primary reliable edge 現在鎖定：support foot 世界位置、entry hip、Upper／Lower leg length、起始髖踝長／膝角、0.995 idle 目標長／膝角。`FootIKPoseData` 新增上下腿分段長（Rig 仍唯一 Writer）。
+> - StopProgress 不再 `lerp(E,U,q)`；既有 q 改為推進 `Lstart→Lidle`，每帧以固定 foot＋live primary hip XZ 反解 pelvis offset。moving trailing foot 的 target／U／C 不得重定義 candidate；進度期間只用 primary full-reach hard limit。
+> - trailing final reliable edge 不強迫 q=1／U：高度有效就保留，無效只做 two-foot C 最小修正（實測 4／8 為 0；其餘 0.16／0.48／0.68／0.72 cm）。Return／速度承接、T3、moving E、Footstep、Issue 3、root／膠囊都沒改。
+> - 離線先淘汰兩案：完全鎖 entry hip（root 繼續移動造成錯誤 reach／膝角）與 knee-angle interpolation（峰值加速度 73.4）。採用 linear leg-length extension；不調 duration／quintic／spring／clamp。
+> - 最終 PlayMode trace：8／8 stair probe；latched support XYZ drift 0、primary switch 0、primary reach ≤0.02 cm、trailing ≤0.32 cm、水平 slide 0。actual pelvis world-Y 在 primary 後 0.017–0.067 s 上升 >0.5 cm；支撐膝 64–106°→1.6–19.5°；沒有重複 >1 cm rise/drop。
+> - 峰值：offset 2.59 m/s／54.4 m/s²；actual pelvis world-Y 2.65 m/s／52.6 m/s²。這次是因果修正，不保證數值全面下降；人工 Play 要看「一支腳連續伸直帶動身體」是否取代 teleport 感。
+> - `s1_Run/upstop` U 跳變已獨立定位：frame 8163→8164，trailing L 仍 Unlocked／unreliable，但 target Y +12.49 cm，使 U +9.15 cm；新 candidate 不讀 U，已隔離，未順手改 T3。
+> - 測試：focused solver 20／20；完整 EditMode 709 total／708 passed／0 failed／1 skipped；stair PlayMode 8／8。Git mutation 依 repo policy 未執行。
+>
+> ---
+
+> # 🟨 2026-09-27 — **StopProgress 可見跳動已定位：target trajectory；⛔ 尚未改支撐腿模型**
+>
+> 📖 正本：`docs/05` §3.5.4.6「可見跳動診斷」。重現：`Temp/StairProbe/diagnose_stop_discontinuity.py`；trace 欄位在 `StandingPostureSolver.PostureState`／`StairFeelProbe`。
+>
+> - 依錄影先凍結 quintic／duration／spring；只加 trace，沒有改 pelvis 行為。8 個既有 stair probe 重跑 **8／8 通過**。
+> - 8 次正式 stop 共 67 個 ≥1 cm 位移帧；每帧 `PelvisOffsetY == StopProgress candidate`（誤差 0），峰值 1.59–4.12 cm／帧。這些帧 hard clamp、spring、velocity reset、monotonic hold、primary switch 全是 0。
+> - trailing final join 的 U／C 變化 ≤0.53 cm、輸出 ≤0.36 cm；不是主要 snap。U／C 中段可跳（U 14.91 cm、C 6.27 cm），只有 `s1_Run/upstop` 的 U +9.15 cm 明確貢獻一個 +1.68 cm candidate step；其餘主因是短 D 內直接逐帧寫 candidate。
+> - primary T3 target XZ drift 0，Y drift 0.08–0.98 cm；primary 全程不換腳。solver→下一帧 OnAnimatorIK 是固定一帧延遲，套用誤差 ≤0.005 cm，沒有 old/new foot data 交錯。
+> - **裁決**：不先調曲線或彈簧。下一 slice 才實作使用者指定的 primary support-leg extension：尾腳移動時不得重定義主 pelvis trajectory；尾腳落定只做兩腳 reach validation＋最小殘差修正。
+>
+> ---
+
+> # 🟨 2026-09-26 — **StopProgress 已實作並量測通過；⏳ 待人工 Play feel**
+>
+> 📖 正本：`docs/05` §3.5.4.6；摘要 `docs/44` §9.19。分析：`Temp/StairProbe/stop_progress_runtime.py`（throwaway）。
+>
+> - root-only Settling 已**移除／取代**：新 reliable T3 plant edge ＋ root≤1.35 classifier 開始；0.18／0.20 near-settle／0.40 s quintic 把 E→U；尾腳新 reliable edge latch 100%；只有 C 可向下修正。Return 保留位置與速度；不讀 animation／FSM state 名稱。
+> - 保持不變：moving Terrain Envelope、T3 semantics、FootstepDetector、Issue 3、root／膠囊、Y Bot。X Bot 以 Editor API 寫入 StopProgress 參數。
+> - 8 個原 stair probe baseline **8／8**；每案在原流程之後另做 quick restart（約 0.10／0.25／0.50 s），不污染原 gait phase。
+> - 實測：primary 後 0.033–0.067 s 可見上升；final 時 U deficit 0、膝 0–16.2°；支撐 reach 0、尾腳 ≤0.20 cm、locked target slide 0、重複下降 0；baseline join ≤0.36 cm（全部額外事件 ≤0.38 cm）。
+> - pelvis 峰值 2.47 m/s／41.8 m/s²；quick input edge 單帧位置差 ≤1.19 cm，速度不重設。`StandingPostureSolverTests` 16／16；站姿 PlayMode 2／2；完整 EditMode **705／704／0 failed／1 skipped**。
+> - ⏳ 人工 Play：兩道樓梯 Walk／Run 上下長停與 quick stop，重點看最短 11f 的站直是否太急、restart Return 是否自然。若太急只調 duration／quintic，不退回等雙腳。
+> - Git：repo policy 禁止 Codex 執行 commit；工作樹已是單一 coherent slice，交由使用者 commit。
+>
+> ---
+
+> # 🟧 2026-09-25（續二十二）— **「靜止」改為 root < 1.0 m/s × 6 帧：已套用（未 commit）；⛔ 驗證被 Unity Editor 主執行緒卡住中斷**
+>
+> - 已改（工作樹，**未 commit**）：`FootIKController.ResolveStandingPosture` 的 `still` ＝ 移動意圖 0 ∧ root < `StandingRootSpeedMax` ∧ 兩腳即時接觸（既有安全條件）；
+>   拿掉兩隻動畫腳速度條件與 `StandingFootSpeedMax`；`ResolveContactPosition` 不再輸出動畫腳速度（只剩 `liveContact`）。
+>   `StandingRootSpeedMax` 預設 1.0（tooltip 標明是原型調參值）；`X Bot.prefab` 0.05 → 1（Editor API；舊欄位已移除）。Unity 編譯成功。
+>   雙腳約束、6 帧、ω6、各階段都沒動。
+> - ⛔ 之後 EditMode／PlayMode／探針**都沒跑成**：Editor（PID 46304）主執行緒從約 21:05 起不執行任何 pipeline 命令（含 `cancel_tests`），
+>   視窗原本最小化；已還原並前置，仍卡住（與 unity-live-control skill 記錄的「匯入未完成就排測試」鎖死同型）。需要使用者處理 Editor（取消卡住的測試或重開）。
+> - 待辦（依序）：①EditMode＋PlayMode 全套；②重跑 8 個樓梯停步探針（`_t3p`），與平地基準及 `_t3pv1`（舊 Settling）比對：
+>   開始恢復／接近待機時間、重複起伏 0、支撐腳搆得到 0、起步不更差（`Temp/StairProbe/idle_rhythm.py`、`posture_check.py`）；③commit；
+>   ④連同 `4c27527` 送 Codex（2026-09-26 18:14 後）。
+> - 另記（既有、非本次）：`Logs/Editor.log` 有 199,266 次 `CharacterPipelineRunner.LateUpdate` 第 525 行 `_runtimeData` NullReference。
+>
+> ---
+
 > # 🟨 2026-09-25（續二十一）— **樓梯停步對照平地節奏：只要改「靜止」定義（root < 1.0 m/s × 6 帧）；⛔ 只量測**
 >
 > 📖 正本：`docs/05` §3.5.4.6「停步節奏對照平地」；摘要 `docs/44` §9.18。分析 `Temp/StairProbe/idle_rhythm.py`（用完即丟）。

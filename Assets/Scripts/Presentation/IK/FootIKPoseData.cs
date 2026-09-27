@@ -58,9 +58,13 @@ namespace Project.Presentation.IK
         public Vector3 LeftHipPosition;
         public Vector3 RightHipPosition;
 
-        /// <summary>🧪 同一時刻由骨骼量得的腿長（大腿 ＋ 小腿，公尺）。0 ＝ 沒有可用的腿骨（原型自動停用）。</summary>
+        /// <summary>🧪 同一時刻由骨骼量得的上下腿分段長與總長（公尺）。0 ＝ 沒有可用的腿骨（原型自動停用）。</summary>
         public float LeftLegLength;
         public float RightLegLength;
+        public float LeftUpperLegLength;
+        public float LeftLowerLegLength;
+        public float RightUpperLegLength;
+        public float RightLowerLegLength;
 
         /// <summary>
         /// Rig 首次寫入後恆為 true。Controller 據此避免消費未初始化的快照

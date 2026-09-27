@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace Project.Presentation.IK
 {
@@ -99,17 +100,39 @@ namespace Project.Presentation.IK
         [Tooltip("偏好站姿：兩腳都以此伸展比（髖→踝 ／ 腿長）搆到目標的最高骨盆。平地待機本身約 1.0；留一點餘裕避免卡在 Leg Stretch。")]
         [Range(0.9f, 1f)] public float StandingPreferredExtension = 0.995f;
 
-        [Tooltip("靜止判定：root 水平速度（m/s）低於此值。")]
-        [Min(0f)] public float StandingRootSpeedMax = 0.05f;
+        [Tooltip("新可靠 T3 落腳邊沿只有在 root 水平速度低於此值時才視為最後支撐腳（這不是站起門檻）。")]
+        [FormerlySerializedAs("StandingRootSpeedMax")]
+        [Min(0f)] public float StandingFinalSupportSpeedMax = 1.35f;
 
-        [Tooltip("靜止判定：兩隻動畫腳的水平速度（m/s）都低於此值。")]
-        [Min(0f)] public float StandingFootSpeedMax = 0.2f;
+        [Tooltip("腳處於 Locked、β 已達 LockBeta、有即時接觸，且動畫腳水平速度低於此值時才算可靠支撐。")]
+        [Min(0f)] public float StandingReliableFootSpeedMax = 0.3f;
 
-        [Tooltip("連續靜止這麼多帧才進入 Settling。")]
-        [Min(1)] public int StandingSettleFrames = 6;
-
-        [Tooltip("站起來的臨界阻尼彈簧角頻率（rad/s）。6 ≈ 0.75 s 升到位。")]
+        [Tooltip("已 Upright 後對向上小變動的臨界阻尼角頻率（rad/s）。StopProgress 主軌跡由支撐腿伸展驅動，不用這個值。")]
         [Min(0.1f)] public float StandingRiseOmega = 6f;
+
+        [Tooltip("① Early Stop Recovery：放開移動意圖後，依 root 減速進度釋放包絡深度的臨界阻尼角頻率（rad/s）。6 ＝ 離線驗證的 soft 候選（未定案）。")]
+        [Min(0.1f)] public float StandingEarlyLiftOmega = 6f;
+
+        [Tooltip("① 抬升量頂到硬可達上限時的最大退讓速度（m/s）：不瞬間下拉，以此速率讓出。")]
+        [Min(0.01f)] public float StandingEarlyLiftRetreatSpeed = 1f;
+
+        [Tooltip("① 放開當下 root 水平速度低於此值（m/s）不視為 locomotion 停步，不啟動 Early Recovery。")]
+        [Min(0f)] public float StandingEarlyReleaseMinRootSpeed = 0.1f;
+
+        [Tooltip("② 第一支撐後支撐腿伸展時長（s）：尾腳 Unlocked ∧ β≥0.8 ∧ 下降中（即將落定）。")]
+        [Min(0.02f)] public float StandingRiseDurationNearSettle = 0.18f;
+
+        [Tooltip("② 支撐腿伸展時長（s）：尾腳已接觸且 Locked，或 Releasing ∧ β≥0.6 ∧ 下降中。")]
+        [Min(0.02f)] public float StandingRiseDurationSettling = 0.20f;
+
+        [Tooltip("② 支撐腿伸展時長（s）：其餘情況。承接速度夠大時會更短（1.5 × 剩餘伸展 ／ 進入速度）。")]
+        [Min(0.02f)] public float StandingRiseDurationDefault = 0.40f;
+
+        [Tooltip("③ 尾腳前瞻可達上限的飽和帶寬（m）：骨盆低於 上限−帶寬 時完全不動，以上才平滑逼近上限。")]
+        [Min(0f)] public float StandingTrailingCapBand = 0.03f;
+
+        [Tooltip("③ 上升途中上限消失（尾腳離開 Locked）時，被壓住的差距以此角頻率（rad/s）的臨界阻尼彈簧從靜止收掉。")]
+        [Min(0.1f)] public float StandingTrailingCapReleaseOmega = 10f;
 
         [Tooltip("回到包絡的臨界阻尼彈簧角頻率（rad/s）。硬性可達上限另外保證腳搆得到。")]
         [Min(0.1f)] public float StandingReturnOmega = 15f;
