@@ -1,0 +1,705 @@
+"""docs/46 pelvis-model offline study (THROWAWAY record, 2026-09-28). Rename to .py; needs numpy.
+Usage: python pelvis_model_sim.py main|sweep   (reads Temp/StairProbe/*_r45_t3*.csv)
+"""
+
+# ======== load.py ========
+import csv, math, os
+import numpy as np
+
+SRC = r"D:\Unity Project\CharacterController\Temp\StairProbe"
+DT = 1.0 / 60.0
+CASES = ["proto_Walk", "proto_Run", "s1_Walk", "s1_Run"]
+
+
+def load(case, suffix="_r45_t3"):
+    path = os.path.join(SRC, case + suffix + ".csv")
+    with open(path, newline="", encoding="utf-8-sig") as h:
+        rows = list(csv.DictReader(h))
+    with open(path.replace(".csv", "_hipsrc.csv"), newline="", encoding="utf-8-sig") as h:
+        hips = {int(float(r["frame"])): r for r in csv.DictReader(h)}
+    d = {}
+    num = lambda r, k: float(r[k]) if r.get(k, "") not in ("", None) else math.nan
+    frames = np.array([int(float(r["frame"])) for r in rows])
+    d["frame"] = frames
+    d["phase"] = np.array([r["phase"] for r in rows])
+    d["state"] = np.array([r["state"] for r in rows])
+    for k in ["rootY", "rootX", "rootZ", "pelvis", "intent", "lW", "rW", "lPh", "rPh", "lBeta", "rBeta",
+              "lPose", "rPose", "lPy", "rPy", "lPx", "lPz", "rPx", "rPz", "posePlane", "lGY", "rGY", "lBot", "rBot",
+              "lHas", "rHas", "lTgt", "rTgt", "lRel", "rRel", "pE"]:
+        if k in rows[0]:
+            vals = []
+            for r in rows:
+                v = r[k]
+                if v in ("True", "False"):
+                    vals.append(1.0 if v == "True" else 0.0)
+                else:
+                    try:
+                        vals.append(float(v))
+                    except ValueError:
+                        vals.append(math.nan)
+            d[k] = np.array(vals)
+    for s in "lr":
+        for part in ("UL", "LL", "F", "T"):
+            d[s + part] = np.array([[num(r, s + part + a) for a in "xyz"] for r in rows])
+    # pre-IK hips (UpperLeg at OnAnimatorIK, before bodyPosition offset)
+    for s, key in (("l", "ulL"), ("r", "ulR")):
+        arr = np.full((len(rows), 3), np.nan)
+        for i, f in enumerate(frames):
+            h = hips.get(int(f))
+            if h is not None:
+                arr[i] = [float(h[key + a]) for a in "xyz"]
+        d[s + "Hip"] = arr
+    arr = np.full(len(rows), np.nan)
+    for i, f in enumerate(frames):
+        h = hips.get(int(f))
+        if h is not None:
+            arr[i] = float(h["pelvisApplied"])
+    d["pelvisApplied"] = arr
+    # constant leg lengths from the bones (median over trace)
+    for s in "lr":
+        up = np.linalg.norm(d[s + "UL"] - d[s + "LL"], axis=1)
+        lo = np.linalg.norm(d[s + "LL"] - d[s + "F"], axis=1)
+        d[s + "Up"] = float(np.nanmedian(up))
+        d[s + "Lo"] = float(np.nanmedian(lo))
+        d[s + "Leg"] = d[s + "Up"] + d[s + "Lo"]
+    d["n"] = len(rows)
+    return d
+
+
+def leg_bound(hip, tgt, reach):
+    """Max vertical pelvis offset such that |hip+off - tgt| <= reach (vectorised). Beyond horizontal reach -> 'vertical closest'."""
+    h2 = (hip[..., 0] - tgt[..., 0]) ** 2 + (hip[..., 2] - tgt[..., 2]) ** 2
+    vert = np.sqrt(np.maximum(0.0, reach * reach - h2))
+    return vert - (hip[..., 1] - tgt[..., 1])
+
+
+def knee(dist, up, lo):
+    d = np.clip(dist, abs(up - lo), up + lo)
+    c = np.clip((up * up + lo * lo - d * d) / (2 * up * lo), -1, 1)
+    return 180.0 - np.degrees(np.arccos(c))
+
+
+TURN = {"turn", "turntap", "turnstand", "ecturn", "ecwarm"}
+
+
+def masks(d, warm=0.5):
+    ry = d["rootY"]; bot = np.nanmin(ry); top = np.nanmax(ry)
+    mov = (d["intent"] > 0) & (d["state"] == "Move")
+    # time since intent turned on
+    since = np.zeros(d["n"]); c = 0.0
+    for i in range(d["n"]):
+        c = c + DT if mov[i] else 0.0
+        since[i] = c
+    on = (ry > bot + 0.03) & (ry < top - 0.03)
+    notturn = np.array([p not in TURN for p in d["phase"]])
+    steady = mov & on & notturn & (since >= warm)
+    # direction: up if root rising over +-10 frames
+    dy = np.gradient(np.convolve(ry, np.ones(9) / 9, mode="same"))
+    up = steady & (dy > 0); down = steady & (dy < 0)
+    return mov, steady, up, down, since
+
+
+def hip_next(d, s):
+    h = d[s + "Hip"]
+    hn = h.copy(); hn[1:] = 2 * h[1:] - h[:-1]
+    return hn
+
+
+def foot_state(d, s, land_window=0.15):
+    """0 Locked, 1 Releasing, 2 Unlocked-landing (locks within window, oracle), 3 Unlocked-swing"""
+    ph = d[s + "Ph"]; n = d["n"]; k = int(round(land_window / DT))
+    st = np.full(n, 3)
+    st[ph == 1] = 0; st[ph == 2] = 1
+    nxt_lock = np.full(n, 10 ** 9)
+    last = 10 ** 9
+    for i in range(n - 1, -1, -1):
+        if ph[i] == 1 and (i == 0 or ph[i - 1] != 1):
+            last = i
+        nxt_lock[i] = last
+    land = (ph == 0) & (nxt_lock - np.arange(n) <= k)
+    st[land] = 2
+    return st
+
+# ======== sim.py ========
+import sys, json
+import numpy as np
+
+MAXOFF = 0.35
+STRETCH = 1.05
+
+
+def stance(d, s):
+    h = d[s + "Pose"]
+    return 1.0 - np.clip((h - 0.08) / (0.25 - 0.08), 0, 1)
+
+
+def forward_dir(d):
+    x = np.convolve(d["rootX"], np.ones(9) / 9, mode="same"); z = np.convolve(d["rootZ"], np.ones(9) / 9, mode="same")
+    fx = np.gradient(x); fz = np.gradient(z)
+    m = np.hypot(fx, fz) + 1e-9
+    return fx / m, fz / m
+
+
+def precompute(d, kappa):
+    n = d["n"]; P = {}
+    for s in "lr":
+        L = d[s + "Leg"]; hn = hip_next(d, s); T = d[s + "T"]
+        ph = d[s + "Ph"]
+        h = d[s + "Tgt"] - d[s + "GY"]
+        h = np.where(d[s + "Has"] > 0.5, h, np.inf)
+        hdot = np.zeros(n); hdot[1:] = (h[1:] - h[:-1]) / DT
+        full = leg_bound(hn, T, L)
+        locked = ph == 1
+        landing = (ph == 0) & (hdot <= 0) & np.isfinite(h)
+        P[s + "full"] = full
+        P[s + "hard"] = np.where(locked, leg_bound(hn, T, STRETCH * L), np.inf)
+        P[s + "Bset"] = np.where(locked, full, np.where(landing, full + kappa * np.maximum(h, 0), np.inf))
+        P[s + "land_act"] = landing & ~np.r_[False, landing[:-1]]
+        # animated extension ratio of this leg (pose hip -> pose ankle)
+        pa = np.stack([d[s + "Px"], d[s + "Py"], d[s + "Pz"]], 1)
+        ratio = np.clip(np.linalg.norm(d[s + "Hip"] - pa, axis=1) / L, 0.5, 1.0)
+        P[s + "nat"] = leg_bound(hn, T, ratio * L)
+        P[s + "w"] = stance(d, s) * ((ph == 1) | landing)  # only contact-bound legs drive the intent
+        P[s + "locked"] = locked
+    fx, fz = forward_dir(d)
+    for s in "lr":
+        hn = hip_next(d, s); T = d[s + "T"]
+        behind = (T[:, 0] - hn[:, 0]) * fx + (T[:, 2] - hn[:, 2]) * fz < 0
+        P[s + "trail"] = np.where(P[s + "locked"] & behind, P[s + "full"], np.inf)
+    wl, wr = P["lw"], P["rw"]
+    J = (wl * np.minimum(P["lnat"], 0) + wr * np.minimum(P["rnat"], 0)) / np.maximum(wl + wr, 1.0)
+    P["intentJ"] = np.clip(J, -MAXOFF, 0)
+    P["U_B"] = np.minimum(P["lBset"], P["rBset"])
+    P["U_C"] = np.minimum(P["ltrail"], P["rtrail"])
+    P["U_hard"] = np.minimum(P["lhard"], P["rhard"])
+    return P
+
+
+def solve(intent, U, Uhard, omega, reset_mask, init):
+    n = len(U); p = np.zeros(n); v = 0.0; cur = 0.0
+    for i in range(n):
+        if reset_mask[i]:
+            cur = init[i]; v = 0.0
+        g = min(intent[i], U[i])
+        g = max(g, -MAXOFF)
+        a = omega * omega * (g - cur) - 2 * omega * v
+        v += a * DT; prev = cur; cur += v * DT
+        if cur < -MAXOFF:
+            cur = -MAXOFF; v = max(v, 0.0)
+        if cur > Uhard[i]:
+            cur = max(Uhard[i], -MAXOFF); v = min(v, (cur - prev) / DT)
+        p[i] = cur
+    return p
+
+
+def oracle(U, a, reset_mask):
+    """Highest curve <= min(0,U) with |p''|<=a, per segment (parabolic erosion then opening)."""
+    n = len(U); out = np.zeros(n)
+    seg_starts = list(np.where(reset_mask)[0]) + [n]
+    for k in range(len(seg_starts) - 1):
+        s0, s1 = seg_starts[k], seg_starts[k + 1]
+        u = np.clip(np.minimum(0.0, U[s0:s1]), -MAXOFF, 0)
+        m = len(u); t = np.arange(m) * DT
+        D = 0.5 * a * (t[:, None] - t[None, :]) ** 2
+        e = (u[None, :] + D).min(1)            # erosion by upward parabola
+        e2 = (e[None, :] + D).min(1)           # erosion again (opening = erosion then dilation by -D)
+        o = (e2[None, :] - D).max(1)
+        out[s0:s1] = np.minimum(o, e)
+    return out
+
+
+def segments(d, mov):
+    start = mov & ~np.r_[False, mov[:-1]]
+    return start
+
+
+def metrics(d, P, p, steady, flat=None):
+    n = d["n"]; R = {}
+    idx = np.where(steady[:-1])[0]
+    hipY = 0.5 * (d["lHip"][:, 1] + d["rHip"][:, 1])
+    disp = hipY[idx + 1] + p[idx]
+    R["depth_mean_cm"] = float(np.mean(p[idx]) * 100)
+    # knee angle & reach for Locked feet (displayed frame)
+    knees, short_s, short_all, stretch_use = [], [], [], []
+    for s in "lr":
+        L = d[s + "Leg"]
+        hip = d[s + "Hip"][idx + 1].copy(); hip[:, 1] += p[idx]
+        dist = np.linalg.norm(hip - d[s + "T"][idx], axis=1)
+        lk = d[s + "Ph"][idx] == 1
+        knees.append(knee(np.minimum(dist[lk], L), d[s + "Up"], d[s + "Lo"]))
+        short_s.append(np.maximum(0, dist[lk] - STRETCH * L))
+        stretch_use.append(dist[lk] > L + 0.005)
+        w = d[s + "W"][idx] > 0.99
+        short_all.append(np.maximum(0, dist[w] - STRETCH * L))
+    knees = np.concatenate(knees); ss = np.concatenate(short_s); sa = np.concatenate(short_all)
+    R["support_knee_med_deg"] = float(np.median(knees))
+    R["support_float_gt1cm_pct"] = float(np.mean(ss > 0.01) * 100)
+    R["support_float_max_cm"] = float(ss.max() * 100)
+    R["support_stretch_pct"] = float(np.mean(np.concatenate(stretch_use)) * 100)
+    R["anyfoot_float_gt1cm_pct"] = float(np.mean(sa > 0.01) * 100)
+    # per-frame deltas / speed / accel on the pelvis offset and the displayed hip
+    for name, arr in (("off", p), ("hip", hipY[1:] + p[:-1])):
+        a = arr if name == "off" else np.r_[arr, arr[-1]]
+        v = np.gradient(a) / DT; acc = np.gradient(v) / DT
+        dv = np.abs(np.diff(a))
+        sel = steady[:-2] & steady[1:-1] & steady[2:]
+        ii = np.where(sel)[0] + 1
+        R[name + "_maxstep_cm"] = float(np.max(dv[ii]) * 100)
+        R[name + "_v95"] = float(np.percentile(np.abs(v[ii]), 95))
+        R[name + "_a95"] = float(np.percentile(np.abs(acc[ii]), 95))
+        R[name + "_amax"] = float(np.max(np.abs(acc[ii])))
+    # per-step bob: detrended displayed hip, peak-to-peak between successive lock onsets
+    onset = np.zeros(n, bool)
+    for s in "lr":
+        ph = d[s + "Ph"]; onset |= (ph == 1) & ~np.r_[False, ph[:-1] == 1]
+    ev = np.where(onset)[0]
+    pps = []
+    H = np.r_[hipY[1:] + p[:-1], np.nan]
+    for a0, a1 in zip(ev[:-1], ev[1:]):
+        if a1 - a0 < 4 or not steady[a0:a1].all():
+            continue
+        y = H[a0:a1]; t = np.arange(len(y))
+        c = np.polyfit(t, y, 1); r = y - np.polyval(c, t)
+        pps.append(r.max() - r.min())
+    R["bob_step_med_cm"] = float(np.median(pps) * 100) if pps else float("nan")
+    R["bob_step_p95_cm"] = float(np.percentile(pps, 95) * 100) if pps else float("nan")
+    R["steps"] = len(pps)
+    return R
+
+
+def run(case, kappa=1.5, omega=12.0, oracle_a=4.0):
+    d = load(case)
+    mov, steady, up, down, since = masks(d)
+    P = precompute(d, kappa)
+    reset = segments(d, mov) | np.r_[True, np.zeros(d["n"] - 1, bool)]
+    rec = d["pelvis"]
+    out = {"A": rec}
+    out["B"] = solve(np.zeros(d["n"]), P["U_B"], P["U_hard"], omega, reset, rec)
+    out["C"] = solve(P["intentJ"], P["U_C"], P["U_hard"], omega, reset, rec)
+    out["C+"] = solve(P["intentJ"], P["U_B"], P["U_hard"], omega, reset, rec)
+    # oracle constraint: Locked + landing at the TRUE next hip (full leg), per movement segment
+    Utrue = np.full(d["n"], np.inf)
+    for s in "lr":
+        hip = d[s + "Hip"].copy(); hip[:-1] = hip[1:]
+        b = leg_bound(hip, d[s + "T"], d[s + "Leg"])
+        st = foot_state(d, s)
+        Utrue = np.minimum(Utrue, np.where((st == 0) | (st == 2), b, np.inf))
+    Utrue = np.where(np.isfinite(Utrue), Utrue, 0.0)
+    out["O"] = oracle(Utrue, oracle_a, reset)
+    res = {}
+    for lab, m in (("UP", up), ("DOWN", down)):
+        for k, p in out.items():
+            res[(lab, k)] = metrics(d, P, p, m)
+    # flat reference (envelope on flat ground)
+    ry = d["rootY"]; flat = (d["intent"] > 0) & (d["state"] == "Move") & (ry < np.nanmin(ry) + 0.005) & (since >= 0.5)
+    flat &= np.array([ph not in TURN for ph in d["phase"]])
+    res[("FLAT", "A")] = metrics(d, P, rec, flat)
+    return res, out, d, P
+
+
+# ======== sim2.py ========
+import sys, json
+import numpy as np
+
+BALL = 0.12  # ankle -> ball-of-foot pivot (X Bot ToeOffset 0.17 is the toe tip)
+
+
+def heel_lift_bound(hn, T, L, fx, fz, phimax_deg, along):
+    """Most generous full-leg bound with the ball of the foot fixed and the heel lifted up to phi (allowance grows
+    with how far the foot is behind the hip: smoothstep(0, 0.25 m))."""
+    t = np.clip(-along / 0.25, 0, 1); t = t * t * (3 - 2 * t)
+    best = leg_bound(hn, T, L)
+    for k in range(1, 7):
+        phi = np.radians(phimax_deg) * t * k / 6
+        ax = T[:, 0] + BALL * fx - BALL * np.cos(phi) * fx
+        az = T[:, 2] + BALL * fz - BALL * np.cos(phi) * fz
+        ay = T[:, 1] + BALL * np.sin(phi)
+        best = np.maximum(best, leg_bound(hn, np.stack([ax, ay, az], 1), L))
+    return best
+
+
+def precompute(d, kappa, phimax):
+    n = d["n"]; P = {}
+    fx, fz = forward_dir(d)
+    for s in "lr":
+        L = d[s + "Leg"]; hn = hip_next(d, s); T = d[s + "T"]; ph = d[s + "Ph"]
+        h = np.where(d[s + "Has"] > 0.5, d[s + "Tgt"] - d[s + "GY"], np.nan)
+        hdot = np.r_[0.0, np.diff(h)] / DT
+        along = (T[:, 0] - hn[:, 0]) * fx + (T[:, 2] - hn[:, 2]) * fz
+        locked = ph == 1
+        landing = (ph == 0) & (hdot <= 0) & np.isfinite(h)
+        full = leg_bound(hn, T, L)
+        lifted = heel_lift_bound(hn, T, L, fx, fz, phimax, along) if phimax > 0 else full
+        lifted_hard = heel_lift_bound(hn, T, STRETCH * L, fx, fz, phimax, along) if phimax > 0 else leg_bound(hn, T, STRETCH * L)
+        P[s + "along"] = along
+        P[s + "locked"] = locked
+        P[s + "hard"] = np.where(locked, lifted_hard, np.inf)
+        P[s + "lockB"] = np.where(locked, lifted, np.inf)
+        P[s + "landB"] = np.where(landing, full + kappa * np.nan_to_num(np.maximum(h, 0), nan=9.0), np.inf)
+        P[s + "trail"] = np.where(locked & (along < 0), lifted, np.inf)
+        pa = np.stack([d[s + "Px"], d[s + "Py"], d[s + "Pz"]], 1)
+        ratio = np.clip(np.linalg.norm(d[s + "Hip"] - pa, axis=1) / L, 0.5, 1.0)
+        P[s + "nat"] = leg_bound(hn, T, ratio * L)
+        P[s + "w"] = stance(d, s) * (locked | landing)
+    wl, wr = P["lw"], P["rw"]
+    J = (wl * np.minimum(P["lnat"], 0) + wr * np.minimum(P["rnat"], 0)) / np.maximum(wl + wr, 1.0)
+    P["intentJ"] = np.clip(J, -MAXOFF, 0)
+    P["U_all"] = np.minimum.reduce([P["llockB"], P["rlockB"], P["llandB"], P["rlandB"]])
+    P["U_trail"] = np.minimum(P["ltrail"], P["rtrail"])
+    P["U_hard"] = np.minimum(P["lhard"], P["rhard"])
+    return P
+
+
+def solve(intent, U, Uhard, w_down, w_up, reset, init):
+    n = len(U); p = np.zeros(n); v = 0.0; cur = 0.0
+    for i in range(n):
+        if reset[i]:
+            cur = init[i]; v = 0.0
+        g = max(min(intent[i], U[i]), -MAXOFF)
+        w = w_up if g > cur else w_down
+        a = w * w * (g - cur) - 2 * w * v
+        v += a * DT; prev = cur; cur += v * DT
+        if cur < -MAXOFF:
+            cur = -MAXOFF; v = max(v, 0.0)
+        if cur > Uhard[i]:
+            cur = max(Uhard[i], -MAXOFF); v = min(v, (cur - prev) / DT)
+        p[i] = cur
+    return p
+
+
+def metrics(d, P, p, steady, phimax):
+    n = d["n"]; R = {}
+    idx = np.where(steady[:-1])[0]
+    hipY = 0.5 * (d["lHip"][:, 1] + d["rHip"][:, 1])
+    R["depth"] = float(np.mean(p[idx]) * 100)
+    fx, fz = forward_dir(d)
+    kl, kt, fl, st_use, fl_raw = [], [], [], [], []
+    for s in "lr":
+        L = d[s + "Leg"]
+        hip = d[s + "Hip"][idx + 1].copy(); hip[:, 1] += p[idx]
+        T = d[s + "T"][idx]
+        dist = np.linalg.norm(hip - T, axis=1)
+        lk = d[s + "Ph"][idx] == 1
+        along = P[s + "along"][idx]
+        k = knee(np.minimum(dist, L), d[s + "Up"], d[s + "Lo"])
+        kl.append(k[lk & (along >= 0)]); kt.append(k[lk & (along < 0)])
+        # reach error: ankle target (flat foot) and, if heel lift allowed, the best toe-pivot placement
+        hipTrue = hip.copy()
+        if phimax > 0:
+            b = heel_lift_bound(hipTrue, T, STRETCH * L, fx[idx], fz[idx], phimax, along)
+            short = np.maximum(0, -b)  # vertical shortfall of the most generous placement
+        else:
+            short = np.maximum(0, dist - STRETCH * L)
+        fl.append(short[lk]); fl_raw.append(np.maximum(0, dist - STRETCH * L)[lk])
+        st_use.append(dist[lk] > L + 0.005)
+    fl = np.concatenate(fl); fr = np.concatenate(fl_raw)
+    R["kneeLead"] = float(np.median(np.concatenate(kl))); R["kneeTrail"] = float(np.median(np.concatenate(kt)))
+    R["float%"] = float(np.mean(fl > 0.01) * 100); R["floatMax"] = float(fl.max() * 100)
+    R["heelUp%"] = float(np.mean((fr > 0.01) & (fl <= 0.01)) * 100)  # frames that need the heel lift to stay grounded
+    H = hipY[1:] + p[:-1]; H = np.r_[H, H[-1]]
+    sel = steady[:-2] & steady[1:-1] & steady[2:]; ii = np.where(sel)[0] + 1
+    for name, a in (("off", p), ("hip", H)):
+        v = np.gradient(a) / DT; acc = np.gradient(v) / DT
+        R[name + "Step"] = float(np.max(np.abs(np.diff(a))[ii]) * 100)
+        R[name + "V95"] = float(np.percentile(np.abs(v[ii]), 95)); R[name + "Vmax"] = float(np.max(np.abs(v[ii])))
+        R[name + "A95"] = float(np.percentile(np.abs(acc[ii]), 95))
+    onset = np.zeros(n, bool)
+    for s in "lr":
+        ph = d[s + "Ph"]; onset |= (ph == 1) & ~np.r_[False, ph[:-1] == 1]
+    ev = np.where(onset)[0]; pps = []
+    for a0, a1 in zip(ev[:-1], ev[1:]):
+        if a1 - a0 < 4 or not steady[a0:a1].all():
+            continue
+        y = H[a0:a1]; t = np.arange(len(y)); c = np.polyfit(t, y, 1); r = y - np.polyval(c, t)
+        pps.append(r.max() - r.min())
+    R["bob50"] = float(np.median(pps) * 100) if pps else np.nan
+    R["bobMax"] = float(np.max(pps) * 100) if pps else np.nan
+    R["steps"] = len(pps)
+    return R
+
+
+VARIANTS = {
+    # name: (intent, constraint, phimax, w_down, w_up)
+    "A": None,
+    "B": ("zero", "U_all", 0, 12, 12),
+    "C": ("J", "U_trail", 0, 12, 12),
+    "B'": ("zero", "U_all", 35, 12, 3),
+    "C'": ("J", "U_all", 35, 12, 3),
+    "O": ("oracle", 0),
+    "O'": ("oracle", 35),
+}
+
+
+def run(case, kappa=1.5, variants=VARIANTS, oracle_a=4.0):
+    d = load(case)
+    mov, steady, up, down, since = masks(d)
+    reset = segments(d, mov) | np.r_[True, np.zeros(d["n"] - 1, bool)]
+    rec = d["pelvis"]; out = {}; Ps = {}
+    for name, spec in variants.items():
+        if spec is None:
+            out[name] = rec; Ps[name] = precompute(d, kappa, 0); continue
+        if spec[0] == "oracle":
+            phimax = spec[1]; P = precompute(d, kappa, phimax); Ps[name] = P
+            fx, fz = forward_dir(d)
+            U = np.full(d["n"], np.inf)
+            for s in "lr":
+                hip = d[s + "Hip"].copy(); hip[:-1] = hip[1:]
+                along = P[s + "along"]
+                b = heel_lift_bound(hip, d[s + "T"], d[s + "Leg"], fx, fz, phimax, along) if phimax else leg_bound(hip, d[s + "T"], d[s + "Leg"])
+                st = foot_state(d, s)
+                U = np.minimum(U, np.where((st == 0) | (st == 2), b, np.inf))
+            out[name] = oracle(np.where(np.isfinite(U), U, 0.0), oracle_a, reset)
+            continue
+        intent, cons, phimax, wd, wu = spec
+        P = precompute(d, kappa, phimax); Ps[name] = P
+        I = np.zeros(d["n"]) if intent == "zero" else P["intentJ"]
+        out[name] = solve(I, P[cons], P["U_hard"], wd, wu, reset, rec)
+    res = {}
+    for lab, m in (("UP", up), ("DOWN", down)):
+        for k, p in out.items():
+            ph = 0
+            spec = variants[k]
+            if spec is not None:
+                ph = spec[1] if spec[0] == "oracle" else spec[2]
+            res[(lab, k)] = metrics(d, Ps[k], p, m, ph)
+    ry = d["rootY"]
+    flat = (d["intent"] > 0) & (d["state"] == "Move") & (ry < np.nanmin(ry) + 0.005) & (since >= 0.5)
+    flat &= np.array([x not in TURN for x in d["phase"]])
+    res[("FLAT", "A")] = metrics(d, Ps["A"], rec, flat, 0)
+    return res, out, d, Ps
+
+
+KEYS = ["depth", "kneeLead", "kneeTrail", "bob50", "bobMax", "float%", "floatMax", "heelUp%", "offStep", "hipStep",
+        "offV95", "offVmax", "offA95", "hipV95", "hipA95", "steps"]
+
+# ======== sim3.py ========
+import json
+import numpy as np
+
+VMAX = 2.5  # m/s pelvis retreat limit for R (no single-frame snap > ~4 cm)
+
+
+def teleports(d):
+    x, y, z = d["rootX"], d["rootY"], d["rootZ"]
+    jump = np.r_[True, np.sqrt(np.diff(x) ** 2 + np.diff(y) ** 2 + np.diff(z) ** 2) > 0.5]
+    return jump
+
+
+def solve(intent, U, Uhard, w_down, w_up, reset, vmax=None):
+    n = len(U); p = np.zeros(n); v = 0.0; cur = 0.0; clamps = np.zeros(n, bool)
+    for i in range(n):
+        if reset[i]:
+            cur = max(min(intent[i], U[i], 0.0), -MAXOFF); v = 0.0
+        g = max(min(intent[i], U[i]), -MAXOFF)
+        w = w_up if g > cur else w_down
+        a = w * w * (g - cur) - 2 * w * v
+        v += a * DT; prev = cur; cur += v * DT
+        if cur < -MAXOFF:
+            cur = -MAXOFF; v = max(v, 0.0)
+        if cur > Uhard[i]:
+            clamps[i] = True
+            lim = max(Uhard[i], -MAXOFF)
+            cur = lim if vmax is None else max(lim, min(cur, prev - vmax * DT))
+            v = min(v, (cur - prev) / DT)
+        p[i] = cur
+    return p, clamps
+
+
+VARIANTS = {
+    "A": None,                                   # recorded envelope
+    "B": ("zero", "U_all", 0, 12, 12, None),     # nominal-first + minimum necessary drop (literal)
+    "C": ("J", "U_trail", 0, 12, 12, None),      # support-driven + trailing-foot cap (literal)
+    "R0": ("zero", "U_all", 35, 12, 3, None),    # unified: heel-lift reach + landing anticipation + slow rise
+    "R": ("zero", "U_all", 35, 12, 3, VMAX),     # R0 with bounded retreat (no snap; residual reach loss reported)
+    "RJ": ("J", "U_all", 35, 12, 3, VMAX),       # R with support-driven intent
+    "O'": ("oracle", 35),                        # perfect-foresight reference, |p''| <= 4 m/s^2
+}
+
+
+def run(case, kappa=1.5, variants=VARIANTS):
+    d = load(case)
+    mov, steady, up, down, since = masks(d)
+    reset = teleports(d)
+    out, Ps, cl = {}, {}, {}
+    for name, spec in variants.items():
+        if spec is None:
+            out[name] = d["pelvis"]; Ps[name] = precompute(d, kappa, 0); continue
+        if spec[0] == "oracle":
+            ph = spec[1]; P = precompute(d, kappa, ph); Ps[name] = P
+            fx, fz = forward_dir(d); U = np.full(d["n"], np.inf)
+            for s in "lr":
+                hip = d[s + "Hip"].copy(); hip[:-1] = hip[1:]
+                b = heel_lift_bound(hip, d[s + "T"], d[s + "Leg"], fx, fz, ph, P[s + "along"])
+                st = foot_state(d, s)
+                U = np.minimum(U, np.where((st == 0) | (st == 2), b, np.inf))
+            out[name] = oracle(np.where(np.isfinite(U), U, 0.0), 4.0, reset)
+            continue
+        intent, cons, ph, wd, wu, vmax = spec
+        P = precompute(d, kappa, ph); Ps[name] = P
+        I = np.zeros(d["n"]) if intent == "zero" else P["intentJ"]
+        out[name], cl[name] = solve(I, P[cons], P["U_hard"], wd, wu, reset, vmax)
+    res = {}
+    for lab, m in (("UP", up), ("DOWN", down)):
+        for k, p in out.items():
+            spec = variants[k]
+            ph = 0 if spec is None else (spec[1] if spec[0] == "oracle" else spec[2])
+            r = metrics(d, Ps[k], p, m, ph)
+            r["clamp%"] = float(np.mean(cl[k][m]) * 100) if k in cl else 0.0
+            res[(lab, k)] = r
+    ry = d["rootY"]
+    flat = (d["intent"] > 0) & (d["state"] == "Move") & (ry < np.nanmin(ry) + 0.005) & (since >= 0.5)
+    flat &= np.array([x not in TURN for x in d["phase"]])
+    for k in ("A", "R"):
+        res[("FLAT", k)] = metrics(d, Ps[k], out[k], flat, 0 if k == "A" else 35)
+    # IK position weight < 0.99 on steady stair frames (penetration can only change where weight < 1)
+    res[("INFO", "w<1%")] = float(np.mean(((d["lW"] < 0.99) | (d["rW"] < 0.99))[steady]) * 100)
+    return res, out, d, Ps
+
+
+KEYS = ["depth", "kneeLead", "kneeTrail", "bob50", "bobMax", "float%", "floatMax", "heelUp%", "clamp%", "offStep",
+        "hipStep", "offV95", "offVmax", "offA95", "hipA95", "steps"]
+
+# ======== final.py ========
+import json, sys
+import numpy as np
+
+RUNS = ["_r45_t3", "_r45_t3p_ec27", "_r45_t3p_ec36"]
+GAITS = {"Walk": ["proto_Walk", "s1_Walk"], "Run": ["proto_Run", "s1_Run"]}
+
+
+def envelope(d):
+    rst = teleports(d)
+    if np.nanmax(np.abs(d["pE"])) == 0:
+        return d["pelvis"]
+    a = np.zeros(d["n"]); cur = d["pelvis"][0]
+    for i in range(d["n"]):
+        if rst[i]:
+            cur = d["pelvis"][i]
+        cur += np.clip(d["pE"][i] - cur, -5 * DT, 5 * DT); a[i] = cur
+    return a
+
+
+def raw(d, P, p, steady, phimax):
+    n = d["n"]; o = {}
+    idx = np.where(steady[:-1])[0]
+    hipY = 0.5 * (d["lHip"][:, 1] + d["rHip"][:, 1])
+    o["depth"] = p[idx]
+    fx, fz = forward_dir(d)
+    kl, kt, fl, fr = [], [], [], []
+    for s in "lr":
+        L = d[s + "Leg"]; hip = d[s + "Hip"][idx + 1].copy(); hip[:, 1] += p[idx]; T = d[s + "T"][idx]
+        dist = np.linalg.norm(hip - T, axis=1); lk = d[s + "Ph"][idx] == 1; along = P[s + "along"][idx]
+        k = knee(np.minimum(dist, L), d[s + "Up"], d[s + "Lo"])
+        kl.append(k[lk & (along >= 0)]); kt.append(k[lk & (along < 0)])
+        b = heel_lift_bound(hip, T, STRETCH * L, fx[idx], fz[idx], phimax, along) if phimax else None
+        short = np.maximum(0, -b) if phimax else np.maximum(0, dist - STRETCH * L)
+        fl.append(short[lk]); fr.append(np.maximum(0, dist - STRETCH * L)[lk])
+    o["kneeLead"] = np.concatenate(kl); o["kneeTrail"] = np.concatenate(kt)
+    o["float"] = np.concatenate(fl); o["floatFlat"] = np.concatenate(fr)
+    H = hipY[1:] + p[:-1]; H = np.r_[H, H[-1]]
+    sel = steady[:-2] & steady[1:-1] & steady[2:]; ii = np.where(sel)[0] + 1
+    for name, a in (("off", p), ("hip", H)):
+        v = np.gradient(a) / DT; acc = np.gradient(v) / DT
+        o[name + "Step"] = np.abs(np.diff(a))[ii]; o[name + "V"] = np.abs(v[ii]); o[name + "A"] = np.abs(acc[ii])
+    onset = np.zeros(n, bool)
+    for s in "lr":
+        ph = d[s + "Ph"]; onset |= (ph == 1) & ~np.r_[False, ph[:-1] == 1]
+    ev = np.where(onset)[0]; pps = []
+    for a0, a1 in zip(ev[:-1], ev[1:]):
+        if a1 - a0 < 4 or not steady[a0:a1].all():
+            continue
+        y = H[a0:a1]; t = np.arange(len(y)); c = np.polyfit(t, y, 1); r = y - np.polyval(c, t)
+        pps.append(r.max() - r.min())
+    o["bob"] = np.array(pps)
+    ma = np.convolve(H, np.ones(21) / 21, mode="same")
+    ok = np.convolve(steady.astype(float), np.ones(21), mode="same") >= 20.5
+    o["bob21"] = np.abs(H - ma)[ok & steady]
+    return o
+
+
+def summarize(o):
+    cat = lambda k: np.concatenate(o[k]) if o[k] else np.array([np.nan])
+    s = {}
+    s["depth_cm"] = np.mean(cat("depth")) * 100
+    s["kneeLead"] = np.median(cat("kneeLead")); s["kneeTrail"] = np.median(cat("kneeTrail"))
+    f = cat("float"); ff = cat("floatFlat")
+    s["float>1cm%"] = np.mean(f > 0.01) * 100; s["floatMax_cm"] = np.max(f) * 100
+    s["heelLift%"] = np.mean((ff > 0.01) & (f <= 0.01)) * 100
+    b = cat("bob"); b = b[np.isfinite(b)]
+    s["bob_med_cm"] = np.median(b) * 100 if len(b) else np.nan; s["steps"] = len(b)
+    b21 = cat("bob21"); s["bob21_p95_cm"] = np.percentile(b21, 95) * 100 if len(b21) else np.nan
+    s["offStepMax_cm"] = np.max(cat("offStep")) * 100; s["hipStepMax_cm"] = np.max(cat("hipStep")) * 100
+    s["offV95"] = np.percentile(cat("offV"), 95); s["offA95"] = np.percentile(cat("offA"), 95)
+    s["hipV95"] = np.percentile(cat("hipV"), 95); s["hipA95"] = np.percentile(cat("hipA"), 95)
+    return s
+
+
+def model_output(d, spec, kappa=1.5):
+    kind = spec[0]
+    if kind == "A":
+        return envelope(d), precompute(d, kappa, 0), 0
+    if kind == "oracle":
+        ph, a = spec[1], spec[2]; P = precompute(d, kappa, ph); fx, fz = forward_dir(d); U = np.full(d["n"], np.inf)
+        for s in "lr":
+            hip = d[s + "Hip"].copy(); hip[:-1] = hip[1:]
+            b = heel_lift_bound(hip, d[s + "T"], d[s + "Leg"], fx, fz, ph, P[s + "along"]) if ph else leg_bound(hip, d[s + "T"], d[s + "Leg"])
+            st = foot_state(d, s); U = np.minimum(U, np.where((st == 0) | (st == 2), b, np.inf))
+        return oracle(np.where(np.isfinite(U), U, 0.0), a, teleports(d)), P, ph
+    intent, cons, ph, wd, wu, vmax = spec[1:]
+    P = precompute(d, kappa, ph)
+    I = np.zeros(d["n"]) if intent == "zero" else P["intentJ"]
+    p, _ = solve(I, P[cons], P["U_hard"], wd, wu, teleports(d), vmax)
+    return p, P, ph
+
+
+MODELS = {
+    "A  envelope (current)": ("A",),
+    "B  nominal-first + min drop": ("m", "zero", "U_all", 0, 12, 12, None),
+    "C  support-driven + trailing cap": ("m", "J", "U_trail", 0, 12, 12, None),
+    "R  unified (heel-lift, anticip., slow rise, hard clamp)": ("m", "zero", "U_all", 35, 12, 3, None),
+    "R-bounded  R with 2.5 m/s retreat instead of hard clamp": ("m", "zero", "U_all", 35, 12, 3, 2.5),
+    "R-noHL  R without heel-lift": ("m", "zero", "U_all", 0, 12, 3, 2.5),
+    "RJ R with support-driven intent": ("m", "J", "U_all", 35, 12, 3, 2.5),
+    "O' oracle a=4 (heel-lift)": ("oracle", 35, 4.0),
+}
+SWEEP = {}
+for wu in (1.5, 3, 6, 12):
+    SWEEP[f"R wu={wu}"] = ("m", "zero", "U_all", 35, 12, wu, None)
+for a in (2, 4, 8, 16, 32):
+    SWEEP[f"O' a={a}"] = ("oracle", 35, float(a))
+    SWEEP[f"O a={a}"] = ("oracle", 0, float(a))
+
+
+def evaluate(models):
+    table = {}
+    cache = {}
+    for gait, cases in GAITS.items():
+        for name, spec in models.items():
+            acc = {"UP": {}, "DOWN": {}}
+            for case in cases:
+                for run in RUNS:
+                    key = (case, run)
+                    if key not in cache:
+                        cache[key] = load(case, run)
+                    d = cache[key]
+                    mov, steady, up, down, since = masks(d)
+                    p, P, ph = model_output(d, spec)
+                    for lab, m in (("UP", up), ("DOWN", down)):
+                        o = raw(d, P, p, m, ph)
+                        for k, v in o.items():
+                            acc[lab].setdefault(k, []).append(v)
+            for lab in ("UP", "DOWN"):
+                table[(gait, lab, name)] = summarize(acc[lab])
+    return table
+
+
+if __name__ == "__main__":
+    which = sys.argv[1] if len(sys.argv) > 1 else "main"
+    models = MODELS if which == "main" else SWEEP
+    t = evaluate(models)
+    keys = list(next(iter(t.values())).keys())
+    print(f"{'gait':5s}{'dir':5s}{'model':54s}" + "".join(f"{k[:9]:>10s}" for k in keys))
+    for (g, lab, name), s in t.items():
+        print(f"{g:5s}{lab:5s}{name:54s}" + "".join(f"{s[k]:10.2f}" for k in keys))
+    json.dump({"|".join(k): {kk: float(vv) for kk, vv in v.items()} for k, v in t.items()},
+              open(f"final_{which}.json", "w"), indent=1)

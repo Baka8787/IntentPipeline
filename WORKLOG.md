@@ -7,6 +7,20 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🟦 2026-09-28 — **Pelvis／Body Height 重整 Phase 1：盤點＋離線設計完成；⛔ runtime 未改；❓ 5 項待裁決**
+>
+> 📖 正本：`docs/46-pelvis-body-height.md`；圖解 `docs/artifacts/pelvis-body-height.html`（Artifact：https://claude.ai/artifact/5RxLFi8dXcCEWYgq8GhU6U）。使用者指示：停止修補現有 pelvis 邏輯，先重做「樓梯移動中身體高度」這一層，stop 之後再接回。
+>
+> - 盤點：唯一寫入者不變，但內部有 **6 個相位、4 種「該多高」定義**；Moving（包絡）**完全沒有可達檢查**——現況 Walk 上樓 3.8%、Run 上樓 15% 的支撐帧搆不到。
+> - 約束語意（量測）：上樓綁住高度的是**仍在動畫支撐期的後腳**，下樓是**即將落地的前腳**；Releasing 會要求 −30～−72 cm，屬暫態、不該拉骨盆。
+> - 字面的 nominal-first（B）與 support-driven＋trailing cap（C）：上樓每步起伏 20–25 cm、加速度 7 倍 ⇒ 不可行。
+> - 統一模型 R（I＝0；Support＋Landing 約束；後腳前掌支點；ω_down 12／ω_up 3；硬可達夾）：四個情境都比包絡高 6–8 cm（Run 下樓除外），Walk 上樓搆不到 → 0%、Run 上樓 15% → 3.8%；代價 Walk 上樓髖加速度 p95 15.5 → 23.4（ω_up 1.5 ⇒ 18.7）。
+> - 剩下的 Run 上樓 3.8% 連 oracle 也解不了 ⇒ T3 樓梯釋放時機（需求端）。抬跟是 Contact 層行為，骨盆不能自己假設。
+> - ⚠️ 工作樹有**未記錄的 Predictive Planned Stop WIP**（`PosturePhase.PlannedStop`、`LocomotionStopPrediction`、`.codex-temp/REPORT-planned-stop.md`）——本會話未碰；列為裁決項 5。
+> - ❓ 待使用者：①統一模型作為 Moving 基線？②`ω_up` 1.5 或 3？③開 Contact 抬跟 slice？④開 Run 上樓 T3 釋放 slice？⑤Planned Stop WIP 的去留？
+>
+> ---
+
 > # 🟨 2026-09-27（深夜二）— **停步站直四段鏈：執行期原型已實作並量測；⏳ 待人工 Play**
 >
 > 📖 正本：`docs/05` §3.5.4.6「現行合約」「執行期驗證」。取代工作樹未記錄的 WT 實驗（非疊加）。
