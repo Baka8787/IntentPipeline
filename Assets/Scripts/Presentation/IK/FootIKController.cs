@@ -106,6 +106,7 @@ namespace Project.Presentation.IK
         // 🧪（T3 原型，docs/45 §6–§7）每隻腳刻意跨帧保存的接觸／鎖腳狀態（只存數值）。原型關閉時每帧重設。
         private FootContactState _leftContact;
         private FootContactState _rightContact;
+        private readonly RaycastHit[] _plannedGroundHits = new RaycastHit[8];
 
         // 🧪（站直原型，docs/05 §3.5.4.6）姿勢狀態與它需要的一帧歷史（只存數值）。原型關閉時每帧重設。
         private PostureState _posture;
@@ -724,9 +725,108 @@ namespace Project.Presentation.IK
                 RootVerticalSpeed = rootVerticalSpeed,
                 WalkGait = walkGait,
             };
-            // 停步落點（HasLeft／RightLanding）由 FutureLandingProvider 提供；尚未接上 ⇒ Walk 下樓停步停在 PredictionPending。
+            // FutureLandingProvider（§18、ADR-010）：只在「統一站立 ∧ 停步中 ∧ Walk ∧ 預測本帧有效」時查（求解器再判斷是否下樓）。
+            if (settings.UseUnifiedStandingPelvis && !movementRequested && walkGait && data.LocomotionStopPrediction.Active)
+            {
+                LocomotionStopPrediction prediction = data.LocomotionStopPrediction;
+                context.HasLeftLanding = TryPredictStopLandingGoal(in prediction, true, out context.LeftLanding);
+                context.HasRightLanding = TryPredictStopLandingGoal(in prediction, false, out context.RightLanding);
+            }
             MovingPelvisSolver.Step(ref _moving, in leftFoot, in rightFoot, in context, Time.deltaTime, in tuning);
             return _moving.Offset;
+        }
+
+        /// <summary>
+        /// 🧪（docs/46 §18）FutureLandingProvider：停步 clip 結束時該腳會踩在哪個世界位置——**以 T3 的參考點（Humanoid IK goal）表示**。
+        /// 烘焙記的是 Foot 骨骼（與執行期 FK 骨骼逐位元相同，契約不動）；T3 鎖的是 IK goal ⇒ 在這一層做參考點轉換。
+        /// 只回答落點；⛔ 不控制軌跡、相位或骨盆。
+        /// </summary>
+        internal bool TryPredictStopLandingGoal(in LocomotionStopPrediction prediction, bool left, out Vector3 ankle)
+        {
+            Quaternion yaw = Quaternion.Euler(0f, prediction.RootYawDegreesAtPublish, 0f);
+            Vector3 forward = yaw * Vector3.forward;
+            Vector3 boneInRoot = left ? prediction.EndLeftAnkleInRoot : prediction.EndRightAnkleInRoot;
+            Vector3 goalInRoot = StopLandingGoalInRoot(boneInRoot,
+                left ? settings.StopLandingLeftGoalOffset : settings.StopLandingRightGoalOffset);
+            float bottom = left ? _poseData.LeftFootBottomHeight : _poseData.RightFootBottomHeight;
+            return TryPredictGroundedAnkle(in prediction, yaw, forward, prediction.RemainingForwardDisplacement,
+                goalInRoot, bottom, out ankle);
+        }
+
+        /// <summary>
+        /// （純函數）烘焙的 Foot 骨骼點（root 空間）＋ 左／右腳各自的 bone→IK goal 偏移。
+        /// 偏移定義在落地腳的座標系；烘焙沒有腳的旋轉 ⇒ 落地腳朝向取預測 root 的朝向（與既有腳跟／腳尖取樣同一假設），
+        /// 所以腳座標系與 root 座標系重合。只轉換水平（y 由預測重新落地決定）。
+        /// </summary>
+        public static Vector3 StopLandingGoalInRoot(Vector3 boneInRoot, Vector3 footFrameOffset)
+            => new Vector3(boneInRoot.x + footFrameOffset.x, boneInRoot.y, boneInRoot.z + footFrameOffset.z);
+
+        private bool TryPredictGroundedAnkle(
+            in LocomotionStopPrediction prediction,
+            Quaternion yaw,
+            Vector3 forward,
+            float forwardDisplacement,
+            Vector3 ankleInRoot,
+            float footBottomHeight,
+            out Vector3 ankle)
+        {
+            Vector3 predictedRoot = prediction.RootWorldPositionAtPublish + forward * forwardDisplacement;
+            Vector3 animated = predictedRoot + yaw * ankleInRoot;
+            // 與 T3 接觸同一規則：腳下取腳跟／腳踝／腳尖三點中最高的地面（決定抬升的是最高那一點）。
+            // 只取腳踝一點時，階緣附近幾公分的水平誤差就會把整隻腳判到下一階（實測 Run 誤差 −20 cm）。
+            bool found = false;
+            float groundY = float.NegativeInfinity;
+            for (int point = 0; point < 3; point++)
+            {
+                float along = point == 0 ? -Mathf.Max(0f, settings.HeelOffset)
+                    : point == 1 ? 0f : Mathf.Max(0f, settings.ToeOffset);
+                Vector3 sample = animated + forward * along;
+                if (TryPredictGroundHeight(in prediction, new Vector2(sample.x, sample.z),
+                        settings.GroundLayers, out float pointY))
+                {
+                    groundY = Mathf.Max(groundY, pointY);
+                    found = true;
+                }
+            }
+            if (!found)
+            {
+                ankle = default;
+                return false;
+            }
+            ankle = new Vector3(animated.x, groundY + footBottomHeight, animated.z);
+            return true;
+        }
+
+        private bool TryPredictGroundHeight(
+            in LocomotionStopPrediction prediction,
+            Vector2 horizontal,
+            int mask,
+            out float groundY)
+        {
+            Vector2 publish = new Vector2(
+                prediction.RootWorldPositionAtPublish.x,
+                prediction.RootWorldPositionAtPublish.z);
+            float reach = Vector2.Distance(horizontal, publish);
+            float up = settings.RaycastUpOffset;
+            float distance = up + settings.RaycastDistance + 2f * reach;
+            Vector3 origin = new Vector3(horizontal.x,
+                prediction.RootWorldPositionAtPublish.y + up + reach, horizontal.y);
+            int hitCount = Physics.RaycastNonAlloc(origin, Vector3.down, _plannedGroundHits,
+                distance, mask, QueryTriggerInteraction.Ignore);
+            float nearestDistance = float.PositiveInfinity;
+            groundY = 0f;
+            bool found = false;
+            for (int i = 0; i < hitCount; i++)
+            {
+                RaycastHit candidate = _plannedGroundHits[i];
+                if (candidate.collider == null || candidate.collider.transform == transform ||
+                    candidate.collider.transform.IsChildOf(transform)) continue;
+                if (candidate.distance >= nearestDistance) continue;
+                nearestDistance = candidate.distance;
+                groundY = candidate.point.y;
+                found = true;
+            }
+            return found;
         }
 
         /// <summary>

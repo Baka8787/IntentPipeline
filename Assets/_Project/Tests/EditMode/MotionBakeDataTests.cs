@@ -168,5 +168,24 @@ namespace Project.Tests.EditMode
 
             Assert.AreEqual(0.75f, bake.GetVerticalAt(0.5f), 1e-4f);
         }
+
+        [Test]
+        public void StopDisplacement_SkipsOnlySyntheticZeroWithoutChangingCurve()
+        {
+            var bake = NewBake();
+            bake.BakedDuration = 2f / 60f;
+            bake.SampleRate = 60f;
+            bake.SpeedCurve = new AnimationCurve(
+                new Keyframe(0f, 0f),
+                new Keyframe(1f / 60f, 1f),
+                new Keyframe(2f / 60f, 0f));
+
+            Assert.AreEqual(0f, bake.SpeedCurve[0].value, "(0,0) 哨兵本身不得被修改。");
+            Assert.AreEqual(1f / 60f,
+                bake.GetLocomotionStopHorizontalDisplacementAt(1f / 60f), 1e-5f,
+                "第一段用第一個實測速度，不積入哨兵造成半速。");
+            Assert.AreEqual(1.5f / 60f,
+                bake.GetLocomotionStopHorizontalDisplacementAt(2f / 60f), 1e-5f);
+        }
     }
 }

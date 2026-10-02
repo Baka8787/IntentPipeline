@@ -547,6 +547,9 @@ namespace Project.Editor
                 // ⇒ 每一幀都判成騰空 ⇒ 找不到「觸地→騰空」邊沿 ⇒ 跳躍特徵全部退化為 0。
                 float leftFootBaselineY = 0f;
                 float rightFootBaselineY = 0f;
+                // ADR-010：停步結束站姿＝最後一個 sample 的左右踝（root 空間）。
+                Vector3 endLeftAnkleInRoot = default, endRightAnkleInRoot = default;
+                int endPoseSamples = 0;
 
                 for (int i = 0; i < totalFrames; i++)
                 {
@@ -568,6 +571,13 @@ namespace Project.Editor
                     float leftFootWorldY = leftFootT != null ? leftFootT.position.y : 0f;
                     float rightFootWorldY = rightFootT != null ? rightFootT.position.y : 0f;
                     featureSamples.Add(new MotionFeatureSample(time, currentPos.y, leftFootWorldY, rightFootWorldY));
+                    if (leftFootT != null && rightFootT != null)
+                    {
+                        Quaternion inverseRoot = Quaternion.Inverse(currentRot);
+                        endLeftAnkleInRoot = inverseRoot * (leftFootT.position - currentPos);
+                        endRightAnkleInRoot = inverseRoot * (rightFootT.position - currentPos);
+                        endPoseSamples++;
+                    }
 
                     if (i == 0)
                     {
@@ -622,6 +632,18 @@ namespace Project.Editor
                 MotionFeatureContext featureContext = new MotionFeatureContext(
                     featureSamples, duration, takeoffFootLiftThreshold, leftFootBaselineY, rightFootBaselineY);
 
+                FootPlantSchedule footPlantSchedule = endPoseSamples >= 2 && duration > 0f
+                    ? new FootPlantSchedule
+                    {
+                        EndPose = new FootPlantEndPose
+                        {
+                            LeftAnkleInRoot = endLeftAnkleInRoot,
+                            RightAnkleInRoot = endRightAnkleInRoot,
+                            ClipDuration = duration,
+                        },
+                    }
+                    : default;
+
                 SaveAsset(
                     speedCurve,
                     rotationCurve,
@@ -629,6 +651,7 @@ namespace Project.Editor
                     endPhase,
                     targetLocalDirection,
                     featureContext,
+                    footPlantSchedule,
                     animator,
                     showResultDialog);
             }
@@ -761,6 +784,7 @@ namespace Project.Editor
             FootPhase endPhase,
             Vector3 targetLocalDirection,
             MotionFeatureContext featureContext,
+            FootPlantSchedule footPlantSchedule,
             Animator animator,
             bool showResultDialog)
         {
@@ -798,6 +822,7 @@ namespace Project.Editor
             asset.RotationFinishedTime = rotationFinishedTime;
             asset.EndPhase = endPhase;
             asset.TargetLocalDirection = targetLocalDirection;
+            asset.FootPlantSchedule = footPlantSchedule;
 
             // 🆕 Feature Analysis Stage：自動提取跳躍物理特徵並寫入資產。
             // 位置刻意放在既有 Root Motion 曲線／旋轉收斂／腳相欄位「之後」，完全不干涉上方邏輯；

@@ -379,6 +379,55 @@ namespace Project.Tests.EditMode
             Assert.IsTrue(model.IsProducingMotion);
         }
 
+        [Test]
+        public void Model_PublishesAndClearsNumericStopPrediction()
+        {
+            var go = new GameObject("LocomotionPredictionUnderTest");
+            _created.Add(go);
+            LocomotionModel model = go.AddComponent<LocomotionModel>();
+            LocomotionStopTestFacade facade = go.AddComponent<LocomotionStopTestFacade>();
+            LocomotionStopVariant variant = Variant(-0.2f, "RunStop");
+            MotionBakeData bake = variant.BakeData;
+            bake.SpeedCurve = new AnimationCurve(new Keyframe(0f, 0f), new Keyframe(1f / 60f, 1f), new Keyframe(1f, 0f));
+            bake.FootPlantSchedule = new FootPlantSchedule
+            {
+                EndPose = new FootPlantEndPose
+                {
+                    LeftAnkleInRoot = new Vector3(-0.1f, 0f, 0.2f),
+                    RightAnkleInRoot = new Vector3(0.1f, 0f, 0.2f),
+                    ClipDuration = 1f,
+                }
+            };
+            SetPrivateField(model, "runLoopBakeData", bake);
+            SetPrivateField(model, "runStopVariants", new[] { variant });
+
+            var smoother = default(LocomotionSpeedSmoother);
+            var runIntent = new MovementIntentData { DesiredSpeedNormalized = 0.75f, DesiredDirection = Vector3.forward };
+            for (int i = 0; i < 120; i++) smoother.Tick(in runIntent, 0.12f, 0.18f, 720f, 1f / 60f);
+            SetPrivateField(model, "_smoother", smoother);
+            SetPrivateField(model, "_wasIntending", true);
+            facade.Play("Idle");
+            var data = new PlayerRuntimeData { IsGrounded = true };
+
+            SetPrivateField(model, "_lastMotionFrame", Time.frameCount - 1);
+            model.Tick(data, facade, 1f / 60f);
+            Assert.IsFalse(data.LocomotionStopPrediction.Active, "播放頭尚未前進，倍率未知時不猜。");
+
+            facade.RootNormalizedTime = 0.1f;
+            SetPrivateField(model, "_lastMotionFrame", Time.frameCount - 1);
+            model.Tick(data, facade, 1f / 60f);
+            Assert.IsTrue(data.LocomotionStopPrediction.Active);
+            Assert.Greater(data.LocomotionStopPrediction.RemainingForwardDisplacement, 0f);
+            Assert.AreEqual(new Vector3(-0.1f, 0f, 0.2f), data.LocomotionStopPrediction.EndLeftAnkleInRoot);
+            Assert.AreEqual(new Vector3(0.1f, 0f, 0.2f), data.LocomotionStopPrediction.EndRightAnkleInRoot);
+
+            data.MovementIntent = runIntent;
+            SetPrivateField(model, "_lastMotionFrame", Time.frameCount - 1);
+            model.Tick(data, facade, 1f / 60f);
+            Assert.IsFalse(data.LocomotionStopPrediction.Active, "移動意圖中斷 Stop 的同一 Tick 必須清除預測。");
+            Assert.AreEqual(Vector3.zero, data.LocomotionStopPrediction.EndLeftAnkleInRoot, "失效時整份快照是 default（ADR-010 D1）。");
+        }
+
         private static void SetPrivateField<T>(object target, string fieldName, T value)
         {
             FieldInfo field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);

@@ -749,6 +749,121 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
+  VerticalCurve:
+    serializedVersion: 2
+    m_Curve: []
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  Traversal:
+    enabled: 0
+    contactMode: 0
+    leftHandBone: 0
+    rightHandBone: 0
+    leftHandContactNormalizedTime: 0
+    rightHandContactNormalizedTime: 0
+    transferNormalizedTime: 0
+    exitNormalizedTime: 0
+    recoveryNormalizedTime: 0
+    requiredVerticalClearance: 0
+    handIKEnabled: 0
+    leftHandIKWindow:
+      enabled: 0
+      startNormalizedTime: 0
+      fullNormalizedTime: 0
+      releaseNormalizedTime: 0
+    rightHandIKWindow:
+      enabled: 0
+      startNormalizedTime: 0
+      fullNormalizedTime: 0
+      releaseNormalizedTime: 0
+    handIKRotationWeight: 0
+    rootReachConstraint:
+      enabled: 0
+      maximumReachRatio: 0
+      anchorReleaseNormalizedTime: 0
+      correctionEndNormalizedTime: 0
+      localX:
+        serializedVersion: 2
+        m_Curve: []
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      localY:
+        serializedVersion: 2
+        m_Curve: []
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      localZ:
+        serializedVersion: 2
+        m_Curve: []
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+    leftGripEdgeInRoot: {x: 0, y: 0, z: 0}
+    rightGripEdgeInRoot: {x: 0, y: 0, z: 0}
+    hasGripEdges: 0
+    entryAnchor:
+      normalizedTime: 0
+      rootLocalPosition: {x: 0, y: 0, z: 0}
+      rootLocalYaw: 0
+      leftHandInRoot: {x: 0, y: 0, z: 0}
+      rightHandInRoot: {x: 0, y: 0, z: 0}
+      leftHandRotationInRoot: {x: 0, y: 0, z: 0, w: 0}
+      rightHandRotationInRoot: {x: 0, y: 0, z: 0, w: 0}
+      hasLeftHand: 0
+      hasRightHand: 0
+    leftContactAnchor:
+      normalizedTime: 0
+      rootLocalPosition: {x: 0, y: 0, z: 0}
+      rootLocalYaw: 0
+      leftHandInRoot: {x: 0, y: 0, z: 0}
+      rightHandInRoot: {x: 0, y: 0, z: 0}
+      leftHandRotationInRoot: {x: 0, y: 0, z: 0, w: 0}
+      rightHandRotationInRoot: {x: 0, y: 0, z: 0, w: 0}
+      hasLeftHand: 0
+      hasRightHand: 0
+    rightContactAnchor:
+      normalizedTime: 0
+      rootLocalPosition: {x: 0, y: 0, z: 0}
+      rootLocalYaw: 0
+      leftHandInRoot: {x: 0, y: 0, z: 0}
+      rightHandInRoot: {x: 0, y: 0, z: 0}
+      leftHandRotationInRoot: {x: 0, y: 0, z: 0, w: 0}
+      rightHandRotationInRoot: {x: 0, y: 0, z: 0, w: 0}
+      hasLeftHand: 0
+      hasRightHand: 0
+    transferAnchor:
+      normalizedTime: 0
+      rootLocalPosition: {x: 0, y: 0, z: 0}
+      rootLocalYaw: 0
+      leftHandInRoot: {x: 0, y: 0, z: 0}
+      rightHandInRoot: {x: 0, y: 0, z: 0}
+      leftHandRotationInRoot: {x: 0, y: 0, z: 0, w: 0}
+      rightHandRotationInRoot: {x: 0, y: 0, z: 0, w: 0}
+      hasLeftHand: 0
+      hasRightHand: 0
+    exitAnchor:
+      normalizedTime: 0
+      rootLocalPosition: {x: 0, y: 0, z: 0}
+      rootLocalYaw: 0
+      leftHandInRoot: {x: 0, y: 0, z: 0}
+      rightHandInRoot: {x: 0, y: 0, z: 0}
+      leftHandRotationInRoot: {x: 0, y: 0, z: 0, w: 0}
+      rightHandRotationInRoot: {x: 0, y: 0, z: 0, w: 0}
+      hasLeftHand: 0
+      hasRightHand: 0
+    recoveryAnchor:
+      normalizedTime: 0
+      rootLocalPosition: {x: 0, y: 0, z: 0}
+      rootLocalYaw: 0
+      leftHandInRoot: {x: 0, y: 0, z: 0}
+      rightHandInRoot: {x: 0, y: 0, z: 0}
+      leftHandRotationInRoot: {x: 0, y: 0, z: 0, w: 0}
+      rightHandRotationInRoot: {x: 0, y: 0, z: 0, w: 0}
+      hasLeftHand: 0
+      hasRightHand: 0
   RotationCurve:
     serializedVersion: 2
     m_Curve:
@@ -2221,6 +2336,108 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
+  FootPlantSchedule:
+    EventCount: 3
+    DetectionHorizontalSpeedMax: 0.2
+    DetectionHeightTolerance: 0.025
+    Event0:
+      Side: 1
+      ClipTime: 0
+      AnkleInRoot: {x: 0.053577665, y: 0.08774782, z: 0.010994422}
+      LeftAnkleInRoot: {x: -0.030500839, y: 0.22648305, z: -0.105058186}
+      RightAnkleInRoot: {x: 0.053577665, y: 0.08774782, z: 0.010994422}
+      LeftHipInRoot: {x: -0.049965944, y: 0.9709119, z: -0.01277827}
+      RightHipInRoot: {x: 0.114134304, y: 0.96737283, z: -0.010391261}
+      LeftPlanted: 0
+      RightPlanted: 1
+      RootForwardDisplacementFromClipStart: 0
+    Event1:
+      Side: 0
+      ClipTime: 0.26666668
+      AnkleInRoot: {x: -0.12158189, y: 0.0978139, z: 0.31610587}
+      LeftAnkleInRoot: {x: -0.12158189, y: 0.0978139, z: 0.31610587}
+      RightAnkleInRoot: {x: 0.0562343, y: 0.1343897, z: -0.28251553}
+      LeftHipInRoot: {x: -0.0902894, y: 0.9046491, z: 0.013587973}
+      RightHipInRoot: {x: 0.07008644, y: 0.90136164, z: -0.021281736}
+      LeftPlanted: 1
+      RightPlanted: 0
+      RootForwardDisplacementFromClipStart: 0.33043337
+    Event2:
+      Side: 1
+      ClipTime: 0.7166667
+      AnkleInRoot: {x: 0.122168735, y: 0.10214598, z: -0.020769147}
+      LeftAnkleInRoot: {x: -0.115199335, y: 0.08662867, z: -0.0017251701}
+      RightAnkleInRoot: {x: 0.122168735, y: 0.10214598, z: -0.020769147}
+      LeftHipInRoot: {x: -0.12022507, y: 0.95999545, z: -0.0306277}
+      RightHipInRoot: {x: 0.04155349, y: 0.959243, z: -0.058453094}
+      LeftPlanted: 1
+      RightPlanted: 1
+      RootForwardDisplacementFromClipStart: 0.62365675
+    Event3:
+      Side: 0
+      ClipTime: 0
+      AnkleInRoot: {x: 0, y: 0, z: 0}
+      LeftAnkleInRoot: {x: 0, y: 0, z: 0}
+      RightAnkleInRoot: {x: 0, y: 0, z: 0}
+      LeftHipInRoot: {x: 0, y: 0, z: 0}
+      RightHipInRoot: {x: 0, y: 0, z: 0}
+      LeftPlanted: 0
+      RightPlanted: 0
+      RootForwardDisplacementFromClipStart: 0
+    EndPose:
+      LeftAnkleInRoot: {x: -0.11824058, y: 0.08864283, z: -0.027548285}
+      RightAnkleInRoot: {x: 0.1234628, y: 0.08804316, z: -0.06362727}
+      LeftHipInRoot: {x: -0.08268244, y: 0.9724204, z: 0.0058984947}
+      RightHipInRoot: {x: 0.08083873, y: 0.9726662, z: -0.008519668}
+      TotalRootForwardDisplacement: 0.66279507
+      ClipDuration: 1.3333334
+    PoseCurve:
+      SampleCount: 9
+      Sample0:
+        ClipTime: 0
+        RootForwardDisplacementFromClipStart: 0
+        LeftHipInRoot: {x: -0.049965944, y: 0.9709119, z: -0.01277827}
+        RightHipInRoot: {x: 0.114134304, y: 0.96737283, z: -0.010391261}
+      Sample1:
+        ClipTime: 0.16666667
+        RootForwardDisplacementFromClipStart: 0.22125053
+        LeftHipInRoot: {x: -0.05733515, y: 0.91931576, z: -0.00065754505}
+        RightHipInRoot: {x: 0.10418897, y: 0.9229149, z: -0.02971127}
+      Sample2:
+        ClipTime: 0.33333334
+        RootForwardDisplacementFromClipStart: 0.3938322
+        LeftHipInRoot: {x: -0.11047526, y: 0.91591257, z: 0.012654807}
+        RightHipInRoot: {x: 0.04909472, y: 0.90912145, z: -0.025271427}
+      Sample3:
+        ClipTime: 0.5
+        RootForwardDisplacementFromClipStart: 0.52097654
+        LeftHipInRoot: {x: -0.12994407, y: 0.95214456, z: -0.017372578}
+        RightHipInRoot: {x: 0.02893776, y: 0.95192593, z: -0.05864764}
+      Sample4:
+        ClipTime: 0.6666667
+        RootForwardDisplacementFromClipStart: 0.60591936
+        LeftHipInRoot: {x: -0.12572354, y: 0.9585754, z: -0.029551953}
+        RightHipInRoot: {x: 0.035105422, y: 0.96031207, z: -0.062386997}
+      Sample5:
+        ClipTime: 0.8333334
+        RootForwardDisplacementFromClipStart: 0.65189743
+        LeftHipInRoot: {x: -0.10106709, y: 0.9647097, z: -0.027070975}
+        RightHipInRoot: {x: 0.061466895, y: 0.9640241, z: -0.050078884}
+      Sample6:
+        ClipTime: 1
+        RootForwardDisplacementFromClipStart: 0.66383743
+        LeftHipInRoot: {x: -0.079498865, y: 0.96847624, z: -0.015712243}
+        RightHipInRoot: {x: 0.08369927, y: 0.9686906, z: -0.033416767}
+      Sample7:
+        ClipTime: 1.1666667
+        RootForwardDisplacementFromClipStart: 0.6631756
+        LeftHipInRoot: {x: -0.07447209, y: 0.9721152, z: -0.0032481973}
+        RightHipInRoot: {x: 0.08899001, y: 0.9713873, z: -0.018305799}
+      Sample8:
+        ClipTime: 1.3333334
+        RootForwardDisplacementFromClipStart: 0.66279507
+        LeftHipInRoot: {x: -0.08268244, y: 0.9724204, z: 0.0058984947}
+        RightHipInRoot: {x: 0.08083873, y: 0.9726662, z: -0.008519668}
   TargetLocalDirection: {x: 0, y: 0, z: 0}
   AutoTakeoffDelay: 0
   AutoApexHeight: 0

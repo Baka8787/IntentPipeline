@@ -11,6 +11,27 @@ namespace Project.Presentation.Motion
         RightFootDown
     }
 
+    /// <summary>Stop clip 結束站姿（ADR-010 D2：只保留 FutureLandingProvider 需要的左右踝）；由烘焙器寫入，沒有手填 gameplay 常數。</summary>
+    [System.Serializable]
+    public struct FootPlantEndPose
+    {
+        public Vector3 LeftAnkleInRoot;
+        public Vector3 RightAnkleInRoot;
+        public float ClipDuration;
+    }
+
+    /// <summary>
+    /// Locomotion Stop 的烘焙預測資料。目前只有結束站姿（ADR-010 D2）；容器名稱沿用原型，讓已烘焙的資產可直接讀取。
+    /// 未重烘焙的資產維持 default ⇒ 安全退化為沒有預測。
+    /// </summary>
+    [System.Serializable]
+    public struct FootPlantSchedule
+    {
+        public FootPlantEndPose EndPose;
+
+        public bool IsValid => EndPose.ClipDuration > 0f;
+    }
+
     public enum TraversalHandContactMode
     {
         None = 0,
@@ -614,6 +635,10 @@ namespace Project.Presentation.Motion
                  "（與 EndPhase 符號一致）。零交越＝換腳時刻，供 Start/Stop 選腳別與未來 Footstep／相位同步。")]
         public AnimationCurve FootPhaseCurve;
 
+        [Header("Locomotion Stop — 結束站姿（ADR-010）")]
+        [Tooltip("由烘焙器從 clip 最後一個 sample 寫入（root 空間的左右踝）。舊資產／非 Stop clip 維持 default；runtime 不讀 SourceClip。")]
+        public FootPlantSchedule FootPlantSchedule;
+
         [Tooltip("整段動畫的總位移方向，換算成『動畫開始那一刻』角色本地座標系下的方向向量，" +
                  "可直接餵給 Blend Tree 的 X/Z 方向參數；若位移量太小或方向太接近正前方（死區內），視為 Vector3.zero（原地動作）。")]
         public Vector3 TargetLocalDirection;
@@ -902,6 +927,48 @@ namespace Project.Presentation.Motion
 
             if (endTime > previous.time)
                 distance += Mathf.Max(0f, previous.value) * (endTime - previous.time);
+            return distance;
+        }
+
+        /// <summary>
+        /// Locomotion Stop 實際採用的水平位移積分：第 0 個 (0,0) 是後向差分的邊界佔位，
+        /// 因此 [0, 1/SampleRate] 使用第一個實測速度，不把佔位值積進去。這只新增查詢，
+        /// 不改 SpeedCurve、AutoAverageSpeed 或一般 committed motion 的既有語意。
+        /// </summary>
+        public float GetLocomotionStopHorizontalDisplacementAt(float time)
+        {
+            if (SpeedCurve == null || SpeedCurve.length == 0 ||
+                float.IsNaN(time) || float.IsInfinity(time) || time <= 0f)
+            {
+                return 0f;
+            }
+
+            float endTime = Mathf.Min(time, Duration);
+            if (endTime <= 0f) return 0f;
+
+            float firstMeasuredTime = SampleRate > 0f ? 1f / SampleRate : 0f;
+            float firstMeasuredSpeed = GetSpeedAt(firstMeasuredTime);
+            float initialEnd = Mathf.Min(endTime, firstMeasuredTime);
+            float distance = Mathf.Max(0f, firstMeasuredSpeed) * initialEnd;
+            if (endTime <= firstMeasuredTime) return distance;
+
+            float previousTime = firstMeasuredTime;
+            float previousSpeed = firstMeasuredSpeed;
+            for (int i = 1; i < SpeedCurve.length; i++)
+            {
+                Keyframe current = SpeedCurve[i];
+                if (current.time <= previousTime) continue;
+                float segmentEnd = Mathf.Min(endTime, current.time);
+                float endSpeed = GetSpeedAt(segmentEnd);
+                distance += 0.5f * (Mathf.Max(0f, previousSpeed) + Mathf.Max(0f, endSpeed)) *
+                            (segmentEnd - previousTime);
+                if (endTime <= current.time) return distance;
+                previousTime = current.time;
+                previousSpeed = current.value;
+            }
+
+            if (endTime > previousTime)
+                distance += Mathf.Max(0f, previousSpeed) * (endTime - previousTime);
             return distance;
         }
 

@@ -91,6 +91,10 @@ namespace Project.Core.Movement
         /// <inheritdoc />
         public void Tick(PlayerRuntimeData data, AnimationFacadeBase animationFacade, float deltaTime)
         {
+            // ADR-010：快照由唯一 Writer 每次 tick 先清除；只有本帧確認停步正在播放、播放頭已前進、
+            // Bake 有結束站姿時，才在下方重新寫入 Active=true。⇒ Active 不是「最近跑過」，是「本帧確認」。
+            data.LocomotionStopPrediction = default;
+
             // 順序 3 發生在 FSM 切入 Jump 之前；此處先快照 locomotion 播放頭，JumpState.OnEnter
             // 才能在同一幀承諾 LU／RU。若等到順序 6，順序 5 已開始 cross-fade 到 Jump，來源可能消失。
             CaptureLocomotionTime(animationFacade);
@@ -155,6 +159,36 @@ namespace Project.Core.Movement
             }
 
             _wasIntending = isIntending;
+
+            if (_stop.IsPlaying && _stop.HasPlaybackRate &&
+                TryGetActiveVariant(out LocomotionStopVariant predictionVariant))
+            {
+                PublishStopPrediction(data, predictionVariant.BakeData);
+            }
+        }
+
+        /// <summary>ADR-010：本帧的停步預測快照（最小 schema）。條件不足就保持 default。</summary>
+        private void PublishStopPrediction(PlayerRuntimeData data, MotionBakeData bakeData)
+        {
+            FootPlantSchedule schedule = bakeData != null ? bakeData.FootPlantSchedule : default;
+            float duration = bakeData != null ? bakeData.Duration : 0f;
+            if (!schedule.IsValid || duration <= 0f) return;
+
+            float currentClipTime = Mathf.Clamp01(_stop.NormalizedTime) * duration;
+            if (!(currentClipTime < duration)) return;
+            float publishClipTime = Mathf.Clamp01(_stop.PreviousNormalizedTime) * duration;
+
+            float travelledAtPublish = bakeData.GetLocomotionStopHorizontalDisplacementAt(publishClipTime);
+            float totalTravel = bakeData.GetLocomotionStopHorizontalDisplacementAt(duration);
+            data.LocomotionStopPrediction = new LocomotionStopPrediction
+            {
+                Active = true,
+                RootWorldPositionAtPublish = transform.position,
+                RootYawDegreesAtPublish = transform.eulerAngles.y,
+                RemainingForwardDisplacement = Mathf.Max(0f, totalTravel - travelledAtPublish),
+                EndLeftAnkleInRoot = schedule.EndPose.LeftAnkleInRoot,
+                EndRightAnkleInRoot = schedule.EndPose.RightAnkleInRoot,
+            };
         }
 
         private void ApplyCombatDirectionalSpeedLimit(

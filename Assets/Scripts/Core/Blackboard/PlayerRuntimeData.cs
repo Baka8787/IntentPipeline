@@ -52,6 +52,12 @@ namespace Project.Core.Blackboard
         //    MaxHealth 0 ⇒ 行為與導入本欄位之前完全相同。
         public SurvivabilityData Survivability;
 
+        // === Locomotion Stop 預測區（ADR-010 🟡 Trial）===
+        // 持續型、每帧整體覆寫的純數值快照；不參與 ResetTransientState。
+        // 寫入者（唯一）：LocomotionModel（順序 3，每次 tick 先清除）。讀取者：Presentation.IK（同帧順序 6.x）。
+        // 停步未播放／播放頭未前進／Bake 無結束站姿／完成或中斷時 Active=false，消費端退回既有 reactive chain。
+        public LocomotionStopPrediction LocomotionStopPrediction;
+
         // === 仲裁區 ===
         // 每幀由仲裁管線統一覆寫，表現層下游只讀不寫
         // 註：同 Intent，維持公開欄位而非 Property，避免 struct 值複製導致無法直接修改內部旗標

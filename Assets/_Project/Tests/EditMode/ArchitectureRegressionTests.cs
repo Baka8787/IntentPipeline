@@ -545,6 +545,8 @@ namespace Project.Tests.EditMode
             //    ⛔ 攻擊方 sink 不得寫這一區——它們只送傷害（D2 的決策擁有權）。
             new WriterRule { Member = "Survivability", AllowedFiles = new[] { "CharacterHealth.cs" },
                              Owner = "CharacterHealth（順序 0.5 PublishTo；ADR-009 D1 single-writer）" },
+            new WriterRule { Member = "LocomotionStopPrediction", AllowedFiles = new[] { "LocomotionModel.cs" },
+                             Owner = "LocomotionModel（順序 3；ADR-010 Trial，每次 tick 先清除、本帧確認才寫入）" },
             // 🆕（Stage 2）步態檔位。⚠️ 寫入者是**決定它的那一顆**（持有 GaitProfileSO、實作
             //    「預設 Run／Sprint 鍵／Walk 鍵」控制方案的 policy），不是把它算出來的 model。
             //    這條擋的是「音效端自己從 MoveSpeed 反推步態」——那是 docs/16 明列的
@@ -696,7 +698,7 @@ namespace Project.Tests.EditMode
         }
 
         [Test]
-        public void A12_StopAndFootPhase_DoNotExpandGameplayBlackboard()
+        public void A12_StopAndFootPhase_OnlyExposeTrialPredictionSnapshot()
         {
             string[] forbidden = { "Foot", "Stop", "Phase" };
             var violations = new List<string>();
@@ -704,10 +706,28 @@ namespace Project.Tests.EditMode
                 System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
             foreach (var member in members)
             {
+                // ADR-010（Trial）：唯一允許的停步相關黑板區。
+                if (member.Name == nameof(Project.Core.Blackboard.PlayerRuntimeData.LocomotionStopPrediction))
+                    continue;
                 foreach (string token in forbidden)
                     if (member.Name.Contains(token)) violations.Add(member.Name);
             }
             CollectionAssert.IsEmpty(violations);
+
+            // ADR-010 D1：只含 value type（不帶 Presentation／asset reference）。D2：正式 schema 只有這六個欄位。
+            System.Type snapshot = typeof(Project.Core.Blackboard.LocomotionStopPrediction);
+            Assert.IsTrue(snapshot.IsValueType);
+            var fields = new List<string>();
+            foreach (var field in snapshot.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+            {
+                Assert.IsTrue(field.FieldType.IsValueType, $"Prediction 不得帶 Presentation／asset reference：{field.Name}");
+                fields.Add(field.Name);
+            }
+            CollectionAssert.AreEquivalent(new[]
+            {
+                "Active", "RootWorldPositionAtPublish", "RootYawDegreesAtPublish",
+                "RemainingForwardDisplacement", "EndLeftAnkleInRoot", "EndRightAnkleInRoot",
+            }, fields, "ADR-010 D2：擴充欄位需要正式 consumer 的理由與獨立變更");
         }
 
         [Test]

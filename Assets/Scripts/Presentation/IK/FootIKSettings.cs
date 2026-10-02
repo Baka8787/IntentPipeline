@@ -181,6 +181,14 @@ namespace Project.Presentation.IK
                  "Walk 下樓停步以預測落點當 FutureReachCap。關閉 ＝ 回到 StopHold（等兩腳都 Locked 才站）。")]
         public bool StandingUseSupportTransfer = true;
 
+        [Header("🧪 停步落點預測的參考點轉換（docs/46 §18；FutureLandingProvider）")]
+        [Tooltip("左腳：Humanoid IK goal − Foot 骨骼（落地腳的座標系：x＝右、z＝前；公尺）。烘焙記的是 Foot 骨骼、T3 鎖的是 IK goal；" +
+                 "預測端以此把烘焙點換到 T3 的參考點。落地腳朝向以預測的 root yaw 近似（烘焙沒有腳的旋轉）。y 不使用（預測會重新落地）。0 ＝ 不轉換。")]
+        public Vector3 StopLandingLeftGoalOffset = Vector3.zero;
+
+        [Tooltip("右腳：同上（左右腳各自一組）。")]
+        public Vector3 StopLandingRightGoalOffset = Vector3.zero;
+
         [Tooltip("Landing 預告：下降中的未鎖腳，其可達上限放寬 κ × 腳底離地高度，接觸瞬間精確。")]
         [Min(0f)] public float MovingLandingAnticipation = 1.5f;
 

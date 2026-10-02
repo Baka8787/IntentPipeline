@@ -18,6 +18,7 @@ namespace Project.Core.Movement
         private float _normalizedTime;
         private float _previousNormalizedTime;
         private float _elapsedRealTime;
+        private float _normalizedUnitsPerRealSecond;
 
         public bool IsActive => _isActive;
         public bool IsPending => _isActive && _isPending;
@@ -30,6 +31,8 @@ namespace Project.Core.Movement
         public float NormalizedTime => _normalizedTime;
         public float PreviousNormalizedTime => _previousNormalizedTime;
         public float ElapsedRealTime => _elapsedRealTime;
+        public float NormalizedUnitsPerRealSecond => _normalizedUnitsPerRealSecond;
+        public bool HasPlaybackRate => _normalizedUnitsPerRealSecond > 0f;
 
         /// <summary>
         /// 已 Play 但 Stop 的播放頭尚未前進（docs/07 R8）：Play 當帧讀到 0，且新 state 的第一次評估不推進時間，
@@ -62,6 +65,7 @@ namespace Project.Core.Movement
             _normalizedTime = 0f;
             _previousNormalizedTime = 0f;
             _elapsedRealTime = 0f;
+            _normalizedUnitsPerRealSecond = 0f;
             return _generation;
         }
 
@@ -73,6 +77,7 @@ namespace Project.Core.Movement
             _normalizedTime = 0f;
             _previousNormalizedTime = 0f;
             _elapsedRealTime = 0f;
+            _normalizedUnitsPerRealSecond = 0f;
             return true;
         }
 
@@ -87,7 +92,12 @@ namespace Project.Core.Movement
 
             _previousNormalizedTime = _normalizedTime;
             float clampedTime = Mathf.Clamp01(normalizedTime);
-            if (clampedTime > _normalizedTime) _normalizedTime = clampedTime;
+            if (clampedTime > _normalizedTime)
+            {
+                if (deltaTime > 0f)
+                    _normalizedUnitsPerRealSecond = (clampedTime - _normalizedTime) / deltaTime;
+                _normalizedTime = clampedTime;
+            }
             if (deltaTime > 0f) _elapsedRealTime += deltaTime;
         }
 
@@ -123,6 +133,7 @@ namespace Project.Core.Movement
             _normalizedTime = 0f;
             _previousNormalizedTime = 0f;
             _elapsedRealTime = 0f;
+            _normalizedUnitsPerRealSecond = 0f;
         }
 
         private static int NextGeneration(int current) => unchecked(current + 1);
