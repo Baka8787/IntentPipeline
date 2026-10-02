@@ -7,6 +7,306 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🟦 2026-10-02（二）— **下樓停步煞車：來源拆解完成——每一個 ≥5 cm 單帧都是「腳鎖定時的 §27 硬夾 activation」；Run＝煞車步、放開後時間窗不足（完美預知也只能部分解）；Walk＝規則②把正在下降落地的尾腳也排除了；⛔ 只量測、runtime 未改、未 commit**
+>
+> 📖 正本：`docs/46` §34。對照組 throwaway `Probe_DownStopBrakeControl`（ω 1.5，52 次，重現 §33.4 的「前」）；重播 `docs/artifacts/pelvis-analysis/brake.py.txt`（誤差中位 0.01、最大 1.5 cm）。
+>
+> - Run：煞車步的腳放開後約 12 帧鎖定，硬上限比骨盆低 15–25 cm（ω 1.5 時記憶已經先蹲好）。Landing 預告失效：κ·h 放寬，加上角色隔帧閃爍（SoleHeight 跨階緣／地面漏打）。8.3 cm＝`PelvisSmoothSpeed`；套用值落後硬上限 1–3 帧，reach debt 最大 17–23 cm。
+> - Walk：SupportTransfer 只讓 Locked 腳往下拉；尾腳 Landing 的上限 −29～−38 提前 10 帧以上就知道，卻被忽略 ⇒ 鎖定時一帧補 5–8 cm。
+> - 離線候選：**C（下降落地中的尾腳在 SupportTransfer 也能往下拉）⇒ Walk ≥5 cm 帧 7 → 0、單帧 ≤ 4.4、無 debt**；上樓停步改變 ≤ 0.9 cm（加上「下樓停步」閘即可為 0）。Run：B（去閃爍＋Landing 投影）proto 17 → 7、s1 20 → 14；Oracle（完美預知）k＝12 時 proto 2、s1 7——剩下的需求觸及 −35 且放開後時間不夠。
+> - ❓ 待使用者（§34.7）：①Walk 採用 C？②Run：(a) 接受／(b) B／(c) 重開 §33 降低 Run 下樓移動中的 ω（建議先離線掃描）／(d) 擴大停步預測（範圍外）。③Landing 閃爍是否另外登記。
+> - 本會話新增檔案：`StopLandingProbe` 的 `_descendRiseOmegaOverride`＋`Probe_DownStopBrakeControl`（throwaway）、`brake.py.txt`；`docs/46` §34、`docs/00-map` 指標。probe CSV 已複製到 session scratchpad（`Temp/StepFlip/*_w1.5.csv` 仍在，Unity 重啟會清空）。
+>
+> ---
+
+> # 🟧 2026-10-02 — **下一會話開場：「下樓停步煞車」slice（使用者已裁決開）**
+>
+> **開場只需讀**：本段 ＋ `docs/46` §33（尤其 §33.4 的停步回歸數據與 §33.6 裁決）＋ §27（硬夾 owner 規則）＋ §19（SupportTransfer 語意）。量測方法與坑：memory `final-bone-measurement` ＋ `docs/46` §30.2。⛔ 不需要重讀 §20–§32 的研究過程。
+>
+> ## 問題（§33.4）
+> `MovingPelvisDescendRiseOmega` 6（已保留）讓下樓**移動中**的下蹲變淺（Walk −30 → −22、Run −26 → −15 cm）。但下樓**停步**的煞車步仍要求 −14～−32 cm（Landing 約束）——以前被移動中的「記憶」預先蹲好，現在放開後才下沉：
+> - Run 下樓停步：放開後 60 帧內下沉中位 15–19 cm（最大 30），單帧 8.3 cm（速度上限），多在停步後 ~11 帧；13 次停步合計 16–20 帧單帧 ≥ 5 cm。
+> - Walk 下樓停步：下沉 ~7 cm（最大 11），較平緩。
+> - 最低點與最終高度與改動前相同 ⇒ 問題是**時序與單帧速度**，不是深度。
+>
+> ## 範圍
+> - ✅ 停步語意（StopHold／Stand／SupportTransfer）、放開後的下沉如何發生（誰綁定、是否硬夾 activation、`PelvisSmoothSpeed` 8.3 cm／帧上限）。
+> - ⛔ 不動：上樓（ω／toe／heel 都不改，§32 只拆來源）、移動中的 ω、T3（riser rule、Locked 合約、落腳）、預測、Heel Lift、Planned Stop。
+> - 建議開場第一步（只量測）：用 `Probe_StepFlip`（Down、rule 開）＋ `Probe_BodyJerkEvent` 的欄位，對每次下樓停步拆「放開後第一個 ≥ 5 cm 單帧」的來源（綁定腳／角色／是否 §27 activation／Primary 狀態），再提修法。對照組：`MovingPelvisDescendRiseOmega` 設 1.5 的同一事件。
+>
+> ## 目前程式狀態（全部⛔未 commit，工作樹是大量跨會話 WIP；commit 切法由使用者決定）
+> | 項目 | 狀態 |
+> |---|---|
+> | §27 硬夾「約束加入／換腳」不承接速度 | 已實作＋測試；⏳ 人工 Play 未回報 |
+> | §33 下樓回升 ω 6（`MovingPelvisDescendRiseOmega`） | 已實作＋3 測試；X Bot 用程式預設；還原＝設 1.5 |
+> | §23 riser-intrusion rule | X Bot prefab **已開**（§25，Editor API；還原＝設 False） |
+> | §21 Locked sample-frame freeze | 已否決、預設關，程式仍在——❓ 是否移除 |
+> | §24 XZ compliance | 已移除 |
+> | throwaway | `StopLandingProbe` 內多個 probe（StepFlip／StepFlipStopHold／Smoke／RiserRuleAcceptance／BodyJerkEvent／WalkDescentLeg／FinalBoneBaseline）；`FootContactState.Debug*`、`MovingPelvisState.Debug*`（只寫不讀） |
+> | 測試基準 | EditMode **766／765／0 failed／1 skipped** |
+>
+> ## 已知、尚未處理（不在下一個 slice）
+> - 上樓深約束 ≈ 90% 斜面幾何（後腳在支撐後段離 root 0.30–0.35 m）⇒ 需 T3／步態 slice（stride／提早離地）；toe-first／heel-lift 估算 ≤ 3 cm（§31–§32）。
+> - §25 B 類：proto Walk 上樓最後落腳 1 帧腳尖 +18 cm 尖峰（Unlocked）。
+> - §27.4：Run 上樓剛放開時同一 Support 腳硬上限一帧移動 7–10 cm（a95 是動畫 2 倍）。
+> - §30.4-6：root 在 IK 之後才移動 ⇒ 樓梯上畫出來的腳相對 IK 目標每帧偏 Walk ±2.2、Run ±4.5 cm。
+> - 下樓落地前 3 帧仍懸空 10–16 cm（T3 落腳；§28／§30）。
+>
+> ## 工具
+> - 分析腳本：`docs/artifacts/pelvis-analysis/*.py.txt`（CSV 路徑要改）。probe 輸出在 `Temp/StepFlip/`——**Unity 重啟會清空，跑完立刻複製出來**。
+> - PlayMode：`unity cmd run_tests --mode PlayMode --async_tests true --filter <name> --include_explicit true`；送出後確認 `isPlaying=True`（本會話遇過請求被丟掉、狀態檔是舊的）。
+> - Codex MCP 會在 30 分鐘無回應時逾時，但背景仍會繼續跑完並寫檔。
+>
+> ---
+
+> # 🟨 2026-10-01（六）— **上樓深約束拆解完成（≈90% 斜面幾何）；下樓回升 slice 已實作（ω 6）：移動中 Walk −30 → −22、Run −26 → −15，平地／上樓逐帧不變；⚠️ 下樓停步出現放開後下沉（Run 15–19 cm 含 8 cm 單帧）；⏳ 待裁決；⛔ 未 commit**
+>
+> 📖 正本：`docs/46` §32（上樓拆解）、§33（下樓 slice）。
+>
+> - §32：上樓後腳深需求 ≈ 「root 底下 vs 後腳底下的移動面高差」（24–37 cm）；扣掉後與平地相同。踏面離散化 ≈ 0、動畫已抬腳被按住 ≈ 10%。
+> - §33：`MovingPelvisDescendRiseOmega` 6（還原＝1.5）。EditMode **766／765／0 failed／1 skipped**（+3）。
+> - 停步回歸：上樓 0 差異；下樓停步煞車的 Landing 需求以前被「記憶」預先蹲好，現在放開後才下沉。
+> - ❓ 待使用者：①接受 ②只對 Walk ③另開下樓停步煞車 slice。
+>
+> ---
+
+> # 🟦 2026-10-01（五）— **骨盆下壓歸因：一半以上是回升慢累積的「記憶」，不是此刻的需求；toe-first／heel-lift 離線估算最多改善 3 cm ⇒ 暫不做；⛔ 只量測**
+>
+> 📖 正本：`docs/46` §31。最終骨骼記錄器加讀求解器狀態；離線重播（誤差中位 ≤ 0.17 cm）。
+>
+> - 實際 −25～−34 vs 此刻要求 −3～−14 ⇒ 記憶 14–26 cm。綁定者：Walk 上樓＝後腳 Support；Walk 下樓＝前腳 Landing；Run 上樓＝後腳 Support（需求超過 −35 下限）；Run 下樓＝前腳 Landing。
+> - 重播：Run 下樓 ω 6 ⇒ −26 → −13、起伏不變；Walk 下樓 ω 3 ⇒ −27 起伏不變（ω 6 ⇒ −21、p90 +3 cm）；上樓加快回升 ⇒ Walk 起伏 p90 29 cm、Run a95 201（更糟）。
+> - ⚠️ 上樓後腳深需求是否為 T3 釋放太晚：未定論（量到的差距含斜面 vs 踏面落差）。
+> - ❓ 待使用者：①下樓開「回升動態」slice（依方向分開 ω）②上樓先拆解後腳需求。
+>
+> ---
+
+> # 🟦 2026-10-01（四）— **最終骨骼基準完成：問題是「整體下蹲」與「Walk 上樓過顛」，不是「骨盆太平穩」；⛔ 只量測**
+>
+> 📖 正本：`docs/46` §30。throwaway `Probe_FinalBoneBaseline`（LateUpdate 最後執行讀最終骨骼、OnAnimatorIK 讀 FK；兩道樓梯 × Walk／Run × 4 起點）。
+>
+> - 量測驗證：最終 Hips ＝ FK ＋ 上一帧 PelvisOffsetY ＋ root 在 IK 之後的位移（MotionDriver 在 LateUpdate 移動角色），殘差 ≤ 0.02 cm。舊 probe 在協程讀骨骼＝上一帧姿勢，已棄用。
+> - 動畫本身就有起伏（平地 Walk 6.5、Run 11.6 cm／步），下樓與 Run 上樓的最終起伏 ≈ 動畫；Walk 上樓 p90 ≈ 20 cm（過顛）；Run 上樓 a95 是動畫 2 倍。
+> - 共同問題：平均骨盆偏移 −25～−34 cm、支撐膝 p10 70–81°（動畫 122–155°）；下樓鎖定前 3 帧仍懸空 10–16 cm。
+> - ❓ 待使用者：確認修正後的判準（以 FK 為基準的相對值，§30.5）。
+>
+> ---
+
+> # 🟦 2026-10-01（三）— **方向重估：骨盆改為「硬可達包絡＋有界相位回升」、腳的姿勢（前掌著地／抬跟／擺盪外觀）歸 T3；先量四情境世界骨盆基準；⛔ 未實作**
+>
+> 📖 正本：`docs/46` §29（文獻、UE5 Foot Placement `heel_lift_ratio`、Codex 討論 thread `01a0f7b3-…`）。
+>
+> - 文獻證實 §28 的鏈條：下樓腳跟先著地 ⇒ 前腳要伸更低 ⇒ 後腳屈膝更大；人在 >10 cm 台階偏好前腳掌先著地。
+> - Codex：不回到 support-driven；建議判準 Walk 世界骨盆每步峰谷 4–8 cm、Run 6–10 cm；前掌著地／抬跟需要 T3 新的接觸子相位（會改 LockPosition 語意 ⇒ Trial ADR）。
+> - ⚠️ 量測缺口：§12–§28 的骨盆都是 `PelvisOffsetY`，不是世界骨盆。
+> - ❓ 待使用者：是否先做四情境 phase-binned 基準量測（不改程式）。
+>
+> ---
+
+> # 🟦 2026-10-01（二）— **Walk 下樓前腳折膝研究：擺盪中段膝角 46–70°（動畫 ~105°）是骨盆低的結果；骨盆低的原因是前腳伸直後仍差 15–20 cm 搆不到下一階；⛔ 只量測、未改**
+>
+> 📖 正本：`docs/46` §28。throwaway `Probe_WalkDescentLeg`（兩道樓梯連續下樓＋平地基準）。
+>
+> - 鎖定當帧：後腳膝角 72°（動畫 ~122°，平地 125°）、骨盆 −28～−31 cm、前腳鎖定前 5 帧仍懸空 8–10 cm（平地 1 cm）。
+> - 每步：前腳約鎖定前 7 帧已伸直（≥170°）仍懸空 15–20 cm ⇒ Landing 需求 −27～−38 cm ⇒ 骨盆下沉、後腳 50–73°。
+> - ❓ 待使用者：槓桿 A 前腳掌先著地（預估補 6–7.5 cm）／B 擺盪腳提早下降（消除中段折膝）／C 後腳抬跟；建議先離線量化 A。
+>
+> ---
+
+> # 🟨 2026-10-01 — **pelvis／stand handoff slice 第 1 項：硬夾區分「約束移動」與「約束加入／換腳」；s1 #05／proto #09 不再衝到 −35，只剩 5.5／7.5 cm 必要夾動；⏳ 待人工 Play；⛔ 未 commit**
+>
+> 📖 正本：`docs/46` §27。`MovingPelvisSolver` 硬夾：owner 相同才承接上限變化率；新約束／換腳 ⇒ 位置立即合法、速度 `min(v, 0)`。
+>
+> - 啟用後速度 10.9 → **0.07–0.16 m/s**，收斂到需求（−23.1／−18.5），無二次過衝。
+> - 208 次停步只有這 2 個改變；Walk 52 個與其餘全部逐位元相同；T3 目標不變。EditMode **763／762／0 failed／1 skipped**（+2）。
+> - 範圍外（記錄）：Run 上樓剛放開時同一 Support 腳的硬上限一帧移動 7–10 cm ⇒ 承接 3.7–6.1 m/s，骨盆到 −35（修正前後相同）。
+> - ⏳ 人工 Play：兩道樓梯 Run 下樓中段停下，看剩下的 5～7 cm 是否仍明顯。第 2 項（無預測時尾腳落地前不站直）暫不做。
+>
+> ---
+
+> # 🟦 2026-09-30（三）— **「全身抖一下」定位：foot target 穩定；是 SupportTransfer 尾腳鎖定交接＋硬夾速度承接過衝（骨盆 3 帧 −13 → −35 cm）；⛔ 只量測、規則未改、未 commit**
+>
+> 📖 正本：`docs/46` §26。可重現事件：s1 Run 下樓 #05，停步後 t＝58（另 proto Run 下樓 #09 同型；Run 下樓 2／26、Walk 0／52）。
+>
+> - 兩腳 T3 目標／命中／支撐／LockedSupportY／髖位全程穩定 ⇒ 不是 B 類 landing。
+> - 機制：尾腳 Unlocked 懸停（非 Landing 角色、Run 下樓無預測 cap）⇒ SupportTransfer 站直到 −12.9；尾腳鎖定 ⇒ 硬上限一帧 −0.3 → −18.4 ⇒ 硬夾速度＝上限階躍（−10.9 m/s）⇒ 衝到下限 −35，再以 ω6 爬回。StopHold 對照：無此抖動（proto #09 單帧 0.6 cm）。
+> - §25 B 類腳尖尖峰不傳到骨盆（該帧無約束，骨盆 −29.5 不動）。
+> - ❓ 待使用者：開 pelvis／stand handoff slice？槓桿①硬夾速度承接不吃約束集合的階躍 ②非批准停步尾腳未鎖定前不上升（§19.5）。
+>
+> ---
+
+> # 🟨 2026-09-30（二）— **XZ compliance 已移除；X Bot 的 `LockedRiserIntrusionRule` 已開（原本是關的）；最小驗收：Walk 上樓 Locked 腳尖跳 10 → 0、s1 階角 3 → 0、釋放類不變；殘餘＝Walk 上樓最後落腳 1 帧腳尖尖峰（B 類）；⏳ 待人工 Play；⛔ 未 commit**
+>
+> 📖 正本：`docs/46` §25。
+>
+> - 移除後 runtime 與 §23 逐位元一致（驗收 39／39 逐帧相同）；EditMode **761／760／0 failed／1 skipped**。
+> - ⚠️ §23 之後的人工 Play 都是在規則**關閉**下（prefab False、場景未覆寫）。已以 Editor API 設為 True（prefab diff 只新增 7 行，有效變化只有這個開關）；還原＝設回 False。
+> - 殘餘：proto Walk 上樓停步 7／13 次，右腳最後落腳前 1 帧（Unlocked）腳尖埋進上一階 9 cm ⇒ +18 cm 尖峰、下一帧鎖定回落——B 類，依裁決只記錄。抬跟 #10／#07 屬第三類（不變）。
+> - ❓ 待使用者：人工 Play 是否仍看得到（重點看上面那一帧）；§21 freeze 開關是否也移除。
+>
+> ---
+
+> # 🟦 2026-09-30 — **裁決：Locked foot 維持 XYZ hard lock；Y hard ＋ XZ soft（2／4 cm compliance）不採用；⛔ 未 commit**
+>
+> 📖 正本：`docs/46` §24（規格 §24.1–24.8 由 Claude 先寫；Codex 實作＋6 組 × 104 A/B；Claude 審查 §24.9–24.10）。
+>
+> - 實作無偏離規格；EditMode **765／764／0 failed／1 skipped**（+4）；probe 629／629。原始資料與 Codex 報告 `.codex-temp/xzc/`（REPORT.md 在 MCP 逾時後仍完成；與 Claude 審查一致，另更正 Claude 誤報的 15 cm 釋放跳變＝不相鄰列的假象）。
+> - rule 關：Locked flip 15 → **35／38**、取樣跨階緣 89 → **193／213**、每段鎖定累積腳滑 p95 **8／12 cm**、最終站姿 9／11 腳整階不同。rule 開：翻轉 2 → 1／0，但 riser 側向侵入 137 → 1111／1360 帧、>1 cm 真實穿透 5 → 703／763。
+> - 鎖定中動畫偏移 **97% 是整體平移**（root 滑行，不是 pivot）⇒ 沒有「真正需要的半徑」，也沒有改 pivot anchor 的證據。
+> - ❓ 待使用者：①移除 compliance 程式（建議）或保留 r＝0 死開關 ②Play 時 X Bot 的 `LockedRiserIntrusionRule` 預設**未開**——請勾選後再看一次。
+>
+> ---
+
+> # 🟨 2026-09-29（十）— **riser-intrusion 幾何條件 ε＝4 mm：A 類 15 → 2（剩下全是抬跟，本輪不處理）、階角站姿 0 翻、Releasing 62＝62（±9 cm pop 消失）、B 類不變、無垂直穿透；⏳ 待人工 Play；⛔ 開關預設關、未 commit**
+>
+> 📖 正本：`docs/46` §23。新增條件：T3 接觸修正前的端點高度 ≤ 上一階頂面 ＋ ε。
+>
+> - ε 由三群決定：真側碰 −10～−7.6 cm；腳跟階角 −2.35～+0.14 cm；抬跟 −0.77～+3.71 cm（除 #10 起始 2 帧外 min +0.68）⇒ ε＝4 mm。
+> - 抬跟誤判：#07 0 帧、#10 2 帧（起始帧在頂面下 0.77 cm，確實是幾何側碰）；#10 從 t＝24 起與現行逐帧相同。
+> - 側向 riser 侵入 median 3／p95 8／max 13 mm（s1 #03 腳跟，t＝38–47 暫態；idle 1–3 mm）。鎖定相位／時長／旋轉逐帧不變。EditMode **761／760／0 failed／1 skipped**；probe 213／213。
+> - ⏳ 人工 Play：X Bot 的 `LockedRiserIntrusionRule` **未開**，驗收需勾選（清單見 §23.6）。
+>
+> ---
+
+> # 🟦 2026-09-29（九）— **Locked riser-intrusion rule A/B：A 類 15 → 0、鎖定相位／旋轉不變、無新增垂直穿透、B 類 192 → 192；代價＝2 個離地抬跟 episode 的釋放 pop（~9 cm ×2）；⛔ 未改 T3 policy、未 commit**
+>
+> 📖 正本：`docs/46` §22。條件：Locked ∧ 支撐已選定 ∧ heel／toe ∧ 腳踝底仍在原支撐 ∧ 高出 8–30 cm ⇒ 該點用 `LockedSupportY`。開關 `LockedRiserIntrusionRule`（預設關）。
+>
+> - 側向 riser 侵入 median 3.0／p95 11／max 21 mm；9 個 episode（toe 5＝Walk 上樓，heel 4＝Run 下樓），ankle 全在原支撐。
+> - 最大案例人工檢查（proto Run 下樓 #10）：β 0.93→0.74、外轉 20°、動畫腳跟已抬到上一階高度 ⇒ 是合理的抬跟＋pivot，不是側碰；釋放時規則失效 ⇒ +9.7／−8.8 cm（Releasing +4 的全部來源）。
+> - 三種 episode：真側碰（埋入 7.6–10 cm）／階角站姿（+1.6–2.3 cm）／離地抬跟（在頂面之上）。「埋入深度 > 0」可排除第三類，但 s1 #03 有 2 帧 −0.1 cm 的垂直 knife-edge。
+> - EditMode **761／760／0 failed／1 skipped**；probe 213／213。
+> - ❓ 待使用者：①接受現版 ②加埋入深度條件再跑 A/B ③第三類（鎖定中懸空 β 下拉被上一階整段取消）另案？
+>
+> ---
+
+> # 🟦 2026-09-29（八）— **Locked sample-frame freeze A/B：A 類翻轉 15 → 0，但擋到合理 pivot（腳尖查詢與畫面脫離 max 6.8 cm、新增 18 帧 ≤2.1 cm 穿透）⇒ 全 freeze 不合格；提出更窄的 riser-intrusion rule；⛔ 未改 T3 policy、未 commit**
+>
+> 📖 正本：`docs/46` §21。104 次停步 × freeze 關／開。
+>
+> - B：A 類 **0**（A 15）；LockPosition 不變；鎖定相位與顯示旋轉與 A **逐帧相同**（旋轉沒被 freeze、鎖定時長相同）。
+> - 那 6 cm：停步進 idle 時動畫腳**繞腳跟附近外旋 20–24°、停在 ~15°**，整段在同一次 Locked 內；所有情境鎖定中旋轉 p95 14.6° ⇒ 是合理 pivot。全 freeze 讓腳尖查詢點整個 idle 偏離畫面腳尖 4–7 cm。
+> - 更窄候選（未實作）：查詢照舊跟著畫面腳底；Locked 時某點即時地面比 `LockedSupportY` 高一整階以上 ⇒ 判成側向碰 riser、用鎖定支撐（補上既有 `max(即時, 鎖定)` 缺的往上方向）。估算只在 8 隻 A 類腳啟動、正常小抬升 0 帧被擋、側向插入 p95 11 mm／max 21 mm。
+> - 原型開關 `LockedSampleFrameFreeze`（預設關）。EditMode **761／760／0 failed／1 skipped**。
+> - ❓ 待使用者：①接受「全 freeze 不合格」②下一輪用同一套 A/B 驗證 riser-intrusion rule？
+>
+> ---
+
+> # 🟦 2026-09-29（七）— **停穩過程腳目標整階翻轉：第一個變的是地面取樣（heel／toe 射線在階緣 mm 級翻轉）；Lock 未刷新；與 SupportTransfer 無關；⛔ 只量測、未修、未 commit**
+>
+> 📖 正本：`docs/46` §20。104 次停步（2 樓梯 × Walk／Run × 上／下 × 13）逐帧；同一事件 StopHold 對照 3 次。
+>
+> - 277／277 個整階事件：同一帧必有端點命中高度跳一整階 ⇒ T3 目標同帧跟著跳。Locked 期間 LockPosition／LockedSupportY 變化 **0 次**。Reliable 翻轉期間維持 true。ST vs StopHold：骨盆差 14 cm，腳目標**逐位元相同**。
+> - **A 類（Locked，最終站姿）**：proto Walk 上樓 7／13、s1 Run 下樓 1／13；Walk 下樓 0／26。鎖定只固定腳踝 XZ，端點隨動畫腳旋轉漂 1–5 mm，最終站姿的腳尖／腳跟正好離階緣幾 mm ⇒ 往上翻（`max(即時, 鎖定支撐)` 只擋往下）⇒ 目標 +18–19 cm 維持 5–18 帧再掉回。
+> - **B 類（Unlocked 落腳，β 0.3–0.9）**：端點越過階緣 ⇒ 目標跳 β×級高 4–13.5 cm，多為單向；Walk 下樓停步的翻轉全屬此類。
+> - 測試：EditMode **761／760／0 failed／1 skipped**（不變）。throwaway：`Probe_StepFlip`／`Probe_StepFlipStopHold`、`FootContactState.Debug*`（決策不讀）。
+> - ❓ 待使用者：①看到的是 A（站定後抬高一階又掉回）還是 B（落腳那一下往下跳）②A 類最小修法候選：鎖定期間三端點 XZ 用**鎖定當帧的腳朝向**取樣（先驗證大幅轉向時是否該改變取樣）。
+>
+> ---
+
+> # 🟨 2026-09-29（六）— **SupportTransfer runtime 原型：Walk 下樓停步全部達標方向（無 rise→drop、無 snap、無 reach loss）；上樓停步出現 rise→drop 10 cm；⏳ 待人工 Play；⛔ 未 commit**
+>
+> 📖 正本：`docs/46` §19。使用者規則 ①–⑦（Primary 後立即站直；尾腳 swing 不往下拉；Walk 下樓用 corrected prediction 當 FutureReachCap；cap 只限最高；尾腳 Locked 後改 live Support；預測不可用時保守但不整段 StopHold；預測只批准 Walk 下樓）。
+>
+> - 程式：`MovingPelvisRecovery.SupportTransfer`／`MovingPelvisCapSource`；`MovingPelvisFoot.Reliable`；context 帶 gait、root 垂直速度、兩腳預測落點；`FootIKSettings.StandingUseSupportTransfer`（預設 true，false＝StopHold）。
+> - **26 次 Walk 下樓**（StopHold → SupportTransfer，同一停步事件）：開始站 0.69 → **0.29 s**、尾腳落定時差 18.8 → **11.6 cm**、到最終 1.67 → 1.33 s；rise→drop 0、單帧 1.05 cm、reach loss 0；knife-edge 只是較晚站直。
+> - 還差 11.6 cm 的原因（replica 重現 runtime）：**上升速率 ω6**（cap 定義與 primary 支撐腿都不是主因）。ω8／10／12 ⇒ 9.3／7.7／6.5 cm，單帧 1.3／1.6／1.9 cm。
+> - **其他停步**：全部更早站；但 **Walk 上樓 rise→drop 10.1 cm、Run 上樓 4.3 cm**（尾腳鎖定時最終站姿要求更深——上樓沒有未來落點資訊，LiveLanding fallback 來得太晚）；平地／轉身 ≤ 2.1 cm。
+> - 測試：EditMode **761／760／0 failed／1 skipped**（+7）；完整 PlayMode **174／165／1 failed（既有 C0）／8 skipped**。
+> - ❓ 待使用者：①SupportTransfer ω（6 或 8–10）②上樓 fallback：擴批准到 Walk 上樓（需先驗證向上翻階）／非批准停步尾腳鎖定前不回升／接受。
+>
+> ---
+
+> # 🟨 2026-09-29（五）— **落點預測參考點轉換（Foot 骨骼 → IK goal）：水平誤差 5.7 → 1.1 cm；翻階仍 3／26（實為 1 個「腳跟 2 mm 站在階緣」站姿）；⛔ 無消費者、未 commit**
+>
+> 📖 正本：`docs/46` §18。使用者裁決方向 2：bake 不動，prediction 端轉換；左右腳各一組 foot-local 偏移。
+>
+> - 程式：`FootIKSettings.StopLanding{Left,Right}GoalOffset`（預設 0；X Bot 以 Editor API 設為 §17 實測值）＋ `FootIKController.TryPredictStopLandingGoal`／純函數 `StopLandingGoalInRoot`。
+> - ⚠️ 限制：烘焙沒有腳的旋轉 ⇒ 落地腳座標系以預測 root 朝向近似；bone→goal 偏移不是剛體常數（步態中 std 0.6–0.8 cm），取 clip 結束站姿值。
+> - 驗收（同 26 次、轉換前後同一次執行）：前後 +3.9 → **+1.1** cm、左右 4.1 → **0.2** cm；正確階 23 → **23**／26。
+> - 翻階定位（Editor 射線 1 mm 掃描）：實際腳跟在階緣前 **1.9 mm**、預測腳跟過階緣 9 mm ⇒ 剩下的翻階正是 ~1 cm 鎖定時機殘差，且真值只有 2 mm 餘裕。預測偏低 ⇒ 當 cap 是保守方向。
+> - 測試：EditMode **754／753／0 failed／1 skipped**（+3）。
+> - ❓ 待使用者：(a) 接受邊界翻階（保守）(b) 修 ~1 cm 鎖定時機殘差（只能縮小不能消除）(c) cap 在誤差帶跨階緣時取較低階。
+>
+> ---
+
+> # 🟦 2026-09-29（四）— **+3.8 cm 落點偏差定位完成：烘焙記「腳骨」、T3 鎖「Humanoid IK goal」；⛔ 只量測**
+>
+> 📖 正本：`docs/46` §17。同一停步事件逐點比（root 空間）：烘焙腳踝 − FK 腳骨 ＝ **0.00**（烘焙正確）；FK 腳骨 − IK goal ＝ 前後 +2.3／+3.3、左右 +4.9／−3.9 cm（左右腳不同 ⇒ 解釋兩個偏差值）；IK goal − T3 鎖定點 ≈ 1 cm（鎖定後 goal 微動）。
+> - ❓ 待使用者：修 bake（記 IK goal）或改 prediction reference（腳骨 → goal 的腳局部偏移）。
+> - throwaway：`StopLandingProbe.Probe_FootPointChain`（未追蹤）。
+>
+> ---
+
+> # 🟦 2026-09-29（三）— **停步落點預測驗證：root 幾乎完美，腳踝有 +3.8 cm 固定偏差 ⇒ 26 次 Walk 下樓停步 3 次翻階；⛔ runtime 未改**
+>
+> 📖 正本：`docs/46` §16。使用者：Planned Stop 只當 FutureLandingProvider（只回答尾腳落在哪），先驗證 Walk 下樓能不能公分級、不翻階。
+>
+> - 新 throwaway `StopLandingProbe`：13 個放開位置 × 2 樓梯 ＝ 26 次獨立停步（`StairFeelProbe` 是決定性的，8 次＝2 個樣本）。預測以反射呼叫既有 `TryPredictGroundedAnkle`，只記錄。
+> - 23／26 正確階（垂直 ≤ 1.4 cm）；3／26 低一整階（−19 cm）。水平 5.7 cm＝前後 +3.9 ± 0.5（穩定）＋ 左右 ±4（依腳別）。
+> - 拆解：預測 root +0.1 ± 0.1 cm（幾乎完美）；前後誤差全在 ankle-in-root（+3.4／+4.1–4.3，依停步 clip 變體）⇒ 烘焙點與 T3 鎖定點的**定義不一致**，不是預測雜訊。翻階全由此偏差造成。
+> - 其他：26／26 最終兩腳同一階；預測在放開後 ~0.20 s 才有，約一半比 primary 晚。
+> - ❓ 建議先查清定義差並修烘焙點後重跑 sweep（需要動 bake，本輪禁止）；替代：現況直接當下樓 cap（翻階偏保守）或轉向 foot-side。
+>
+> ---
+
+> # 🟦 2026-09-29（二）— **SupportTransfer 離線驗證：Run 與 Walk 上行／轉身／平地成立；Walk 下行停步需要已知尾腳落點；⛔ runtime 未改**
+>
+> 📖 正本：`docs/46` §15。使用者：Moving 先不動，只處理停步後站直時機——前腳成為 Primary Support 就開始站直，尾腳 committed landing 只當 Future Reach Cap。
+>
+> - 方法：v2 trace（有 Reliable 旗標）重播 StopHold 與 SupportTransfer；StopHold replica 對 v3 runtime 中位誤差 0.03 cm。
+> - **Run**：開始站直 1.01 → **0.36 s**、尾腳落定時 deficit 13.9 → **4.0 cm**、final stand 1.27 → 1.05 s，沒有新的下拉。
+> - **Walk 上行、轉身、平地**：成立（0 次 > 3 cm）。**Walk 下行停步 6／6 失敗**：尾腳最後一步落到低一階，runtime 落地前 ~0.15 s 才知道 ⇒ 鎖定時硬可達單帧拉回最多 12 cm。已知落點（oracle）時 6／6 乾淨、站直 0.37 s 開始。
+> - 事件分類注意：probe 的 `Time.frameCount` 跨 run 不能對齊；rise→drop 只計開始回升之後的下降（否則會把煞車強迫下降算進去）。
+> - ❓ 待使用者：SupportTransfer 做 runtime？Walk 下行選 (a) 接受落腳下拉 (b) 下行時仍 hold（缺可靠訊號）(c) 只拿 Planned Stop 的落點預測當 cap（先驗證準度）。
+>
+> ---
+
+> # 🟨 2026-09-29 — **v3：停步／站立交給統一求解器（StopHold → Stand）；Walk 停步下蹲消除、Run 剩強迫下降；⏳ 待人工 Play；⛔ 未 commit**
+>
+> 📖 正本：`docs/46` §14。使用者：v2「下到平地沒問題」，下一步處理停步下蹲。
+>
+> - 診斷（v2 逐帧）：舊停步鏈互相打架——`Upright` 硬夾 bug（單帧 19 cm 後帶負速度、無下限 ⇒ **−82 cm**）、`C`（權重×可達）在 −45↔−7 跳、StopProgress 只看 primary 腳、Return 目標是仍很深的 Moving 參考；**Planned Stop WIP 在 runtime 是活的**。
+> - 做法：`UseUnifiedStandingPelvis`（X Bot 開）⇒ 舊鏈整條旁路（WIP 程式碼未動）；停步只改回升語意：放開後到落定前 `StopHold`（不回升），兩腳 Locked ＋ root < 0.05 m/s 後 `Stand`（ω6）。目標與約束與移動中相同。
+> - 驗收（真正的停步，放開後 1.5 s，A／v2／v3）：**Walk** 先升後降 9.9／9.5／**1.3 cm**，> 5 cm 15／18／**0**／24；**Run** 12.6／20.2／**8.5**（最大 24.6／75.3／18.6），剩下的全是煞車步落到低階的「強迫下降」；搆不到帧 60／72／**18**。
+> - ⚠️ 事件分類修正：probe 在樓梯頂「放 W 下一帧按 S」會有 1 帧意圖 0——不是停步，已排除。
+> - 測試：EditMode **751／750／0 failed／1 skipped**（+6）；完整 PlayMode **120／111／1 failed（既有 C0）／8 skipped**（+1 新測試，舊鏈測試改為明確關掉統一站立）。
+> - ❓ Run 強迫下降的三條路：①預知最後落腳（Planned Stop 的烘焙落點改當「未來 Landing 約束」）②Heel Lift／T3 落點 ③接受。
+> - ⏳ 人工 Play：docs/46 §14.7。還原＝取消勾選 `UseUnifiedStandingPelvis`（回到 v2）。
+>
+> ---
+
+> # 🟨 2026-09-28（深夜）— **Moving v2：回升拆成 StepRecovery／TerrainExitRecovery；樓梯→平地深蹲已消除；⏳ 待人工 Play；⛔ 未 commit（使用者指示保留為原型）**
+>
+> 📖 正本：`docs/46` §13（§12＝v1）。使用者裁決：不再調同一個 `ω_up`；Terrain Envelope 只當「周圍已不需要低高度」的提示，⛔ 不得回到目標或硬約束；Heel Lift 與 Stop／Standing 統一各自下一輪。
+>
+> - `MovingPelvisRecovery { None, Step, TerrainExit }`：步態內約束解除 ⇒ Step（ω 1.5）；地形提示高於骨盆 >5 cm（<2 cm 離開，滯後）⇒ TerrainExit（ω 6）。提示只選 ω，目標仍是 `min(0, 約束)`（EditMode 釘住）。
+> - **樓梯→平地**（離開後 0.5 s）：Walk −24.0 → **−5.3 cm**（A −2.4）、1.5 s 內沒恢復 4 → 0；Run −3.6 → −1.0。
+> - **樓梯內不變**：bob、搆不到逐項相同；唯一變差 Walk 下樓髖 a95 19.3 → 22.7（仍 < A 26.4）。
+> - **沒有新 snap**：進入樓梯與 v1 逐帧相同；離開後停步的最大單帧 v2 ≤ v1。走出開放頂端的 8.3 cm／帧是既有 `ikAllowed=false → 0` 後備路徑（v1 同，A 4.3）——不屬於本輪。
+> - 測試：EditMode **745／744／0 failed／1 skipped**（+6）；stair probe 16／16；完整 PlayMode **118／109／1 failed（既有 C0）／8 skipped**。
+> - ⏳ 人工 Play：docs/46 §13.6。未解：停步後瞬間下蹲（Stop／Standing 統一）、Walk 上樓收益小（Heel Lift）、開放頂端離地後備。
+> - Git：⛔ 依使用者指示不 commit（程式仍與暫停的 Planned Stop WIP 同檔）。
+>
+> ---
+
+> # 🟨 2026-09-28（晚）— **統一 Moving 骨盆 runtime 原型 v1：已實作＋量測；⏳ 待人工 Play；❓ 2 項待裁決**
+>
+> 📖 正本：`docs/46` §12。使用者裁決：只替換 Moving、`R-noHL`、`ω_up 1.5`、Terrain Envelope 退為後備／診斷；stop／Planned Stop（WIP 暫停）／heel-lift／Run 上樓 T3 釋放都不碰。
+>
+> - 新 `MovingPelvisSolver.cs`（純函數）＋ `FootIKController.ResolveUnifiedMoving` ＋ 5 個設定欄位（`UseUnifiedMovingPelvis` 預設 false）；X Bot prefab 以 Editor API 開啟。
+> - ⚠️ stop 規則一行未改，但 `StandingPostureSolver` 收到的 `Envelope` 輸入**改成 Moving 參考**（否則放開按鍵會往更深的包絡掉）。
+> - 驗收（runtime，A→UM）：深度 Walk 上 −32.2→−29.5、下 −30.7→−29.9、Run 上 −31.8→−27.3、下 −14.8→−11.7；Walk 下 bob21 7.0→2.8、髖 a95 26→19；
+>   Run 上搆不到 15.0%→13.1%；**Walk 上髖 a95 15.5→29.9（變顛）**；樓梯前平地不變（−2.4→−2.8）；**剛下完樓梯的平地 −2.5→−11.3（約 2 s 恢復暫態）**。
+> - 根因：`ω_up` 同時是「每步 bob 預算」與「約束消失後的恢復速度」；包絡看得到前方樓梯結束，反應式求解器看不到。高度增益小是因為沒有抬跟（離線早已指出）。
+> - 實作中修正：硬夾時速度跟隨上限的變化率（離線 R0 會把夾掉的距離當速度 ⇒ 衝過約束後慢慢爬回）。
+> - 測試：EditMode **739／738／0 failed／1 skipped**（新增 15 條）；stair PlayMode **26／26**（新增 2、修改 1：`Player_BodyReference_IsIndependentOfFacing` 改為同時關掉統一路徑——它本來就只測包絡）。完整 PlayMode **118／109／1 failed（既有 `C0`）／8 skipped（probe 設計）**。
+> - ❓ 待使用者：①是否加「Terrain E 當恢復提示」（E 高於骨盆 5 cm 以上時以 ω 6 回升；離線：下完樓梯平地 −11.3→−5.9、樓梯指標不變）；②或改 `ω_up 3`（−7.2，但 Walk 上更顛）。
+> - ⏳ 人工 Play：docs/46 §12.6 六項。還原＝取消勾選 X Bot 的 `UseUnifiedMovingPelvis`。
+> - Git：程式改動與工作樹中暫停的 Planned Stop WIP **在同兩個檔案裡**（`FootIKController.cs`、`FootIKSettings.cs`，prefab 也寫入了 WIP 欄位）⇒ 未 commit，待使用者決定怎麼切。
+>
+> ---
+
 > # 🟦 2026-09-28 — **Pelvis／Body Height 重整 Phase 1：盤點＋離線設計完成；⛔ runtime 未改；❓ 5 項待裁決**
 >
 > 📖 正本：`docs/46-pelvis-body-height.md`；圖解 `docs/artifacts/pelvis-body-height.html`（Artifact：https://claude.ai/artifact/5RxLFi8dXcCEWYgq8GhU6U）。使用者指示：停止修補現有 pelvis 邏輯，先重做「樓梯移動中身體高度」這一層，stop 之後再接回。

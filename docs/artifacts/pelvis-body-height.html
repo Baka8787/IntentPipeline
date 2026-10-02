@@ -85,9 +85,9 @@
 <div class="wrap">
 <header>
   <div class="eyebrow">docs/46 · Foot IK · Presentation Layer · 2026-09-28</div>
-  <h1>骨盆高度統一模型：盤點與離線比較</h1>
+  <h1>骨盆高度統一模型：盤點、離線比較與 Moving 原型</h1>
   <p>樓梯移動中的身體高度，從「一直維持每步最壞時刻」改成「意圖 → 可達約束 → 連續求解」。本頁是 <code>docs/46-pelvis-body-height.md</code> 的圖解版，數字以該檔為準。</p>
-  <div class="status"><span class="chip warn">⛔ runtime 未改</span><span class="chip">只量測／離線模擬</span><span class="chip">stop 規則未碰</span><span class="chip">L = 0.889 m · Leg Stretch 1.05 L</span></div>
+  <div class="status"><span class="chip warn">🧪 原型 v3：Moving＋Standing（X Bot）</span><span class="chip">⏳ 待人工 Play</span><span class="chip">stop 規則未碰</span><span class="chip">L = 0.889 m · Leg Stretch 1.05 L</span></div>
 </header>
 
 <section>
@@ -172,14 +172,115 @@ Terrain Envelope          後備（約束事實無效時）＋ 診斷參照；�
 </section>
 
 <section>
-  <h2>待你裁決</h2>
+  <h2>Phase 2：Moving runtime 原型 v1</h2>
+  <p>已裁決：只替換 Moving；用 <code>R-noHL</code>（T3 還不會抬跟）；<code>ω_up = 1.5</code>；Terrain Envelope 只當後備與診斷。Stop 規則一行沒改，但它們收到的「移動參考」改成這條路徑，否則一放開按鍵就會往更深的包絡掉。</p>
+  <div class="tbl"><table>
+    <tr><th>runtime，A → UM</th><th class="num">深度 cm</th><th class="num">bob21 cm</th><th class="num">搆不到 &gt;1cm</th><th class="num">髖 a95 m/s²</th></tr>
+    <tr><td>Walk 上樓</td><td class="num">−32.2 → −29.5</td><td class="num">5.6 → 6.8</td><td class="num">3.8% → 3.6%</td><td class="num worst">15.5 → 29.9</td></tr>
+    <tr><td>Walk 下樓</td><td class="num">−30.7 → −29.9</td><td class="num best">7.0 → 2.8</td><td class="num">0% → 0%</td><td class="num best">26.4 → 19.3</td></tr>
+    <tr><td>Run 上樓</td><td class="num">−31.8 → −27.3</td><td class="num">6.7 → 6.2</td><td class="num">15.0% → 13.1%</td><td class="num">95 → 81</td></tr>
+    <tr><td>Run 下樓</td><td class="num">−14.8 → −11.7</td><td class="num">12.4 → 15.9</td><td class="num">0% → 0%</td><td class="num">74 → 78</td></tr>
+    <tr><td>平地（樓梯前）Walk</td><td class="num">−2.4 → −2.8</td><td class="num">—</td><td class="num">0%</td><td class="num">11 → 11</td></tr>
+    <tr><td>平地（剛下完樓梯）Walk</td><td class="num worst">−2.5 → −11.3</td><td class="num">—</td><td class="num">0%</td><td class="num">—</td></tr>
+  </table></div>
+  <p>高度增益比離線預估小，因為離線的 R 含抬跟與 <code>ω_up 3</code>；沒有抬跟時，上樓的後腳真的需要那個深度。平地回歸只出現在剛走下最後一階後：<code>ω_up</code> 同時決定每步 bob 和約束消失後的恢復速度，1.5 要約 2 秒才爬回來。包絡的地形射線看得到前方樓梯結束，反應式求解器看不到。</p>
+</section>
+
+<section>
+  <h2>v2：兩種回升語意</h2>
+  <p>v1 的 <code>ω_up</code> 同時負責兩件事。v2 把回升拆開：步態內約束暫時解除時用 <b>StepRecovery</b>（ω 1.5，控制每步起伏）；Terrain Envelope 比骨盆高 5 cm 以上、表示周圍已不需要這麼低時用 <b>TerrainExitRecovery</b>（ω 6）。Terrain Envelope 只決定用哪一種回升，不是目標也不是上限。</p>
+  <div class="roles">
+    <div class="role on"><b>樓梯 → 平地</b>離開樓梯 0.5 s 後的骨盆：Walk −24.0 → −5.3 cm（包絡 −2.4）。1.5 秒內沒恢復的事件 4 → 0。Run −3.6 → −1.0 cm。</div>
+    <div class="role on"><b>樓梯內不變</b>每步起伏與搆不到逐項相同。唯一變差的是 Walk 下樓髖加速度 19.3 → 22.7，仍低於包絡的 26.4。</div>
+    <div class="role on"><b>沒有新的 snap</b>進入樓梯時與 v1 逐帧相同；離開後停步的最大單帧 v2 ≤ v1（Walk 1.3 cm、Run 2.7 cm）。</div>
+    <div class="role off"><b>不屬於本輪</b>走出開放頂端離地那一帧，既有的 IK 後備路徑以 8.3 cm／帧拉回 0；停步後的瞬間下蹲；Walk 上樓收益小（Heel Lift）。</div>
+  </div>
+</section>
+
+<section>
+  <h2>v3：停步與站立交給同一個求解器</h2>
+  <p>停步下蹲的來源是舊停步鏈的幾條規則互相打架：<code>Upright</code> 的硬夾把骨盆單帧拉下 19 cm 後還帶著下行速度、又沒有下限，一路衝到 −82 cm；<code>C</code> 把站立權重乘在可達上限上，停步時在 −45 與 −7 cm 間跳；<code>StopProgress</code> 只看一隻腳，升過頭再被夾回。v3 把整條舊鏈旁路（WIP 程式碼未動），停步只改變回升：放開後到兩腳鎖住、root 停下之前 <b>StopHold</b>（不回升），之後 <b>Stand</b>（ω 6）回到兩腳都搆得到的最高處。</p>
+  <div class="tbl"><table>
+    <tr><th>真正的停步，放開後 1.5 s</th><th class="num">先升後降 平均／最大</th><th class="num">&gt; 5 cm 次數</th><th class="num">單帧最大下拉</th><th class="num">搆不到帧</th></tr>
+    <tr><td>Walk（24 次）包絡／v2／v3</td><td class="num">9.9 / 9.5 / <b>1.3</b>；20.7 / 19.8 / <b>4.4</b></td><td class="num best">15 / 18 / 0</td><td class="num">4.7 / 3.0 / 3.6</td><td class="num">24 / 24 / 9</td></tr>
+    <tr><td>Run（24 次）包絡／v2／v3</td><td class="num">12.6 / 20.2 / <b>8.5</b>；24.6 / 75.3 / <b>18.6</b></td><td class="num">18 / 18 / 12</td><td class="num">18.6 / 18.8 / 8.3</td><td class="num">36 / 48 / 9</td></tr>
+  </table></div>
+  <p>Walk 停步下蹲基本消除。Run 剩下的全部是強迫下降：煞車步落到較低的一階，可達需求在約 0.1 秒內出現。只看當下的骨盆來不及提前下降，要解它得預知最後的落點（Planned Stop 的烘焙落點可以改當未來的 Landing 約束），或從需求端處理（Heel Lift、T3 落點）。</p>
+</section>
+
+<section>
+  <h2>研究：SupportTransfer（前腳成為主要支撐就開始站直）</h2>
+  <p>StopHold 在前腳已經穩定支撐時仍不回升，要等兩腳都鎖住才整段站起來。SupportTransfer 讓前腳第一次可靠鎖定後就順著支撐腿站直；後腳的釋放與擺盪不再把骨盆往下拉，後腳已知的落點只限制最多能升多高。以下是離線重播 runtime 資料的結果，runtime 尚未修改。</p>
+  <div class="tbl"><table>
+    <tr><th>真正的停步</th><th class="num">開始站直</th><th class="num">後腳落定時距最終高度</th><th class="num">站起後又被拉下（&gt; 3 cm 次數）</th><th class="num">到最終站姿</th></tr>
+    <tr><td>Run，StopHold → SupportTransfer</td><td class="num best">1.01 → 0.36 s</td><td class="num best">13.9 → 4.0 cm</td><td class="num">0 → 0</td><td class="num">1.27 → 1.05 s</td></tr>
+    <tr><td>Walk 上行／轉身／平地</td><td class="num">0.82 → 0.22 s</td><td class="num">縮小</td><td class="num">0 → 0</td><td class="num">縮短</td></tr>
+    <tr><td>Walk 下行中停步</td><td class="num">0.82 → 0.22 s</td><td class="num">—</td><td class="num worst">0 → 6／6（最多 12 cm）</td><td class="num">—</td></tr>
+    <tr><td>Walk 下行，若已知後腳落點</td><td class="num">0.37 s</td><td class="num">3.9 cm</td><td class="num best">0／6</td><td class="num">0.86 s</td></tr>
+  </table></div>
+  <p>Walk 下行停步的後腳最後一步落在較低的一階，runtime 在落地前約 0.15 秒才知道。這時骨盆已經升過頭，落腳鎖定時只能被一次拉回。已知落點時完全乾淨，所以轉換本身成立，缺的是提早知道落點。</p>
+</section>
+
+<section>
+  <h2>研究：停步落點預測夠不夠準</h2>
+  <p>Planned Stop 只保留一個用途：預測尾腳最後會踩在哪裡，給 SupportTransfer 當上升上限。以 Walk 下樓在 13 個不同位置放開、兩道樓梯共 26 次獨立停步驗證。預測由既有函式原樣計算，只記錄不回饋。</p>
+  <div class="roles">
+    <div class="role on"><b>23／26 正確階</b>垂直誤差平均 1.0 cm、最大 1.4 cm。</div>
+    <div class="role off"><b>3／26 低一整階</b>預測低了 19 cm，是相鄰的三個放開位置，腳落在階緣 4 cm 內。</div>
+    <div class="role on"><b>root 幾乎完美</b>預測的最終身體位置前後誤差 0.1 cm。</div>
+    <div class="role off"><b>腳踝有固定偏差</b>前後 +3.8 ± 0.5 cm，依停步 clip 變體只有兩個值；左右 ±4 cm 依腳別固定。</div>
+  </div>
+  <p>誤差不是預測的雜訊，而是烘焙的「clip 結束腳踝」和 T3 實際鎖腳的位置不是同一個點。三次翻階都是這個往前的偏差把貼近階緣的腳推到下一階。下樓時翻階的方向是偏低，當上限用只會讓身體多等一下；上樓時同樣的偏差會變成偏高一階，那才危險。另外，26 次停步最後都是兩腳站在同一階。</p>
+</section>
+
+<section>
+  <h2>定位：落點偏差出在哪一層</h2>
+  <p>同一支 clip、同一個停步事件、同一座樓梯，把四個點都換到同一刻的 root 空間逐點比。兩個數字分別是左腳、右腳當尾腳的停步。</p>
+  <div class="tbl"><table>
+    <tr><th>層</th><th class="num">前後 cm</th><th class="num">左右 cm</th></tr>
+    <tr><td>烘焙腳踝 − 執行期腳骨</td><td class="num best">0.00 / 0.00</td><td class="num best">0.00 / 0.00</td></tr>
+    <tr><td>執行期腳骨 − Humanoid IK goal</td><td class="num worst">+2.28 / +3.29</td><td class="num worst">+4.86 / −3.85</td></tr>
+    <tr><td>IK goal（clip 結束）− T3 鎖定點</td><td class="num">+1.17 / +0.86</td><td class="num">−0.10 / +0.26</td></tr>
+    <tr><td><b>合計</b></td><td class="num">+3.45 / +4.15</td><td class="num">+4.76 / −3.59</td></tr>
+  </table></div>
+  <p>烘焙本身完全正確。偏差來自參考點：烘焙記的是腳骨，T3 鎖的是 Humanoid 的 IK goal，而 X Bot 的 IK goal 在腳骨後方 2–3 cm、外側 4–5 cm。左右腳的偏移不同，所以先前只看到兩個偏差值。剩下約 1 cm 是鎖腳之後動畫腳又移動了一點。</p>
+</section>
+
+<section>
+  <h2>參考點轉換後的驗收</h2>
+  <p>烘焙維持記錄腳骨；預測端依左右腳各自的偏移換到 T3 使用的 IK goal。同一組 26 次 Walk 下樓停步，轉換前後在同一次執行裡記錄。</p>
+  <div class="tbl"><table>
+    <tr><th>尾腳</th><th class="num">轉換前</th><th class="num">轉換後</th></tr>
+    <tr><td>前後誤差</td><td class="num">+3.9 ± 0.5 cm</td><td class="num best">+1.1 ± 0.1 cm</td></tr>
+    <tr><td>左右誤差</td><td class="num">4.1 cm</td><td class="num best">0.2 cm</td></tr>
+    <tr><td>正確階</td><td class="num">23／26</td><td class="num">23／26</td></tr>
+  </table></div>
+  <p>水平誤差降到約 1 cm，但翻階沒有消失。三次翻階其實是同一個最終站姿：實際的腳跟只在階緣前 1.9 mm 站在上一階，預測多往前 1.1 cm，腳跟就過了階緣。這是真值本身只有 2 mm 餘裕的邊界情況。預測偏低，用來限制骨盆最高能升多高時是保守的方向。</p>
+</section>
+
+<section>
+  <h2>SupportTransfer runtime 原型</h2>
+  <p>前腳第一次可靠鎖定就開始順著支撐腿站直；後腳釋放與擺盪時不把骨盆往下拉；Walk 下樓停步用預測落點限制最多升多高，後腳鎖定後改用即時支撐約束。下表是 26 次 Walk 下樓停步，同一個停步事件各跑一次舊的 StopHold 與新的 SupportTransfer。</p>
+  <div class="tbl"><table>
+    <tr><th>26 次 Walk 下樓停步</th><th class="num">StopHold</th><th class="num">SupportTransfer</th></tr>
+    <tr><td>前腳踏穩後多久開始站</td><td class="num">0.69 s</td><td class="num best">0.29 s</td></tr>
+    <tr><td>後腳落定時距最終站姿</td><td class="num">18.8 cm</td><td class="num best">11.6 cm</td></tr>
+    <tr><td>站起後又被拉下</td><td class="num">0</td><td class="num best">0</td></tr>
+    <tr><td>最大單帧骨盆變化</td><td class="num">1.08 cm</td><td class="num">1.05 cm</td></tr>
+    <tr><td>腳搆不到</td><td class="num">0 帧</td><td class="num">0 帧</td></tr>
+    <tr><td>到最終站姿</td><td class="num">1.67 s</td><td class="num best">1.33 s</td></tr>
+  </table></div>
+  <p>後腳落定時還差 11.6 cm 的主因是上升速率（ω6），不是上限定義也不是支撐腿。改成 ω8／10／12 分別可降到 9.3／7.7／6.5 cm，單帧變化升到 1.3／1.6／1.9 cm。那個踩在階緣的站姿只是較晚站直，沒有下蹲。</p>
+  <p>其他停步類型都更早站直，但上樓停步出現站起後又被拉下：Walk 最多 10.1 cm、Run 4.3 cm。後腳鎖定時，兩腳的最終站姿需要更深，而上樓沒有預測落點可用，即時落地上限來得太晚。</p>
+</section>
+
+<section>
+  <h2>下一步</h2>
   <ol class="dec">
-    <li>是否採用統一模型作為 <b>Moving</b> 的實作基線（先只換 Moving，stop 維持現狀）？</li>
-    <li>bob 預算：<code>ω_up</code> 取 1.5（較深、較平順）或 3（較高、髖加速度較大）？只有 Play 能判斷。</li>
-    <li>抬跟：是否開 Contact 層 slice（T3 後腳前掌支點）？不做的話，Walk 上樓仍有約 3% 的帧搆不到。</li>
-    <li>Run 上樓 T3 釋放時機：是否另開 slice？剩下的 3.8% 搆不到連 oracle 也解不了。</li>
-    <li>工作樹裡的 Predictive Planned Stop（WIP）：暫停、保留或撤回？它是要被統一掉的第 7 套高度規則。</li>
+    <li>SupportTransfer 的上升速率：維持 ω6，或改 ω8–10。</li>
+    <li>上樓停步：把預測批准範圍擴到 Walk 上樓（需先驗證偏高翻階），或這類停步在後腳鎖定前不回升，或接受。</li>
   </ol>
+  <p class="note">已裁決（2026-09-28）：Unified Moving 保留為原型、不 commit；heel-lift 等 Moving 穩定後另開 T3 slice；Run 上樓釋放時機另開 slice；Predictive Planned Stop 保留 WIP、暫停修改。</p>
 </section>
 
 <footer>正本：docs/46-pelvis-body-height.md · 模擬器存查：docs/artifacts/pelvis_model_sim.py.txt · 資料：Temp/StairProbe/*_r45_t3*.csv（StairFeelProbe）</footer>
