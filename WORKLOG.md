@@ -7,6 +7,17 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # ✅ 2026-10-03 — **工作樹對齊 HEAD（`155b698`）後全套測試：EditMode 767／766／0 failed／1 skipped；PlayMode 96／95／1 failed（既有 `C0`）**
+>
+> - 依 runtime responsibility 切出的正式 commit：`33da8c4` riser rule → `1fc8017` 統一骨盆求解器 → `e5ff3b3` ADR-010（🟡 Trial）停步預測快照 → `6a4017a` X Bot 啟用 → `109488f` docs → `155b698` Walk Fix C。對應見 `docs/46` 檔頭。
+> - 對齊：14 個 tracked 檔改回 HEAD 內容；`FootPlantScheduleBaker`、`StopLandingProbe`、`StairFeelProbe`（＋.meta）移出 `Assets/`。**原型完整備份在 `.prototype-backup-20261003/`**（`files/` 原路徑複本＋`tracked-vs-HEAD.patch`＋README；未追蹤）。Editor 確認：快照 6 欄位、無 plant baker、無 freeze 欄位。
+> - EditMode 比原型少 4 個＝ADR-010 D3 排除的 3 個 Planned Stop 測試＋plant 偵測器測試。首次在 Unity 跑的 `A12`、`A5`、`Model_PublishesAndClearsNumericStopPrediction` 全過 ⇒ ADR-010 AC1 ✅。
+> - PlayMode 唯一失敗 `C0_TraversalDoesNotReportGroundEdgesFromIncidentalContact`：`30aa459` 引入、§19.2 起就已登記的既有失敗，與本系列無關。樓梯／停步相關 30 個全過（含 `Player_UnifiedMoving_*`／`Player_UnifiedStanding_*`）。
+> - ⏳ 仍待：ADR-010 AC2／AC3 在正式版本重跑 probe（probe 已移到備份；它依賴的 THROWAWAY 觀測欄位不在正式程式中，要重跑需另寫正式版 probe 或暫時還原）；AC4 與 §35.4 人工 Play。
+> - 工作樹仍未 commit：場景（`Stairs (1)`、`__StairMovementSurface`）、音量、材質、ProBuilder 設定、`docs/05` 樓梯 clip 盤點、`docs/artifacts/pelvis-analysis/`。
+>
+> ---
+
 > # 🟨 2026-10-02（三）— **下樓停步：正在落地的尾腳也能往下拉（Walk 採用，只在下樓停步）：Walk ≥5 cm 帧 7 → 0、單帧最大 8.2／6.5 → 2.5／4.7 cm、上樓 52／52 逐位元不變；Run 刻意不處理，等 Play 判斷；⏳ 待人工 Play；⛔ 未 commit**
 >
 > 📖 正本：`docs/46` §35（裁決、實作、驗收、Play 清單）；§19 規則② 已加修訂註記。

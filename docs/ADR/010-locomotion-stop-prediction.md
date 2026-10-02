@@ -88,7 +88,7 @@
 ## 5. Acceptance Criteria（Trial → Accepted）
 | # | 條件 | 現況證據 |
 |---|---|---|
-| AC1 | 只有 `LocomotionModel` 寫入；快照只含 value type；播放頭前進前、以及停步被中斷的同一 tick，`Active = false` | EditMode：WriterRule、A12、`Model_PublishesAndClearsNumericStopPrediction`（最小 schema 版；⏳ 需在 Unity 中重跑） |
+| AC1 | 只有 `LocomotionModel` 寫入；快照只含 value type；播放頭前進前、以及停步被中斷的同一 tick，`Active = false` | ✅ **2026-10-03 Unity Test Runner 通過**（工作樹對齊 `155b698` 後）：`A5` WriterRules、`A12`（欄位集合）、`Model_PublishesAndClearsNumericStopPrediction`（最小 schema 版） |
 | AC2 | Walk 下樓停步的尾腳落點：水平誤差 ≤ 2 cm；翻階只允許「真值本身在階緣 ±5 mm」的邊界站姿，且只能偏低（保守） | §18.3（原型，數值相同）：水平 1.1 cm；23／26 正確階，3 次是同一個邊界站姿、預測偏低 |
 | AC3 | 當 `FutureReachCap` 使用時，Walk 下樓停步沒有 rise→drop | §19.3（原型）：rise→drop 最大 0.01 cm（26 次） |
 | AC4 | 人工 Play：Walk 下樓停步看起來沒有「站起來又蹲下」 | ⏳ 未做 |
