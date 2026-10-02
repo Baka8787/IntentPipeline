@@ -181,6 +181,10 @@ namespace Project.Presentation.IK
                  "Walk 下樓停步以預測落點當 FutureReachCap。關閉 ＝ 回到 StopHold（等兩腳都 Locked 才站）。")]
         public bool StandingUseSupportTransfer = true;
 
+        [Tooltip("下樓停步（docs/46 §35）：SupportTransfer 中，正在下降落地的尾腳也能把骨盆往下拉（任何步態；上樓／平地停步不受影響）。" +
+                 "關閉 ＝ 只有 Locked 腳能往下拉（§19 原行為），尾腳鎖定時由硬夾一帧補上。")]
+        public bool StandingDescendingTrailingLandingPulls = true;
+
         [Header("🧪 停步落點預測的參考點轉換（docs/46 §18；FutureLandingProvider）")]
         [Tooltip("左腳：Humanoid IK goal − Foot 骨骼（落地腳的座標系：x＝右、z＝前；公尺）。烘焙記的是 Foot 骨骼、T3 鎖的是 IK goal；" +
                  "預測端以此把烘焙點換到 T3 的參考點。落地腳朝向以預測的 root yaw 近似（烘焙沒有腳的旋轉）。y 不使用（預測會重新落地）。0 ＝ 不轉換。")]

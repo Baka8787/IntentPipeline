@@ -2,7 +2,7 @@
 
 > **狀態**：Phase 1 📝 研究（2026-09-28）；Phase 2 🧪 Moving runtime 原型 v1（§12）→ v2：回升拆成 StepRecovery／TerrainExitRecovery（§13，使用者 Play：下到平地 OK）→ **v3：停步／站立交給同一個求解器（StopHold → Stand，舊停步鏈旁路；§14，⏳ 待人工 Play；⛔ 未 commit，使用者指示先保留為原型）**。
 > ⛔ 未改 stop 規則、⛔ 未碰 Predictive Planned Stop（WIP，暫停）、⛔ 未做 heel-lift runtime、⛔ 未碰 Run 上樓 T3 釋放時機。
-> **✅ 正式 commit（2026-10-03，依 runtime responsibility 切分）**：`33da8c4` T3 riser-intrusion rule（§22–§23）→ `1fc8017` 統一骨盆求解器（§6／§12–§14、§19、§27、§33）→ `e5ff3b3` 停步預測快照＋FutureLandingProvider（**ADR-010 🟡 Trial**，最小 schema；§16–§18）→ `6a4017a` X Bot 啟用 → 本檔。
+> **✅ 正式 commit（2026-10-03，依 runtime responsibility 切分）**：`33da8c4` T3 riser-intrusion rule（§22–§23）→ `1fc8017` 統一骨盆求解器（§6／§12–§14、§19、§27、§33）→ `e5ff3b3` 停步預測快照＋FutureLandingProvider（**ADR-010 🟡 Trial**，最小 schema；§16–§18）→ `6a4017a` X Bot 啟用 → 本檔 → §35 Walk Fix C。
 > **只存在於工作樹、不進正式 commit 的原型**：Planned Stop 軌跡／控制（§16.1 裁決後只保留 FutureLandingProvider）、§21 sample-frame freeze（已否決）、THROWAWAY 觀測欄位與 probe（`StopLandingProbe`／`StairFeelProbe`）、離線分析腳本 `docs/artifacts/pelvis-analysis/`、停步預測快照中的 hip path／plant events／`Generation`（ADR-010 D2）。本檔 §16–§26 描述的部分實作細節屬於這些原型。
 > **範圍**：只處理「樓梯**移動中**的身體高度」。Stop／Standing 在本檔只做盤點，接回方式見 §8.3。
 > **ADR**：不需要——黑板 schema、唯一寫入者（`FootIKController` → `FootIKTargetData.PelvisOffsetY`）、管線順序都不變（CLAUDE.md ADR 判準 ①–④ 皆不成立）。
@@ -604,7 +604,7 @@ throwaway `StopLandingProbe.Probe_FootPointChain` 逐帧記錄四個點，全部
 
 ### 19.1 使用者裁決（規則原文摘要）
 接受 §18 的邊界翻階（保守方向，不再追 ~1 cm 殘差）。開始 SupportTransfer runtime：
-①前腳第一次成為 **Reliable Primary Support** 後立即開始站直；②尾腳 Releasing／Swing 不得主動往下拉；
+①前腳第一次成為 **Reliable Primary Support** 後立即開始站直；②尾腳 Releasing／Swing 不得主動往下拉（**2026-10-02 修訂，§35：下樓停步中，正在下降落地的尾腳可以往下拉**）；
 ③**Walk 下樓**停步以 corrected stop landing prediction 當 `FutureReachCap`；④cap 只限制「最高升到哪」，不得主動降低骨盆；
 ⑤尾腳真正 Locked 後改用 live Support 約束、預測退出；⑥預測不可用時用保守 fallback，但**不重新啟用整段 StopHold**；⑦預測只批准 Walk 下樓。
 不改 bake、IK goal offset、Planned Stop trajectory 或其他骨盆規則。
@@ -1350,3 +1350,34 @@ Locked 腳：`T3 目標高 ＝ 移動面 refY ＋ 動畫離地高 predH ＋ 接�
 2. **Run**：(a) 接受（Run 下樓停步保留 1–3 帧 8 cm 下沉，加上短暫搆不到）；(b) 採用 B（只在停步中；proto 改善一半、s1 有限）；(c) 重開 §33：Run 下樓移動中的 ω 調低（例如 3），用一部分記憶換停步——建議先做離線掃描再決定；(d) 擴大停步預測到 Run 下樓（範圍外，上界有限）。
 3. Landing 角色閃爍（A）：移動中也存在（同一個 `FootLimit`）。單獨修效果很小，只在 B 裡才有意義——要不要另外登記？
 
+## 35. 下樓停步：正在落地的尾腳也能往下拉（2026-10-02；Walk 採用、Run 暫不處理；⏳ 待人工 Play；⛔ 未 commit）
+
+### 35.1 使用者裁決（§34.7）
+- **Walk**：採用 C，**只在下樓停步啟用**。
+- **Run**：⛔ 不採用 B（不在停步中再堆一套 Landing 定義）。先在遊戲鏡頭下看實際的 8 cm／1–3 帧有多明顯，再決定要不要重開 §33。
+- **Landing 角色閃爍**：記為底層問題 WORKLOG **FU-14**，本 slice 不修。
+
+### 35.2 實作（`MovingPelvisSolver`）
+- 新鎖存 `StopDescending`：在放開那一帧決定，條件是 root 垂直速度 < −`DescendingStopSpeed`（0.2 m/s），**不分步態**。`StopUsesPrediction` 改為 `WalkGait ∧ StopDescending`，結果與原本相同。
+- SupportTransfer 中，若 `DescendingTrailingLandingPulls ∧ StopDescending` 且尾腳是 **Landing**（Unlocked、有地面、正在下降），它的上限也併入 `down`（`DebugTrailingLandingPull` 標記）。Releasing／上升中的擺盪仍然不往下拉——**§19 規則②從「只有 Locked 腳能往下拉」收窄為「排除 Releasing／上升中的擺盪」，且只在下樓停步。**
+- Run 下樓停步也會走到這條路徑（閘不分步態），但 Run 的事件都發生在 Primary 出現之前（§34.3），所以實際上幾乎不受影響。
+- 開關 `FootIKSettings.StandingDescendingTrailingLandingPulls`（預設 true；X Bot 沒有序列化這個欄位 ⇒ 用程式預設）。**還原 ＝ 設成 false**，會逐位元回到 §34 的行為。
+- EditMode **771／770／0 failed／1 skipped**（+5）：Walk／Run 下樓停步時，落地中的尾腳會往下拉；拉下 20 cm 時單帧 < 5 cm（DropOmega，不是夾下去）；平地／上樓停步不拉；Releasing 尾腳不拉；開關關閉時等於 §19 的行為。
+
+### 35.3 runtime 驗收（`Probe_DescendingLandingPullAcceptance`，104 次停步，X Bot 載入的設定；對照 §33.4／§34 的錄製）
+| | 骨盆有改變的停步 | T3 腳目標 | ≥5 cm 帧 | ≥3 cm 帧 | 單帧最大 | reach debt | 最終高度 |
+|---|---|---|---|---|---|---|---|
+| 上樓（4 組 × 13） | **0／52（逐位元相同）** | 0 差異 | 不變 | 不變 | 不變 | 不變 | 不變 |
+| proto Walk 下樓 | 10／13 | 0 差異 | **4 → 0** | 6 → 0 | 8.2 → **2.5** | 0 → 0 | −12.0 → −12.0 |
+| s1 Walk 下樓 | 9／13 | 0 差異 | **3 → 0** | 4 → 4 | 6.5 → **4.7** | 0 → 0 | −13.1 → −13.1 |
+| proto Run 下樓 | 1／13（最大 2.3 cm） | 0 差異 | 16 → 16 | 21 → 20 | 8.3 → 8.3 | 10 → 10 | 不變 |
+| s1 Run 下樓 | 2／13（最大 0.9 cm） | 0 差異 | 20 → 20 | 26 → 26 | 8.3 → 8.3 | 14 → 14 | 不變 |
+
+- 與離線重播的預測一致（§34.5 的 C：proto 2.5、s1 4.4）。Walk 的總下沉中位從 7.9／6.1 變成 8.6／7.0 cm：深度一樣，只是更早開始、分散到更多帧。
+- 先升後降（rise→drop）：改動前後大致相同（最大 10.6 → 11.0–11.3 cm，超過 1 cm 的停步數不變）。
+- 平地停步：沒有在 runtime 量；放開時 root 垂直速度 ≈ 0，閘不會成立（EditMode 有測）。
+
+### 35.4 ⏳ 人工 Play
+1. **Walk 下樓停步**（兩道樓梯，在中段放開）：最後一步落地時，身體還會不會「頓一下」？骨盆應該在尾腳落地前就平順地降下去。
+2. **Run 下樓停步**（本 slice 刻意沒有處理，用來決定要不要重開 §33）：放開後約 0.2 s（煞車步落地）時，身體一兩帧內下沉 8 cm 左右，同時腳短暫碰不到踏面（最多 17–23 cm）。在**遊戲鏡頭**下明不明顯？
+3. 回歸：上樓停步、平地停步看起來與之前相同（上樓已逐帧驗證）。

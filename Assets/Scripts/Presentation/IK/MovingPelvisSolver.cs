@@ -56,6 +56,12 @@ namespace Project.Presentation.IK
         public float DescendingStopSpeed;
         /// <summary>停步使用 SupportTransfer（Primary 後就站直）；false ＝ StopHold（等兩腳都 Locked）。</summary>
         public bool UseSupportTransfer;
+        /// <summary>
+        /// 下樓停步（放開時 root 垂直速度 &lt; −<see cref="DescendingStopSpeed"/>，任何步態）的 SupportTransfer 中，
+        /// **正在下降落地（Landing）**的尾腳也能往下拉（docs/46 §35）。§19 規則②只排除 Releasing／上升中的擺盪。
+        /// false ＝ 只有 Locked 腳能往下拉（§19 原行為）。
+        /// </summary>
+        public bool DescendingTrailingLandingPulls;
         /// <summary>Landing 預告：上限放寬 κ × 腳底離地高度，接觸瞬間精確。</summary>
         public float LandingAnticipation;
         /// <summary>Support 的硬可達比（× 腿長）：Humanoid Leg Stretch 的邊界，超過才是真的搆不到。</summary>
@@ -76,6 +82,7 @@ namespace Project.Presentation.IK
             SettleRootSpeed = 0.05f,
             DescendingStopSpeed = 0.2f,
             UseSupportTransfer = true,
+            DescendingTrailingLandingPulls = true,
             LandingAnticipation = 1.5f,
             HardReachRatio = 1.05f,
             MaxOffset = 0.35f,
@@ -158,6 +165,8 @@ namespace Project.Presentation.IK
         public int PrimaryFoot;
         /// <summary>放開當下鎖存：這次停步是否批准使用 FutureReachCap（Walk ∧ 下樓）。</summary>
         public bool StopUsesPrediction;
+        /// <summary>放開當下鎖存：這次停步是下樓停步（任何步態；docs/46 §35 的閘）。</summary>
+        public bool StopDescending;
         public bool HasPreviousStopFacts;
         public bool PreviousMovementRequested;
         public bool PreviousLeftReliable, PreviousRightReliable;
@@ -177,6 +186,8 @@ namespace Project.Presentation.IK
         public bool DebugHardActivation;
         /// <summary>本帧的 Step 回升使用下樓角頻率。</summary>
         public bool DebugDescendingRise;
+        /// <summary>本帧 SupportTransfer 的下拉包含正在落地的尾腳（docs/46 §35）。</summary>
+        public bool DebugTrailingLandingPull;
 
         public void Reset() => this = default;
     }
@@ -275,12 +286,16 @@ namespace Project.Presentation.IK
                 state.StopSettled = false;
                 state.PrimaryFoot = 0;
                 state.StopUsesPrediction = false;
+                state.StopDescending = false;
             }
             else
             {
                 // FutureReachCap 只批准 Walk 下樓停步（使用者裁決 §19）：放開當下鎖存。
                 if (releaseEdge)
-                    state.StopUsesPrediction = context.WalkGait && context.RootVerticalSpeed < -tuning.DescendingStopSpeed;
+                {
+                    state.StopDescending = context.RootVerticalSpeed < -tuning.DescendingStopSpeed;
+                    state.StopUsesPrediction = context.WalkGait && state.StopDescending;
+                }
                 if (!state.StopSettled && left.Phase == FootLockPhase.Locked && right.Phase == FootLockPhase.Locked
                     && context.RootHorizontalSpeed < tuning.SettleRootSpeed)
                     state.StopSettled = true;
@@ -298,6 +313,7 @@ namespace Project.Presentation.IK
 
             bool transfer = tuning.UseSupportTransfer && stopping && state.PrimaryFoot != 0 && !state.StopSettled;
             state.DebugDescendingRise = false;
+            state.DebugTrailingLandingPull = false;
             bool hold = false;
             MovingPelvisRecovery recovery;
             float omega;
@@ -305,13 +321,22 @@ namespace Project.Presentation.IK
             state.DebugCap = float.PositiveInfinity;
             if (transfer)
             {
-                // SupportTransfer：只有 Locked（Support）腳能往下拉；尾腳 Releasing／Swing 不往下拉。
+                // SupportTransfer：Locked（Support）腳能往下拉；尾腳 Releasing／上升中的擺盪不往下拉。
                 float support = Mathf.Min(
                     state.DebugLeftRole == RoleSupport ? leftLimit : float.PositiveInfinity,
                     state.DebugRightRole == RoleSupport ? rightLimit : float.PositiveInfinity);
-                float down = Mathf.Max(Mathf.Min(0f, support), floor);
                 bool trailingIsLeft = state.PrimaryFoot == 2;
                 MovingPelvisFoot trailing = trailingIsLeft ? left : right;
+                // 下樓停步：正在下降落地的尾腳也往下拉（docs/46 §35）——它的需求提前十帧以上就看得到，
+                // 不吃進來就只能等它鎖定時由硬夾一帧補上（§34.4）。
+                if (tuning.DescendingTrailingLandingPulls && state.StopDescending
+                    && (trailingIsLeft ? state.DebugLeftRole : state.DebugRightRole) == RoleLanding)
+                {
+                    float trailingLimit = trailingIsLeft ? leftLimit : rightLimit;
+                    state.DebugTrailingLandingPull = trailingLimit < support;
+                    support = Mathf.Min(support, trailingLimit);
+                }
+                float down = Mathf.Max(Mathf.Min(0f, support), floor);
                 float cap = float.PositiveInfinity;
                 if (trailing.Phase != FootLockPhase.Locked)
                 {

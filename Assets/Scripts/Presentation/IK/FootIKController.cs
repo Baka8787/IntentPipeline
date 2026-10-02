@@ -710,6 +710,7 @@ namespace Project.Presentation.IK
                 SettleRootSpeed = settings.StandingUnifiedSettleRootSpeed,
                 DescendingStopSpeed = MovingPelvisTuning.Default.DescendingStopSpeed,
                 UseSupportTransfer = settings.StandingUseSupportTransfer,
+                DescendingTrailingLandingPulls = settings.StandingDescendingTrailingLandingPulls,
                 LandingAnticipation = settings.MovingLandingAnticipation,
                 HardReachRatio = settings.MovingHardReachRatio,
                 MaxOffset = settings.MaxPelvisOffset,

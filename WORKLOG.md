@@ -7,6 +7,18 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🟨 2026-10-02（三）— **下樓停步：正在落地的尾腳也能往下拉（Walk 採用，只在下樓停步）：Walk ≥5 cm 帧 7 → 0、單帧最大 8.2／6.5 → 2.5／4.7 cm、上樓 52／52 逐位元不變；Run 刻意不處理，等 Play 判斷；⏳ 待人工 Play；⛔ 未 commit**
+>
+> 📖 正本：`docs/46` §35（裁決、實作、驗收、Play 清單）；§19 規則② 已加修訂註記。
+>
+> - `MovingPelvisSolver`：新鎖存 `StopDescending`（放開時 root 垂直速度 < −0.2，不分步態）；SupportTransfer 中，Landing 尾腳的上限併入下拉。開關 `FootIKSettings.StandingDescendingTrailingLandingPulls`（預設 true；**還原＝false**，逐位元回到之前）。
+> - EditMode **771／770／0 failed／1 skipped**（+5）。runtime 104 次：T3 腳目標 0 差異；Run 下樓幾乎不變（16／20 個 ≥5 cm 帧保留——依裁決，先在遊戲鏡頭下判斷）。
+> - Landing 角色閃爍 → **FU-14**（Follow-up 登記表，不排程）。
+> - ⏳ **人工 Play**（§35.4）：①Walk 下樓中段停下，最後一步還會不會頓一下 ②**Run 下樓中段停下，煞車步落地時約 8 cm／1–3 帧的下沉在遊戲鏡頭下明不明顯** ⇒ 決定要不要重開 §33 ③上樓／平地停步回歸。
+> - 新增 throwaway：`StopLandingProbe.Probe_DescendingLandingPullAcceptance`、`Probe_DownStopBrakeControl`。
+>
+> ---
+
 > # 🟦 2026-10-02（二）— **下樓停步煞車：來源拆解完成——每一個 ≥5 cm 單帧都是「腳鎖定時的 §27 硬夾 activation」；Run＝煞車步、放開後時間窗不足（完美預知也只能部分解）；Walk＝規則②把正在下降落地的尾腳也排除了；⛔ 只量測、runtime 未改、未 commit**
 >
 > 📖 正本：`docs/46` §34。對照組 throwaway `Probe_DownStopBrakeControl`（ω 1.5，52 次，重現 §33.4 的「前」）；重播 `docs/artifacts/pelvis-analysis/brake.py.txt`（誤差中位 0.01、最大 1.5 cm）。

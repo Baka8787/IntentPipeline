@@ -569,6 +569,73 @@ namespace Project.Tests.EditMode
             Assert.IsTrue(Approved(true, -0.8f), "只有 Walk 下樓");
         }
 
+        // ---------- 下樓停步：落地中的尾腳（docs/46 §35）----------
+
+        /// <summary>左腳 Primary（Reliable），右腳是尾腳；回傳跑完後的狀態。尾腳上限＝LegBound（髖 y=1、腿長 1）＝ <paramref name="trailingY"/>。</summary>
+        private static MovingPelvisState TrailingStop(bool walk, float rootVy, MovingPelvisFoot trailing, int frames, MovingPelvisTuning t)
+        {
+            var s = Started(-0.1f);
+            MovingPelvisContext c = Release(ref s, walk, rootVy, t);
+            RunStop(ref s, Reliable(0.5f), trailing, c, frames, t);
+            return s;
+        }
+
+        private static MovingPelvisFoot LandingAt(float targetY) => Foot(FootLockPhase.Unlocked, targetY, soleHeight: 0f);
+
+        [Test]
+        public void DescendingStop_LandingTrailingFoot_PullsThePelvisDown_AnyGait()
+        {
+            foreach (bool walk in new[] { false, true })
+            {
+                MovingPelvisState s = TrailingStop(walk, -0.8f, LandingAt(-0.3f), 120, StopTuning());
+                Assert.AreEqual(1, s.PrimaryFoot, "左腳是 Primary、右腳是尾腳");
+                Assert.IsTrue(s.StopDescending);
+                Assert.AreEqual(-0.3f, s.Offset, 1e-3f, (walk ? "Walk" : "Run") + " 下樓停步：落地中的尾腳需求提前生效");
+            }
+        }
+
+        [Test]
+        public void DescendingStop_Pull_DoesNotSnap()
+        {
+            MovingPelvisTuning t = StopTuning();
+            var s = Started(-0.1f);
+            MovingPelvisContext c = Release(ref s, false, -0.8f, t);
+            float prev = s.Offset, worst = 0f;
+            for (int i = 0; i < 60; i++)
+            {
+                RunStop(ref s, Reliable(0.5f), LandingAt(-0.3f), c, 1, t);
+                worst = Mathf.Max(worst, prev - s.Offset);
+                prev = s.Offset;
+            }
+            Assert.AreEqual(-0.3f, s.Offset, 1e-3f);
+            Assert.Less(worst, 0.05f, "20 cm 的需求以 DropOmega 跟上，不是一帧夾下去");
+        }
+
+        [Test]
+        public void UpOrFlatStop_LandingTrailingFoot_StillDoesNotPull()
+        {
+            Assert.GreaterOrEqual(TrailingStop(false, 0f, LandingAt(-0.3f), 120, StopTuning()).Offset, -0.1f - 1e-4f, "平地停步：§19 原行為");
+            MovingPelvisState up = TrailingStop(true, +0.8f, LandingAt(-0.3f), 120, StopTuning());
+            Assert.IsFalse(up.StopDescending);
+            Assert.GreaterOrEqual(up.Offset, -0.1f - 1e-4f, "上樓停步：§19 原行為");
+        }
+
+        [Test]
+        public void DescendingStop_ReleasingTrailingFoot_StillDoesNotPull()
+        {
+            MovingPelvisState s = TrailingStop(false, -0.8f, Foot(FootLockPhase.Releasing, -0.3f), 120, StopTuning());
+            Assert.IsFalse(s.DebugTrailingLandingPull);
+            Assert.GreaterOrEqual(s.Offset, -0.1f - 1e-4f, "規則②仍排除 Releasing／上升中的擺盪");
+        }
+
+        [Test]
+        public void DescendingStop_TrailingLandingPull_Off_IsSection19Behaviour()
+        {
+            MovingPelvisTuning t = StopTuning();
+            t.DescendingTrailingLandingPulls = false;
+            Assert.GreaterOrEqual(TrailingStop(false, -0.8f, LandingAt(-0.3f), 120, t).Offset, -0.1f - 1e-4f);
+        }
+
         [Test]
         public void Inactive_OrZeroDt_DoesNothing()
         {
