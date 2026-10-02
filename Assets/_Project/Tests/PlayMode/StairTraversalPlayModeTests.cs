@@ -262,7 +262,11 @@ namespace Project.Tests.PlayMode
             // 本測試釘的是「參考面包絡」（移動中的身體參考）與朝向無關。站直原型（docs/05 §3.5.4.6）刻意讓**靜止站立**時的骨盆
             // 跟隨實際的腳下支撐（側身站在樓梯上兩腳落在不同階 ⇒ 高度不同），那是新的基線、由
             // Player_StandingPosture_RisesAboveEnvelope_WithFeetReachable 驗證。這裡明確只測包絡本身。
+            // 🔄（docs/46 §12）統一 Moving 骨盆開啟時，Moving 的骨盆改由腳的可達約束決定（朝向改變兩腳落點 ⇒ 高度刻意改變），
+            //    包絡退為後備／診斷參照——它本身的朝向無關性仍是要守的性質，所以這裡同樣關掉統一路徑、直接量包絡。
+            //    統一路徑的基線由 Player_UnifiedMoving_SupportFeetReachable_AtAnyFacing 驗證。
             SetStandingPosture(footIK, false);
+            SetUnifiedMoving(footIK, false);
 
             Teleport(player, stair, 0f, stair.Ascent);
             for (int i = 0; i < 60; i++) yield return null;
@@ -303,6 +307,9 @@ namespace Project.Tests.PlayMode
             AlwaysAnimate(player);
             var footIK = player.GetComponentInChildren<FootIKController>();
             SetStandingPosture(footIK, true);
+            // 🔄（docs/46 §14）本測試釘的是舊停步鏈；統一站立開啟時舊鏈被旁路，所以這裡明確關掉它。
+            //    統一站立的基線由 Player_UnifiedStanding_StandsAsHighAsBothFeetReach 驗證。
+            SetUnifiedStanding(footIK, false);
             Animator animator = null;
             foreach (Animator a in player.GetComponentsInChildren<Animator>(true)) if (a.isHuman) animator = a;
             Transform leftFoot = animator.GetBoneTransform(HumanBodyBones.LeftFoot);
@@ -331,11 +338,116 @@ namespace Project.Tests.PlayMode
             Assert.Less(worstReach, 0.02f, $"{stairName}：站直後兩腳仍須搆到 T3 目標（{label}）");
         }
 
+        /// <summary>
+        /// 🧪 統一 Moving 骨盆（docs/46 §6／§12，X Bot 開啟）：站原則關掉（只看 Moving 路徑本身），停在樓梯中段、三個朝向，
+        /// 兩腳（都是 Support）都必須搆到 T3 目標。高度隨朝向改變是刻意的（兩腳落在不同階），不斷言高度相等。
+        /// </summary>
+        [UnityTest]
+        public IEnumerator Player_UnifiedMoving_SupportFeetReachable_AtAnyFacing(
+            [Values("Stairs_650_400_300_Prefab", "Stairs (1)")] string stairName)
+        {
+            yield return LoadScene();
+            StairFrame stair = StairFrame.Find(_scene, stairName);
+            CharacterPipelineRunner player = FindRunner("X Bot");
+            SetActive("Y Bot", false);
+            AimCamera(player, stair.Ascent);
+            AlwaysAnimate(player);
+            var footIK = player.GetComponentInChildren<FootIKController>();
+            SetStandingPosture(footIK, false);
+            SetUnifiedMoving(footIK, true);
+            Animator animator = null;
+            foreach (Animator a in player.GetComponentsInChildren<Animator>(true)) if (a.isHuman) animator = a;
+            Transform leftFoot = animator.GetBoneTransform(HumanBodyBones.LeftFoot);
+            Transform rightFoot = animator.GetBoneTransform(HumanBodyBones.RightFoot);
+
+            var readings = new List<string>();
+            float worstReach = 0f, deepest = 0f;
+            foreach (float yaw in new[] { 0f, 90f, 180f })
+            {
+                Teleport(player, stair, 0f, Quaternion.Euler(0f, yaw, 0f) * stair.Ascent);
+                for (int i = 0; i < 180; i++) yield return null; // 3 s：回升（ω_up 1.5）收斂
+                float pelvis = footIK.TargetData.PelvisOffsetY;
+                float reach = Mathf.Max(Vector3.Distance(leftFoot.position, footIK.TargetData.LeftFootPosition),
+                    Vector3.Distance(rightFoot.position, footIK.TargetData.RightFootPosition));
+                readings.Add($"{yaw}°: pelvis {pelvis:F3} reach {reach:F3}");
+                worstReach = Mathf.Max(worstReach, reach);
+                deepest = Mathf.Min(deepest, pelvis);
+            }
+            string label = $"[StairPlayMode] unified moving {stairName}: " + string.Join(" | ", readings);
+            Debug.Log(label);
+            TestContext.WriteLine(label);
+            yield return UnloadScene();
+
+            Assert.Less(worstReach, 0.02f, $"{stairName}：兩隻 Support 腳都必須搆到 T3 目標（{label}）");
+            Assert.GreaterOrEqual(deepest, -0.35f - 1e-4f, $"{stairName}：骨盆不得低於 MaxPelvisOffset（{label}）");
+        }
+
         private static void SetStandingPosture(FootIKController footIK, bool enabled)
         {
             object settings = typeof(FootIKController).GetField("settings",
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).GetValue(footIK);
             settings.GetType().GetField("UseStandingPosturePrototype").SetValue(settings, enabled);
+        }
+
+        /// <summary>
+        /// 🧪 統一站立（docs/46 §14，X Bot 開啟）：停在樓梯中段三個朝向，舊停步鏈被旁路 ⇒
+        /// 兩隻腳都搆到 T3 目標、骨盆不低於下限，且站起來之後比移動中的包絡深度（−0.33）高。
+        /// </summary>
+        [UnityTest]
+        public IEnumerator Player_UnifiedStanding_StandsAsHighAsBothFeetReach(
+            [Values("Stairs_650_400_300_Prefab", "Stairs (1)")] string stairName)
+        {
+            yield return LoadScene();
+            StairFrame stair = StairFrame.Find(_scene, stairName);
+            CharacterPipelineRunner player = FindRunner("X Bot");
+            SetActive("Y Bot", false);
+            AimCamera(player, stair.Ascent);
+            AlwaysAnimate(player);
+            var footIK = player.GetComponentInChildren<FootIKController>();
+            SetStandingPosture(footIK, true);
+            SetUnifiedMoving(footIK, true);
+            SetUnifiedStanding(footIK, true);
+            Animator animator = null;
+            foreach (Animator a in player.GetComponentsInChildren<Animator>(true)) if (a.isHuman) animator = a;
+            Transform leftFoot = animator.GetBoneTransform(HumanBodyBones.LeftFoot);
+            Transform rightFoot = animator.GetBoneTransform(HumanBodyBones.RightFoot);
+
+            var readings = new List<string>();
+            float worstReach = 0f, deepest = 0f, facingUp = 0f;
+            foreach (float yaw in new[] { 0f, 90f, 180f })
+            {
+                Teleport(player, stair, 0f, Quaternion.Euler(0f, yaw, 0f) * stair.Ascent);
+                for (int i = 0; i < 180; i++) yield return null;
+                float pelvis = footIK.TargetData.PelvisOffsetY;
+                float reach = Mathf.Max(Vector3.Distance(leftFoot.position, footIK.TargetData.LeftFootPosition),
+                    Vector3.Distance(rightFoot.position, footIK.TargetData.RightFootPosition));
+                readings.Add($"{yaw}°: pelvis {pelvis:F3} reach {reach:F3}");
+                if (yaw == 0f) facingUp = pelvis;
+                worstReach = Mathf.Max(worstReach, reach);
+                deepest = Mathf.Min(deepest, pelvis);
+            }
+            string label = $"[StairPlayMode] unified standing {stairName}: " + string.Join(" | ", readings);
+            Debug.Log(label);
+            TestContext.WriteLine(label);
+            yield return UnloadScene();
+
+            Assert.Less(worstReach, 0.02f, $"{stairName}：站著時兩隻腳都必須搆到 T3 目標（{label}）");
+            Assert.GreaterOrEqual(deepest, -0.35f - 1e-4f, $"{stairName}：骨盆不得低於 MaxPelvisOffset（{label}）");
+            Assert.Greater(facingUp, -0.30f, $"{stairName}：面向上方站著時應高於移動中的包絡（{label}）");
+        }
+
+        private static void SetUnifiedStanding(FootIKController footIK, bool enabled)
+        {
+            object settings = typeof(FootIKController).GetField("settings",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).GetValue(footIK);
+            settings.GetType().GetField("UseUnifiedStandingPelvis").SetValue(settings, enabled);
+        }
+
+        private static void SetUnifiedMoving(FootIKController footIK, bool enabled)
+        {
+            object settings = typeof(FootIKController).GetField("settings",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).GetValue(footIK);
+            settings.GetType().GetField("UseUnifiedMovingPelvis").SetValue(settings, enabled);
         }
 
         /// <summary>

@@ -120,6 +120,19 @@ namespace Project.Presentation.IK
             _postureHasHistory = false;
         }
 
+        // 🧪（統一骨盆求解器，docs/46 §6）Moving 參考骨盆的求解器內態與它需要的一帧歷史（只存數值）。關閉時每帧重設。
+        private MovingPelvisState _moving;
+        private Vector3 _movingRoot;
+        private Vector3 _movingLeftHip;
+        private Vector3 _movingRightHip;
+        private bool _movingHasHistory;
+
+        private void ResetMoving()
+        {
+            _moving.Reset();
+            _movingHasHistory = false;
+        }
+
         private void Awake()
         {
             _movementMask = MotionDriver.MovementCollisionMask(gameObject.layer);
@@ -173,6 +186,7 @@ namespace Project.Presentation.IK
                 _leftContact.Reset();
                 _rightContact.Reset();
                 ResetPosture();
+                ResetMoving();
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                 _debugLeftFoot = default;
                 _debugRightFoot = default;
@@ -240,10 +254,16 @@ namespace Project.Presentation.IK
             // 不能只靠 OnDisable 那一次。舊路徑的行為維持原樣。
             bool contact = settings.UseContactPrototype && isActiveAndEnabled;
             // 🧪 站直原型需要 T3（本帧的腳目標與即時接觸）；關閉時骨盆照舊在這裡更新（逐位元不變）。
-            bool posture = contact && settings.UseStandingPosturePrototype;
+            // 🧪 統一骨盆求解器（docs/46 §6）需要本帧 T3 的腳目標與相位 ⇒ 在 ③' 之後求解；關閉時逐位元維持原路徑。
+            bool unified = contact && settings.UseUnifiedMovingPelvis;
+            // 🧪（docs/46 §14）停步／站立也交給同一個求解器：舊的停步鏈整條旁路、程式碼不動。
+            bool unifiedStanding = unified && settings.UseUnifiedStandingPelvis;
+            bool posture = contact && settings.UseStandingPosturePrototype && !unifiedStanding;
+            if (!unified) ResetMoving();
             if (!posture)
             {
-                _targetData.PelvisOffsetY = Mathf.MoveTowards(_targetData.PelvisOffsetY, pelvisTarget, settings.PelvisSmoothSpeed * Time.deltaTime);
+                if (!unified)
+                    _targetData.PelvisOffsetY = Mathf.MoveTowards(_targetData.PelvisOffsetY, pelvisTarget, settings.PelvisSmoothSpeed * Time.deltaTime);
                 ResetPosture();
             }
 
@@ -272,10 +292,23 @@ namespace Project.Presentation.IK
                     ref _targetData.RightFootPosition, ref _targetData.RightFootPositionWeight,
                     out PostureFootInputs rightPosture);
 
+                // === ④' 🧪 Moving 參考骨盆（docs/46 §6）：Intent 0 → Support／Landing 可達約束 → 統一求解器 ===
+                //    Terrain Envelope 退為後備：求解器事實無效（IK 不允許、腿長無效、瞬移）時回傳它。
+                //    Stop／Standing 的規則不動，但它們讀到的「移動參考」（原本的 E）改成這條路徑——
+                //    否則一放開就會從求解器高度往更深的包絡掉（兩套 Moving 定義並存）。
+                float movingReference = unified
+                    ? ResolveUnifiedMoving(data, ikAllowed, pelvisTarget, in left, in right, leftPosture.Reliable, rightPosture.Reliable)
+                    : pelvisTarget;
+                if (unified && !posture)
+                {
+                    _targetData.PelvisOffsetY = Mathf.MoveTowards(_targetData.PelvisOffsetY, movingReference,
+                        settings.PelvisSmoothSpeed * Time.deltaTime);
+                }
+
                 // === ④ 🧪 站直原型：必須在 T3 解完本帧兩腳之後（Codex High）——與本帧寫出的腳目標一起在下一帧套用 ===
                 if (posture)
                 {
-                    ResolveStandingPosture(data, ikAllowed, pelvisTarget, leftStance, rightStance,
+                    ResolveStandingPosture(data, ikAllowed, movingReference, leftStance, rightStance,
                         in leftPosture, in rightPosture);
                 }
             }
@@ -283,6 +316,7 @@ namespace Project.Presentation.IK
             {
                 _leftContact.Reset();
                 _rightContact.Reset();
+                ResetMoving();
             }
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -600,6 +634,99 @@ namespace Project.Presentation.IK
                 supportPoint = pointIndex;
             }
             hasContact = true;
+        }
+
+        /// <summary>
+        /// 🧪（docs/46 §6）Moving 參考骨盆：Intent 0 → Support（T3 Locked）／Landing（Unlocked、下降中）可達約束 → 非對稱臨界阻尼。
+        /// 輸入全是本帧已有的事實：T3 本帧寫出的踝目標與相位、pre-IK 髖位（一帧外插，與腳目標同一套用帧）、腳下地面。
+        /// 事實無效（IK 不允許、腿長無效、瞬移）⇒ 重設並回傳 <paramref name="fallback"/>（Terrain Envelope／逐腳需求，IK 不允許時為 0）；
+        /// 恢復時從目前實際骨盆、速度 0 重新開始，不跳。
+        /// </summary>
+        private float ResolveUnifiedMoving(PlayerRuntimeData data, bool ikAllowed, float fallback, in FootSample left, in FootSample right,
+            bool leftReliable, bool rightReliable)
+        {
+            Vector3 root = transform.position;
+            float dtNow = Time.deltaTime;
+            float rootSpeed = _movingHasHistory && dtNow > 0f
+                ? new Vector2(root.x - _movingRoot.x, root.z - _movingRoot.z).magnitude / dtNow
+                : float.PositiveInfinity;
+            float rootVerticalSpeed = _movingHasHistory && dtNow > 0f ? (root.y - _movingRoot.y) / dtNow : 0f;
+            Vector3 leftHip = _poseData.LeftHipPosition, rightHip = _poseData.RightHipPosition;
+            float leftLeg = _poseData.LeftLegLength, rightLeg = _poseData.RightLegLength;
+            float maxStep = settings.MaxPoseStepPerFrame;
+            bool teleported = _movingHasHistory && (root - _movingRoot).sqrMagnitude > maxStep * maxStep;
+            if (!ikAllowed || leftLeg <= 0f || rightLeg <= 0f || teleported)
+            {
+                ResetMoving();
+                _movingRoot = root;
+                _movingLeftHip = leftHip;
+                _movingRightHip = rightHip;
+                _movingHasHistory = ikAllowed && leftLeg > 0f && rightLeg > 0f;
+                return fallback;
+            }
+
+            // 骨盆下一帧才套用：與 T3 腳目標同一個一帧外插慣例（沒有歷史就用本帧）。
+            Vector3 leftHipNext = _movingHasHistory ? 2f * leftHip - _movingLeftHip : leftHip;
+            Vector3 rightHipNext = _movingHasHistory ? 2f * rightHip - _movingRightHip : rightHip;
+            _movingRoot = root;
+            _movingLeftHip = leftHip;
+            _movingRightHip = rightHip;
+            _movingHasHistory = true;
+
+            if (!_moving.Active) MovingPelvisSolver.Begin(ref _moving, _targetData.PelvisOffsetY);
+
+            Vector3 leftTarget = _targetData.LeftFootPosition, rightTarget = _targetData.RightFootPosition;
+            var leftFoot = new MovingPelvisFoot
+            {
+                Phase = _leftContact.Phase,
+                HipNext = leftHipNext,
+                Target = leftTarget,
+                LegLength = leftLeg,
+                HasFloor = left.HasHit,
+                SoleHeight = leftTarget.y - _poseData.LeftFootBottomHeight - left.GroundY,
+                Reliable = leftReliable,
+            };
+            var rightFoot = new MovingPelvisFoot
+            {
+                Phase = _rightContact.Phase,
+                HipNext = rightHipNext,
+                Target = rightTarget,
+                LegLength = rightLeg,
+                HasFloor = right.HasHit,
+                SoleHeight = rightTarget.y - _poseData.RightFootBottomHeight - right.GroundY,
+                Reliable = rightReliable,
+            };
+            var tuning = new MovingPelvisTuning
+            {
+                DropOmega = settings.MovingPelvisDropOmega,
+                RiseOmega = settings.MovingPelvisRiseOmega,
+                DescendRiseOmega = settings.MovingPelvisDescendRiseOmega,
+                TerrainExitOmega = settings.MovingTerrainExitOmega,
+                TerrainExitMargin = settings.MovingTerrainExitMargin,
+                TerrainExitReleaseMargin = settings.MovingTerrainExitReleaseMargin,
+                UseStopSemantics = settings.UseUnifiedStandingPelvis,
+                StandRiseOmega = settings.StandingUnifiedRiseOmega,
+                SettleRootSpeed = settings.StandingUnifiedSettleRootSpeed,
+                DescendingStopSpeed = MovingPelvisTuning.Default.DescendingStopSpeed,
+                UseSupportTransfer = settings.StandingUseSupportTransfer,
+                LandingAnticipation = settings.MovingLandingAnticipation,
+                HardReachRatio = settings.MovingHardReachRatio,
+                MaxOffset = settings.MaxPelvisOffset,
+            };
+            // 地形提示＝原本的 Terrain Envelope（fallback 就是它）：只用來選回升語意（docs/46 §13），⛔ 不是目標、不是上限。
+            bool movementRequested = data.MovementIntent.DesiredSpeedNormalized > 0f;
+            bool walkGait = data.Gait == GaitTier.Walk;
+            var context = new MovingPelvisContext
+            {
+                TerrainHint = fallback,
+                MovementRequested = movementRequested,
+                RootHorizontalSpeed = rootSpeed,
+                RootVerticalSpeed = rootVerticalSpeed,
+                WalkGait = walkGait,
+            };
+            // 停步落點（HasLeft／RightLanding）由 FutureLandingProvider 提供；尚未接上 ⇒ Walk 下樓停步停在 PredictionPending。
+            MovingPelvisSolver.Step(ref _moving, in leftFoot, in rightFoot, in context, Time.deltaTime, in tuning);
+            return _moving.Offset;
         }
 
         /// <summary>

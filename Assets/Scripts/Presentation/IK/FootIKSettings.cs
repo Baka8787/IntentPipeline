@@ -141,6 +141,52 @@ namespace Project.Presentation.IK
         [Min(0f)] public float StandingHandbackTolerance = 0.01f;
         [Min(0f)] public float StandingHandbackSpeed = 0.05f;
 
+        [Header("🧪 統一骨盆求解器——只替換 Moving（docs/46 §6；需要 T3；預設關閉，只在 X Bot 開啟）")]
+        [Tooltip("開啟後：Moving 的骨盆＝ Intent 0 → Support／Landing 可達約束 → 非對稱臨界阻尼；Terrain Envelope 只剩後備。" +
+                 "Stop／Standing 的規則不變，但它們讀到的「移動參考」改成這條路徑。關閉 ＝ 與原型之前逐位元相同。")]
+        public bool UseUnifiedMovingPelvis = false;
+
+        [Tooltip("目標低於骨盆（必須跟上可達約束）時的臨界阻尼角頻率（rad/s）。")]
+        [Min(0.1f)] public float MovingPelvisDropOmega = 12f;
+
+        [Tooltip("StepRecovery：步態內約束暫時解除時的回升角頻率（rad/s）。越小 ⇒ 每步起伏越小、平均越深。")]
+        [Min(0.1f)] public float MovingPelvisRiseOmega = 1.5f;
+
+        [Tooltip("下樓中（移動、root 下降）的 Step 回升角頻率（rad/s；docs/46 §33）。下樓的下蹲大半是回升太慢累積的記憶；" +
+                 "以最終骨骼重播選定 6：Walk 下樓 −30 → −22 cm、Run 下樓 −26 → −15 cm，起伏 ≤ 動畫 ＋3 cm。設成與 MovingPelvisRiseOmega 相同 ＝ 關閉。")]
+        [Min(0.1f)] public float MovingPelvisDescendRiseOmega = 6f;
+
+        [Tooltip("TerrainExitRecovery：地形提示（Terrain Envelope）說周圍已不需要這麼低時的回升角頻率（rad/s）。" +
+                 "提示只選回升速度，不是目標也不是上限。")]
+        [Min(0.1f)] public float MovingTerrainExitOmega = 6f;
+
+        [Tooltip("進入 TerrainExitRecovery：地形提示高於骨盆超過此值（m）。")]
+        [Min(0f)] public float MovingTerrainExitMargin = 0.05f;
+
+        [Tooltip("離開 TerrainExitRecovery：地形提示高於骨盆不到此值（m）。與進入門檻構成滯後。")]
+        [Min(0f)] public float MovingTerrainExitReleaseMargin = 0.02f;
+
+        [Header("🧪 停步／站立也交給統一求解器（docs/46 §14；需要 UseUnifiedMovingPelvis；預設關閉）")]
+        [Tooltip("開啟後：舊的停步鏈（EarlyRecovery／StopProgress／Upright／Return）整條旁路，停步只改變回升語意：" +
+                 "意圖放開到落定前 StopHold（不回升），落定後 Stand。約束與目標與移動中完全相同。關閉 ＝ 維持舊停步鏈。")]
+        public bool UseUnifiedStandingPelvis = false;
+
+        [Tooltip("Stand 回升角頻率（rad/s）：停步已落定、沒有步態起伏要控制時回到兩腳都搆得到的最高處。")]
+        [Min(0.1f)] public float StandingUnifiedRiseOmega = 6f;
+
+        [Tooltip("停步「落定」：兩腳都 T3 Locked 且 root 水平速度低於此值（m/s）。")]
+        [Min(0f)] public float StandingUnifiedSettleRootSpeed = 0.05f;
+
+        [Tooltip("SupportTransfer（docs/46 §19）：前腳成為 Reliable Primary Support 就開始站直；尾腳 Releasing／Swing 不往下拉；" +
+                 "Walk 下樓停步以預測落點當 FutureReachCap。關閉 ＝ 回到 StopHold（等兩腳都 Locked 才站）。")]
+        public bool StandingUseSupportTransfer = true;
+
+        [Tooltip("Landing 預告：下降中的未鎖腳，其可達上限放寬 κ × 腳底離地高度，接觸瞬間精確。")]
+        [Min(0f)] public float MovingLandingAnticipation = 1.5f;
+
+        [Tooltip("Support 腳的硬可達比（× 腿長）。1.05 ＝ Humanoid Leg Stretch 的邊界。")]
+        [Range(1f, 1.1f)] public float MovingHardReachRatio = 1.05f;
+
         [Header("T3 Locked riser-intrusion rule（docs/46 §22–§23、§25）")]
         [Tooltip("Locked（支撐已選定）時，腳跟／腳尖的即時命中比 LockedSupportY 高出 [MinRise, MaxRise]、且腳踝底仍在原支撐上 ⇒ " +
                  "判成腳部 pivot 側向碰到 riser：該點改用 LockedSupportY，不把整隻腳抬到上一階。查詢仍用實際腳位與旋轉。預設關閉 ＝ 現行。")]
