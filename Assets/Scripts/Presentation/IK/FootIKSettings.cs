@@ -140,5 +140,24 @@ namespace Project.Presentation.IK
         [Tooltip("交回 Moving 的條件：離包絡的距離（公尺）與速度（m/s）都低於這兩個值。")]
         [Min(0f)] public float StandingHandbackTolerance = 0.01f;
         [Min(0f)] public float StandingHandbackSpeed = 0.05f;
+
+        [Header("T3 Locked riser-intrusion rule（docs/46 §22–§23、§25）")]
+        [Tooltip("Locked（支撐已選定）時，腳跟／腳尖的即時命中比 LockedSupportY 高出 [MinRise, MaxRise]、且腳踝底仍在原支撐上 ⇒ " +
+                 "判成腳部 pivot 側向碰到 riser：該點改用 LockedSupportY，不把整隻腳抬到上一階。查詢仍用實際腳位與旋轉。預設關閉 ＝ 現行。")]
+        public bool LockedRiserIntrusionRule = false;
+
+        [Tooltip("riser 侵入：高出鎖定支撐至少這麼多（m）才算「相鄰的上一階」。")]
+        [Min(0f)] public float LockedRiserIntrusionMinRise = 0.08f;
+
+        [Tooltip("riser 侵入：高出鎖定支撐最多這麼多（m）——超過就不是相鄰一階，照常處理。")]
+        [Min(0f)] public float LockedRiserIntrusionMaxRise = 0.30f;
+
+        [Tooltip("腳踝底的即時命中與 LockedSupportY 相差在此之內（m）＝ 腳的中心仍站在原支撐上。")]
+        [Min(0f)] public float LockedRiserIntrusionSupportTolerance = 0.03f;
+
+        [Tooltip("riser 侵入的幾何條件：端點高度必須仍在 riser 的垂直範圍內，最多只能高出上一階頂面這麼多（m）。" +
+                 "高出更多 ＝ 端點其實已抬到上一階之上（抬跟／離地），不是側面侵入。" +
+                 "4 mm 由量測決定（docs/46 §23）：腳跟階角站姿 max +1.4 mm、抬跟誤判 min +6.8 mm。")]
+        [Min(0f)] public float LockedRiserIntrusionEdgeTolerance = 0.004f;
     }
 }

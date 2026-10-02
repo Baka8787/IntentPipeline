@@ -523,11 +523,20 @@ namespace Project.Presentation.IK
             int supportPoint = 0;
             bool hasContact = false; // 有可用於求解的地面（含鎖定支撐）
             bool liveHit = false;    // 本帧真的有射線命中——只有它能決定「接觸是否有效」
-            AccumulateContact(in state, supportSelected, 0, ankle, shownRotation, footBottomHeight, -Mathf.Max(0f, settings.HeelOffset),
+            // docs/46 §22–§23 riser-intrusion 的前提：腳的中心（腳踝底）仍站在鎖定支撐上。
+            bool ankleOnSupport = false;
+            if (supportSelected && settings.LockedRiserIntrusionRule)
+            {
+                Vector3 anklePoint = FootContactSolver.SolePoint(ankle, shownRotation, footBottomHeight, 0f);
+                bool ankleHit = Physics.Raycast(new Vector3(anklePoint.x, Mathf.Max(anklePoint.y, ankle.y) + settings.RaycastUpOffset, anklePoint.z),
+                    Vector3.down, out RaycastHit ankleGround, probeDistance, settings.GroundLayers, QueryTriggerInteraction.Ignore);
+                ankleOnSupport = ankleHit && Mathf.Abs(ankleGround.point.y - state.LockedSupportY) <= settings.LockedRiserIntrusionSupportTolerance;
+            }
+            AccumulateContact(in state, supportSelected, ankleOnSupport, 0, ankle, shownRotation, footBottomHeight, -Mathf.Max(0f, settings.HeelOffset),
                 probeDistance, ref contactDelta, ref supportY, ref supportPoint, ref hasContact, ref liveHit);
-            AccumulateContact(in state, supportSelected, 1, ankle, shownRotation, footBottomHeight, 0f,
+            AccumulateContact(in state, supportSelected, ankleOnSupport, 1, ankle, shownRotation, footBottomHeight, 0f,
                 probeDistance, ref contactDelta, ref supportY, ref supportPoint, ref hasContact, ref liveHit);
-            AccumulateContact(in state, supportSelected, 2, ankle, shownRotation, footBottomHeight, Mathf.Max(0f, settings.ToeOffset),
+            AccumulateContact(in state, supportSelected, ankleOnSupport, 2, ankle, shownRotation, footBottomHeight, Mathf.Max(0f, settings.ToeOffset),
                 probeDistance, ref contactDelta, ref supportY, ref supportPoint, ref hasContact, ref liveHit);
             if (state.Phase == FootLockPhase.Locked && !supportSelected && hasContact)
             {
@@ -563,7 +572,7 @@ namespace Project.Presentation.IK
         /// 🧪 T3：一個腳底端點下方的地面（<c>GroundLayers</c>；鎖定中另以鎖定支撐為下限），累積最大有號穿透量，
         /// 並記下決定它的那一點的地面高度（鎖定當帧用來選定支撐）。
         /// </summary>
-        private void AccumulateContact(in FootContactState state, bool supportSelected, int pointIndex, Vector3 ankle, Quaternion rotation,
+        private void AccumulateContact(in FootContactState state, bool supportSelected, bool ankleOnSupport, int pointIndex, Vector3 ankle, Quaternion rotation,
             float footBottomHeight, float forwardOffset, float distance,
             ref float contactDelta, ref float supportY, ref int supportPoint, ref bool hasContact, ref bool liveHit)
         {
@@ -572,7 +581,16 @@ namespace Project.Presentation.IK
             bool hasHit = Physics.Raycast(origin, Vector3.down, out RaycastHit hit, distance,
                 settings.GroundLayers, QueryTriggerInteraction.Ignore);
             liveHit |= hasHit;
-            if (!FootContactSolver.ContactGround(in state, supportSelected, pointIndex, hasHit, hasHit ? hit.point.y : 0f,
+            float hitY = hasHit ? hit.point.y : 0f;
+            // docs/46 §22 Locked riser-intrusion：周邊端點（腳跟／腳尖）命中相鄰的上一階、而腳的中心仍在原支撐上
+            //    ⇒ 視為 pivot 側向碰到 riser，不是新的垂直支撐：該點改用鎖定支撐高度，不把整隻腳抬上一階。
+            // §23：真正的幾何側面侵入——端點仍在 riser 的垂直範圍內（最多高出上一階頂面 ε）；抬到頂面之上的是抬跟，不是侵入。
+            float rise = hasHit ? hitY - state.LockedSupportY : 0f;
+            bool intrusion = settings.LockedRiserIntrusionRule && supportSelected && ankleOnSupport && pointIndex != 1 && hasHit
+                && rise >= settings.LockedRiserIntrusionMinRise && rise <= settings.LockedRiserIntrusionMaxRise
+                && point.y <= hitY + settings.LockedRiserIntrusionEdgeTolerance;
+            if (intrusion) hitY = state.LockedSupportY;
+            if (!FootContactSolver.ContactGround(in state, supportSelected, pointIndex, hasHit, hitY,
                     out float groundY)) return;
             float delta = groundY - point.y;
             if (delta > contactDelta)
