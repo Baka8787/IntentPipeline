@@ -4564,15 +4564,40 @@ MonoBehaviour:
     StandingPreferredExtension: 0.995
     StandingFinalSupportSpeedMax: 1.35
     StandingReliableFootSpeedMax: 0.3
-    StandingDescendingBetaMin: 0.8
-    StandingShortRecoveryDuration: 0.18
-    StandingNearSettleBetaMin: 0.6
-    StandingNearSettleRecoveryDuration: 0.2
-    StandingNormalRecoveryDuration: 0.4
     StandingRiseOmega: 6
+    StandingEarlyLiftOmega: 6
+    StandingEarlyLiftRetreatSpeed: 1
+    StandingEarlyReleaseMinRootSpeed: 0.1
+    StandingRiseDurationNearSettle: 0.18
+    StandingRiseDurationSettling: 0.2
+    StandingRiseDurationDefault: 0.4
+    StandingTrailingCapBand: 0.03
+    StandingTrailingCapReleaseOmega: 10
+    StandingPlannedSafetyRetreatSpeed: 1
+    StandingPlannedMinimumDuration: 0.2
     StandingReturnOmega: 15
     StandingHandbackTolerance: 0.01
     StandingHandbackSpeed: 0.05
+    UseUnifiedMovingPelvis: 1
+    MovingPelvisDropOmega: 12
+    MovingPelvisRiseOmega: 1.5
+    MovingTerrainExitOmega: 6
+    MovingTerrainExitMargin: 0.05
+    MovingTerrainExitReleaseMargin: 0.02
+    UseUnifiedStandingPelvis: 1
+    StandingUnifiedRiseOmega: 6
+    StandingUnifiedSettleRootSpeed: 0.05
+    StandingUseSupportTransfer: 1
+    StopLandingLeftGoalOffset: {x: -0.0486, y: 0, z: -0.0228}
+    StopLandingRightGoalOffset: {x: 0.0385, y: 0, z: -0.0329}
+    MovingLandingAnticipation: 1.5
+    MovingHardReachRatio: 1.05
+    LockedSampleFrameFreeze: 0
+    LockedRiserIntrusionRule: 1
+    LockedRiserIntrusionMinRise: 0.08
+    LockedRiserIntrusionMaxRise: 0.3
+    LockedRiserIntrusionSupportTolerance: 0.03
+    LockedRiserIntrusionEdgeTolerance: 0.004
   drawFootIKRuntimeLines: 1
   drawFootIKSceneGizmos: 1
 --- !u!114 &1780814311861303900
