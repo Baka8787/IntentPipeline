@@ -7,6 +7,16 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🟦 2026-10-03（四）— **Phase 1b：ADR-010 D5 next-plant snapshot 接上（T3 未改）——最後落地成立（Walk 早 7–8、Run 早 9–14 帧，不需門檻）；Run 煞車步仍不成立（N 鎖定前 8 帧才出現＋~9 cm 系統偏差，0／35 早於跳動）**
+>
+> 📖 正本：`docs/45` §12、ADR-010 D5。EditMode **768／767／0 failed／1 skipped**。4 支 Stop 資產直接提供 plant 事件（沒有重新烘焙）。
+>
+> - 快照 +4 欄位：`HasNextPlant`／`NextPlantIsLeft`／`NextPlantAnkleInPublishRoot`（publish root 座標，含前進量）／`NextPlantIsFinal`（＝排程最後一次 planned plant，⛔ 不是 clip 結束或最後接地）。
+> - 首次承諾錯：Run 最後落地 5%、Walk 最後落地 18%；改答案最晚在鎖定前 1 帧；晚期外插只會增加錯誤，不採用。Walk 中途落地沒有目的地資訊（輸出 no-intent）。
+> - ❓ 待使用者（§12.5）：①先只對最後落地實作正式 resolver 並進 Phase 2 ②或先處理煞車步（提早發布＝修訂 D1 條件 2／校正 ~9 cm 偏差）③`RunFwdStop_RU` 同腳雙 plant 是否當偵測器瑕疵。
+>
+> ---
+
 > # 🟦 2026-10-03（三）— **T3 landing-surface slice Phase 1：destination resolver 離線評估——最後落地用預測可提前 6–8（Walk）／17–21（Run）帧穩定、加即時驗證後鎖定時 0 錯；但執行期判斷不出「是不是最後落地」、Run 煞車步沒有可信來源 ⇒ Phase 2 前提未成立；⛔ T3 目標未改**
 >
 > 📖 正本：`docs/45` §11。`LandingSurfaceProbe` 加候選欄位重跑 208 次；離線策略重播 `docs/artifacts/pelvis-analysis/resolver.py.txt`。
