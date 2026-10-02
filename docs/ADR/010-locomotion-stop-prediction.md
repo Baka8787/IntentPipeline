@@ -2,7 +2,7 @@
 
 | 欄位 | 內容 |
 |---|---|
-| 狀態 (Status) | 🟡 **Trial**（2026-10-03 使用者裁決：D1 Yes／D2 A／D3 Confirmed）。AC 見 §5——**使用者已裁決 ≠ 工程上已驗證**。 |
+| 狀態 (Status) | 🟡 **Trial**（2026-10-03 使用者裁決：D1 Yes／D2 A／D3 Confirmed；同日 D5 獨立擴充：next planned plant）。AC 見 §5——**使用者已裁決 ≠ 工程上已驗證**。 |
 | ⚠️ 背景 | 程式**先於本 ADR 存在**：工作樹裡的原型（Codex，Predictive Planned Stop）已在黑板加欄位、改 WriterRule／A12，並在註解中引用「ADR-010」，但 `docs/ADR/` 從未有過 010。本 ADR 補上決策；正式 commit 只收本 ADR 允許的最小範圍（D2／D3），其餘原型留在工作樹。 |
 | 日期 | 2026-10-03 |
 | 範圍 | 黑板的 Locomotion Stop 預測快照：Writer（`LocomotionModel`）、資料來源（`MotionBakeData` 的停步結束站姿）、Presentation 端唯一消費者（FutureLandingProvider） |
@@ -65,6 +65,24 @@
 `PlannedStop*` 狀態與軌跡、`UpdatePlannedStop`／`TryBuildPlannedStopTrajectory`、`StandingPlanned*` 設定、plant 偵測器（`FootPlantScheduleBaker`）及其測試都**不納入**。
 ⛔ 不得因此形成第二套 stop／locomotion authority：停步的時序與骨盆仍分別由 `LocomotionModel` 與統一骨盆求解器決定。
 
+### D5 — 下一次 planned plant（2026-10-03 獨立擴充；consumer：`LandingSurfaceResolver`）
+**理由（正式 consumer）**：T3 landing-surface slice（`docs/45` §11）的 destination resolver 必須知道每一次落地的目的地。
+只有結束站姿時，它判斷不出「這是不是這隻腳的最後一次落地」，Run 的煞車步也沒有任何可信來源（§11.7）。
+D2 的原則不變——**只有正式 consumer 需要的資料才進 contract**；本擴充只加 resolver 實際讀取的四個欄位：
+
+| 欄位 | 意義 |
+|---|---|
+| `HasNextPlant` | publish 之後仍有尚未發生的 planned plant；false ⇒ 其餘三欄為 default |
+| `NextPlantIsLeft` | 下一次 planned plant 的腳別 |
+| `NextPlantAnkleInPublishRoot` | 該 plant 落地當下的 Foot 骨骼位置，以 **publish 當下的 root** 為座標系；已含 root 從 publish 到該 plant 的前進量 ⇒ **不另存前進距離** |
+| `NextPlantIsFinal` | 該 plant 是本次 stop sequence 進入 terminal standing pose 之前的**最後一次 planned foot plant**（Bake 排程的最後一個事件）。⛔ 不等於 clip 結束時刻，也不等於最後一次物理接地 |
+
+- ⛔ 不暴露整條排程、hip path、其他事件。「下一次」＝排程中 clip 時間晚於目前 clip 時間的第一個事件。
+- Bake：`FootPlantSchedule` 加入固定四格的 plant 事件（腳別、clip 時間、落地當下的 ankle-in-root），由 Editor-only 的 `FootPlantScheduleBaker` 偵測（plant ＝ 世界 XZ 速度 ≤ 0.2 m/s ∧ 腳踝在該腳 clip 最低點 2.5 cm 內，連續 ≥ 2 個 sample）。
+  root 前進量由既有的 `GetLocomotionStopHorizontalDisplacementAt` 推導，不另存。欄位名稱沿用原型 ⇒ 已烘焙的 4 支 Stop 資產直接提供事件，**不需要重新烘焙**。
+- `Active` 的語意（D1）不變；`HasNextPlant` 只在 `Active` 時可能為 true。
+- Provider：`FootIKController.TryPredictNextPlantGoal`，與結束站姿使用同一套參考點轉換與三點落地規則。Phase 1b 只有量測 probe 讀取，T3 輸出不變。
+
 ### D4 — 消費端的批准範圍維持 `docs/46` §19 規則⑦
 預測只批准 **Walk 下樓停步**當 `FutureReachCap`（只限制骨盆最高升到哪，不主動降低）。
 擴大到 Run 或上樓屬於 Living Spec 層級的調整，但每次擴大都要附上同等的驗收。
@@ -88,7 +106,7 @@
 ## 5. Acceptance Criteria（Trial → Accepted）
 | # | 條件 | 現況證據 |
 |---|---|---|
-| AC1 | 只有 `LocomotionModel` 寫入；快照只含 value type；播放頭前進前、以及停步被中斷的同一 tick，`Active = false` | ✅ **2026-10-03 Unity Test Runner 通過**（工作樹對齊 `155b698` 後）：`A5` WriterRules、`A12`（欄位集合）、`Model_PublishesAndClearsNumericStopPrediction`（最小 schema 版） |
+| AC1 | 只有 `LocomotionModel` 寫入；快照只含 value type；播放頭前進前、以及停步被中斷的同一 tick，`Active = false`（D5 欄位一併清除） | ✅ **2026-10-03 Unity Test Runner 通過**（工作樹對齊 `155b698` 後）：`A5` WriterRules、`A12`（欄位集合）、`Model_PublishesAndClearsNumericStopPrediction`（最小 schema 版） |
 | AC2 | Walk 下樓停步的尾腳落點：水平誤差 ≤ 2 cm；翻階只允許「真值本身在階緣 ±5 mm」的邊界站姿，且只能偏低（保守） | §18.3（原型，數值相同）：水平 1.1 cm；23／26 正確階，3 次是同一個邊界站姿、預測偏低 |
 | AC3 | 當 `FutureReachCap` 使用時，Walk 下樓停步沒有 rise→drop | §19.3（原型）：rise→drop 最大 0.01 cm（26 次） |
 | AC4 | 人工 Play：Walk 下樓停步看起來沒有「站起來又蹲下」 | ⏳ 未做 |
@@ -107,4 +125,5 @@ AC2／AC3 的證據來自原型。最小版發布的六個欄位與原型的**�
 ①黑板 schema 變更 —— **成立**。②FSM 拓撲／hierarchy —— 不成立。③管線順序／核心驅動介面 —— 不成立（Writer 在既有順序 3）。④推翻既有不變式 —— **成立**（A12「停步／腳相位不擴張黑板」）。
 
 ## 9. 裁決紀錄
+- 2026-10-03（使用者，第二次）：D5——以 `LandingSurfaceResolver` 為正式 consumer，加入最小的 next-plant snapshot（`HasNextPlant`／腳別／publish-root 位置／`IsFinal`）；不推翻 D2。前進距離可由位置推導 ⇒ 不另存。
 - 2026-10-03（使用者）：D1 Yes；D2 A（只保留六個欄位，未來需要時以獨立變更擴充；`Active` 的語意與失效條件必須明確定義）；D3 Confirmed（Planned Stop 軌跡／控制不進正式 commit，不得形成第二套 stop／locomotion authority）。Proposed → **Trial**。

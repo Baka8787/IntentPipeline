@@ -180,7 +180,7 @@ namespace Project.Core.Movement
 
             float travelledAtPublish = bakeData.GetLocomotionStopHorizontalDisplacementAt(publishClipTime);
             float totalTravel = bakeData.GetLocomotionStopHorizontalDisplacementAt(duration);
-            data.LocomotionStopPrediction = new LocomotionStopPrediction
+            var prediction = new LocomotionStopPrediction
             {
                 Active = true,
                 RootWorldPositionAtPublish = transform.position,
@@ -189,6 +189,22 @@ namespace Project.Core.Movement
                 EndLeftAnkleInRoot = schedule.EndPose.LeftAnkleInRoot,
                 EndRightAnkleInRoot = schedule.EndPose.RightAnkleInRoot,
             };
+
+            // ADR-010 D5：下一次 planned plant（排程依 clip 時間排序）。位置換到 publish root 座標系：
+            // root 在 publish → plant 之間沿 publish 朝向前進（與結束站姿同一假設），故 ＝ 該 plant 的 ankle-in-root ＋ (0, 0, 前進量)。
+            int eventCount = schedule.ValidEventCount;
+            for (int i = 0; i < eventCount; i++)
+            {
+                FootPlantScheduleEvent plant = schedule.GetEvent(i);
+                if (plant.ClipTime <= currentClipTime + 1e-5f) continue;
+                float travel = Mathf.Max(0f, bakeData.GetLocomotionStopHorizontalDisplacementAt(plant.ClipTime) - travelledAtPublish);
+                prediction.HasNextPlant = true;
+                prediction.NextPlantIsLeft = plant.Side == FootPlantSide.Left;
+                prediction.NextPlantAnkleInPublishRoot = plant.AnkleInRoot + new Vector3(0f, 0f, travel);
+                prediction.NextPlantIsFinal = i == eventCount - 1;
+                break;
+            }
+            data.LocomotionStopPrediction = prediction;
         }
 
         private void ApplyCombatDirectionalSpeedLimit(

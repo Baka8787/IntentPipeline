@@ -755,6 +755,25 @@ namespace Project.Presentation.IK
         }
 
         /// <summary>
+        /// 下一次 planned plant 的落點（ADR-010 D5；consumer：LandingSurfaceResolver）——以 T3 的參考點（IK goal）表示，
+        /// 與 <see cref="TryPredictStopLandingGoal"/> 同一套參考點轉換與三點落地規則。只回答落點；⛔ 不控制軌跡、相位或骨盆。
+        /// </summary>
+        internal bool TryPredictNextPlantGoal(in LocomotionStopPrediction prediction, out bool left, out bool isFinal, out Vector3 ankle)
+        {
+            left = prediction.NextPlantIsLeft;
+            isFinal = prediction.NextPlantIsFinal;
+            ankle = default;
+            if (!prediction.Active || !prediction.HasNextPlant) return false;
+            Quaternion yaw = Quaternion.Euler(0f, prediction.RootYawDegreesAtPublish, 0f);
+            Vector3 forward = yaw * Vector3.forward;
+            Vector3 goalInPublishRoot = StopLandingGoalInRoot(prediction.NextPlantAnkleInPublishRoot,
+                left ? settings.StopLandingLeftGoalOffset : settings.StopLandingRightGoalOffset);
+            float bottom = left ? _poseData.LeftFootBottomHeight : _poseData.RightFootBottomHeight;
+            // 位置已在 publish root 座標系（含前進量）⇒ 不再加 forward 位移。
+            return TryPredictGroundedAnkle(in prediction, yaw, forward, 0f, goalInPublishRoot, bottom, out ankle);
+        }
+
+        /// <summary>
         /// （純函數）烘焙的 Foot 骨骼點（root 空間）＋ 左／右腳各自的 bone→IK goal 偏移。
         /// 偏移定義在落地腳的座標系；烘焙沒有腳的旋轉 ⇒ 落地腳朝向取預測 root 的朝向（與既有腳跟／腳尖取樣同一假設），
         /// 所以腳座標系與 root 座標系重合。只轉換水平（y 由預測重新落地決定）。

@@ -20,16 +20,65 @@ namespace Project.Presentation.Motion
         public float ClipDuration;
     }
 
+    public enum FootPlantSide
+    {
+        Left = 0,
+        Right = 1,
+    }
+
     /// <summary>
-    /// Locomotion Stop 的烘焙預測資料。目前只有結束站姿（ADR-010 D2）；容器名稱沿用原型，讓已烘焙的資產可直接讀取。
-    /// 未重烘焙的資產維持 default ⇒ 安全退化為沒有預測。
+    /// Stop clip 內一次 planned foot plant（ADR-010 D5）：哪隻腳、clip 時間、落地當下的腳踝（該 sample 的 root 空間）。
+    /// root 在 publish 與 plant 之間的前進量由 <see cref="MotionBakeData.GetLocomotionStopHorizontalDisplacementAt"/> 推導，不另存。
+    /// </summary>
+    [System.Serializable]
+    public struct FootPlantScheduleEvent
+    {
+        public FootPlantSide Side;
+        public float ClipTime;
+        public Vector3 AnkleInRoot;
+    }
+
+    /// <summary>
+    /// Locomotion Stop 的烘焙預測資料：結束站姿（ADR-010 D2）與 planned plant 排程（D5，依 clip 時間排序、固定四格、無 runtime 陣列）。
+    /// 容器與欄位名稱沿用原型，讓已烘焙的資產可直接讀取。未重烘焙的資產維持 default ⇒ 安全退化為沒有預測。
     /// </summary>
     [System.Serializable]
     public struct FootPlantSchedule
     {
+        public const int Capacity = 4;
+
+        public int EventCount;
+        public FootPlantScheduleEvent Event0;
+        public FootPlantScheduleEvent Event1;
+        public FootPlantScheduleEvent Event2;
+        public FootPlantScheduleEvent Event3;
         public FootPlantEndPose EndPose;
 
         public bool IsValid => EndPose.ClipDuration > 0f;
+        public int ValidEventCount => Mathf.Clamp(EventCount, 0, Capacity);
+
+        public FootPlantScheduleEvent GetEvent(int index)
+        {
+            switch (index)
+            {
+                case 0: return Event0;
+                case 1: return Event1;
+                case 2: return Event2;
+                case 3: return Event3;
+                default: return default;
+            }
+        }
+
+        public void SetEvent(int index, in FootPlantScheduleEvent value)
+        {
+            switch (index)
+            {
+                case 0: Event0 = value; break;
+                case 1: Event1 = value; break;
+                case 2: Event2 = value; break;
+                case 3: Event3 = value; break;
+            }
+        }
     }
 
     public enum TraversalHandContactMode
@@ -635,8 +684,8 @@ namespace Project.Presentation.Motion
                  "（與 EndPhase 符號一致）。零交越＝換腳時刻，供 Start/Stop 選腳別與未來 Footstep／相位同步。")]
         public AnimationCurve FootPhaseCurve;
 
-        [Header("Locomotion Stop — 結束站姿（ADR-010）")]
-        [Tooltip("由烘焙器從 clip 最後一個 sample 寫入（root 空間的左右踝）。舊資產／非 Stop clip 維持 default；runtime 不讀 SourceClip。")]
+        [Header("Locomotion Stop — 結束站姿與 planned plant 排程（ADR-010）")]
+        [Tooltip("由烘焙器從 clip sample 寫入：最後一個 sample 的左右踝（結束站姿）與自動偵測的 plant。舊資產／非 Stop clip 維持 default；runtime 不讀 SourceClip。")]
         public FootPlantSchedule FootPlantSchedule;
 
         [Tooltip("整段動畫的總位移方向，換算成『動畫開始那一刻』角色本地座標系下的方向向量，" +

@@ -389,8 +389,9 @@ namespace Project.Tests.EditMode
             LocomotionStopVariant variant = Variant(-0.2f, "RunStop");
             MotionBakeData bake = variant.BakeData;
             bake.SpeedCurve = new AnimationCurve(new Keyframe(0f, 0f), new Keyframe(1f / 60f, 1f), new Keyframe(1f, 0f));
-            bake.FootPlantSchedule = new FootPlantSchedule
+            var schedule = new FootPlantSchedule
             {
+                EventCount = 1,
                 EndPose = new FootPlantEndPose
                 {
                     LeftAnkleInRoot = new Vector3(-0.1f, 0f, 0.2f),
@@ -398,6 +399,9 @@ namespace Project.Tests.EditMode
                     ClipDuration = 1f,
                 }
             };
+            var plant = new FootPlantScheduleEvent { Side = FootPlantSide.Left, ClipTime = 0.5f, AnkleInRoot = new Vector3(-0.1f, 0f, 0.2f) };
+            schedule.SetEvent(0, in plant);
+            bake.FootPlantSchedule = schedule;
             SetPrivateField(model, "runLoopBakeData", bake);
             SetPrivateField(model, "runStopVariants", new[] { variant });
 
@@ -420,12 +424,19 @@ namespace Project.Tests.EditMode
             Assert.Greater(data.LocomotionStopPrediction.RemainingForwardDisplacement, 0f);
             Assert.AreEqual(new Vector3(-0.1f, 0f, 0.2f), data.LocomotionStopPrediction.EndLeftAnkleInRoot);
             Assert.AreEqual(new Vector3(0.1f, 0f, 0.2f), data.LocomotionStopPrediction.EndRightAnkleInRoot);
+            // ADR-010 D5：下一次 planned plant（clip 0.5 s，尚未發生）——publish root 座標系，含前進量 ⇒ z 大於 ankle-in-root 的 0.2
+            Assert.IsTrue(data.LocomotionStopPrediction.HasNextPlant);
+            Assert.IsTrue(data.LocomotionStopPrediction.NextPlantIsLeft);
+            Assert.IsTrue(data.LocomotionStopPrediction.NextPlantIsFinal, "排程只有一個事件 ⇒ 它就是最後一次 planned plant");
+            Assert.AreEqual(-0.1f, data.LocomotionStopPrediction.NextPlantAnkleInPublishRoot.x, 1e-5f);
+            Assert.Greater(data.LocomotionStopPrediction.NextPlantAnkleInPublishRoot.z, 0.2f);
 
             data.MovementIntent = runIntent;
             SetPrivateField(model, "_lastMotionFrame", Time.frameCount - 1);
             model.Tick(data, facade, 1f / 60f);
             Assert.IsFalse(data.LocomotionStopPrediction.Active, "移動意圖中斷 Stop 的同一 Tick 必須清除預測。");
             Assert.AreEqual(Vector3.zero, data.LocomotionStopPrediction.EndLeftAnkleInRoot, "失效時整份快照是 default（ADR-010 D1）。");
+            Assert.IsFalse(data.LocomotionStopPrediction.HasNextPlant);
         }
 
         private static void SetPrivateField<T>(object target, string fieldName, T value)

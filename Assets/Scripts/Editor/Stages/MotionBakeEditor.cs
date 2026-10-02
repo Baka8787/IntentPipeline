@@ -547,9 +547,8 @@ namespace Project.Editor
                 // ⇒ 每一幀都判成騰空 ⇒ 找不到「觸地→騰空」邊沿 ⇒ 跳躍特徵全部退化為 0。
                 float leftFootBaselineY = 0f;
                 float rightFootBaselineY = 0f;
-                // ADR-010：停步結束站姿＝最後一個 sample 的左右踝（root 空間）。
-                Vector3 endLeftAnkleInRoot = default, endRightAnkleInRoot = default;
-                int endPoseSamples = 0;
+                // ADR-010：停步結束站姿（最後一個 sample）與 planned plant 排程的取樣——同一趟迴圈，不重跑 SampleAnimation。
+                var footPlantSamples = new List<FootPlantBakeSample>(totalFrames);
 
                 for (int i = 0; i < totalFrames; i++)
                 {
@@ -574,9 +573,14 @@ namespace Project.Editor
                     if (leftFootT != null && rightFootT != null)
                     {
                         Quaternion inverseRoot = Quaternion.Inverse(currentRot);
-                        endLeftAnkleInRoot = inverseRoot * (leftFootT.position - currentPos);
-                        endRightAnkleInRoot = inverseRoot * (rightFootT.position - currentPos);
-                        endPoseSamples++;
+                        footPlantSamples.Add(new FootPlantBakeSample
+                        {
+                            Time = time,
+                            LeftAnkleWorld = leftFootT.position,
+                            RightAnkleWorld = rightFootT.position,
+                            LeftAnkleInRoot = inverseRoot * (leftFootT.position - currentPos),
+                            RightAnkleInRoot = inverseRoot * (rightFootT.position - currentPos),
+                        });
                     }
 
                     if (i == 0)
@@ -632,17 +636,13 @@ namespace Project.Editor
                 MotionFeatureContext featureContext = new MotionFeatureContext(
                     featureSamples, duration, takeoffFootLiftThreshold, leftFootBaselineY, rightFootBaselineY);
 
-                FootPlantSchedule footPlantSchedule = endPoseSamples >= 2 && duration > 0f
-                    ? new FootPlantSchedule
-                    {
-                        EndPose = new FootPlantEndPose
-                        {
-                            LeftAnkleInRoot = endLeftAnkleInRoot,
-                            RightAnkleInRoot = endRightAnkleInRoot,
-                            ClipDuration = duration,
-                        },
-                    }
-                    : default;
+                FootPlantSchedule footPlantSchedule = FootPlantScheduleBaker.Build(
+                    footPlantSamples, duration, out bool plantScheduleTruncated);
+                if (plantScheduleTruncated)
+                {
+                    Debug.LogWarning($"[Motion Bake] {sourceClip.name} 偵測到超過 {FootPlantSchedule.Capacity} 個 plant；" +
+                                     "固定排程只保存最早的事件。請檢查偵測門檻或擴充契約。", sourceClip);
+                }
 
                 SaveAsset(
                     speedCurve,
