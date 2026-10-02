@@ -7,6 +7,17 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🟦 2026-10-03（三）— **T3 landing-surface slice Phase 1：destination resolver 離線評估——最後落地用預測可提前 6–8（Walk）／17–21（Run）帧穩定、加即時驗證後鎖定時 0 錯；但執行期判斷不出「是不是最後落地」、Run 煞車步沒有可信來源 ⇒ Phase 2 前提未成立；⛔ T3 目標未改**
+>
+> 📖 正本：`docs/45` §11。`LandingSurfaceProbe` 加候選欄位重跑 208 次；離線策略重播 `docs/artifacts/pelvis-analysis/resolver.py.txt`。
+>
+> - 來源：P（停步預測，只描述各腳最後站姿；最後落地 XZ 誤差中位 1 cm、中途落地 0.5–0.8 m）、X（速度外插；下樓有系統偏差——到接觸時間用平地 pose 平面高度，約 15 帧前就外插到支撐腳那一階）、L（現況）。
+> - 11% 錯一階：首次承諾降不了（預測水平誤差 p90 6–9 cm；跨階緣辨識不出來）；最後 3 帧即時驗證可讓鎖定時 0 錯，但這些仍在最後幾帧改答案。
+> - Run 煞車步：只有 X，鎖定前中位 3 帧才穩定（跳動在約 7 帧前）⇒ 現有來源不行。上下樓可共用同一契約。
+> - ❓ 待使用者（§11.8）：①以 resolver 為正式 consumer 開 ADR-010 獨立擴充（快照加「下一次 plant」）再重量 ②或先試 X 的世界高度修正 ③接受階緣站姿約 10% 晚改答案為固有限制。
+>
+> ---
+
 > # 🟦 2026-10-03（二）— **Landing-surface continuity：擺盪腳的落腳面追著「腳目前所在階」走，跨到不同階時在鎖定前 1–4 帧才切（單帧 8–17 cm）；預測早 7–23 帧就指向最終階；⛔ 只量測、runtime 未改**
 >
 > 📖 正本：`docs/45` §10（獨立於 `docs/46` §35）。throwaway `LandingSurfaceProbe`（208 次停步：兩道樓梯 × Walk／Run × 上／下 × 斜向 0°／20° × 13）；分析 `docs/artifacts/pelvis-analysis/landing.py.txt`。
