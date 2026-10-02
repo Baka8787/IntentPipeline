@@ -7,6 +7,18 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🟦 2026-10-03（二）— **Landing-surface continuity：擺盪腳的落腳面追著「腳目前所在階」走，跨到不同階時在鎖定前 1–4 帧才切（單帧 8–17 cm）；預測早 7–23 帧就指向最終階；⛔ 只量測、runtime 未改**
+>
+> 📖 正本：`docs/45` §10（獨立於 `docs/46` §35）。throwaway `LandingSurfaceProbe`（208 次停步：兩道樓梯 × Walk／Run × 上／下 × 斜向 0°／20° × 13）；分析 `docs/artifacts/pelvis-analysis/landing.py.txt`。
+>
+> - 機制：T3 擺盪目標＝移動斜坡（CharacterController 用，沿踏面前緣）＋ 動畫踝高 ＋ lift（∝ β，拉向腳跟／踝／尖**目前**所在踏面）⇒ 沒有「這一步落到哪」的資訊。跳動多在**腳踝點跨階緣**時（鎖定前 4–8 帧），之後 β 上升把它拉到位；ground miss 0 次。
+> - 上下樓是同一機制的正負版本；斜向不是成因（0° 與 20° 幅度相同，只是較常落在不同階）。同一階也有 β 驅動的「斜坡 → 踏面」分量（Walk 上樓中位 10–12 cm）。
+> - 與 FU-14 同家族（只看目前 XZ 的地面），不是同一缺陷：這裡是延遲，取樣本身穩定（A→B→A 1.7%）⇒ 不需要 footprint／遲滯。
+> - 單獨「擺盪開始時 latch 預測落腳面」不夠：第一次可用時 11% 錯一整階（階緣站姿）、Walk 預測常在擺盪中段才出現、Run 煞車步沒有預測（而它們是最大的跳動 20–24 cm）。
+> - ❓ 待使用者（§10.6）：開 T3 landing-surface slice？(a) 目的地過渡（修訂 §3 擺盪語意；預測＋即時驗證，無預測時外插）／(b) 先只把擺盪參考從移動斜坡改成踏面（§9.4 F1b 同一題）；Run 煞車步是否納入。
+>
+> ---
+
 > # ✅ 2026-10-03 — **工作樹對齊 HEAD（`155b698`）後全套測試：EditMode 767／766／0 failed／1 skipped；PlayMode 96／95／1 failed（既有 `C0`）**
 >
 > - 依 runtime responsibility 切出的正式 commit：`33da8c4` riser rule → `1fc8017` 統一骨盆求解器 → `e5ff3b3` ADR-010（🟡 Trial）停步預測快照 → `6a4017a` X Bot 啟用 → `109488f` docs → `155b698` Walk Fix C。對應見 `docs/46` 檔頭。
