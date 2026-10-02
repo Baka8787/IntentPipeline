@@ -6530,6 +6530,7 @@
 | **FU-10** | `LocomotionModel` 走向 God Class（`docs/07` §13.1-R4） | 不排程；**四個工作包都不得動它** |
 | **FU-11** 🆕 | **相機是第二個輸入權威**：`InputData.LookInput` 有採樣但**零消費者**，`ThirdPersonCamera` 直接讀 `Mouse.current.delta`，繞過 `BlockInput` 閘門（以 `Cursor.lockState` 代理） | **不排程**（WP1 明確不修）。`InputData` 是 `ref struct`、當帧銷毀，LateUpdate 的相機拿不到 ⇒ 接回管線只能經黑板 ⇒ 撞停止條件①。觸發條件：①出現「游標自由但相機仍該轉」的模式（dev-spec §7.3 的失效條件）；或②**第三個** Presentation 元件想直接讀輸入裝置。詳見 [`docs/09` §5.3](09-camera-aim.md) |
 | **FU-12** 🆕 | `PlayerRuntimeData.AimTarget` 是**死欄位**——有宣告、Editor 有顯示，**無寫入者也無讀取者** | **不排程**。⛔ **不得混進 WP1**：清理它會動黑板 schema ＋ dev-spec §1.1 ＋ Editor，會污染本包「schema 零改動」的負面證明。應獨立成一筆清理 commit |
+| **FU-14** 🆕 | **Landing 角色隔帧閃爍**（`MovingPelvisSolver.FootLimit`）：「正在下降」用 `SoleHeight ≤ 上一帧` 判定，而 `SoleHeight` 是相對**腳正下方的地面**。腳跨過階緣、或該帧地面射線漏打（`HasHit` false／gY＝0）時，SoleHeight 會跳大 ⇒ 那一帧不算 Landing，約束就消失。移動中與停步都會發生（樓梯下樓 Run 最明顯，見 `docs/46` §34.3） | **不排程**（底層問題，使用者 2026-10-02 裁決另記）。單獨修的效果很小（§34.5 變體 A：Run ≥5 cm 帧 17→14／20→16），只有在 Landing 需要「提前預告」時才有意義。修法方向：用腳目標的世界高度判定下降，漏打時沿用上一帧地面——會改變移動中的骨盆，需要先跑移動中＋停步回歸 |
 | **FU-13** ✅ | **Souls 式 lock-on** | ✅ **已開包（2026-08-31）** → 規格 [`docs/10-lock-on.md`](10-lock-on.md)（🟡 待 D1 裁決）。**拆兩階段**：Stage 1（不含 strafe）四條 ADR 判準全不成立 ⇒ **不開 ADR、走 Living Doc**；Stage 2（含 strafe）判準①③成立 ⇒ 必須開 ADR-005，且**不得在 ADR-004 仍為 Trial 時開始** |
 
 ---
