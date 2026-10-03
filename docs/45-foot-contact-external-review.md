@@ -573,3 +573,29 @@ Phase 1c 接受（保留 producer 時間基準修正；不改 Bake plant 門檻�
 ### 15.5 ❓ 待使用者
 1. 以目前能力進 Phase 2（最後落地明顯早於 T3；煞車步約 8 成正確、lead ＋1 帧，錯的那些就在最後幾帧由即時驗證修正）？
 2. 或重新考慮 Phase 1c 的修正 2（plant 時刻與 T3 鎖定一致）——這是目前唯一還能動到剩餘煞車步錯誤的槓桿。
+
+## 16. Phase 1 結論與 Phase 2 裁決（2026-10-03，使用者）
+
+### 16.1 裁決
+選 §15.5 的 1：**結束 Phase 1 研究，進 Phase 2**。
+- 保留：ADR-010 D1-R1（next plant 自 variant committed 起發布）、Phase 1c 的 producer 時間基準修正。
+- 不採：Phase 1c 修正 2（Bake plant 語意**不得**依賴 T3 的鎖定門檻）、landing-pose contract、遲滯。
+- Phase 2 **正式實作 `LandingSurfaceResolver`**：最後 plant 與煞車／中途 plant 必須保留**不同的可信度**；**沒有 intent 時 T3 維持現行行為**。
+- 驗收重點由「預測準度」改為 **runtime outcome**：destination 改答案、骨盆目標／輸出 ΔY、tread flip、錯誤預測能否由即時驗證**安全收斂**。
+
+### 16.2 Phase 1 留下的事實（Phase 2 的輸入）
+| 來源 | 何時可用 | 準度（Run） | 用途 |
+|---|---|---|---|
+| next plant，`IsFinal`（最後 plant） | 鎖定前約 24 帧（Walk 約 13） | 正確階 97%、XZ 0.6 cm | **高可信度** destination |
+| next plant，非最後（煞車步等） | 鎖定前約 10 帧 | 正確階 83%、XZ 約 4.5 cm（剩餘位置偏差在跨階緣腳印上） | **低可信度** destination：必須由即時驗證收斂 |
+| 沒有 next plant（Walk 中途落地、移動中） | — | — | **no-intent**：T3 現行 |
+| 即時驗證（腳下三點） | 最後幾帧 | 鎖定前 0–2 帧 95–98% | 修正錯誤 destination |
+- 承諾規則（§11.2，離線驗證過）：候選連續 2 帧一致才首次承諾、連續 3 帧才改答案、單帧即時取樣不改答案；晚期外插不採用（只增加錯誤）。
+- T3 鎖定當帧的支撐選擇 ＝ 三點最大穿透（§15.2），Locked／contact 的 authority 不變。
+
+### 16.3 Phase 2 驗收（草案；開工時細化）
+- **destination 改答案**：每次落地的改答案次數與最晚時刻；高可信度路徑應幾乎不改答案。
+- **骨盆目標／輸出 ΔY**：擺盪中目標朝 destination 過渡後，骨盆求解器的目標與套用值的單帧變化不得比現況大（以 §33.4／§34 的指標對照）。
+- **tread flip**：鎖定期間與鎖定瞬間的整階翻轉不得增加（以 §20／§25 的指標對照）。
+- **錯誤預測的安全收斂**：低可信度 destination 錯一階時，即時驗證接手的那幾帧，目標的單帧跳動有上限、不穿透、鎖定時以 T3 自己的支撐為準。
+- no-intent 的落地與現況逐位元相同。

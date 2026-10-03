@@ -7,6 +7,38 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🟧 下一會話開場：**T3 landing-surface slice Phase 2——正式實作 `LandingSurfaceResolver` 並接進 T3**（2026-10-03 使用者裁決）
+>
+> **開場只需讀**：本段 ＋ `docs/45` §16（裁決、Phase 1 事實表、驗收草案）＋ §11.2（intent 契約草案、承諾規則）＋ §15.2（T3 鎖定支撐語意）＋ §3（現行擺盪語意，Phase 2 要修訂它）＋ ADR-010 D1-R1／D5。⛔ 不需要重讀 §10–§15 的研究過程。
+>
+> ## 裁決（不可再變動的前提）
+> - 保留 ADR-010 D1-R1（next plant 自 variant committed 起發布）與 Phase 1c producer 時間基準修正（`LocomotionModel`：root 前進量算到 plant − 本帧實測 clip 前進量）。
+> - ⛔ 不採 Phase 1c 修正 2（Bake plant 語意不得依賴 T3 鎖定門檻）；⛔ 不加 landing-pose contract；⛔ 不加遲滯／footprint；FU-14 獨立。
+> - 最後 plant（`NextPlantIsFinal`）＝高可信度；煞車／中途 plant＝低可信度（必須由即時驗證收斂）；**沒有 intent ⇒ T3 現行行為逐位元不變**。
+> - 驗收看 **runtime outcome**：destination 改答案（次數／最晚時刻）、骨盆目標／輸出 ΔY、tread flip、錯誤預測由即時驗證安全收斂。
+>
+> ## 建議做法（開工時先確認）
+> 1. `Presentation/IK/LandingSurfaceResolver.cs`（純邏輯、每腳一份跨帧狀態、零 GC）：輸入＝T3 相位、next plant（`FootIKController.TryPredictNextPlantGoal` 已存在，含 IsFinal）、即時三點踏面；輸出＝`LandingSurfaceIntent`（Valid／SurfaceY／Confidence／Source／Revisions）。承諾規則照 §11.2。EditMode 測試與它一起寫。
+> 2. 接進 `FootIKController.ResolveContactPosition` 的未鎖定分支：擺盪目標的落腳面逐步從「移動斜坡＋lift」過渡到 destination 踏面；Locked／contact authority 不變；無 intent 不進這條路。
+> 3. ADR 判斷：只改 T3 內部的擺盪語意（`docs/45` §3）⇒ Living Spec，不需要新 ADR；ADR-010 不動。若實作途中需要動黑板或其他介面，停下來問。
+> 4. 驗收量測沿用 `LandingSurfaceProbe`（見下），新增 runtime outcome 指標；對照組＝resolver 關閉（加一個設定開關，還原路徑）。
+>
+> ## 工具與資料（⚠️ 全部未 commit）
+> - probe：`Assets/_Project/Tests/PlayMode/LandingSurfaceProbe.cs`（`[Explicit]`；208 次停步約 15 分鐘；只跑 Run ⇒ 把 `[Values(Gait.Walk, Gait.Run)]` 改成 `[Values(Gait.Run)]`，104 次約 7 分鐘）。逐帧記錄 T3 相位／目標／斜坡與踏面／next plant／停步 clip 時間；以反射呼叫 T3 的 `AccumulateContact`（`repSup`、side file `sem_*.csv`）。輸出 `Temp/LandingSurface/`——**Unity 重啟會清空，跑完立刻複製**。
+> - 分析：`docs/artifacts/pelvis-analysis/{landing,resolver,bias,timebase,early,semantics,semantics_b}.py.txt`；Editor 匯出腳本 `export_stair_edges.eval.cs.txt`／`export_bake_disp.eval.cs.txt`（`unity cmd eval_file`；輸出路徑要改）；真實階緣表 `edges.csv.txt`。
+> - 指令順序：`unity cmd recompile` → 輪詢 `recompile_status` 到 completed → 確認 `isPlaying=false` → `run_tests`（PlayMode 要 `--async_tests true --include_explicit true --filter <name>`）。
+>
+> ## 這輪學到的坑
+> - **離線重寫 T3 規則會漂移**（204／247）——要知道 T3 會選什麼，在引擎內用反射呼叫 T3 自己的程式（247／247）。
+> - bash heredoc 裡的 Python 會把 `\n` 變成真的換行——含跳脫字元的腳本先用 Write 工具寫成檔案再執行。
+> - 停步期間 root 對齊 `LocomotionStopRuntime.NormalizedTime`，畫面姿勢領先一次評估（104／104）。
+>
+> ## 目前狀態
+> - 測試基準：EditMode **768／767／0 failed／1 skipped**。⚠️ D5／D1-R1／時間基準修正之後**沒有重跑完整 PlayMode**（上次 96／95／1 failed＝既有 `C0`）——Phase 2 開工先跑一次。
+> - 工作樹未 commit：場景（`Stairs (1)`、`__StairMovementSurface`）、音量、材質、ProBuilder 設定、`docs/05` 樓梯 clip 盤點、上述 probe 與分析腳本、`.prototype-backup-20261003/`（原型備份）。`CharacterPipelineRunner`／`FootContactSolver`／`StandingPostureSolverTests` 只有換行差異。scratch worktree 仍登記（`git worktree remove --force`，需使用者執行）。
+>
+> ---
+
 > # 🟦 2026-10-03（七）— **Phase 1e：T3 支撐語意完全重現（247／247）；落地姿勢（Bake plant 時刻，甚至實際鎖定姿勢）都無法修正剩餘 6 次語意不一致——它們在 T3 規則下是位置敏感 ⇒ 不提 ADR-010 擴充；⛔ 只量測**
 >
 > 📖 正本：`docs/45` §15。in-engine 以反射呼叫 T3 的 `AccumulateContact`（probe side file `sem_*.csv`）；分析 `semantics.py.txt`／`semantics_b.py.txt`。離線重寫規則只有 204／247 一致，已作廢。
