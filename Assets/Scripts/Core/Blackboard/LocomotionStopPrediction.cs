@@ -7,8 +7,10 @@ namespace Project.Core.Blackboard
     /// 不取得 MotionBakeData／AnimationClip／Animator 參照。
     /// <para>
     /// 一份快照 ＝ 寫入它的那一次順序 3 tick（publish）當下，對「本次停步結束時」的預測；不是軌跡。
-    /// <see cref="Active"/> 為 true ⇔ producer 在**本帧**確認停步正在播放、播放頭已前進、Bake 有結束站姿，並寫出了本帧的值；
-    /// 否則整份為 <c>default</c>。Writer 每次 tick 先清除 ⇒ 消費端不會讀到前一帧的值，也不得跨帧快取。
+    /// 兩個區塊各有有效旗標（ADR-010 D1-R1）：<see cref="Active"/> ⇔ producer 在**本帧**確認停步正在播放、播放頭已前進、Bake 有結束站姿
+    /// （結束站姿欄位有效）；<see cref="HasNextPlant"/> ⇔ 本帧已有 committed 的 stop variant 且之後仍有 planned plant（next plant 欄位有效；
+    /// 可早於 Active）。publish root 欄位在任一旗標為 true 時有效；兩者皆 false ⇒ 整份為 <c>default</c>。
+    /// Writer 每次 tick 先清除 ⇒ 消費端不會讀到前一帧的值，也不得跨帧快取。
     /// </para>
     /// ⛔ 欄位只收正式 consumer 實際讀取的（ADR-010 D2）：結束站姿給 FutureLandingProvider；
     /// 下一次 planned plant（D5）給 LandingSurfaceResolver。擴充需要正式 consumer 的理由與獨立變更。
@@ -28,7 +30,7 @@ namespace Project.Core.Blackboard
         public Vector3 EndRightAnkleInRoot;
 
         // === 下一次 planned plant（ADR-010 D5；consumer：LandingSurfaceResolver）===
-        /// <summary>publish 之後仍有尚未發生的 planned plant。false ⇒ 其餘三個欄位無意義（default）。</summary>
+        /// <summary>本帧已有 committed 的 stop variant，且之後仍有尚未發生的 planned plant（D1-R1：自 variant committed 起，不等播放頭）。false ⇒ 其餘三個欄位無意義（default）。</summary>
         public bool HasNextPlant;
         /// <summary>下一次 planned plant 是左腳（false ＝ 右腳）。</summary>
         public bool NextPlantIsLeft;

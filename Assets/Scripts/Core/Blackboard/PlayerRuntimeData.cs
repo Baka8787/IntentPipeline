@@ -55,7 +55,7 @@ namespace Project.Core.Blackboard
         // === Locomotion Stop 預測區（ADR-010 🟡 Trial）===
         // 持續型、每帧整體覆寫的純數值快照；不參與 ResetTransientState。
         // 寫入者（唯一）：LocomotionModel（順序 3，每次 tick 先清除）。讀取者：Presentation.IK（同帧順序 6.x）。
-        // 停步未播放／播放頭未前進／Bake 無結束站姿／完成或中斷時 Active=false，消費端退回既有 reactive chain。
+        // 結束站姿：播放頭未前進／Bake 無結束站姿／完成或中斷時 Active=false。next plant：variant committed 起即可（HasNextPlant；D1-R1）。
         public LocomotionStopPrediction LocomotionStopPrediction;
 
         // === 仲裁區 ===

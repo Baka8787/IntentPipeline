@@ -763,7 +763,7 @@ namespace Project.Presentation.IK
             left = prediction.NextPlantIsLeft;
             isFinal = prediction.NextPlantIsFinal;
             ankle = default;
-            if (!prediction.Active || !prediction.HasNextPlant) return false;
+            if (!prediction.HasNextPlant) return false;      // D1-R1：next plant 有自己的有效條件，不看 Active
             Quaternion yaw = Quaternion.Euler(0f, prediction.RootYawDegreesAtPublish, 0f);
             Vector3 forward = yaw * Vector3.forward;
             Vector3 goalInPublishRoot = StopLandingGoalInRoot(prediction.NextPlantAnkleInPublishRoot,

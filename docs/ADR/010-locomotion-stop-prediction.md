@@ -37,7 +37,14 @@
 3. 選定 variant 的 `MotionBakeData` 有有效的結束站姿（`ClipDuration > 0`）且 `Duration > 0`；
 4. 目前 clip 時間 < clip 長度。
 
-任何一條不成立 ⇒ 快照是 **`default`**（`Active = false`，其他欄位全為 0），消費端必須當作「沒有預測」。
+任何一條不成立 ⇒ 結束站姿欄位為 default（`Active = false`），消費端必須當作「沒有結束站姿預測」。
+
+#### 🔄 D1-R1（2026-10-03 使用者裁決，Trial 期修訂；`docs/45` §14）——next plant 有自己的有效條件
+`Active` 只描述**結束站姿**欄位（條件 1–4 不變；FutureLandingProvider／骨盆求解器的行為不變）。
+`HasNextPlant` 描述 **next plant** 欄位，條件改為：**stop variant 已 committed**（`LocomotionStopRuntime.IsActive`，含 pending 與等待播放頭）∧ Bake 有結束站姿 ∧ 排程中仍有晚於目前 clip 時間的 planned plant——**不等播放頭前進**。
+播放頭尚未前進時以 clip 0 為基準、沒有實測的 clip 前進量（D5 的時間基準修正那一項為 0）。
+`RootWorldPositionAtPublish`／`RootYawDegreesAtPublish` 在任一旗標為 true 時有效；兩者皆 false ⇒ 整份為 default。
+「每次 tick 先清除」與「消費端同帧讀取」的結構保證不變。
 
 **為什麼不會讀到舊值（結構保證）**：
 - Writer 在**每一次**順序 3 tick 的**最開頭**就把快照寫成 `default`，之後條件全部成立才寫入新值。
@@ -127,5 +134,6 @@ AC2／AC3 的證據來自原型。最小版發布的六個欄位與原型的**�
 ①黑板 schema 變更 —— **成立**。②FSM 拓撲／hierarchy —— 不成立。③管線順序／核心驅動介面 —— 不成立（Writer 在既有順序 3）。④推翻既有不變式 —— **成立**（A12「停步／腳相位不擴張黑板」）。
 
 ## 9. 裁決紀錄
+- 2026-10-03（使用者，第三次）：D1-R1——next plant 在 stop variant committed 時即可發布，不等待播放頭前進；end-pose 定義與 Bake plant 門檻不變（Phase 1c 不讓 Baker 依賴 T3 門檻）。
 - 2026-10-03（使用者，第二次）：D5——以 `LandingSurfaceResolver` 為正式 consumer，加入最小的 next-plant snapshot（`HasNextPlant`／腳別／publish-root 位置／`IsFinal`）；不推翻 D2。前進距離可由位置推導 ⇒ 不另存。
 - 2026-10-03（使用者）：D1 Yes；D2 A（只保留六個欄位，未來需要時以獨立變更擴充；`Active` 的語意與失效條件必須明確定義）；D3 Confirmed（Planned Stop 軌跡／控制不進正式 commit，不得形成第二套 stop／locomotion authority）。Proposed → **Trial**。

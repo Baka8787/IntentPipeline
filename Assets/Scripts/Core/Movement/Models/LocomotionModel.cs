@@ -160,35 +160,44 @@ namespace Project.Core.Movement
 
             _wasIntending = isIntending;
 
-            if (_stop.IsPlaying && _stop.HasPlaybackRate &&
-                TryGetActiveVariant(out LocomotionStopVariant predictionVariant))
+            // ADR-010：stop variant 一 committed（含 pending／等待播放頭）就進入發布；各區塊自己的有效條件在 PublishStopPrediction 內判斷。
+            if (_stop.IsActive && TryGetActiveVariant(out LocomotionStopVariant predictionVariant))
             {
                 PublishStopPrediction(data, predictionVariant.BakeData);
             }
         }
 
-        /// <summary>ADR-010：本帧的停步預測快照（最小 schema）。條件不足就保持 default。</summary>
+        /// <summary>
+        /// ADR-010：本帧的停步預測快照。兩個區塊各有自己的有效條件（D1-R1）：
+        /// 結束站姿（<c>Active</c>）要等播放頭已前進；next plant（<c>HasNextPlant</c>）自 variant committed 起即可發布。
+        /// 兩者都不成立 ⇒ 保持 default。
+        /// </summary>
         private void PublishStopPrediction(PlayerRuntimeData data, MotionBakeData bakeData)
         {
             FootPlantSchedule schedule = bakeData != null ? bakeData.FootPlantSchedule : default;
             float duration = bakeData != null ? bakeData.Duration : 0f;
             if (!schedule.IsValid || duration <= 0f) return;
 
-            float currentClipTime = Mathf.Clamp01(_stop.NormalizedTime) * duration;
+            // 播放頭尚未前進（pending／等待播放頭）⇒ clip 尚未開始：以 clip 0 為基準、沒有實測的 clip 前進量。
+            bool playheadKnown = _stop.IsPlaying && _stop.HasPlaybackRate;
+            float currentClipTime = playheadKnown ? Mathf.Clamp01(_stop.NormalizedTime) * duration : 0f;
             if (!(currentClipTime < duration)) return;
-            float publishClipTime = Mathf.Clamp01(_stop.PreviousNormalizedTime) * duration;
+            float publishClipTime = playheadKnown ? Mathf.Clamp01(_stop.PreviousNormalizedTime) * duration : 0f;
 
             float travelledAtPublish = bakeData.GetLocomotionStopHorizontalDisplacementAt(publishClipTime);
-            float totalTravel = bakeData.GetLocomotionStopHorizontalDisplacementAt(duration);
             var prediction = new LocomotionStopPrediction
             {
-                Active = true,
                 RootWorldPositionAtPublish = transform.position,
                 RootYawDegreesAtPublish = transform.eulerAngles.y,
-                RemainingForwardDisplacement = Mathf.Max(0f, totalTravel - travelledAtPublish),
-                EndLeftAnkleInRoot = schedule.EndPose.LeftAnkleInRoot,
-                EndRightAnkleInRoot = schedule.EndPose.RightAnkleInRoot,
             };
+            if (playheadKnown)
+            {
+                float totalTravel = bakeData.GetLocomotionStopHorizontalDisplacementAt(duration);
+                prediction.Active = true;
+                prediction.RemainingForwardDisplacement = Mathf.Max(0f, totalTravel - travelledAtPublish);
+                prediction.EndLeftAnkleInRoot = schedule.EndPose.LeftAnkleInRoot;
+                prediction.EndRightAnkleInRoot = schedule.EndPose.RightAnkleInRoot;
+            }
 
             // ADR-010 D5：下一次 planned plant（排程依 clip 時間排序）。位置換到 publish root 座標系：
             // root 在 publish → plant 之間沿 publish 朝向前進（與結束站姿同一假設），故 ＝ 該 plant 的 ankle-in-root ＋ (0, 0, 前進量)。
@@ -208,7 +217,7 @@ namespace Project.Core.Movement
                 prediction.NextPlantIsFinal = i == eventCount - 1;
                 break;
             }
-            data.LocomotionStopPrediction = prediction;
+            if (prediction.Active || prediction.HasNextPlant) data.LocomotionStopPrediction = prediction;
         }
 
         private void ApplyCombatDirectionalSpeedLimit(

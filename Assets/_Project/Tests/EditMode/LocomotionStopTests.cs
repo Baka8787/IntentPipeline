@@ -415,7 +415,8 @@ namespace Project.Tests.EditMode
 
             SetPrivateField(model, "_lastMotionFrame", Time.frameCount - 1);
             model.Tick(data, facade, 1f / 60f);
-            Assert.IsFalse(data.LocomotionStopPrediction.Active, "播放頭尚未前進，倍率未知時不猜。");
+            Assert.IsFalse(data.LocomotionStopPrediction.Active, "播放頭尚未前進，倍率未知時不猜結束站姿。");
+            Assert.IsTrue(data.LocomotionStopPrediction.HasNextPlant, "ADR-010 D1-R1：variant committed 就發布 next plant，不等播放頭。");
 
             facade.RootNormalizedTime = 0.1f;
             SetPrivateField(model, "_lastMotionFrame", Time.frameCount - 1);
