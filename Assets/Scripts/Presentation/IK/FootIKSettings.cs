@@ -92,6 +92,39 @@ namespace Project.Presentation.IK
         [Tooltip("動畫腳一帧位移超過此值（公尺）視為瞬移／不連續：狀態與速度歷史立即重設。")]
         [Min(0f)] public float MaxPoseStepPerFrame = 0.5f;
 
+        [Header("🧪 T3 目的地踏面（docs/45 §17；LandingSurfaceResolver；需要 T3；預設關閉）")]
+        [Tooltip("開啟後，擺盪中（Unlocked）的腳以 ADR-010 next planned plant 的落點踏面為目的地，抬升逐步從「目前腳下」過渡到目的地；" +
+                 "落腳前以即時三點驗證。Locked／Releasing 與鎖定支撐的選擇不變。沒有目的地時與關閉逐位元相同。\n還原 ＝ 關閉。")]
+        public bool UseLandingSurfaceResolver = false;
+
+        [Tooltip("本次擺盪 β 上升穿越此值之後，腳下三點的即時踏面取代預測成為候選（落腳前的即時驗證）。0.7 由量測決定（docs/45 §17）。")]
+        [Range(0f, 1f)] public float LandingVerifyBeta = 0.7f;
+
+        [Tooltip("首次承諾：候選連續一致的帧數（docs/45 §11.2）。")]
+        [Min(1)] public int LandingConfirmFrames = 2;
+
+        [Tooltip("改答案：新候選連續一致的帧數。單帧即時取樣永遠不改答案。")]
+        [Min(1)] public int LandingReviseFrames = 3;
+
+        [Tooltip("兩個踏面高度差小於此值（m）視為同一階。")]
+        [Min(0.001f)] public float LandingSurfaceTolerance = 0.03f;
+
+        [Tooltip("低可信度目的地（煞車／中途 plant，非最後一次）的過渡強度上限。高可信度（最後 plant、即時驗證一致）＝ 1。")]
+        [Range(0f, 1f)] public float LandingLowConfidenceWeight = 0.5f;
+
+        [Tooltip("過渡強度的變化速度（1/秒）：進入、退出（即時驗證矛盾、目的地失效）都受它限制 ⇒ 單帧跳動有上限。")]
+        [Min(0f)] public float LandingWeightRate = 10f;
+
+        [Tooltip("即時驗證連續 LandingConfirmFrames 帧與承諾矛盾時，過渡退出的速度（1/秒）。錯的目的地要在鎖定前退完" +
+                 "（docs/45 §17：Walk 錯誤目的地中位在鎖定前 5 帧被抓到）。")]
+        [Min(0f)] public float LandingContradictionRate = 20f;
+
+        [Tooltip("next plant 的世界 XZ 一帧移動不超過此值（m）才算「已定住的落點」。停步 pending／等待播放頭時它會跟著角色移動。")]
+        [Min(0f)] public float LandingPlantStillDistance = 0.01f;
+
+        [Tooltip("目標水平位置離預測落點在此距離（m）內，擺盪參考才從移動斜坡升向目的地踏面（smoothstep；0 ＝ 不限距離）。")]
+        [Min(0f)] public float LandingProximityRadius = 0.35f;
+
         [Header("🧪 停在樓梯上時站直（docs/05 §3.5.4.6；需要 T3 開啟；預設關閉，只在 X Bot 開啟）")]
         [Tooltip("開啟後：移動中骨盆照舊（參考面包絡）；靜止後骨盆以彈簧升到「兩腳都搆得到」的最高點（永不低於包絡），" +
                  "一有移動意圖或 root／腳開始動就立即回到包絡。關閉 ＝ 與原型之前逐位元相同。")]

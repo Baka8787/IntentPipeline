@@ -106,6 +106,9 @@ namespace Project.Presentation.IK
         // 🧪（T3 原型，docs/45 §6–§7）每隻腳刻意跨帧保存的接觸／鎖腳狀態（只存數值）。原型關閉時每帧重設。
         private FootContactState _leftContact;
         private FootContactState _rightContact;
+        // 🧪（docs/45 §17）每隻腳的目的地踏面 resolver 狀態；與 T3 狀態同生命週期（一起重設）。
+        private LandingSurfaceState _leftLanding;
+        private LandingSurfaceState _rightLanding;
         private readonly RaycastHit[] _plannedGroundHits = new RaycastHit[8];
 
         // 🧪（站直原型，docs/05 §3.5.4.6）姿勢狀態與它需要的一帧歷史（只存數值）。原型關閉時每帧重設。
@@ -186,6 +189,8 @@ namespace Project.Presentation.IK
             {
                 _leftContact.Reset();
                 _rightContact.Reset();
+                _leftLanding.Reset();
+                _rightLanding.Reset();
                 ResetPosture();
                 ResetMoving();
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -282,12 +287,25 @@ namespace Project.Presentation.IK
             // === ③' 🧪 T3：位置目標改由接觸構建（旋轉維持 ③ 的結果）===
             if (contact)
             {
-                ResolveContactPosition(ref _leftContact, _poseData.LeftFootPosition, _poseData.LeftFootRotation,
+                // 🧪（docs/45 §17）目的地候選：ADR-010 D5 next planned plant（本帧快照；⛔ 不跨帧快取）。
+                bool plantValid = false, plantLeft = false, plantFinal = false;
+                float plantSurfaceY = 0f;
+                Vector3 plantAnkle = default;
+                if (settings.UseLandingSurfaceResolver && data.LocomotionStopPrediction.HasNextPlant)
+                {
+                    LocomotionStopPrediction prediction = data.LocomotionStopPrediction;
+                    plantValid = TryPredictNextPlantGoal(in prediction, out plantLeft, out plantFinal, out plantAnkle);
+                    plantSurfaceY = plantAnkle.y - (plantLeft ? _poseData.LeftFootBottomHeight : _poseData.RightFootBottomHeight);
+                }
+
+                ResolveContactPosition(ref _leftContact, ref _leftLanding, plantValid && plantLeft, plantSurfaceY, plantFinal, plantAnkle,
+                    _poseData.LeftFootPosition, _poseData.LeftFootRotation,
                     _poseData.LeftFootBottomHeight, leftStance, ikAllowed, posePlaneY,
                     _targetData.LeftFootRotation, _targetData.LeftFootRotationWeight,
                     ref _targetData.LeftFootPosition, ref _targetData.LeftFootPositionWeight,
                     out PostureFootInputs leftPosture);
-                ResolveContactPosition(ref _rightContact, _poseData.RightFootPosition, _poseData.RightFootRotation,
+                ResolveContactPosition(ref _rightContact, ref _rightLanding, plantValid && !plantLeft, plantSurfaceY, plantFinal, plantAnkle,
+                    _poseData.RightFootPosition, _poseData.RightFootRotation,
                     _poseData.RightFootBottomHeight, rightStance, ikAllowed, posePlaneY,
                     _targetData.RightFootRotation, _targetData.RightFootRotationWeight,
                     ref _targetData.RightFootPosition, ref _targetData.RightFootPositionWeight,
@@ -317,6 +335,8 @@ namespace Project.Presentation.IK
             {
                 _leftContact.Reset();
                 _rightContact.Reset();
+                _leftLanding.Reset();
+                _rightLanding.Reset();
                 ResetMoving();
             }
 
@@ -494,7 +514,9 @@ namespace Project.Presentation.IK
         ///    各自下方查 <c>GroundLayers</c>；穿透一律抬起，懸空只依 β 下拉。
         /// 失效（IK 不允許）⇒ 狀態整體重設、位置權重平滑歸零；不連續（瞬移）⇒ 鎖腳重設、這一帧不外插。
         /// </summary>
-        private void ResolveContactPosition(ref FootContactState state, Vector3 posePosition, Quaternion poseRotation,
+        private void ResolveContactPosition(ref FootContactState state, ref LandingSurfaceState landing,
+            bool hasPlant, float plantSurfaceY, bool plantIsFinal, Vector3 plantPosition,
+            Vector3 posePosition, Quaternion poseRotation,
             float footBottomHeight, float stance, bool ikAllowed, float posePlaneY,
             Quaternion rotationTarget, float rotationWeight,
             ref Vector3 targetPosition, ref float positionWeight,
@@ -506,6 +528,7 @@ namespace Project.Presentation.IK
             if (!ikAllowed)
             {
                 state.Reset();
+                landing.Reset();
                 positionWeight = Mathf.MoveTowards(positionWeight, 0f, weightStep);
                 return;
             }
@@ -522,6 +545,7 @@ namespace Project.Presentation.IK
                 state.Phase = FootLockPhase.Unlocked;
                 state.ReleaseBlend = 0f;
                 state.PrevContactValid = false;
+                landing.Reset();
             }
 
             // ②
@@ -580,6 +604,62 @@ namespace Project.Presentation.IK
             }
 
             float lift = hasContact ? FootContactSolver.ComputeMinimumLift(contactDelta, beta) : 0f;
+            float landingRaise = 0f; // 觀測用：目的地參考抬高（DebugLift 含它，探針的 implied 落腳面才一致）
+
+            // ⑤ 🧪（docs/45 §17）目的地踏面：只在 Unlocked 運作（resolver 在其他相位自行重設）。
+            //    過渡強度 0 ⇒ 不進混合，與關閉逐位元相同；混合後仍以即時接觸為下限（不穿透）。
+            if (settings.UseLandingSurfaceResolver)
+            {
+                var landingInput = new LandingSurfaceInputs
+                {
+                    Phase = state.Phase,
+                    Beta = beta,
+                    HasPlant = hasPlant,
+                    PlantSurfaceY = plantSurfaceY,
+                    PlantIsFinal = plantIsFinal,
+                    PlantXZ = new Vector2(plantPosition.x, plantPosition.z),
+                    // Unlocked 時 supportY ＝ 三點中最大穿透那一點的即時命中（＝ T3 鎖定當帧的支撐規則，docs/45 §15.2）。
+                    HasLive = liveHit && hasContact,
+                    LiveSurfaceY = supportY,
+                };
+                var landingTuning = new LandingSurfaceTuning
+                {
+                    VerifyBeta = settings.LandingVerifyBeta,
+                    ConfirmFrames = settings.LandingConfirmFrames,
+                    ReviseFrames = settings.LandingReviseFrames,
+                    SurfaceTolerance = settings.LandingSurfaceTolerance,
+                    LowConfidenceWeight = settings.LandingLowConfidenceWeight,
+                    WeightRate = settings.LandingWeightRate,
+                    ContradictionRate = settings.LandingContradictionRate,
+                    PlantStillDistance = settings.LandingPlantStillDistance,
+                };
+                LandingSurfaceResolver.Step(ref landing, in landingInput, dt, in landingTuning);
+                if (landing.Intent.Weight > 0f)
+                {
+                    float weight = landing.Intent.Weight;
+                    float destinationY = landing.Intent.BlendSurfaceY;
+                    // (a) 接近落點時參考面升到目的地踏面（保留動畫離地高度；只往上）。整隻腳等量平移 ⇒ 穿透量同減。
+                    float proximity = LandingSurfaceResolver.Proximity(
+                        new Vector2(horizontal.x - plantPosition.x, horizontal.z - plantPosition.z).magnitude, settings.LandingProximityRadius);
+                    float raise = LandingSurfaceResolver.ReferenceRaise(referenceY, destinationY, weight, proximity);
+                    ankle.y += raise;
+                    contactDelta -= raise;
+                    // (b) 落腳拉力改朝目的地；仍以即時接觸為下限（不穿透）。
+                    float heelY = FootContactSolver.SolePoint(ankle, shownRotation, footBottomHeight, -Mathf.Max(0f, settings.HeelOffset)).y;
+                    float midY = FootContactSolver.SolePoint(ankle, shownRotation, footBottomHeight, 0f).y;
+                    float toeY = FootContactSolver.SolePoint(ankle, shownRotation, footBottomHeight, Mathf.Max(0f, settings.ToeOffset)).y;
+                    float lowestSole = Mathf.Min(heelY, Mathf.Min(midY, toeY));
+                    float liveLift = hasContact ? FootContactSolver.ComputeMinimumLift(contactDelta, beta) : 0f;
+                    lift = LandingSurfaceResolver.BlendLift(liveLift, hasContact, contactDelta,
+                        destinationY - lowestSole, beta, weight);
+                    landingRaise = raise;
+                }
+            }
+            else
+            {
+                landing.Reset();
+            }
+
             float height = FootContactSolver.ResolveHeight(in state, ankle.y + lift, hasContact, ankle.y + contactDelta);
             if (state.Phase == FootLockPhase.Locked) state.LockedHeight = height;
             targetPosition = new Vector3(ankle.x, height, ankle.z);
@@ -587,7 +667,7 @@ namespace Project.Presentation.IK
 
             state.PrevContactValid = liveHit;
             state.DebugBeta = beta;
-            state.DebugLift = lift;
+            state.DebugLift = lift + landingRaise;
             postureFoot = new PostureFootInputs
             {
                 Phase = state.Phase,
@@ -951,6 +1031,8 @@ namespace Project.Presentation.IK
             ResetPosture();
             _leftContact.Reset();
             _rightContact.Reset();
+            _leftLanding.Reset();
+            _rightLanding.Reset();
         }
 
         /// <summary>

@@ -1,0 +1,51 @@
+"""docs/45 §17：即時驗證窗何時開（β 門檻）——在 resolver 開啟的 runtime 資料（lsr1_）上量。
+對每次有 intent 的落地：intent 對（=F）或錯；即時三點（repSup，T3 規則）在 β ≥ θ（上升穿越之後）且連續 2 帧 ≠ intent 視為「矛盾」。
+回報：錯的 intent 最早在鎖定前幾帧被矛盾（越早越能在鎖定前把過渡退完）；對的 intent 被誤判矛盾的次數。
+用法：python verify_window.py.txt <csv 目錄>
+"""
+import csv, glob, math, os, sys, statistics as st
+D = sys.argv[1]; TOL = 0.03
+def f(x):
+    try: return float(x)
+    except: return float('nan')
+def ok(v): return not math.isnan(v)
+
+swings = []
+for p in sorted(glob.glob(os.path.join(D, 'lsr1_*.csv'))):
+    r = list(csv.DictReader(open(p)))
+    st0 = next((i for i, x in enumerate(r) if x['phase'] == 'stop'), None)
+    if st0 is None: continue
+    gait = os.path.basename(p).split('_')[2]
+    for s in 'lr':
+        for j in range(st0 + 1, len(r)):
+            if r[j][s + 'ph'] != '1' or r[j - 1][s + 'ph'] == '1': continue
+            k = j - 1
+            while k > 0 and r[k - 1][s + 'ph'] == '0': k -= 1
+            F = f(r[j][s + 'lockSupY'])
+            fr = [(j - i, f(r[i][s + 'beta']), f(r[i][s + 'repSup']), r[i][s + 'Lv'] == '1', f(r[i][s + 'Ly'])) for i in range(k, j)]
+            ys = [y for _, _, _, v, y in fr if v]
+            if not ys: continue
+            swings.append((gait, F, ys[-1], fr))
+
+for theta in (0.5, 0.6, 0.7, 0.8, 0.9):
+    for gait in ('Walk', 'Run'):
+        early = []; false = 0; good = 0; bad = 0; never = 0
+        for g, F, dest, fr in swings:
+            if g != gait: continue
+            wrong = abs(dest - F) >= TOL
+            seen_low = False; run = 0; first = None
+            for fb, beta, live, v, y in fr:
+                if beta < theta: seen_low = True
+                if seen_low and beta >= theta and ok(live) and v:
+                    run = run + 1 if abs(live - y) >= TOL else 0
+                    if run >= 2 and first is None: first = fb
+            if wrong:
+                bad += 1
+                if first is None: never += 1
+                else: early.append(first)
+            else:
+                good += 1
+                if first is not None: false += 1
+        early.sort()
+        print('θ %.1f %-4s 錯 %2d：被矛盾 %2d（最早鎖定前帧數 中位 %s，<3 帧 %d）未被抓 %d ｜ 對 %3d：誤判 %d'
+              % (theta, gait, bad, len(early), st.median(early) if early else '-', sum(1 for e in early if e < 3), never, good, false))

@@ -4560,6 +4560,16 @@ MonoBehaviour:
     UnlockRadius: 0.2
     ReleaseTime: 0.12
     MaxPoseStepPerFrame: 0.5
+    UseLandingSurfaceResolver: 1
+    LandingVerifyBeta: 0.7
+    LandingConfirmFrames: 2
+    LandingReviseFrames: 3
+    LandingSurfaceTolerance: 0.03
+    LandingLowConfidenceWeight: 0.5
+    LandingWeightRate: 10
+    LandingContradictionRate: 20
+    LandingPlantStillDistance: 0.01
+    LandingProximityRadius: 0.35
     UseStandingPosturePrototype: 1
     StandingPreferredExtension: 0.995
     StandingFinalSupportSpeedMax: 1.35
@@ -4573,14 +4583,13 @@ MonoBehaviour:
     StandingRiseDurationDefault: 0.4
     StandingTrailingCapBand: 0.03
     StandingTrailingCapReleaseOmega: 10
-    StandingPlannedSafetyRetreatSpeed: 1
-    StandingPlannedMinimumDuration: 0.2
     StandingReturnOmega: 15
     StandingHandbackTolerance: 0.01
     StandingHandbackSpeed: 0.05
     UseUnifiedMovingPelvis: 1
     MovingPelvisDropOmega: 12
     MovingPelvisRiseOmega: 1.5
+    MovingPelvisDescendRiseOmega: 6
     MovingTerrainExitOmega: 6
     MovingTerrainExitMargin: 0.05
     MovingTerrainExitReleaseMargin: 0.02
@@ -4588,11 +4597,11 @@ MonoBehaviour:
     StandingUnifiedRiseOmega: 6
     StandingUnifiedSettleRootSpeed: 0.05
     StandingUseSupportTransfer: 1
+    StandingDescendingTrailingLandingPulls: 1
     StopLandingLeftGoalOffset: {x: -0.0486, y: 0, z: -0.0228}
     StopLandingRightGoalOffset: {x: 0.0385, y: 0, z: -0.0329}
     MovingLandingAnticipation: 1.5
     MovingHardReachRatio: 1.05
-    LockedSampleFrameFreeze: 0
     LockedRiserIntrusionRule: 1
     LockedRiserIntrusionMinRise: 0.08
     LockedRiserIntrusionMaxRise: 0.3

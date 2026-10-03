@@ -1,0 +1,144 @@
+"""docs/45 §17 Phase 2：LandingSurfaceResolver 關（lsr0_）／開（lsr1_）的 runtime outcome A/B。
+輸入：LandingSurfaceProbe.Probe_LandingResolverAB 的 CSV。用法：python outcome.py.txt <csv 目錄>
+指標（停步後、每一次 Unlocked → Locked 的落地）：
+  ① destination 改答案：次數、最晚時刻（鎖定前帧數）、首次承諾錯；依可信度（鎖定前一帧的 intent）分組
+  ② 擺盪目標：鎖定前 12 帧內與鎖定當帧，implied 落腳面（rampY ＋ lift）的單帧 |Δ| 最大值；implied 落腳面最後一次離最終支撐 > 3 cm 的時刻（settle）
+  ③ 骨盆：停步後 pelvisSolver／pelvisOut／hipsRel 單帧 |Δ| 的 max 與 ≥ 3 cm 帧數
+  ④ tread flip：鎖定期間（不含鎖定當帧）單帧 |Δ目標 y| ≥ 5 cm 的帧數
+  ⑤ 逐位元：兩邊第一次出現 Weight > 0 之前，目標與骨盆欄位完全相同
+"""
+import csv, glob, math, os, statistics as st, sys
+D = sys.argv[1]
+TOL = 0.03
+
+def f(x):
+    try: return float(x)
+    except: return float('nan')
+def ok(v): return not math.isnan(v)
+def med(v): return st.median(v) if v else float('nan')
+def p90(v): v = sorted(v); return v[int(0.9 * (len(v) - 1))] if v else float('nan')
+
+def load(p):
+    return list(csv.DictReader(open(p)))
+
+def landings(r):
+    st0 = next((i for i, x in enumerate(r) if x['phase'] == 'stop'), None)
+    if st0 is None: return []
+    out = []
+    for s in 'lr':
+        for j in range(st0 + 1, len(r)):
+            if r[j][s + 'ph'] != '1' or r[j - 1][s + 'ph'] == '1': continue
+            k = j - 1
+            while k > 0 and r[k - 1][s + 'ph'] == '0': k -= 1
+            F = f(r[j][s + 'lockSupY'])
+            if not ok(F): continue
+            out.append((s, k, j, F))
+    return out
+
+def swing_metrics(r, s, k, j, F):
+    m = {}
+    # implied 落腳面 ＝ 移動斜坡 ＋ lift（目標扣掉動畫自己的離地高度；§10 的同一指標）
+    # 只看落腳窗（β ≥ 0.1；§10 的跳動發生在這裡）——β＝0 的擺盪中段穿透抬升兩邊都不處理
+    idx = list(range(max(k, j - 12), j + 1))
+    tg = {i: f(r[i][s + 'rampY']) + f(r[i][s + 'lift']) for i in range(idx[0] - 1, j + 1)}
+    d = [abs(tg[i] - tg[i - 1]) for i in idx[:-1] if f(r[i][s + 'beta']) >= 0.1 and ok(tg[i]) and ok(tg[i - 1])]
+    m['jumpSwing'] = max(d) if d else 0.0
+    m['jumpLock'] = abs(tg[j] - tg[j - 1])
+    imp = [(j - i, f(r[i][s + 'rampY']) + f(r[i][s + 'lift'])) for i in range(k, j)]
+    far = [fb for fb, v in imp if ok(v) and abs(v - F) > TOL]
+    m['settle'] = (far[-1] - 1) if far else (j - k)
+    # resolver intent
+    revs0 = None; revs = 0; latest = None; first = None; conf = 0; wmax = 0.0
+    for i in range(k, j):
+        x = r[i]
+        if x.get(s + 'Lv') is None: break
+        if x[s + 'Lv'] == '1' and first is None: first = f(x[s + 'Ly'])
+        rv = int(x[s + 'Lr']) if x[s + 'Lr'] not in ('', None) else 0
+        if revs0 is None: revs0 = rv
+        if rv > revs0 + revs: revs = rv - revs0; latest = j - i
+        wmax = max(wmax, f(x[s + 'Lw']))
+    if j - 1 >= k and r[j - 1].get(s + 'Lc') is not None: conf = int(r[j - 1][s + 'Lc'])
+    m['revs'] = revs; m['latest'] = latest; m['firstWrong'] = first is not None and abs(first - F) > TOL
+    m['hadIntent'] = first is not None; m['conf'] = conf; m['wmax'] = wmax
+    lastv = r[j - 1].get(s + 'Lv') == '1'
+    m['wrongAtLock'] = lastv and abs(f(r[j - 1][s + 'Ly']) - F) > TOL
+    # tread flip while locked
+    flips = 0; i = j + 1
+    while i < len(r) and r[i][s + 'ph'] == '1':
+        if abs(f(r[i][s + 'tgtY']) - f(r[i - 1][s + 'tgtY'])) >= 0.05: flips += 1
+        i += 1
+    m['flips'] = flips
+    return m
+
+def pelvis_metrics(r):
+    st0 = next((i for i, x in enumerate(r) if x['phase'] == 'stop'), None)
+    out = {}
+    for c in ('pelvisSolver', 'pelvisOut', 'hipsRel'):
+        v = [f(x[c]) for x in r[st0:]] if st0 is not None and c in r[0] else []
+        d = [abs(b - a) for a, b in zip(v, v[1:]) if ok(a) and ok(b)]
+        out[c] = (max(d) if d else float('nan'), sum(1 for x in d if x >= 0.03))
+    return out
+
+def bitwise(r0, r1):
+    cols = ['ltgtX', 'ltgtY', 'ltgtZ', 'rtgtX', 'rtgtY', 'rtgtZ', 'pelvisOut']
+    for a, b in zip(r0, r1):
+        if f(b['lLw']) > 0 or f(b['rLw']) > 0: return True, a['frame']
+        for c in cols:
+            if a[c] != b[c]: return False, a['frame']
+    return True, None
+
+pairs = {}
+for p in sorted(glob.glob(os.path.join(D, 'lsr*_*.csv'))):
+    name = os.path.basename(p)
+    if name.startswith('semlsr'): continue
+    pairs.setdefault(name[5:-4], {})[name[:4]] = p
+
+rows = {0: [], 1: []}
+pel = {0: [], 1: []}
+bit_ok = bit_bad = 0; bad_names = []
+for key, pr in sorted(pairs.items()):
+    if 'lsr0' not in pr or 'lsr1' not in pr: continue
+    r0, r1 = load(pr['lsr0']), load(pr['lsr1'])
+    okb, fr = bitwise(r0, r1)
+    if okb: bit_ok += 1
+    else: bit_bad += 1; bad_names.append((key, fr))
+    gait, d = key.split('_')[1], key.split('_')[2]
+    for side, r in ((0, r0), (1, r1)):
+        pel[side].append(dict(gait=gait, dir=d, **{c: v for c, v in pelvis_metrics(r).items()}))
+        for s, k, j, F in landings(r):
+            m = swing_metrics(r, s, k, j, F)
+            # 與支撐腳不同階？
+            o = 'r' if s == 'l' else 'l'
+            other = f(r[j][o + 'lockSupY']) if r[j][o + 'ph'] == '1' else float('nan')
+            m.update(gait=gait, dir=d, diff=ok(other) and abs(other - F) >= TOL, key=key)
+            rows[side].append(m)
+
+print('⑤ 逐位元（第一次 Weight>0 之前完全相同）: %d 組相同、%d 組不同 %s' % (bit_ok, bit_bad, bad_names[:5]))
+print()
+for gait in ('Walk', 'Run'):
+    for d in ('Up', 'Down'):
+        for diff in (True, False):
+            sel = {s: [m for m in rows[s] if m['gait'] == gait and m['dir'] == d and m['diff'] == diff] for s in (0, 1)}
+            if not sel[0]: continue
+            print('== %s %s %s階  n=%d/%d' % (gait, d, '不同' if diff else '同', len(sel[0]), len(sel[1])))
+            for s in (0, 1):
+                v = sel[s]
+                js = [m['jumpSwing'] for m in v if ok(m['jumpSwing'])]; jl = [m['jumpLock'] for m in v if ok(m['jumpLock'])]
+                print('   %s 擺盪單帧|Δ| med %.3f p90 %.3f max %.3f ≥5cm %d | 鎖定當帧 med %.3f p90 %.3f max %.3f | settle med %.1f | flips %d'
+                      % ('關' if s == 0 else '開', med(js), p90(js), max(js or [float('nan')]), sum(1 for x in js if x >= 0.05),
+                         med(jl), p90(jl), max(jl or [float('nan')]), med([m['settle'] for m in v]), sum(m['flips'] for m in v)))
+            v = sel[1]
+            hi = [m for m in v if m['conf'] == 2]; lo = [m for m in v if m['conf'] == 1]
+            print('   intent: 有 %d／%d；High %d（改答案 %d 次、首次錯 %d、鎖定前仍錯 %d）；Low %d（改答案 %d、首次錯 %d、鎖定前仍錯 %d）；最晚改答案 %s'
+                  % (sum(m['hadIntent'] for m in v), len(v), len(hi), sum(m['revs'] for m in hi), sum(m['firstWrong'] for m in hi), sum(m['wrongAtLock'] for m in hi),
+                     len(lo), sum(m['revs'] for m in lo), sum(m['firstWrong'] for m in lo), sum(m['wrongAtLock'] for m in lo),
+                     sorted([m['latest'] for m in v if m['latest'] is not None])[:10]))
+print()
+for gait in ('Walk', 'Run'):
+    for d in ('Up', 'Down'):
+        for s in (0, 1):
+            v = [x for x in pel[s] if x['gait'] == gait and x['dir'] == d]
+            if not v: continue
+            print('③ %s %s %s  ' % (gait, d, '關' if s == 0 else '開') + '  '.join(
+                '%s max %.3f p90 %.3f ≥3cm帧 %d' % (c, max(x[c][0] for x in v), p90([x[c][0] for x in v]), sum(x[c][1] for x in v))
+                for c in ('pelvisSolver', 'pelvisOut', 'hipsRel')))

@@ -7,35 +7,30 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
-> # 🟧 下一會話開場：**T3 landing-surface slice Phase 2——正式實作 `LandingSurfaceResolver` 並接進 T3**（2026-10-03 使用者裁決）
+> # 🟧 下一會話開場：**等使用者回報 Phase 2 人工 Play（`docs/45` §17.5）**
 >
-> **開場只需讀**：本段 ＋ `docs/45` §16（裁決、Phase 1 事實表、驗收草案）＋ §11.2（intent 契約草案、承諾規則）＋ §15.2（T3 鎖定支撐語意）＋ §3（現行擺盪語意，Phase 2 要修訂它）＋ ADR-010 D1-R1／D5。⛔ 不需要重讀 §10–§15 的研究過程。
+> **開場只需讀**：本段 ＋ `docs/45` §17（實作、四個缺陷、結果、Play 清單）。⛔ 不需要重讀 §10–§16。
 >
-> ## 裁決（不可再變動的前提）
-> - 保留 ADR-010 D1-R1（next plant 自 variant committed 起發布）與 Phase 1c producer 時間基準修正（`LocomotionModel`：root 前進量算到 plant − 本帧實測 clip 前進量）。
-> - ⛔ 不採 Phase 1c 修正 2（Bake plant 語意不得依賴 T3 鎖定門檻）；⛔ 不加 landing-pose contract；⛔ 不加遲滯／footprint；FU-14 獨立。
-> - 最後 plant（`NextPlantIsFinal`）＝高可信度；煞車／中途 plant＝低可信度（必須由即時驗證收斂）；**沒有 intent ⇒ T3 現行行為逐位元不變**。
-> - 驗收看 **runtime outcome**：destination 改答案（次數／最晚時刻）、骨盆目標／輸出 ΔY、tread flip、錯誤預測由即時驗證安全收斂。
+> - 使用者回報前**不要**再調參數：上樓的改善與下樓的不變都已量化（§17.3），剩下的是「看起來對不對」。
+> - Play 回報「上樓還會卡 riser」⇒ 先看是不是沒有 next plant 的落地（Walk 中途落地沒有 intent）或 β 低的擺盪中段（腳尖擦 riser），兩者都不在本 slice 的資訊範圍內（§17.4）。
+> - Play 回報「階緣附近腳先抬再落」⇒ 錯誤目的地的退出（§17.2-4），可調 `LandingVerifyBeta`／`LandingContradictionRate`，先用 `verify_window.py.txt` 在 A/B 資料上量。
+> - 下樓跨階緣跳動不是 destination 能解的（§17.4）；若要處理，另開「腳姿勢（腳尖先下）／步態」slice，需使用者裁決。
+> - 還原：X Bot prefab `UseLandingSurfaceResolver` 設 False（Editor API）。
 >
-> ## 建議做法（開工時先確認）
-> 1. `Presentation/IK/LandingSurfaceResolver.cs`（純邏輯、每腳一份跨帧狀態、零 GC）：輸入＝T3 相位、next plant（`FootIKController.TryPredictNextPlantGoal` 已存在，含 IsFinal）、即時三點踏面；輸出＝`LandingSurfaceIntent`（Valid／SurfaceY／Confidence／Source／Revisions）。承諾規則照 §11.2。EditMode 測試與它一起寫。
-> 2. 接進 `FootIKController.ResolveContactPosition` 的未鎖定分支：擺盪目標的落腳面逐步從「移動斜坡＋lift」過渡到 destination 踏面；Locked／contact authority 不變；無 intent 不進這條路。
-> 3. ADR 判斷：只改 T3 內部的擺盪語意（`docs/45` §3）⇒ Living Spec，不需要新 ADR；ADR-010 不動。若實作途中需要動黑板或其他介面，停下來問。
-> 4. 驗收量測沿用 `LandingSurfaceProbe`（見下），新增 runtime outcome 指標；對照組＝resolver 關閉（加一個設定開關，還原路徑）。
+> ## 工具
+> - A/B：`LandingSurfaceProbe.Probe_LandingResolverAB`（`[Explicit]`；416 次約 60 分鐘；輸出 `Temp/LandingSurface/lsr0_*／lsr1_*`——**Unity 重啟會清空，跑完立刻複製**）。分析 `docs/artifacts/pelvis-analysis/outcome.py.txt`（`PYTHONIOENCODING=utf-8`）、`verify_window.py.txt`。
+> - 指令順序：`unity cmd recompile` → 輪詢 `recompile_status` → 確認 `isPlaying=false` → `run_tests`（PlayMode 要 `--async_tests true --include_explicit true --filter <name>`）。
 >
-> ## 工具與資料（⚠️ 全部未 commit）
-> - probe：`Assets/_Project/Tests/PlayMode/LandingSurfaceProbe.cs`（`[Explicit]`；208 次停步約 15 分鐘；只跑 Run ⇒ 把 `[Values(Gait.Walk, Gait.Run)]` 改成 `[Values(Gait.Run)]`，104 次約 7 分鐘）。逐帧記錄 T3 相位／目標／斜坡與踏面／next plant／停步 clip 時間；以反射呼叫 T3 的 `AccumulateContact`（`repSup`、side file `sem_*.csv`）。輸出 `Temp/LandingSurface/`——**Unity 重啟會清空，跑完立刻複製**。
-> - 分析：`docs/artifacts/pelvis-analysis/{landing,resolver,bias,timebase,early,semantics,semantics_b}.py.txt`；Editor 匯出腳本 `export_stair_edges.eval.cs.txt`／`export_bake_disp.eval.cs.txt`（`unity cmd eval_file`；輸出路徑要改）；真實階緣表 `edges.csv.txt`。
-> - 指令順序：`unity cmd recompile` → 輪詢 `recompile_status` 到 completed → 確認 `isPlaying=false` → `run_tests`（PlayMode 要 `--async_tests true --include_explicit true --filter <name>`）。
+> ---
+
+> # 🟨 2026-10-03（八）— **T3 landing-surface Phase 2：`LandingSurfaceResolver` 實作並接進 T3（X Bot 開）——上樓跨階跳動 Run 17 → 6、Walk 19 → 9 cm；下樓不變（幾何限制）；骨盆／tread flip 不變；no-intent 逐位元；⏳ 待人工 Play**
 >
-> ## 這輪學到的坑
-> - **離線重寫 T3 規則會漂移**（204／247）——要知道 T3 會選什麼，在引擎內用反射呼叫 T3 自己的程式（247／247）。
-> - bash heredoc 裡的 Python 會把 `\n` 變成真的換行——含跳脫字元的腳本先用 Write 工具寫成檔案再執行。
-> - 停步期間 root 對齊 `LocomotionStopRuntime.NormalizedTime`，畫面姿勢領先一次評估（104／104）。
+> 📖 正本：`docs/45` §17。EditMode **790／789／0 failed／1 skipped**（+22）；PlayMode **96／95／1 failed**（既有 `C0`；X Bot 已開 resolver）。
 >
-> ## 目前狀態
-> - 測試基準：EditMode **768／767／0 failed／1 skipped**。⚠️ D5／D1-R1／時間基準修正之後**沒有重跑完整 PlayMode**（上次 96／95／1 failed＝既有 `C0`）——Phase 2 開工先跑一次。
-> - 工作樹未 commit：場景（`Stairs (1)`、`__StairMovementSurface`）、音量、材質、ProBuilder 設定、`docs/05` 樓梯 clip 盤點、上述 probe 與分析腳本、`.prototype-backup-20261003/`（原型備份）。`CharacterPipelineRunner`／`FootContactSolver`／`StandingPostureSolverTests` 只有換行差異。scratch worktree 仍登記（`git worktree remove --force`，需使用者執行）。
+> - 新檔：`Presentation/IK/LandingSurfaceResolver.cs`、`Tests/EditMode/LandingSurfaceResolverTests.cs`、`docs/artifacts/pelvis-analysis/{outcome,verify_window}.py.txt`。改：`FootIKController`（T3 ⑤，只在 Unlocked）、`FootIKSettings`（`UseLandingSurfaceResolver` ＋ 9 個參數）、`LandingSurfaceProbe`（A/B 方法、intent／骨盆欄位）、X Bot prefab（Editor API；重存同時清掉 2 個已不存在的欄位、寫出 2 個等於程式預設的欄位——行為不變）。
+> - ADR：只改 T3 內部擺盪語意 ⇒ Living Spec（`docs/45` §17），ADR-010 不動，沒有新黑板欄位。
+> - A/B 抓到並修正四個缺陷（§17.2）：即時驗證自己產生 intent／目的地只在最後幾帧起作用／釋放瞬間就開驗證窗（Walk 下樓鎖定跳 44 cm）／錯的高可信度目的地退不完。
+> - 高可信度路徑**不是**「幾乎不改答案」：即時驗證修正 §15 的語意案例（預測 XZ 準、踏面規則不同）——在 §16.1 裁決的前提下這是預期的。
 >
 > ---
 
