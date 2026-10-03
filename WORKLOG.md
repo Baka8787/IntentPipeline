@@ -7,6 +7,16 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🟦 2026-10-03（五）— **Phase 1c：Run 煞車步 ~9 cm 偏差＝兩個時間定義；修正 1（姿勢比 root 早一次評估）已實作：偏差 9.2 → 4.4 cm、正確階 54 → 83%；修正 2（Bake plant 時刻 vs T3 鎖定）待裁決；⛔ T3 未改**
+>
+> 📖 正本：`docs/45` §13、ADR-010 D5（時間基準一行）。分析 `bias.py.txt`／`timebase.py.txt`。EditMode **768／767／0 failed／1 skipped**。
+>
+> - T3 比 Bake plant 早 5 帧鎖定；ΔXZ 不能由 Δt 內 root 前進解釋（root 25.6 cm）。root 對齊 `NormalizedTime`，畫面姿勢領先一帧（104／104）。
+> - 修正 1：root 前進量算到「plant − 本帧實測 clip 前進量」（時間定義，非 magic offset）。Run 最後落地也變好（97%、0.6 cm）。
+> - ❓ 待使用者（§13.5）：①修正 2（Bake plant 改用 T3 鎖定規則＋重烘 4 支資產）或接受約 4 cm 直接進 D1「提早發布」②結束站姿是否統一時間定義。
+>
+> ---
+
 > # 🟦 2026-10-03（四）— **Phase 1b：ADR-010 D5 next-plant snapshot 接上（T3 未改）——最後落地成立（Walk 早 7–8、Run 早 9–14 帧，不需門檻）；Run 煞車步仍不成立（N 鎖定前 8 帧才出現＋~9 cm 系統偏差，0／35 早於跳動）**
 >
 > 📖 正本：`docs/45` §12、ADR-010 D5。EditMode **768／767／0 failed／1 skipped**。4 支 Stop 資產直接提供 plant 事件（沒有重新烘焙）。

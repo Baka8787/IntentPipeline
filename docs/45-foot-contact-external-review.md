@@ -457,3 +457,49 @@ Run 煞車步納入同一 slice（可以有不同的預測來源，但輸出同�
    (b) 校正 ~9 cm 的煞車 plant 偏差：Bake plant 時刻的定義，或與 §18 同類的參考點轉換。
    即使兩者都做，煞車步最多也只比跳動早約 5 帧。
 3. `RunFwdStop_RU` 同一腳的雙 plant 是否視為偵測器瑕疵處理（例如合併過近的同腳事件）？
+
+## 13. Phase 1c：Run 煞車步 ~9 cm next-plant 偏差的拆解與第一個修正（2026-10-03；⛔ T3 目標未改）
+
+### 13.1 方法
+- `LandingSurfaceProbe` 加記：停步 clip 時間（`LocomotionStopRuntime.NormalizedTime`）、Animancer 狀態在 IK 之後的 normalized time、Bake 的下一次 plant（clip 時間、腳別、ankle-in-root）、快照原始值。只跑 Run（104 次；煞車步 56 個 swing，皆為 `RunFwdStop_LU` 的 0.300 s plant——兩道樓梯共用同一支 clip）。
+- 分析：`docs/artifacts/pelvis-analysis/bias.py.txt`（逐項拆解，恆等式殘差 1.3 cm）、`timebase.py.txt`（root 前進對齊哪個 clip 時間基準；Bake 位移表由 Editor 匯出）。
+
+### 13.2 拆解結果（修正前；前＝沿 publish 朝向）
+| 項目 | 值 |
+|---|---|
+| T3 鎖定時刻 − Bake plant 時刻 | **−5 帧**（T3 較早；56 次全部相同） |
+| ΔXZ（T3 鎖定 − 預測）raw | 前 −11.4、側 −7.0 cm |
+| 同上，含 §18 參考點轉換（provider 實際輸出） | **前 −9.2、側 −2.1 cm** |
+| root 在這 5 帧內前進 | 25.6 cm ⇒ **ΔXZ 不能由「Δt 內的 root 前進」解釋**（殘差 14 cm） |
+| root 路徑誤差 | +1.3 cm（快照的 publish 基準與 root 一致） |
+| 動畫踝在 T3 鎖定後到 Bake plant 之間仍前滑 | 3.0 cm |
+| 腳在 root 中的誤差（Bake plant 時刻） | 前 −11.1、側 −6.9 cm（側向大部分是參考點轉換） |
+
+**時間基準量測**：root 的實際前進與 `NormalizedTime` 對齊（最佳 λ＝0.0 帧，殘差 1.3 cm；±1 帧時 2.8–3.2 cm）；畫面上的姿勢**每一次都恰好領先一帧**（Animancer 在 IK 之後的時間 − `NormalizedTime` ＝ 1.00 帧，104 次全部相同）。
+
+⇒ 前向 −9.2 cm 由兩個**時間定義**組成：
+1. **姿勢比 root 早一次評估**（≈ 一帧的 root 前進，煞車時約 5 cm）：姿勢顯示到 plant 時，root 只走到 plant − 一帧；producer 卻用 plant 時刻算 root 前進。
+2. **Bake plant 時刻比 T3 鎖定晚**（≈ 3 cm）：Bake 定義 plant 為「腳踝速度 ≤ 0.2 m/s 且貼近最低點」的第一個 sample；T3 在 β ≥ 0.95（腳夠低 × 水平速度 < 約 1 m/s）就鎖定，早 5 帧，此後動畫腳還前滑約 3 cm。
+其餘：root 路徑 +1.3 cm、約 1–2 cm 未解釋。
+
+### 13.3 修正 1（已實作）：plant 位置用「姿勢顯示到 plant 時 root 所在的 clip 時間」
+`LocomotionModel`：root 前進量算到 `plant − 本帧實測 clip 前進量（NormalizedTime − PreviousNormalizedTime）`。不是固定偏移；結束站姿不受影響（停步末端 root 幾乎靜止，這一項 ≈ 0）。EditMode **768／767／0 failed／1 skipped**。
+
+| Run 煞車步（35 次 swing） | 修正前 | 修正後 |
+|---|---|---|
+| 前向偏差（含參考點轉換） | −9.2 cm | **−4.4 cm** |
+| next plant XZ 誤差 中位 | 8.8 cm | **4.4–4.9 cm** |
+| next plant 落在正確階 | 54% | **83%** |
+| resolver 首次承諾錯 | 16／35 | **6／35** |
+| resolver 正確且穩定（鎖定前帧） | 4–7 | **7** |
+| 早於 T3 跳動 | 0／35 | 1／35 |
+
+Run 最後落地也變好：正確階 94 → **97%**、最後 XZ 誤差 1.2 → **0.6 cm**、Run 上樓首次承諾錯 4 → 2。
+
+### 13.4 尚未處理
+- **修正 2（plant 時刻定義）**：讓 Bake 的 plant 時刻與 T3 鎖定規則一致，可望再消掉約 3 cm。代價：Editor 烘焙會依賴 T3 的鎖定門檻（`LockBeta`／`ContactPhaseSpeedMin／Max`），調 T3 就得重烘；4 支 Stop 資產要經 Editor 重新烘焙。
+- **資訊仍太晚**：即使位置正確，煞車步的 next plant 也要在鎖定前約 8 帧才出現（跳動約在 7 帧前）——這是 D1 條件 2（播放頭前進後才發布）造成的。依使用者順序，位置準了之後才考慮改 D1。
+
+### 13.5 ❓ 待使用者
+1. 是否做修正 2（Bake plant 時刻改用 T3 的鎖定規則並重烘 4 支 Stop 資產）？或接受剩下約 4 cm（煞車步 83% 正確階）就進入「資訊太晚」的 D1 修訂？
+2. 結束站姿是否也統一改用同一個時間定義（目前效果 ≈ 0，純粹為了定義一致）？
