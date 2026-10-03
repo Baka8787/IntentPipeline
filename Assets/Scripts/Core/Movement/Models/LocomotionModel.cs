@@ -192,12 +192,16 @@ namespace Project.Core.Movement
 
             // ADR-010 D5：下一次 planned plant（排程依 clip 時間排序）。位置換到 publish root 座標系：
             // root 在 publish → plant 之間沿 publish 朝向前進（與結束站姿同一假設），故 ＝ 該 plant 的 ankle-in-root ＋ (0, 0, 前進量)。
+            // 時間基準（docs/45 §13）：root 的位置對應 PreviousNormalizedTime，畫面上的姿勢對應 NormalizedTime（Animator 的評估比 root 早一次）。
+            // ⇒ 姿勢顯示到 plant 的那一刻，root 只走到 plant − 一次評估的 clip 前進量；前進量取本帧實測值，不是常數。
+            float clipStepPerEvaluation = Mathf.Max(0f, currentClipTime - publishClipTime);
             int eventCount = schedule.ValidEventCount;
             for (int i = 0; i < eventCount; i++)
             {
                 FootPlantScheduleEvent plant = schedule.GetEvent(i);
                 if (plant.ClipTime <= currentClipTime + 1e-5f) continue;
-                float travel = Mathf.Max(0f, bakeData.GetLocomotionStopHorizontalDisplacementAt(plant.ClipTime) - travelledAtPublish);
+                float rootClipTimeAtPlant = Mathf.Max(publishClipTime, plant.ClipTime - clipStepPerEvaluation);
+                float travel = Mathf.Max(0f, bakeData.GetLocomotionStopHorizontalDisplacementAt(rootClipTimeAtPlant) - travelledAtPublish);
                 prediction.HasNextPlant = true;
                 prediction.NextPlantIsLeft = plant.Side == FootPlantSide.Left;
                 prediction.NextPlantAnkleInPublishRoot = plant.AnkleInRoot + new Vector3(0f, 0f, travel);

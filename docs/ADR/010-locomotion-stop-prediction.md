@@ -82,6 +82,8 @@ D2 的原則不變——**只有正式 consumer 需要的資料才進 contract**
   root 前進量由既有的 `GetLocomotionStopHorizontalDisplacementAt` 推導，不另存。欄位名稱沿用原型 ⇒ 已烘焙的 4 支 Stop 資產直接提供事件，**不需要重新烘焙**。
 - `Active` 的語意（D1）不變；`HasNextPlant` 只在 `Active` 時可能為 true。
 - Provider：`FootIKController.TryPredictNextPlantGoal`，與結束站姿使用同一套參考點轉換與三點落地規則。Phase 1b 只有量測 probe 讀取，T3 輸出不變。
+- **時間基準**（2026-10-03 Phase 1c，`docs/45` §13；Trial 期修訂）：publish 時 root 的位置對應 `PreviousNormalizedTime`，畫面上的姿勢對應 `NormalizedTime`（Animator 的評估比 root 早一次）。
+  ⇒ 位置用「姿勢顯示到 plant 那一刻 root 所在的 clip 時間」＝ plant − 本帧實測的 clip 前進量來算 root 前進量。這是時間定義，不是固定偏移。
 
 ### D4 — 消費端的批准範圍維持 `docs/46` §19 規則⑦
 預測只批准 **Walk 下樓停步**當 `FutureReachCap`（只限制骨盆最高升到哪，不主動降低）。
