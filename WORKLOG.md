@@ -7,6 +7,16 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🟦 2026-10-03（七）— **Phase 1e：T3 支撐語意完全重現（247／247）；落地姿勢（Bake plant 時刻，甚至實際鎖定姿勢）都無法修正剩餘 6 次語意不一致——它們在 T3 規則下是位置敏感 ⇒ 不提 ADR-010 擴充；⛔ 只量測**
+>
+> 📖 正本：`docs/45` §15。in-engine 以反射呼叫 T3 的 `AccumulateContact`（probe side file `sem_*.csv`）；分析 `semantics.py.txt`／`semantics_b.py.txt`。離線重寫規則只有 204／247 一致，已作廢。
+>
+> - B0 現行 69% → B1（Bake plant 姿勢）71% → B2（實際鎖定姿勢）71%；semantic 6 次全部 0／6；逐帧正確率 83 → 77%。
+> - 剩餘煞車步錯誤＝位置精度（Phase 1c 不修的 plant 時刻差 ~3 cm ＋ 1–2 cm）在跨階緣腳印上的結果；遲滯不處理。
+> - ❓ 待使用者（§15.5）：①以目前能力進 Phase 2 ②重新考慮 Phase 1c 修正 2。
+>
+> ---
+
 > # 🟦 2026-10-03（六）— **Phase 1d：ADR-010 D1-R1（next plant 自 variant committed 起發布）——煞車步首次可用 8 → 10 帧、首次承諾錯 6 → 2、早於 T3 跳動 1 → 26／35（lead 中位 +1 帧）；剩下錯一階約一半是落地規則與 T3 不一致，不是邊界位置；⛔ T3 未改**
 >
 > 📖 正本：`docs/45` §14、ADR-010 D1-R1。EditMode **768／767／0 failed／1 skipped**。`Active`（結束站姿）路徑不變，Run 最後落地結果不變。
