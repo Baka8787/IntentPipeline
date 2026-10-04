@@ -1,0 +1,11 @@
+import sys
+L=open(sys.argv[1],encoding='utf-8').read().split('\n')
+i=next(k for k,l in enumerate(L) if l.startswith('## Policy summary'))
+hdr=[c.strip() for c in L[i+2].strip('|').split('|')]
+want=['policy','M1 loop med cm','M1 stop med cm','M2 path loop med','M2 path stop med','M2 path stop max','M2 peak stop med','M4 path loop med cm','M4 path loop max cm','M4 path stop med cm','M4 path stop max cm','M4 peak loop max cm/f','M5 over med cm','M5 over max cm','M6 locks','M6 locked frames','M7 p95 cm/f²','M7 max cm/f²','M3 end gap cm','M3 late path ratio']
+idx=[hdr.index(w) for w in want]
+print(' | '.join(w.replace(' med','').replace(' cm','').replace('²','2') for w in want))
+for l in L[i+4:]:
+    if not l.startswith('|'): break
+    c=[x.strip() for x in l.strip('|').split('|')]
+    print(' | '.join(c[j] for j in idx))

@@ -150,12 +150,13 @@ namespace Project.Tests.PlayMode
                 "snap_" + arm + "_o" + offset + "_", intervention, gait);
         }
 
-        /// <summary>Stop 吸附感診斷：proto 樓梯、yaw 0、Run、IK 開。</summary>
+        /// <summary>Stop 吸附感診斷：proto 樓梯、yaw 0、Walk／Run、IK 開。</summary>
         [UnityTest, Explicit]
         public IEnumerator Probe_StopSnapStairs(
             [Values(Dir.Down, Dir.Up)] Dir dir,
-            [Values(2, 6, 10)] int stopIndex)
-            => Drive("Stairs_650_400_300_Prefab", dir, 0f, stopIndex, "snap_on_", null, Gait.Run);
+            [Values(2, 6, 10)] int stopIndex,
+            [Values(Gait.Walk, Gait.Run)] Gait gait)
+            => Drive("Stairs_650_400_300_Prefab", dir, 0f, stopIndex, "snap_on_", null, gait);
 
         private IEnumerator Drive(string stairName, Dir dir, float yaw, int stopIndex, string prefix, string restartVariant,
             Gait gait = Gait.Run)
@@ -232,7 +233,7 @@ namespace Project.Tests.PlayMode
             if (gait == Gait.Walk) Press(_keyboard.leftCtrlKey);
             Press(_keyboard.wKey);
             int after = 0;
-            bool snapFlat = prefix.StartsWith("snap_") && flat;
+            bool snapRun = prefix.StartsWith("snap_");
             for (int frame = 0; frame < 4000; frame++)
             {
                 yield return null;
@@ -258,7 +259,7 @@ namespace Project.Tests.PlayMode
                 }
                 else if (phase == "restart" && ++after > RestartFrames) break;
                 rec.Phase = phase;
-                rec.Recording = (snapFlat && frame >= 90) || phase == "stop" || phase == "restart"
+                rec.Recording = (snapRun && frame >= 90) || phase == "stop" || phase == "restart"
                                 || (phase == "diag" && Mathf.Abs(s - stopS) <= 1.2f);
             }
             if (gait == Gait.Walk) Release(_keyboard.leftCtrlKey);
@@ -450,7 +451,8 @@ namespace Project.Tests.PlayMode
                     foreach (string c in ("ph,role,beta,lift,posW,poseX,poseY,poseZ,poseVxz,exX,exZ,tgtX,tgtY,tgtZ,lockX,lockZ,relBlend,lockSupY,lockSupPt," +
                                           "boneX,boneY,boneZ,boneVxz,heelY,ankY,toeY,liveSup,livePt,cfSup,cfPt,k0,k25,k50,k75,k100,nOk,nFinal,nX,nZ").Split(','))
                         sb.Append(',').Append(p).Append(c);
-                sb.Append(",rootEvalX,rootEvalY,rootEvalZ,ikZeroed,ltoeBoneX,ltoeBoneY,ltoeBoneZ,rtoeBoneX,rtoeBoneY,rtoeBoneZ,stopBake");
+                sb.Append(",rootEvalX,rootEvalY,rootEvalZ,ikZeroed,ltoeBoneX,ltoeBoneY,ltoeBoneZ,rtoeBoneX,rtoeBoneY,rtoeBoneZ,stopBake"
+                          + ",posePlaneY,lstance,lprevValid,rstance,rprevValid");
                 Csv.Append(sb).Append('\n');
             }
 
@@ -477,6 +479,13 @@ namespace Project.Tests.PlayMode
                     AnimState(out float nt, out float speed, out float weight, out int active);
                     var moving = (MovingPelvisState)_movingF.GetValue(_ik);
                     var td = _ik.TargetData;
+                    var leftContact = (FootContactState)_lF.GetValue(_ik);
+                    var rightContact = (FootContactState)_rF.GetValue(_ik);
+                    float posePlaneY = pose.PosePlaneY;
+                    float leftStance = FootIKController.ComputeFootWeight(pose.LeftFootPosition.y - posePlaneY,
+                        _settings.FootGroundedHeightMin, _settings.FootGroundedHeightMax);
+                    float rightStance = FootIKController.ComputeFootWeight(pose.RightFootPosition.y - posePlaneY,
+                        _settings.FootGroundedHeightMin, _settings.FootGroundedHeightMax);
 
                     var sb = new StringBuilder();
                     sb.Append(Time.frameCount).Append(',').Append(Phase).Append(',').Append(F(data.MovementIntent.DesiredSpeedNormalized)).Append(',').Append(data.Gait)
@@ -485,9 +494,9 @@ namespace Project.Tests.PlayMode
                       .Append(',').Append(key).Append(',').Append(clip).Append(',').Append(F(nt)).Append(',').Append(F(speed)).Append(',').Append(F(weight)).Append(',').Append(active)
                       .Append(',').Append(F(moving.Offset)).Append(',').Append(F(td.PelvisOffsetY)).Append(',').Append(F(_hips.position.y - root.y));
                     MixerChildren(sb);
-                    Foot(sb, (FootContactState)_lF.GetValue(_ik), moving.DebugLeftRole, pose.LeftFootPosition, prevPoseL, pose.LeftFootRotation, pose.LeftFootBottomHeight,
+                    Foot(sb, leftContact, moving.DebugLeftRole, pose.LeftFootPosition, prevPoseL, pose.LeftFootRotation, pose.LeftFootBottomHeight,
                         td.LeftFootPosition, td.LeftFootPositionWeight, td.LeftFootRotation, td.LeftFootRotationWeight, boneL, prevBoneL, dt, true);
-                    Foot(sb, (FootContactState)_rF.GetValue(_ik), moving.DebugRightRole, pose.RightFootPosition, prevPoseR, pose.RightFootRotation, pose.RightFootBottomHeight,
+                    Foot(sb, rightContact, moving.DebugRightRole, pose.RightFootPosition, prevPoseR, pose.RightFootRotation, pose.RightFootBottomHeight,
                         td.RightFootPosition, td.RightFootPositionWeight, td.RightFootRotation, td.RightFootRotationWeight, boneR, prevBoneR, dt, false);
 
                     Vector3 rootEval = _rootAtUpdate != null && _rootAtUpdate.Frame == Time.frameCount
@@ -496,7 +505,10 @@ namespace Project.Tests.PlayMode
                     sb.Append(',').Append(V(rootEval)).Append(',').Append(_zeroIk ? 1 : 0)
                       .Append(',').Append(V(_lToe != null ? _lToe.position : new Vector3(float.NaN, float.NaN, float.NaN)))
                       .Append(',').Append(V(_rToe != null ? _rToe.position : new Vector3(float.NaN, float.NaN, float.NaN)))
-                      .Append(',').Append(StopBakeName(stop));
+                      .Append(',').Append(StopBakeName(stop))
+                      .Append(',').Append(F(posePlaneY))
+                      .Append(',').Append(F(leftStance)).Append(',').Append(leftContact.PrevContactValid ? 1 : 0)
+                      .Append(',').Append(F(rightStance)).Append(',').Append(rightContact.PrevContactValid ? 1 : 0);
                     Csv.Append(sb).Append('\n');
                 }
 

@@ -33,8 +33,8 @@ unity cmd run_tests --mode PlayMode --async_tests true --include_explicit true -
 輸出位於 `Temp/PlantSettle/snap_*.csv`：
 
 - Flat：從起步第 90 幀起連續記錄，包含放開前的 loop control、Stop 與既有 restart 段。
-- Stairs：proto 樓梯、yaw 0、Run、IK 開；Down/Up × stopIndex 2/6/10。
-- 每列的既有 schema 完全保留；新增資料只追加在列尾。
+- Stairs：proto 樓梯、yaw 0、Walk/Run、IK 開；Down/Up × stopIndex 2/6/10，同樣從起步第 90 幀起連續記錄。
+- 每列的既有 schema 完全保留；列尾追加 `posePlaneY,lstance,lprevValid,rstance,rprevValid`。`stance` 與 runtime 同樣由 pose goal 高度減 `posePlaneY` 後呼叫 `FootIKController.ComputeFootWeight`；`prevValid` 是該 tick 結束時的值（供下一 tick `StepLock` 使用）。
 
 ⚠️ Unity 重啟會清空 `Temp/`；跑完應立即保存所需 CSV。
 
@@ -76,3 +76,42 @@ V4 的 runtime CSV 依 PLAN 只新增 root position，沒有 root rotation；分
   - `lastf.py.txt`：鎖定前後 12 帧的 A／C 每帧位移並排。
 - A0 的 `eval_file` 會撞 5 秒主執行緒逾時，但背景仍會跑完並寫檔；保險做法是每支 clip 各跑一次（替換 `foreach` 開頭加 `if (spec.Name != "...") continue;`）。
 - `data/plants.csv.txt`：第一輪 `analyze` 輸出備份（36 個 runtime case＋6 支 clip）；原始 probe CSV（5 MB）未保存進 repo。
+
+## 5. T3 offline replay
+
+`replay.py.txt` 只讀新錄的 `snap_on_*.csv`，先以 X Bot prefab 參數重播 R0。每個 case 的前 20 列只用來暖機，不納入 R0 相位／水平殘差檢查；若相位一致率低於 99.5% 或水平殘差 p99 高於 0.1 cm，會停止而不跑候選。舊 CSV 缺少 `stance`／`prevValid` 時會明確報錯，不會推測。
+
+```powershell
+# 預設跑 R0 與全部展開候選，輸出寫回輸入目錄
+$env:PYTHONIOENCODING='utf-8'
+python docs/artifacts/stop-snap/replay.py.txt Temp/PlantSettle
+
+# 查看可單跑的完整 policy id
+python docs/artifacts/stop-snap/replay.py.txt --list-policies
+
+# R0 正確性通過後，只跑指定候選（輸出仍含 R0 對照）
+python docs/artifacts/stop-snap/replay.py.txt Temp/PlantSettle --policy R1a-r0.06
+
+# 組合只接受「一個完整 R2 id:一個完整 R1 id」，由研究者明確挑選
+python docs/artifacts/stop-snap/replay.py.txt Temp/PlantSettle `
+  --combo R2a-slow-K3-v0.5:R1a-r0.06 --output-dir Temp/StopSnap/replay
+```
+
+輸出：
+
+- `replay_summary.md`：開頭列出實際使用的 X Bot `FootIKSettings` 與 R0 正確性；其後每個 policy 一列彙總 M1–M7。M2 是畫面／動畫路徑比，M4 只量 R0 判為 Locked 的幀，M7 單位是 cm/frame²。
+- `replay_events.csv`：一列＝policy × R0 lock episode。識別欄固定含 `case,gait,terrain,side,context,ordinal,tRel,isLastRelease`；`context` 只會是 `loop` 或原始 `stopBake` 名稱，不另造情境分類。`ordinal=0` 表示 lock 發生在 stop 前；stop 內由 1 起算。`tRel` 是 R0 release transition 相對輸入放開（首列 `phase=stop`）的幀數；錄製結束仍未 release 的 episode 留空。`isLastRelease` 只標該腳 stop 內最後一次 R0 release。
+- 其餘事件欄：R0／policy lock、release frame；M1 gap；M2 十幀 path/peak ratio；Walk RU 右腳的 M3；R0 Locked window 的 M4；`lockev.py.txt` 定義的 M5；該 R0 episode window 內的 M6；以及 case 全段 M7（同 case 的事件列會重複此兩值，方便分組）。
+
+重播軌跡沿用 §3 的 goal 空間定義：`A(f)=pose(f)+rootDelta(f)`，`C'(f+1)=replayedHorizontal(f)+rootDelta(f+1)`。`continuous` 使用 3D pose 位移；垂直接觸、resolver、lift 與骨盆不在本 replay 範圍。
+
+目前 schema 沒有 `ikAllowed`；probe 情境預期全程 grounded 且未被 arbitration 阻擋。若實際 run 曾進入 runtime 的 `ikAllowed=false` 整體重設，replay 不會猜測，R0 相位／水平正確性 gate 應直接失敗。R3 的「動畫腳本幀位移」採 T3 內部的 `predicted.xz` 位移，因限速發生在加上下一幀 `rootDelta` 之前。
+
+### 5.1 第一輪 replay 的執行紀錄（2026-10-04，Claude）
+
+- 重錄：Flat 30（只用 `on` 臂 12 個）＋ Stairs 12（Walk／Run × Up／Down × 2／6／10）。R0 gate：相位 **99.953%**（3 帧，同一個 Run 下樓 β≈0.95 捨入）、水平殘差 p99 **0.02 cm** ⇒ PASS。
+- 修正：`finite()` 對未匹配事件的空字串（`""`）會丟 TypeError ⇒ 改為只接受數值。
+- 分組腳本（在 replay 輸出目錄外執行）：
+  - `replay_keycols.py.txt <replay_summary.md>`：每 policy 一列的關鍵欄。
+  - `replay_groups.py.txt <events.csv[,events2.csv]> <policy,policy,…>`：依 `gait／context／side＋(*＝isLastRelease)＋ordinal／flat|stairs` 分組；欄位＝gap、補回路徑比、peak 比、M4 可見爬行（中位／max）、M4 單帧 max、M5 過衝／回拉。
+- `data/replay_summary.md.txt`：19 個候選＋`R2a-slow-K2-v0.3:R1c-follow-d0.03` 組合的彙總。`replay_events.csv`（600 KB）未存。

@@ -1,0 +1,28 @@
+import csv,sys,math,statistics as st,glob
+rows=[]
+for f in sys.argv[1].split(','): rows+=list(csv.DictReader(open(f,encoding='utf-8')))
+pols=sys.argv[2].split(',')
+def F(x):
+    try: v=float(x); return v if math.isfinite(v) else None
+    except: return None
+def med(v):
+    v=[x for x in v if x is not None]; return st.median(v) if v else None
+def mx(v):
+    v=[x for x in v if x is not None]; return max(v) if v else None
+def grp(r):
+    ctx=r['context'].replace('Bake_','').replace('FwdStop','')
+    terr='flat' if r['terrain']=='flat' else 'stairs'
+    if ctx=='loop': return (r['gait'],'loop','-',terr)
+    return (r['gait'],ctx,r['side']+('*' if r['isLastRelease'] in('1','True','true') else '')+r['ordinal'],terr)
+G={}
+for r in rows:
+    if r['policy'] not in pols: continue
+    G.setdefault(grp(r),{}).setdefault(r['policy'],[]).append(r)
+fmt=lambda v:'  -  ' if v is None else '%5.2f'%v
+print('group | policy | n | gap | catchup path x | peak x | visibleSlide cm (med/max) | slideStep max | over | pull')
+for k in sorted(G):
+    for p in pols:
+        v=G[k].get(p,[])
+        if not v: continue
+        print('%-28s %-34s %2d | %s | %s | %s | %s/%s | %s | %s | %s'%(' '.join(k),p,len(v),fmt(med([F(r['m1GapCm']) for r in v])),fmt(med([F(r['m2PathRatio']) for r in v])),fmt(med([F(r['m2PeakRatio']) for r in v])),fmt(med([F(r['m4LockedPathCm']) for r in v])),fmt(mx([F(r['m4LockedPathCm']) for r in v])),fmt(mx([F(r['m4LockedMaxStepCm']) for r in v])),fmt(mx([F(r['m5OvershootCm']) for r in v])),fmt(mx([F(r['m5PullbackCm']) for r in v]))))
+    print()
