@@ -4561,6 +4561,10 @@ MonoBehaviour:
     ReleaseTime: 0.12
     MaxPoseStepPerFrame: 0.5
     SwingFootLengthReference: 1
+    PlantAwareExtrapolation: 0
+    PlantAwareNearSteps: 1.5
+    ExtrapolationSpeedMin: 2
+    ExtrapolationSpeedMax: 6
     UseLandingSurfaceResolver: 1
     LandingVerifyBeta: 0.7
     LandingConfirmFrames: 2
@@ -4652,6 +4656,8 @@ MonoBehaviour:
   - bakeData: {fileID: 11400000, guid: 1ab60b9008b962846970b6c488927c6e, type: 2}
     animationKey: RunStop_RU
   locomotionAnimationKey: Idle
+  alignRunEntryPhase: 1
+  entryPhaseMaxHeadingDegrees: 30
   walkStopMinIntensity: 0.35
   walkStopMaxIntensity: 0.5
   runStopMinIntensity: 0.75

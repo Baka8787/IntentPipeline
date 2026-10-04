@@ -85,6 +85,13 @@ namespace Project.Presentation.Animation
             return false;
         }
 
+        /// <summary>
+        /// 🧪（ADR-011，Trial）起跑入場相位對齊：要求指定狀態「下一個要被看見的循環」從 <paramref name="normalizedTime"/> 開始。
+        /// 呼叫端只表達意圖（相位由 Bake 推得），不認識混合樹；後端自己決定哪些子狀態可以安全重設——
+        /// ⛔ 不得讓目前畫面上看得到的動畫跳動。沒有子狀態概念的後端維持預設 false（不做任何事）。
+        /// </summary>
+        public virtual bool TryAlignEntryPhase(string stateKey, float normalizedTime) => false;
+
         /// <summary>查詢目前主層播放進度（0~1）</summary>
         public abstract float GetNormalizedTime();
     }

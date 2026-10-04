@@ -1,0 +1,61 @@
+"""B 驗收（ADR-011）：alignRunEntryPhase 關（entry0_）／開（entry1_）——起跑後每隻腳「離地前」的貼地水平位移。
+動畫腳：離地 ＝（動畫踝 − root）的高度離開起跑前 ±3 cm（扣掉 root 沿樓梯的升降，平地等同絕對高度）；
+畫面腳：離地 ＝ 骨骼離腳下即時踏面的高度離開起跑前 ±3 cm（絕對高度在下樓時會把「跨出階緣、踏面掉下去」誤判成貼地）。位移取「離地前」這段內離起點最遠的水平距離（cm）。
+分開回報：平地 LU（o0）／RU（o4）、樓梯 上／下 × 前一個停步 LU／RU。
+⚠️ 只看畫面腳會被 T3 鎖藏起來；動畫腳下降才代表 transition 本身變好。
+用法：python entry_ab.py.txt <csv 目錄>"""
+import csv, glob, math, os, sys, collections, statistics as stt
+D = sys.argv[1]; LOW = 0.03
+def f(x):
+    try: return float(x)
+    except: return float('nan')
+def q(v, p): v = sorted(v); return v[int(p * (len(v) - 1))] if v else float('nan')
+
+def slides(path):
+    r = list(csv.DictReader(open(path)))
+    a = next(i for i, x in enumerate(r) if x['phase'] == 'restart')
+    st0 = next(i for i, x in enumerate(r) if x['phase'] == 'stop')
+    clip = next((x['animClip'] for x in r[st0:a] if 'Stop' in x['animClip']), '?').replace('RunFwdStop_', '')
+    out = {}
+    for s in 'lr':
+        y0a = f(r[a - 1][s + 'poseY']) - f(r[a - 1]['rootY'])
+        sup0 = f(r[a - 1][s + 'liveSup'])
+        def hb(i):
+            sp = f(r[i][s + 'liveSup']); sp = sp if not math.isnan(sp) else sup0
+            return f(r[i][s + 'boneY']) - sp
+        y0b = hb(a - 1)
+        end = min(a + 40, len(r))
+        la = next((i for i in range(a, end) if abs(f(r[i][s + 'poseY']) - f(r[i]['rootY']) - y0a) > LOW), end)
+        # 畫面腳：離地 ＝ 骨骼離「腳下即時踏面」的高度離開站立時 ±3 cm（下樓時腳跨出階緣、踏面掉下去也算離地）
+        lb = next((i for i in range(a, end) if abs(hb(i) - y0b) > LOW), end)
+        da = max([math.hypot(f(r[i][s + 'poseX']) - f(r[a - 1][s + 'poseX']), f(r[i][s + 'poseZ']) - f(r[a - 1][s + 'poseZ'])) for i in range(a, la)] or [0.0])
+        db = max([math.hypot(f(r[i][s + 'boneX']) - f(r[a - 1][s + 'boneX']), f(r[i][s + 'boneZ']) - f(r[a - 1][s + 'boneZ'])) for i in range(a, lb)] or [0.0])
+        out[s] = (da, db, la - a, lb - a)
+    return clip, out, f(r[a]['mixRunNT']), f(r[a + 1]['mixRunNT'])
+
+groups = collections.defaultdict(lambda: {0: [], 1: []})
+detail = []
+for p1 in sorted(glob.glob(os.path.join(D, 'entry1_*.csv'))):
+    name = os.path.basename(p1)[7:-4]
+    p0 = os.path.join(D, 'entry0_' + name + '.csv')
+    if not os.path.exists(p0): continue
+    c0, s0, nt0, _ = slides(p0); c1, s1, nt1a, nt1b = slides(p1)
+    where = 'flat' if name.startswith('flat_') else ('Up' if '_Up_' in name else 'Down')
+    for k, (c, sl) in ((0, (c0, s0)), (1, (c1, s1))):
+        groups[(where, c0)][k].append(sl)
+    detail.append((name, c0, s0, s1, nt0, nt1a, nt1b))
+
+print('起跑後離地前貼地位移（cm）：每組兩腳合計的最大值與各腳；關 → 開')
+for key in sorted(groups):
+    g = groups[key]
+    def agg(k, idx): return [100 * sl[s][idx] for sl in g[k] for s in 'lr']
+    print('== %-4s 前一個停步 %s  n=%d 次' % (key[0], key[1], len(g[0])))
+    for idx, lab in ((0, '動畫腳'), (1, '畫面腳')):
+        a0, a1 = agg(0, idx), agg(1, idx)
+        print('   %s  中位 %5.1f → %5.1f   p90 %5.1f → %5.1f   max %5.1f → %5.1f' % (lab, q(a0, .5), q(a1, .5), q(a0, .9), q(a1, .9), max(a0), max(a1)))
+print()
+for name, c, s0, s1, nt0, nt1a, nt1b in detail:
+    if name.startswith('flat_'):
+        print('%-26s %s  run 子狀態 nt（開，按鍵帧／下一帧）%.3f／%.3f  L 動畫 %.1f→%.1f 畫面 %.1f→%.1f | R 動畫 %.1f→%.1f 畫面 %.1f→%.1f' % (
+            name, c, nt1a, nt1b, 100 * s0['l'][0], 100 * s1['l'][0], 100 * s0['l'][1], 100 * s1['l'][1],
+            100 * s0['r'][0], 100 * s1['r'][0], 100 * s0['r'][1], 100 * s1['r'][1]))

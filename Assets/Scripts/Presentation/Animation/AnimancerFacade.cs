@@ -376,6 +376,27 @@ namespace Project.Presentation.Animation
         }
 
         /// <summary>
+        /// 🧪（ADR-011，Trial）只重設**目前權重為 0** 的直接子狀態播放頭——它們此刻不在畫面上，重設不會造成可見跳動；
+        /// 正在顯示的子狀態（例如 Idle）不動。索引迴圈、零配置。回傳是否有子狀態被重設。
+        /// </summary>
+        public override bool TryAlignEntryPhase(string stateKey, float normalizedTime)
+        {
+            if (float.IsNaN(normalizedTime) || float.IsInfinity(normalizedTime)) return false;
+            if (!_stateCache.TryGetValue(stateKey, out var state) || !(state is ParentState parentState)) return false;
+
+            bool aligned = false;
+            int childCount = parentState.ChildCount;
+            for (int i = 0; i < childCount; i++)
+            {
+                AnimancerState child = parentState.GetChild(i);
+                if (child == null || child.Weight > 0f) continue;
+                child.NormalizedTime = normalizedTime;
+                aligned = true;
+            }
+            return aligned;
+        }
+
+        /// <summary>
         /// 🆕（docs/24 §8 Animation Fitting）設定該狀態鍵對應 AnimancerState 的播放速率。
         ///
         /// 只作用在**已經播過、已進快取**的 state：Fitting 是在動畫開始之後才套用的，

@@ -53,6 +53,7 @@ public class AnimancerFacade : AnimationFacadeBase
 4. **查表防線**：映射缺失或資產無效（內部 transition／clip 未指定）時警告並安全返回（不拋例外），與 v0.15 前的 clip 查表防線行為一致；`RollState` 的 `IsPlaying` 防呆鏈不受影響。
 5. **SetFloat／SetBool＝通用參數通道**：寫入 Animancer v8 `Parameters`（`ParameterDictionary`，型別化容器無裝箱；string→StringReference 隱轉走 intern 快取，穩態零 GC）。**Facade 不持有任何 Mixer 引用**——「哪個 Mixer 訂閱哪個參數」由 Transition 資產內序列化的 `ParameterName`（StringAsset）決定，資料流：黑板 → 參數字典 → 資產綁定。
 6. **子狀態時間＝通用唯讀查詢**：`TryGetDominantChildNormalizedTime` 只依 `stateKey` 查其最高權重直接子狀態；索引迴圈、零配置、同權重固定取前者。Facade 不暴露 Mixer／Clip／child index，沒有動畫圖子狀態概念的後端安全回 false。Mixer root 的 `NormalizedTime` 是子狀態時間的加權聚合，不得拿來代替某支 Bake Data 的實際播放頭。
+7. 🧪 **入場相位對齊＝通用寫入（ADR-011，Trial）**：`TryAlignEntryPhase(stateKey, normalizedTime)` 只表達「下一個要被看見的循環從這個相位開始」；Animancer 後端只重設**目前權重為 0** 的直接子狀態播放頭（畫面上看不到它們，不會跳動），正在顯示的子狀態不動；沒有子狀態概念的後端回 false。Facade 名稱與參數不含 locomotion 概念（不變量 A14）。相位由呼叫端從 Bake 推得（`MotionBakeData.TryGetFootPhaseExtremeNormalizedTime`），Facade 不認識 Bake。
 7. **ADR-006 Trial authored layering（2026-09-11）**：`LayerIndex == 0` 維持原本 Layer 0 行為，並淡出目前 overlay；
    overlay mapping 會先在 Layer 0 播 `BaseLayerTransition`，再於指定 layer 套 `AvatarMask`、播放 Action transition
    並淡入。`Play`／`PlayWithCallback` 共用 `PlayMapping`，State／ActionDefinition 不認識 Animancer layer。

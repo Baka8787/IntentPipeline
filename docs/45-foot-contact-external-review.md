@@ -928,3 +928,28 @@ throwaway 探針 `PlantSettleProbe.Probe_RunStopSettleRestart`：樓梯上 Run �
 - 三者都不是「開啟＝退步」：各有一種姿勢上的取捨，需要人工看。
 - ⏳ 人工 Play 驗證方式：X Bot 的 FootIK 設定 `PlantAwareExtrapolation` 在 Play 中切換（不存檔），看 Run 上下樓停步的煞車步落地（③ 的三個情境：proto 樓梯下樓斜向靠下段、s1 下樓中段、s1 上樓靠底）。
 - 若通過：最小正式實作與 contract 另行回報（本輪不轉正）。
+
+### 21.3 B —— Run 起跑入場相位對齊（ADR-011，🟡 Trial；X Bot 開）
+實作（範圍只有 Run、靜止→Run、同方向）：
+- `LocomotionModel`：意圖上升緣 ∧ 起跑前靜止 ∧ Run ∧ 方向夾角 ≤ 30° ⇒ 請求 `TryAlignEntryPhase(locomotionAnimationKey, φ)`；φ ＝ `runLoopBakeData` 的 `FootPhaseCurve` 左腳觸地極值（`MotionBakeData.TryGetFootPhaseExtremeNormalizedTime`，算一次快取；⛔ 沒有手填相位）。開關 `alignRunEntryPhase`（程式預設關；**X Bot prefab 開**，Editor API；還原＝設 False）。
+- `AnimationFacadeBase.TryAlignEntryPhase`（virtual，預設 no-op）；`AnimancerFacade` 只重設權重 0 的直接子狀態。名稱不含 Locomotion ⇒ 不變量 A14 照舊通過（第一版名稱 `TryAlignLocomotionEntryPhase` 被 A14 擋下，已改名）。
+- EditMode +13（極值、觸發條件、接線）。runtime 相位：按鍵後第一個 tick Run 子狀態 nt ＝ 0.910（與 §20.3 的 φ≈0.9 一致，來自 Bake）。
+
+驗收（`Probe_EntryPhaseFlatAB`＋`Probe_EntryPhaseStairsAB`，關／開；分析 `entry_ab.py.txt`）。**離地前貼地位移，動畫腳與畫面腳分開**：
+動畫腳＝（動畫踝 − root）高度離開起跑前 ±3 cm 之前；畫面腳＝骨骼離「腳下即時踏面」的高度離開 ±3 cm 之前
+（⚠️ 第一版用骨骼絕對高度，下樓時把「跨出階緣、踏面掉下去」誤判成貼地——逐帧確認那 30–43 cm 是腳懸在下一階上方 27–31 cm，已改判準）。
+
+| 情境 | 動畫腳 max（關 → 開） | 畫面腳 max（關 → 開） |
+|---|---|---|
+| 平地，LU 停步後 | 20.3 → **9.8** cm | 21.9 → **5.1** |
+| 平地，RU 停步後 | 33.6 → **9.4** | 75.6 → **5.1** |
+| 樓梯下，LU 後（6） | p90 20.3 → 9.8 | p90 21.9 → 5.1 |
+| 樓梯下，RU 後（8） | 中位 10.4 → 1.5；p90 18.3 → 9.1 | 中位 2.4 → 4.5；max 4.5 → 7.2 |
+| 樓梯上，LU 後（7） | p90 20.3 → 11.0 | p90 8.8 → 3.9 |
+| 樓梯上，RU 後（7） | 中位 16.5 → 1.4；p90 66.3 → 11.0 | max 3.2 → 5.1 |
+
+- **動畫腳本身變好**（不是被 T3 藏起來）：每一組的動畫腳 max／p90 都大幅下降。
+- 殘留 ≈ 9–11 cm 的都是**左腳**（極值相位下的支撐腳）——loop 假設 root 已在全速，起跑時 root 從 0 加速，支撐腳在動畫裡往前爬。ADR-011 AC2 原訂「≲ 8 cm」**未達**（9.1–11.0 cm）；這是相位對齊做不到的部分。
+- 小退步：樓梯下 RU 後畫面腳中位 2.4 → 4.5 cm（max 7.2），仍遠小於關閉時最差的 21.9／75.6。
+- 回歸：EditMode **815／814／0 failed**；PlayMode 96 個中 91 過——`C0`（既有）＋ `Climb2m` ×2、`CO5`（WORKLOG 已登記為 flaky／時過時不過；以 HEAD runtime 對照重跑同樣失敗 ⇒ 非本次改動）＋ `Enemy_TraversesGeneratedStair(Stairs (1),Up)` 59.7% vs 60%（B 關閉重跑通過；敵人用 Y Bot、ADR-011 預設關，判定為邊界抖動，未進一步確認）。
+- ⏳ 人工 Play（AC4）：Run 上下樓與平地停步後同方向起跑——拖步是否消失或明顯減輕；Idle 在起跑瞬間有沒有可見跳動。

@@ -65,6 +65,14 @@ namespace Project.Core.Movement
         [Tooltip("明確列舉兩支 Run Stop 變體（Bake Data + Animation Key）。")]
         [SerializeField] private LocomotionStopVariant[] runStopVariants;
         [SerializeField] private string locomotionAnimationKey = "Idle";
+
+        [Header("🧪 ADR-011 起跑入場相位對齊（Trial；預設關 ＝ 現行）")]
+        [Tooltip("Run、從靜止（Idle／停步）同方向起跑時，讓 locomotion 循環從 run loop 烘焙腳相曲線的「左腳觸地極值」開始。" +
+                 "相位只由 Bake 推得，不手填。還原 ＝ 關閉。")]
+        [SerializeField] private bool alignRunEntryPhase = false;
+
+        [Tooltip("起跑方向與角色目前朝向的夾角上限（度）——超過就不是「同方向起跑」，不對齊。")]
+        [SerializeField, Range(0f, 90f)] private float entryPhaseMaxHeadingDegrees = 30f;
         [SerializeField] private float walkStopMinIntensity = 0.35f;
         [SerializeField] private float walkStopMaxIntensity = 0.50f;
         [SerializeField] private float runStopMinIntensity = 0.75f;
@@ -116,6 +124,16 @@ namespace Project.Core.Movement
                 TickActiveStop(data, animationFacade, deltaTime, isIntending, hadAmbientMotionLastFrame);
             }
 
+            // 🧪 ADR-011：在停步被意圖打斷（已 Play 回 locomotion）之後、本帧動畫參數寫入之前對齊——
+            //    這一帧 Walk／Run 子狀態權重仍為 0，重設播放頭不會被看見。
+            if (alignRunEntryPhase && animationFacade != null &&
+                ShouldAlignRunEntryPhase(_wasIntending, isIntending, releaseEntryIntensity, MoveThreshold,
+                    data.Gait == GaitTier.Run, movementIntent.DesiredDirection, transform.forward, entryPhaseMaxHeadingDegrees) &&
+                TryGetRunEntryPhase(out float entryPhase))
+            {
+                animationFacade.TryAlignEntryPhase(locomotionAnimationKey, entryPhase);
+            }
+
             if (!_stop.IsActive && LocomotionStopSelector.IsReleaseRequest(
                     _wasIntending, desiredSpeed, false, data.IsGrounded,
                     hadAmbientMotionLastFrame, deltaTime))
@@ -165,6 +183,35 @@ namespace Project.Core.Movement
             {
                 PublishStopPrediction(data, predictionVariant.BakeData);
             }
+        }
+
+        /// <summary>
+        /// （純函數）ADR-011 的觸發條件：意圖的上升緣、起跑前在靜止（速度 &lt; restSpeed）、Run、且起跑方向與目前朝向一致。
+        /// 只回答「這一帧是不是 Run 的同方向靜止起跑」；⛔ 不涵蓋 Walk、轉向起跑、移動中加速。
+        /// </summary>
+        public static bool ShouldAlignRunEntryPhase(bool wasIntending, bool isIntending, float previousSpeed, float restSpeed,
+            bool runGait, Vector3 desiredDirection, Vector3 facing, float maxHeadingDegrees)
+        {
+            if (wasIntending || !isIntending || !runGait || previousSpeed >= restSpeed) return false;
+            Vector2 d = new Vector2(desiredDirection.x, desiredDirection.z);
+            Vector2 f = new Vector2(facing.x, facing.z);
+            if (d.sqrMagnitude < 1e-6f || f.sqrMagnitude < 1e-6f) return false;
+            return Vector2.Angle(d, f) <= maxHeadingDegrees;
+        }
+
+        private bool _hasRunEntryPhase;
+        private float _runEntryPhase;
+
+        /// <summary>run loop 烘焙腳相曲線的左腳觸地極值（normalized）；第一次需要時從 Bake 算一次並快取。</summary>
+        private bool TryGetRunEntryPhase(out float normalizedTime)
+        {
+            if (!_hasRunEntryPhase && runLoopBakeData != null &&
+                runLoopBakeData.TryGetFootPhaseExtremeNormalizedTime(FootPhase.LeftFootDown, out _runEntryPhase))
+            {
+                _hasRunEntryPhase = true;
+            }
+            normalizedTime = _runEntryPhase;
+            return _hasRunEntryPhase;
         }
 
         /// <summary>

@@ -7,19 +7,26 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
-> # 🟧 下一會話開場：**等使用者看 `docs/45` §20 的三個研究結果，各自裁決（⛔ runtime 仍未改）**
+> # 🟧 下一會話開場：**等使用者回報三個獨立的人工 Play／裁決（`docs/45` §21）**
 >
-> **開場只需讀**：本段 ＋ `docs/45` §20（必要時 §19）。三者獨立、各自驗收（§20.4）。
+> **開場只需讀**：本段 ＋ `docs/45` §21（必要時 §20、ADR-011）。三者獨立、各自驗收、各自 commit。
 >
-> - **A1**（LU 第二次落地）：選片決策在 `LocomotionModel`（同時驅動 root）⇒ Presentation 只能提供事實；需要 Core 自己的踏面查詢（Core.Environment，`TraversalProbe` 先例）。樓梯上避開 LU 沒有免費版：立即改選 RU＝錯腳相入場滑動、等 RU phase＝最多 +1.8 m 滑行；fallback 淡入 Idle 會把左腳貼地拖 ~60 cm。建議下一步：測試內強制 RU，量入場滑動，再與距離代價一起裁決。
-> - **A2**（外插過衝）：P8b（planned-plant 腳離預測落點 1.5 步內不外插，其餘依腳速衰減）停步錯階 8 → 0、新增 0、擺盪早期預測 p90 反而變好；代價：接近落地預測 0.3 → 1.6 cm、3 個跨階緣模糊鎖定改答案。實作前要用真實開關 A/B。
-> - **B**（起跑拖步）：起跑時把 locomotion 子狀態對齊 loop `FootPhaseCurve` 的左腳著地極值（φ ≈ 0.9，Bake 可推得）⇒ 動畫貼地滑動 20–34 → ≤ 8 cm（LU／RU 兩種前置都是）；縮短 crossfade 只是被 T3 鎖藏起來。
-> - ⛔ 約定未變：不擴 LandingSurfaceResolver、不動 SwingFootLengthReference、不先動 release threshold。
+> - **A1**（`94ba7ca`，只量測）：強制 RU 讓 LU re-step 消失、停步 +0.41 m、入場滑動不變差；待裁決「樓梯上強制 RU」→ 才做 Core 踏面查詢＋選片（`LocomotionModel` 擁有決策）。
+> - **A2**（`c5ff446`，實驗開關，預設關）：Play 中切 X Bot FootIK 的 `PlantAwareExtrapolation` 做視覺 A/B——看停步煞車步落地、落地前幾帧有沒有可見的追趕／頓、§21.2 表的三個跨階緣情境哪個姿勢對、擺盪早期無變化。通過才回報正式實作與 contract。
+> - **B**（ADR-011 🟡 Trial；X Bot 已開 `alignRunEntryPhase`）：Run 停步後同方向起跑，拖步是否消失（AC4）；Idle 起跑瞬間有無跳動。AC2 未達（動畫腳殘留 9–11 cm，左腳支撐腳＋root 從 0 加速），AC3 大致通過。還原：設 False。
+> - PlayMode 現況 96／91：`C0`（既有）＋ `Climb2m` ×2、`CO5`（WORKLOG 既有 flaky；以 HEAD runtime 對照重跑同樣失敗）＋ `Enemy_TraversesGeneratedStair(Stairs (1),Up)` 59.7%（邊界抖動，B 關閉重跑通過）。
+> - ⛔ 約定未變：不擴 LandingSurfaceResolver、不動 SwingFootLengthReference、P8b 不處理起跑暫態（留給 B）。
 >
 > ## 工具
-> - `PlantSettleProbe`：`Probe_RunStopSettleRestart`（56 次）、`Probe_RestartPhaseFlat`（60 次）、`Probe_RestartPhaseFine`（16 次）、`Probe_RestartPhase`（樓梯版，指標被 root 升降污染，不採信）。介入全在測試內（反射 Animancer），不改 runtime。
-> - 分析：`docs/artifacts/plant-settle/extrap_policies.py.txt`（A2 策略矩陣）、`restart_phase.py.txt`（B）；其餘見 §19。
-> - ⚠️ 排 PlayMode 前單獨查 `isPlaying`（別用 `&&` 串 grep——查詢偶爾回空，整串會靜默跳過、等到舊的 completed 狀態）；`recompile` 沒吃到新檔時用 `AssetDatabase.Refresh(ForceSynchronousImport)`＋`RequestScriptCompilation`。
+> - `PlantSettleProbe`：`Probe_ForcedRU`（A1）、`Probe_PlantAwareExtrapAB`（A2，112 次）、`Probe_EntryPhaseFlatAB`／`StairsAB`（B）；其餘見 §19–§20。
+> - 分析：`docs/artifacts/plant-settle/{forced_ru,p8b_ab,entry_ab}.py.txt`。起跑「貼地」判準：動畫腳用（踝 − root）高度、畫面腳用離腳下即時踏面高度（⚠️ 絕對高度在下樓會誤判）。
+> - ⚠️ 暫時換回 HEAD 檔案做對照時，Unity 會刪掉未追蹤 `.cs` 的 `.meta`（重新產生即可，未進版控的檔案沒有引用問題）。
+>
+> ---
+
+> # 🟨 2026-10-04（四）— **A1 強制 RU 量測／A2 P8b runtime 開關／B ADR-011 起跑入場相位對齊（Trial，X Bot 開）——三個獨立 commit；⏳ 人工 Play**
+>
+> 📖 正本：`docs/45` §21、`docs/ADR/011-run-entry-phase-alignment.md`。EditMode **815／814／0 failed**。
 >
 > ---
 

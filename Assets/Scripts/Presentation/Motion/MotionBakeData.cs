@@ -1048,6 +1048,26 @@ namespace Project.Presentation.Motion
         }
 
         /// <summary>
+        /// 🧪（ADR-011）腳相曲線的極值時刻（normalized）：<see cref="FootPhase.LeftFootDown"/> ＝ 曲線最小值（左腳觸地最深）、
+        /// <see cref="FootPhase.RightFootDown"/> ＝ 最大值。只讀烘焙資料；曲線缺 ⇒ false。
+        /// 固定 <paramref name="samples"/> 點掃描（不配置記憶體）；同值取最早者 ⇒ 結果可重現。
+        /// </summary>
+        public bool TryGetFootPhaseExtremeNormalizedTime(FootPhase phase, out float normalizedTime, int samples = 512)
+        {
+            normalizedTime = 0f;
+            if (FootPhaseCurve == null || FootPhaseCurve.length == 0 || Duration <= 0f || samples < 2) return false;
+            float sign = phase == FootPhase.LeftFootDown ? -1f : 1f;
+            float best = float.NegativeInfinity;
+            for (int i = 0; i < samples; i++)
+            {
+                float nt = i / (float)samples;
+                float value = sign * FootPhaseCurve.Evaluate(nt * Duration);
+                if (value > best) { best = value; normalizedTime = nt; }
+            }
+            return true;
+        }
+
+        /// <summary>
         /// 取得代表移動速度（公尺/秒），供「動畫數據 → 配置」資料流使用（dev-spec §3.2）。
         /// 優先回傳烘焙時存檔的 <see cref="AutoAverageSpeed"/>；若為 0（舊資產未重烘焙）則即時從
         /// <see cref="SpeedCurve"/> 計算平均值作安全回退——確保現有資產無需立即重烘焙也能被
