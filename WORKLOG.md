@@ -7,7 +7,22 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
-> # 🟧 下一會話開場：**收步「吸附感」診斷已完成（`docs/45` §22）——結論 C，但「快速拉過去」的時序是 T3 的鎖定／釋放；待使用者裁決下一個 slice**
+> # 🟧 下一會話開場：**T3 release-catch-up offline replay 完成（`docs/45` §23）——首選 R1c「鎖定點跟隨（死區 d0）」；待裁決是否進 runtime A/B**
+>
+> **開場只需讀**：本段 ＋ `docs/45` §23（表 23.2、23.4）。工具：`docs/artifacts/stop-snap/README.md` §5／§5.1。
+>
+> - Python 重播 T3 鎖定／釋放：**相位 99.953%、水平 p99 0.02 cm**（24 情境，平地＋樓梯、Walk＋Run）。
+> - R1a（縮 UnlockRadius）／R1b（趨勢釋放）：重鎖循環、補回最差 ×4–10、停步可見滑動 13–19 cm ⇒ ❌。
+> - **R1c 鎖定點跟隨**（gap 永遠 ≤ d0，超出部分以動畫速度可見）：停步最後一步補回 ×1.26 → **×1.08（d0 3 cm）／×1.12（5 cm）**；鎖定次數與時刻不變；loop 可見爬行 +0.4／+0.2 cm 中位；Walk RU hidden step 結束差距 9 → 3／5 cm。
+> - R2 單獨不解決（Walk LU 最後一步 gap 不變、其他是不鎖 ⇒ 爬行全可見）；唯一好處是鎖定當下過衝 12.7 → 5.4 cm（A2 一側，維持獨立）。R3 只能當 safety（k1 拖曳 13 cm）。
+> - ❓ 待使用者：①進 runtime A/B？（`FootIKSettings` 實驗開關、預設關；d0 0.03／0.05；量樓梯垂直——本輪未重播）②R1c 讓 `LockPosition` 會移動：消費者都在 FootIKController 內（Living Spec，不需 ADR），A/B 前要逐一檢查。
+> - 「瞬變改善」＝ SwingFootLengthReference 的樓梯瞬拉改善（使用者 2026-10-04 確認）。一次性 pelvis-analysis 腳本 5 支已刪除（未追蹤檔）。
+>
+> ---
+>
+> # ~~🟧 收步「吸附感」診斷已完成（`docs/45` §22）~~ —— 已進 §23 replay（以下保留）
+>
+> # 🟧 （前一段）**收步「吸附感」診斷已完成（`docs/45` §22）——結論 C，但「快速拉過去」的時序是 T3 的鎖定／釋放；待使用者裁決下一個 slice**
 >
 > **開場只需讀**：本段 ＋ `docs/45` §22（尤其 §22.4 表、§22.7 建議）。工具與坑：`docs/artifacts/stop-snap/README.md` §4。⛔ 不需要重讀 §10–§21。
 >

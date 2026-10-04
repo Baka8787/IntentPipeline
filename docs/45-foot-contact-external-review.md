@@ -1030,3 +1030,43 @@ throwaway 探針 `PlantSettleProbe.Probe_RunStopSettleRestart`：樓梯上 Run �
 - 每個 runtime 情境是決定性的：o0–o3 都是 Run LU、o4–o5 都是 Run RU，平地樣本實際上是 2 種 Run 停步 ×（重複），Walk 以 RU 為主（LU 只 1 次）。結論靠逐帧機制，不靠樣本數。
 - Walk 樓梯、斜向、Walk LU 更多樣本未量；Walk RU 最後小步被隱藏後在 Idle 的行為未追。
 - `analyze.py.txt` 的自動 plant 分類不可引用（見 `README.md` §4）；表內數字來自 `relev.py.txt`／`lockev.py.txt`／`tl.py.txt`。
+
+## 23. T3 release-catch-up — offline replay（2026-10-04；⛔ runtime 未改）
+
+使用者裁決（§22 之後）：開 release-catch-up slice，先 offline replay；優先「更早 release／避免 gap 累積」，其次 lock 的 movement-stability 條件；speed cap 只作 safety candidate；Walk RU 15 cm hidden step 納入同一 policy 的 acceptance；P8b／A2 維持獨立。
+方法與規格：`docs/artifacts/stop-snap/REPLAY_PLAN.md`；工具 `replay.py.txt`（＋分組腳本，見 `README.md` §5.1）；彙總 `data/replay_summary.md.txt`。
+
+### 23.1 重播正確性
+Python 移植 `PredictPose → β → StepLock → ResolveHorizontal`，以 X Bot 實際設定（LockBeta 0.95／UnlockBeta 0.7／UnlockRadius 0.2／ReleaseTime 0.12／GroundedHeight 0.08–0.25）重播 24 個情境（平地 12、樓梯 12，Walk＋Run）。
+**R0 vs 錄到的 T3：相位 99.953%、水平殘差 p99 0.02 cm** ⇒ 重播就是 T3。只比水平（垂直接觸、resolver、ResolveHeight、骨盆未重播）。
+
+### 23.2 結果（停步最後一步＝釋放的那一步；loop＝停步前的步伐）
+| 候選 | 停步最後一步 補回路徑比（中位／max） | loop 補回比 | 釋放時 gap（停步） | 原本被鎖藏的爬行變可見（loop 中位／max；停步中位／max） | Walk RU hidden step（結束時差距／後半段可見比例） | 鎖定次數 |
+|---|---|---|---|---|---|---|
+| R0 現行 | ×1.26／×1.60 | ×1.07 | 9.2 cm | 0.5／4.5；1.2／4.4 | 9.0 cm／9% | 132 |
+| R1a UnlockRadius 0.06–0.03 | ×1.12–1.70／**×4.3–10** | ×1.05–1.07 | 2.8–5.8 | 0.5–0.7／4.5–6.6；**2.3–6.0／13.6–17.4** | 0.1 cm／76–103% | 140–155 |
+| R1b 距離連續遞增 N3–5、d 2–3 cm | ×1.12–1.61／**×4.3** | ×1.03–1.05 | 2.0–3.0 | 0.7–2.1／5.7–7.2；**3.8–6.1／17.4–19.5** | 0.1／103–117% | 155–167 |
+| **R1c 鎖定點跟隨（死區 d0）d0＝0.02** | **×1.06／×1.14** | ×1.03 | 2.4 | **1.8／5.3**；4.9／12.5 | 2.0／68% | 132 |
+| **R1c d0＝0.03** | **×1.08／×1.20** | ×1.05 | 3.4 | 0.9／4.5；4.3／10.4 | 3.0／53% | 132 |
+| **R1c d0＝0.05** | ×1.12／×1.33 | ×1.07 | 5.4 | 0.7／4.5；3.7／8.4 | 5.0／38% | 132 |
+| R2a 進鎖需 K2 帧 < 0.3 m/s（最佳 R2） | ×1.11／×1.41 | ×1.07 | 7.0 | 1.2／5.1；2.5／8.2 | 9.0／9%（不變） | 117 |
+| R2b 進鎖需速度不遞增 | ×1.30／×1.57 | ×1.07 | 8.4 | 0.5／6.8；2.1／11.7 | 9.3／9% | 118 |
+| R2a＋R1c d0.03 | ×1.06／×1.10 | ×1.05 | 3.4 | 1.9／5.1；5.3／10.7 | 3.0／53% | 117 |
+| R3 cap k＝1.0（safety） | ×0.95／×0.98 | ×0.97 | 9.0 | 0.7／**13.0**；4.3／15.0 | 9.0／9% | 118 |
+| R3 cap k＝1.25 | ×1.19／×1.22 | ×1.07 | 9.2 | ＝R0 | ＝R0 | 132 |
+
+（loop 補回比、gap、可見爬行：中位／max 的分母是每次鎖定；平地與樓梯水平結果幾乎相同，分組明細用 `replay_groups.py.txt`。）
+
+### 23.3 判讀
+- **gap 就是被鎖藏起來的動畫爬行**：任何讓腳更早「動」的 policy，都是把「最後補回」換成「看得見的慢速移動」。差別只在換的方式。
+- **R1a／R1b（真的更早 release）不可行**：釋放後會重鎖再釋放（鎖定 132 → 140–167 次），每段都有自己的小補回——最差的補回比 ×4–10，停步中的可見滑動 max 13–19 cm。
+- **R1c（避免 gap 累積）是唯一同時做到兩件事的族**：最後一步的補回降到接近 loop（d0.03：×1.08 中位、最差 ×1.20 是 Run LU re-step）；鎖定次數與時刻完全不變（M5 過衝不變）；放出來的爬行以**動畫自己的速度**移動（單帧 ≤ 1.47 cm ≈ 0.9 m/s），不是被加速。代價在 loop：可見爬行中位 +0.2～+1.3 cm（d0 越小越多），Walk loop 單步 max 2.8（平地）／4.3 cm（樓梯）@ d0.03。
+- **R2（movement-stability）單獨不解決釋放補回**：它在 Walk LU 最後一步不起作用（gap 11.3 不變），在 Run LU 與 Walk RU 則是乾脆不鎖 ⇒ 爬行 7–8 cm 全部可見；hidden step 不變。它唯一明顯的好處是**鎖定當下的過衝**（max 12.7 → 5.4 cm）——那屬於落地／外插問題（A2 一側），依裁決不合併。
+- **R3 確認只能當 safety**：k＝1 讓 gap 一直拖著（loop 單步可見拖曳 max 13 cm）；k＝1.25 幾乎不起作用。
+- **Walk RU hidden step**：R1c 讓它部分可見（d0.03：結束時腳與動畫差 9.0 → 3.0 cm，後半段 53% 的動畫路徑顯示出來）；R1a／R1b 讓它完全可見但代價過大；R2／R3 不改變它。
+
+### 23.4 結論與下一步（⛔ 未實作，待使用者裁決）
+- **首選 policy：R1c 鎖定點跟隨（死區 d0）**，d0 ∈ [0.03, 0.05] m 的取捨：0.03 最後一步 ×1.08（max ×1.20）、loop 多 ~0.4 cm 爬行；0.05 最後一步 ×1.12（max ×1.33）、loop 幾乎不變。驗收草案「停步最後一步 ≤ ×1.15」中位兩者都過，max 只有 d0 ≤ 0.02 過（但 loop 代價 +1.3 cm 中位）。
+- **語意影響（實作前必須確認）**：R1c 讓 `Locked` 的 `LockPosition` 不再固定。讀它的地方都在 `FootIKController` 內（鎖定支撐 `LockedSupportY／Point`、`MovingPelvisSolver`／`StandingPostureSolver` 的 `Reliable`、resolver 的驗證、`ResolveHeight` 的 `LockedHeight`）——不是黑板契約，依路由規則屬 Living Spec（本檔），**不需要 ADR**；但這些消費者在腳「鎖住且移動」時的行為必須逐一檢查。
+- **下一步建議**：runtime A/B（`FootIKSettings` 實驗開關、程式預設關、X Bot 先不開），d0 ＝ 0.03／0.05 兩檔；以 `PlantSettleProbe` 量水平（應重現本表）＋**樓梯垂直**（本輪未重播）＋支撐面選擇是否改變；最後人工 Play。
+- 限制：只有水平；每個情境決定性（平地樣本是 2 種 Run 停步與 Walk RU 為主的重複）；Walk LU 平地只 1 次。
