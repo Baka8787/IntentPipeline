@@ -7,20 +7,25 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
-> # 🟧 下一會話開場：**等使用者對 `docs/45` §19 的診斷裁決修正方向（⛔ 尚未實作任何修正）**
+> # 🟧 下一會話開場：**等使用者看 `docs/45` §20 的三個研究結果，各自裁決（⛔ runtime 仍未改）**
 >
-> **開場只需讀**：本段 ＋ `docs/45` §19。§18.6 的擺盪腳長參考 Play 回報仍待使用者。
+> **開場只需讀**：本段 ＋ `docs/45` §20（必要時 §19）。三者獨立、各自驗收（§20.4）。
 >
-> - A-1（主要）：收步後又動＝`RunFwdStop_LU` 自己的第二次左腳落地（28／28；相對身體 16 cm、世界 46 cm、樓梯上必換階）。方向待裁決：鎖住到 clip 結束／停步 variant 選擇／換 clip（§19.5）。先問：LU 的收腳在平地是否要保留。
-> - A-2（1–2 帧）：煞車步一帧外插過衝（≤ 10 cm；7 次換階，counterfactual 7／7 可避免）＝ §18.5 的同一槓桿。
-> - B：起跑拖步＝B3 crossfade 貼地滑動（型態由前一個停步 clip 決定；RU 停步後 Idle 還沒淡完就起跑 ⇒ 左腳往後滑 21 cm）。B1 只 1–4 帧 ⇒ ⛔ 不先動 release threshold。
-> - ⛔ 本輪約定：不擴 LandingSurfaceResolver、不動 SwingFootLengthReference、不調參；使用者沒裁決前不開修正。
+> - **A1**（LU 第二次落地）：選片決策在 `LocomotionModel`（同時驅動 root）⇒ Presentation 只能提供事實；需要 Core 自己的踏面查詢（Core.Environment，`TraversalProbe` 先例）。樓梯上避開 LU 沒有免費版：立即改選 RU＝錯腳相入場滑動、等 RU phase＝最多 +1.8 m 滑行；fallback 淡入 Idle 會把左腳貼地拖 ~60 cm。建議下一步：測試內強制 RU，量入場滑動，再與距離代價一起裁決。
+> - **A2**（外插過衝）：P8b（planned-plant 腳離預測落點 1.5 步內不外插，其餘依腳速衰減）停步錯階 8 → 0、新增 0、擺盪早期預測 p90 反而變好；代價：接近落地預測 0.3 → 1.6 cm、3 個跨階緣模糊鎖定改答案。實作前要用真實開關 A/B。
+> - **B**（起跑拖步）：起跑時把 locomotion 子狀態對齊 loop `FootPhaseCurve` 的左腳著地極值（φ ≈ 0.9，Bake 可推得）⇒ 動畫貼地滑動 20–34 → ≤ 8 cm（LU／RU 兩種前置都是）；縮短 crossfade 只是被 T3 鎖藏起來。
+> - ⛔ 約定未變：不擴 LandingSurfaceResolver、不動 SwingFootLengthReference、不先動 release threshold。
 >
 > ## 工具
-> - 診斷探針 `PlantSettleProbe.Probe_RunStopSettleRestart`（`[Explicit]`；56 次約 4 分鐘；輸出 `Temp/PlantSettle/`）。腳本 `docs/artifacts/plant-settle/`：`settle_events`／`small_adjust`／`overshoot`（含 counterfactual）／`timeline`（單腳逐帧）／`restart`／`restart_timeline`（含 timeline 條）／`restart_slide`。
-> - 研究探針 `LandingSurfaceProbe` 與 §10–§18 腳本已進版控（`b7bb22c`；`docs/artifacts/pelvis-analysis/README.md`）。
-> - ⚠️ 使用者在 Editor 裡 Play 時排 PlayMode 測試會讓測試整批中止（SaveModifiedScene 在 Play 中失敗）——排之前一定先查 `isPlaying`。
-> - ⚠️ `unity cmd recompile` 偶爾沒吃到剛寫的檔：先 `AssetDatabase.Refresh(ForceSynchronousImport)`＋`RequestScriptCompilation`（eval），再確認 CSV 欄位。
+> - `PlantSettleProbe`：`Probe_RunStopSettleRestart`（56 次）、`Probe_RestartPhaseFlat`（60 次）、`Probe_RestartPhaseFine`（16 次）、`Probe_RestartPhase`（樓梯版，指標被 root 升降污染，不採信）。介入全在測試內（反射 Animancer），不改 runtime。
+> - 分析：`docs/artifacts/plant-settle/extrap_policies.py.txt`（A2 策略矩陣）、`restart_phase.py.txt`（B）；其餘見 §19。
+> - ⚠️ 排 PlayMode 前單獨查 `isPlaying`（別用 `&&` 串 grep——查詢偶爾回空，整串會靜默跳過、等到舊的 completed 狀態）；`recompile` 沒吃到新檔時用 `AssetDatabase.Refresh(ForceSynchronousImport)`＋`RequestScriptCompilation`。
+>
+> ---
+
+> # 🟦 2026-10-04（三）— **A1／A2／B 三個獨立研究（只量測）：A1 決策在 LocomotionModel、避開 LU 代價已量；A2 P8b 消除停步錯階暫態；B 起始 phase 對齊左腳著地極值讓起跑貼地滑動降到 ≤ 8 cm**
+>
+> 📖 正本：`docs/45` §20。
 >
 > ---
 

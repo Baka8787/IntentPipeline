@@ -1,0 +1,131 @@
+"""A2：T3 一帧外插的替代策略比較（只量測；in-engine 取樣的反事實支撐）。
+PlantSettleProbe 每帧記下 XZ ＝ 動畫踝 ＋ k ×（T3 實際外插步）時、T3 同一條三點最大穿透規則選到的支撐（k0／k25／k50／k75／k100）。
+策略＝「每帧選 k」的規則；連續 k 量化到最近的 0.25 取樣。
+每一次鎖定（停步後與移動中）：
+  正確支撐 F ＝ 目前（k＝1）鎖定當帧選到的支撐；並檢查它與動畫踝（k＝0）在鎖定當帧的支撐是否一致。
+  ① 外插造成的錯階暫態：鎖定前 PRE 帧（Unlocked）內，動畫踝（k＝0）已在 F 上方、策略取樣的支撐卻 ≠ F 的鎖定數
+  ② 鎖定支撐改變：策略在鎖定當帧的支撐 ≠ F
+  ③ 預測品質：策略 XZ 與「下一帧動畫踝」的距離（外插的目的：IK 目標下一帧才套用）；擺盪早期（β < 0.1）與接近落地（β ≥ 0.1）分開
+用法：python extrap_policies.py.txt <csv 目錄>"""
+import csv, glob, math, os, sys, statistics as st
+D = sys.argv[1]; PRE = 8; TOL = 0.03
+KS = (0.0, 0.25, 0.5, 0.75, 1.0); COLS = ('k0', 'k25', 'k50', 'k75', 'k100')
+def f(x):
+    try: return float(x)
+    except: return float('nan')
+def ok(v): return not math.isnan(v)
+def sstep(a, b, x):
+    t = min(1.0, max(0.0, (x - a) / (b - a))); return t * t * (3 - 2 * t)
+def quant(k): return min(range(5), key=lambda i: abs(KS[i] - k))
+
+POL = {
+    'P0 現行（k=1）': lambda x, s: 1.0,
+    'P1 落地附近不外插（β>0 ⇒ k=0）': lambda x, s: 0.0 if f(x[s + 'beta']) > 0 else 1.0,
+    'P1b 落地附近不外插（β≥0.5 ⇒ k=0）': lambda x, s: 0.0 if f(x[s + 'beta']) >= 0.5 else 1.0,
+    'P2 依 β 衰減（k=1−β）': lambda x, s: 1.0 - f(x[s + 'beta']),
+    'P3 依腳速衰減（k=smoothstep(1,4,v)）': lambda x, s: sstep(1.0, 4.0, f(x[s + 'poseVxz'])),
+    'P3b 依腳速衰減（k=smoothstep(2,6,v)）': lambda x, s: sstep(2.0, 6.0, f(x[s + 'poseVxz'])),
+    'P4 永不外插（k=0）': lambda x, s: 0.0,
+}
+
+def decel(x, s):
+    # |本帧步| / |上一帧步|（腳正在減速 ⇒ < 1）；由 probe 欄位 _ps（前一帧動畫踝步長）提供
+    a1, a0 = x.get(s + '_st'), x.get(s + '_ps')
+    if a1 is None or a0 is None or a0 <= 1e-4: return 1.0
+    return min(1.0, a1 / a0)
+def plant_clamp(x, s, k):
+    # plant 信心：這隻腳就是 ADR-010 next planned plant 時，外插點沿外插方向不得越過預測落點（k 取不超過它的最大值）
+    if x.get(s + 'nOk') != '1': return k
+    px, pz, tx, tz = f(x[s + 'poseX']), f(x[s + 'poseZ']), f(x[s + 'tgtX']), f(x[s + 'tgtZ'])
+    sx, sz = tx - px, tz - pz; n = math.hypot(sx, sz)
+    if n < 1e-4: return k
+    along = ((f(x[s + 'nX']) - px) * sx + (f(x[s + 'nZ']) - pz) * sz) / n
+    kmax = max(0.0, min(1.0, along / n))
+    return min(k, max([v for v in KS if v <= kmax + 1e-6] or [0.0]))
+POL['P6 plant 夾限（現行 k=1，不越過預測落點）'] = lambda x, s: plant_clamp(x, s, 1.0)
+POL['P6b plant 夾限＋腳速衰減（P3b）'] = lambda x, s: plant_clamp(x, s, sstep(2.0, 6.0, f(x[s + 'poseVxz'])))
+POL['P7 停步中下一個 planned plant 的腳不外插（其餘現行）'] = lambda x, s: 0.0 if x.get(s + 'nOk') == '1' else 1.0
+POL['P7b P7＋其餘腳速衰減（P3b）'] = lambda x, s: 0.0 if x.get(s + 'nOk') == '1' else sstep(2.0, 6.0, f(x[s + 'poseVxz']))
+def near_plant(x, s, nsteps):
+    # 這隻腳是 next planned plant，且以目前步長再走 nsteps 步內就到預測落點
+    if x.get(s + 'nOk') != '1': return False
+    px, pz, tx, tz = f(x[s + 'poseX']), f(x[s + 'poseZ']), f(x[s + 'tgtX']), f(x[s + 'tgtZ'])
+    sx, sz = tx - px, tz - pz; n = math.hypot(sx, sz)
+    if n < 1e-4: return True
+    along = ((f(x[s + 'nX']) - px) * sx + (f(x[s + 'nZ']) - pz) * sz) / n
+    return along < nsteps * n
+for ns in (1.0, 1.5, 2.0):
+    POL['P8 planned plant %.1f 步內不外插' % ns] = (lambda ns_: (lambda x, s: 0.0 if near_plant(x, s, ns_) else 1.0))(ns)
+    POL['P8b P8(%.1f)＋其餘腳速衰減' % ns] = (lambda ns_: (lambda x, s: 0.0 if near_plant(x, s, ns_) else sstep(2.0, 6.0, f(x[s + 'poseVxz']))))(ns)
+POL['P5 依減速比衰減（k=|步|/|前步|）'] = lambda x, s: decel(x, s)
+POL['P5b 減速比平方（k=(|步|/|前步|)²）'] = lambda x, s: decel(x, s) ** 2
+
+locks = []; preds = {n: {'early': [], 'near': [], 'plantSwing': []} for n in POL}
+for p in sorted(glob.glob(os.path.join(D, 'settle_*.csv'))):
+    r = list(csv.DictReader(open(p))); name = os.path.basename(p)[7:-4]
+    for s in 'lr':   # 動畫踝每帧水平步長（本帧、上一帧）
+        for i in range(len(r)):
+            st_ = math.hypot(f(r[i][s + 'poseX']) - f(r[i - 1][s + 'poseX']), f(r[i][s + 'poseZ']) - f(r[i - 1][s + 'poseZ'])) if i >= 1 else None
+            ps_ = math.hypot(f(r[i - 1][s + 'poseX']) - f(r[i - 2][s + 'poseX']), f(r[i - 1][s + 'poseZ']) - f(r[i - 2][s + 'poseZ'])) if i >= 2 else None
+            r[i][s + '_st'], r[i][s + '_ps'] = st_, ps_
+    st0 = next((i for i, x in enumerate(r) if x['phase'] == 'stop'), len(r))
+    re0 = next((i for i, x in enumerate(r) if x['phase'] == 'restart'), len(r))
+    for s in 'lr':
+        # ③ 預測品質（全部 Unlocked 帧，含移動中與起跑）
+        for i in range(1, len(r) - 1):
+            x, nx = r[i], r[i + 1]
+            if x[s + 'ph'] != '0' or nx[s + 'ph'] != '0': continue
+            px, pz, tx, tz = f(x[s + 'poseX']), f(x[s + 'poseZ']), f(x[s + 'tgtX']), f(x[s + 'tgtZ'])
+            if not all(ok(v) for v in (px, pz, tx, tz)): continue
+            for n, pol in POL.items():
+                k = KS[quant(pol(x, s))]
+                e = math.hypot(px + k * (tx - px) - f(nx[s + 'poseX']), pz + k * (tz - pz) - f(nx[s + 'poseZ']))
+                if math.hypot(tx - px, tz - pz) > 0.5: continue          # 不連續（瞬移／場景起點）：T3 本身也不外插
+                preds[n]['early' if f(x[s + 'beta']) < 0.1 else 'near'].append(e)
+                if x.get(s + 'nOk') == '1': preds[n]['plantSwing'].append(e)
+        # ①② 每一次鎖定
+        for j in range(PRE + 1, len(r)):
+            if r[j][s + 'ph'] != '1' or r[j - 1][s + 'ph'] == '1': continue
+            F = f(r[j][s + 'lockSupY']); A = f(r[j][s + 'k0'])
+            if not ok(F): continue
+            win = [i for i in range(j - PRE, j) if r[i][s + 'ph'] == '0']
+            locks.append(dict(name=name, foot=s, j=j, stop=j >= st0 and j < re0, restart=j >= re0, F=F, A=A, win=win, r=r))
+
+def ctx(L): return 'stop' if L['stop'] else ('restart' if L['restart'] else 'moving')
+
+def evaluate(pol):
+    trans = lockchg = 0; ex = []
+    for L in locks:
+        r, s, F = L['r'], L['foot'], L['F']
+        # 外插造成的錯階：動畫踝（k=0）已在正確踏面 F 上方，策略的 XZ 卻在別階（自然跨階的擺盪帧不算）
+        bad = []
+        for i in L['win']:
+            sk, s0 = f(r[i][s + COLS[quant(pol(r[i], s))]]), f(r[i][s + 'k0'])
+            if ok(sk) and ok(s0) and abs(s0 - F) <= TOL and abs(sk - F) > TOL: bad.append(i - L['j'])
+        lk = f(r[L['j']][s + COLS[quant(pol(r[L['j']], s))]])
+        chg = ok(lk) and abs(lk - F) > TOL
+        if bad: trans += 1; ex.append((L['name'], s, L['j'], bad, ctx(L)))
+        if chg: lockchg += 1
+    return trans, lockchg, ex
+
+print('鎖定 %d 次（停步後 %d、移動中 %d、起跑後 %d）；目前鎖定支撐 F 與動畫踝（k=0）鎖定當帧支撐不同：%d' % (
+    len(locks), sum(L['stop'] for L in locks), sum(not L['stop'] and not L['restart'] for L in locks), sum(L['restart'] for L in locks),
+    sum(1 for L in locks if ok(L['A']) and abs(L['A'] - L['F']) > TOL)))
+base = set((e[0], e[1], e[2]) for e in evaluate(POL['P0 現行（k=1）'])[2])
+for n, pol in POL.items():
+    t, c, ex = evaluate(pol)
+    keys = set((e[0], e[1], e[2]) for e in ex)
+    e1, e2 = preds[n]['early'], preds[n]['near']
+    def q(v, p): v = sorted(v); return v[int(p * (len(v) - 1))] if v else float('nan')
+    byc = {c_: sum(1 for e in ex if e[4] == c_) for c_ in ('stop', 'moving', 'restart')}
+    e3 = preds[n]['plantSwing']
+    print('%-34s 錯階暫態 %3d（停步 %d／移動 %d／起跑 %d；現行的 %d 個中仍在 %d、新增 %d）  鎖定支撐改變 %2d | 預測誤差 擺盪早期 中位 %.3f p90 %.3f ／ 接近落地 中位 %.3f p90 %.3f ／ 停步 planned-plant 擺盪 中位 %.3f p90 %.3f' % (
+        n, t, byc['stop'], byc['moving'], byc['restart'], len(base), len(keys & base), len(keys - base), c, q(e1, .5), q(e1, .9), q(e2, .5), q(e2, .9), q(e3, .5), q(e3, .9)))
+
+# 目前鎖定支撐 F 與動畫踝支撐不同的鎖定：之後動畫踝在哪一階（判斷 F 對不對）
+print()
+for L in locks:
+    if ok(L['A']) and abs(L['A'] - L['F']) > TOL:
+        r, s, j = L['r'], L['foot'], L['j']
+        later = [round(f(r[i][s + 'k0']), 3) for i in range(j, min(j + 6, len(r)))]
+        print('F≠A：%-24s %s t%d [%s]  F（現行）%.3f  動畫踝 %.3f  之後動畫踝支撐 %s' % (L['name'], s, j, ctx(L), L['F'], L['A'], later))

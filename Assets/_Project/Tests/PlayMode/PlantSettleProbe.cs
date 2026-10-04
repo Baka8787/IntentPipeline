@@ -56,6 +56,42 @@ namespace Project.Tests.PlayMode
             [Values(Dir.Down, Dir.Up)] Dir dir,
             [Values(0f, 20f)] float yaw,
             [Values(0, 2, 4, 6, 8, 10, 12)] int stopIndex)
+            => Drive(stairName, dir, yaw, stopIndex, "settle_", null);
+
+        /// <summary>
+        /// B 研究（2026-10-04，只量測、⛔ 不改 runtime）：起跑 transition 的起始 phase vs 縮短 crossfade。
+        /// 介入只在測試內（反射 Animancer）：base＝不介入；phiN＝按鍵那一帧把 locomotion mixer 的 Walk／Run 子狀態設到 N/8；
+        /// fast＝把仍在淡出的停步 clip 立刻停掉，並在動畫參數上把 MoveSpeed 墊到 Walk 門檻（root 的加速不變）。
+        /// lu＝前一個停步是 RunFwdStop_LU（proto 樓梯：下 4／上 4），否則 RU（下 6／上 0）。
+        /// </summary>
+        [UnityTest, Explicit]
+        public IEnumerator Probe_RestartPhase(
+            [Values(Dir.Down, Dir.Up)] Dir dir,
+            [Values(true, false)] bool lu,
+            [Values("base", "phi0", "phi1", "phi2", "phi3", "phi4", "phi5", "phi6", "phi7", "fast")] string variant)
+        {
+            int stopIndex = lu ? 4 : (dir == Dir.Down ? 6 : 0);
+            return Drive("Stairs_650_400_300_Prefab", dir, 0f, stopIndex, "phase_" + variant + "_" + (lu ? "LU" : "RU") + "_", variant);
+        }
+
+        /// <summary>
+        /// B 研究（平地版）：樓梯上 root 會跟著斜坡升降，動畫踝高度無法分辨「貼地滑動」與 root 垂直移動 ⇒ 改在樓梯前的平地做同一實驗。
+        /// 平地直線跑 ~6.5 m 後放開（6 個放開位置讓 LU／RU 兩種停步都出現）→ 靜止 → 同方向起跑。輸出 flatphase_<variant>_o<N>_*.csv。
+        /// </summary>
+        [UnityTest, Explicit]
+        public IEnumerator Probe_RestartPhaseFlat(
+            [Values(0, 1, 2, 3, 4, 5)] int offset,
+            [Values("base", "phi0", "phi1", "phi2", "phi3", "phi4", "phi5", "phi6", "phi7", "fast")] string variant)
+            => Drive("Stairs_650_400_300_Prefab", Dir.Up, 0f, -1 - offset, "flatphase_" + variant + "_o" + offset + "_", variant);
+
+        /// <summary>B 研究：平地細掃起始 phase（pNN ＝ NN/100），LU（o0）與 RU（o4）各一。</summary>
+        [UnityTest, Explicit]
+        public IEnumerator Probe_RestartPhaseFine(
+            [Values(0, 4)] int offset,
+            [Values("p72", "p76", "p80", "p84", "p88", "p92", "p96", "p100")] string variant)
+            => Drive("Stairs_650_400_300_Prefab", Dir.Up, 0f, -1 - offset, "flatphase_" + variant + "_o" + offset + "_", variant);
+
+        private IEnumerator Drive(string stairName, Dir dir, float yaw, int stopIndex, string prefix, string restartVariant)
         {
             const float diagonalRun = 2.5f;
             Time.captureDeltaTime = 1f / 60f;
@@ -89,7 +125,9 @@ namespace Project.Tests.PlayMode
             Vector3 side = Vector3.Cross(Vector3.up, ascent);
             float extent = Mathf.Abs(Vector3.Dot(b.extents, ascent));
             float S(Vector3 p) => Vector3.Dot(new Vector3(p.x - center.x, 0f, p.z - center.z), ascent);
-            float stopS = dir == Dir.Down
+            bool flat = stopIndex < 0;
+            float stopS = flat ? -extent - 4.5f + 0.13f * (-1 - stopIndex)
+                : dir == Dir.Down
                 ? Mathf.Lerp(extent - 1.6f, -extent + 2.2f, stopIndex / 12f)
                 : Mathf.Lerp(-extent + 1.0f, extent - 2.8f, stopIndex / 12f);
 
@@ -99,7 +137,8 @@ namespace Project.Tests.PlayMode
             player.RuntimeData.CameraTransform = _camera.transform;
             var cc = player.GetComponent<CharacterController>();
             float preShift = -Mathf.Tan(yaw * Mathf.Deg2Rad) * diagonalRun * 0.5f;
-            Vector3 start = center - ascent * (extent + 4f) + side * (dir == Dir.Up ? preShift : -preShift);
+            Vector3 start = center - ascent * (extent + (flat ? 11f : 4f)) + side * (dir == Dir.Up ? preShift : -preShift);
+            if (flat) Assert.IsTrue(Mathf.Abs(TopY(start)) < 0.02f && Mathf.Abs(TopY(center - ascent * (extent + 3f))) < 0.02f, "平地起點或停步區不是平地");
             cc.enabled = false;
             player.transform.SetPositionAndRotation(new Vector3(start.x, 0.05f, start.z), straight);
             cc.enabled = true;
@@ -135,6 +174,7 @@ namespace Project.Tests.PlayMode
                 {
                     Press(move == Key.W ? _keyboard.wKey : _keyboard.sKey);
                     phase = "restart"; after = 0;
+                    if (restartVariant != null && restartVariant != "base") ApplyRestartIntervention(player, restartVariant);
                 }
                 else if (phase == "restart" && ++after > RestartFrames) break;
                 rec.Phase = phase;
@@ -144,9 +184,98 @@ namespace Project.Tests.PlayMode
 
             string outDir = Path.GetFullPath(Path.Combine(Application.dataPath, "../Temp/PlantSettle"));
             Directory.CreateDirectory(outDir);
-            string label = "settle_" + (stairName.StartsWith("Stairs_") ? "proto" : "s1") + "_Run_" + dir
-                           + "_y" + yaw.ToString("0", CultureInfo.InvariantCulture) + "_" + stopIndex.ToString("00");
+            string label = prefix + (stopIndex < 0 ? "flat" : stairName.StartsWith("Stairs_") ? "proto" : "s1") + "_Run_" + dir
+                           + "_y" + yaw.ToString("0", CultureInfo.InvariantCulture) + "_" + (stopIndex < 0 ? "f" + (-1 - stopIndex) : stopIndex.ToString("00"));
             File.WriteAllText(Path.Combine(outDir, label + ".csv"), rec.Csv.ToString());
+        }
+
+        internal static object LocomotionMixer(CharacterPipelineRunner player)
+        {
+            const BindingFlags np = BindingFlags.Instance | BindingFlags.NonPublic;
+            var facade = player.GetComponent<AnimationFacadeBase>();
+            string key = (string)typeof(LocomotionModel).GetField("locomotionAnimationKey", np).GetValue(player.GetComponent<LocomotionModel>());
+            var cache = (System.Collections.IDictionary)facade.GetType().GetField("_stateCache", np).GetValue(facade);
+            return cache.Contains(key) ? cache[key] : null;
+        }
+
+        /// <summary>測試內介入（反射）；不修改任何 runtime 程式。</summary>
+        private static void ApplyRestartIntervention(CharacterPipelineRunner player, string variant)
+        {
+            object mixer = LocomotionMixer(player);
+            Assert.IsNotNull(mixer, "找不到 locomotion mixer state");
+            if (variant.StartsWith("phi") || variant.StartsWith("p"))
+            {
+                float phi = variant.StartsWith("phi") ? int.Parse(variant.Substring(3)) / 8f : int.Parse(variant.Substring(1)) / 100f;
+                foreach (object child in Children(mixer))
+                {
+                    string n = ClipName(child);
+                    if (n.Contains("Walk") || n.Contains("Run")) child.GetType().GetProperty("NormalizedTime").SetValue(child, phi);
+                }
+            }
+            else if (variant == "fast")
+            {
+                var facade = player.GetComponent<AnimationFacadeBase>();
+                object animancer = facade.GetType().GetField("animancer", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(facade);
+                object layers = animancer.GetType().GetProperty("Layers").GetValue(animancer);
+                object layer = layers.GetType().GetProperty("Item", new[] { typeof(int) }).GetValue(layers, new object[] { 0 });
+                var others = new System.Collections.Generic.List<object>();
+                foreach (object st in Children(layer))
+                    if (!ReferenceEquals(st, mixer) && (float)st.GetType().GetProperty("Weight").GetValue(st) > 0f) others.Add(st);
+                foreach (object st in others) st.GetType().GetMethod("Stop", System.Type.EmptyTypes).Invoke(st, null);
+                mixer.GetType().GetProperty("Weight").SetValue(mixer, 1f);
+                var floor = player.gameObject.AddComponent<SpeedParamFloor>();
+                floor.Init(facade, WalkThreshold(mixer), 30);
+            }
+        }
+
+        internal static System.Collections.Generic.IEnumerable<object> Children(object parent)
+        {
+            int n = (int)parent.GetType().GetProperty("ChildCount").GetValue(parent);
+            MethodInfo get = parent.GetType().GetMethod("GetChild", new[] { typeof(int) });
+            for (int i = 0; i < n; i++) { object c = get.Invoke(parent, new object[] { i }); if (c != null) yield return c; }
+        }
+
+        internal static string ClipName(object state)
+        {
+            var clip = state.GetType().GetProperty("Clip")?.GetValue(state) as AnimationClip;
+            return clip != null ? clip.name : "";
+        }
+
+        private static float WalkThreshold(object mixer)
+        {
+            MethodInfo getT = mixer.GetType().GetMethod("GetThreshold", new[] { typeof(int) });
+            int i = 0;
+            foreach (object child in Children(mixer))
+            {
+                if (ClipName(child).Contains("Walk") && getT != null) return System.Convert.ToSingle(getT.Invoke(mixer, new object[] { i }));
+                i++;
+            }
+            return 1f;
+        }
+
+        /// <summary>fast 變體：runner 的 Update 之後、動畫評估之前，把動畫參數 MoveSpeed 墊到至少 floor（只動動畫參數，root 不受影響）。</summary>
+        [DefaultExecutionOrder(31000)]
+        private sealed class SpeedParamFloor : MonoBehaviour
+        {
+            private AnimationFacadeBase _facade; private float _floor; private int _frames;
+            public void Init(AnimationFacadeBase facade, float floor, int frames) { _facade = facade; _floor = floor; _frames = frames; }
+            private void Update()
+            {
+                if (_frames-- <= 0) { Destroy(this); return; }
+                _facade.SetFloat(AnimationFacadeBase.ParamMoveSpeed, Mathf.Max(_floor, CurrentSpeed()));
+            }
+            private float CurrentSpeed()
+            {
+                object animancer = _facade.GetType().GetField("animancer", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(_facade);
+                object parameters = animancer.GetType().GetProperty("Parameters").GetValue(animancer);
+                foreach (MethodInfo m in parameters.GetType().GetMethods())
+                {
+                    if (m.Name != "GetValue" || !m.IsGenericMethodDefinition || m.GetParameters().Length != 1) continue;
+                    try { return (float)m.MakeGenericMethod(typeof(float)).Invoke(parameters, new object[] { AnimationFacadeBase.ParamMoveSpeed }); }
+                    catch { }
+                }
+                return 0f;
+            }
         }
 
         private static float TopY(Vector3 xz) =>
@@ -197,10 +326,11 @@ namespace Project.Tests.PlayMode
                 _prevRoot = player.transform.position;
 
                 var sb = new StringBuilder("frame,phase,intent,gait,rootX,rootY,rootZ,rootVx,rootVz,rootSpeed,stopActive,stopPlaying,stopNT,"
-                                           + "animKey,animClip,animNT,animSpeed,animWeight,layerActive,pelvisSolver,pelvisOut,hipsRel");
+                                           + "animKey,animClip,animNT,animSpeed,animWeight,layerActive,pelvisSolver,pelvisOut,hipsRel,"
+                                           + "mixIdleW,mixWalkW,mixWalkNT,mixRunW,mixRunNT,intentNorm");
                 foreach (string p in new[] { "l", "r" })
                     foreach (string c in ("ph,role,beta,lift,posW,poseX,poseY,poseZ,poseVxz,exX,exZ,tgtX,tgtY,tgtZ,lockX,lockZ,relBlend,lockSupY,lockSupPt," +
-                                          "boneX,boneY,boneZ,boneVxz,heelY,ankY,toeY,liveSup,livePt,cfSup,cfPt").Split(','))
+                                          "boneX,boneY,boneZ,boneVxz,heelY,ankY,toeY,liveSup,livePt,cfSup,cfPt,k0,k25,k50,k75,k100,nOk,nFinal,nX,nZ").Split(','))
                         sb.Append(',').Append(p).Append(c);
                 Csv.Append(sb).Append('\n');
             }
@@ -235,15 +365,16 @@ namespace Project.Tests.PlayMode
                   .Append(',').Append(stopActive ? 1 : 0).Append(',').Append(stopPlaying ? 1 : 0).Append(',').Append(F(stopNT))
                   .Append(',').Append(key).Append(',').Append(clip).Append(',').Append(F(nt)).Append(',').Append(F(speed)).Append(',').Append(F(weight)).Append(',').Append(active)
                   .Append(',').Append(F(moving.Offset)).Append(',').Append(F(td.PelvisOffsetY)).Append(',').Append(F(_hips.position.y - root.y));
+                MixerChildren(sb);
                 Foot(sb, (FootContactState)_lF.GetValue(_ik), moving.DebugLeftRole, pose.LeftFootPosition, prevPoseL, pose.LeftFootRotation, pose.LeftFootBottomHeight,
-                    td.LeftFootPosition, td.LeftFootPositionWeight, td.LeftFootRotation, td.LeftFootRotationWeight, boneL, prevBoneL, dt);
+                    td.LeftFootPosition, td.LeftFootPositionWeight, td.LeftFootRotation, td.LeftFootRotationWeight, boneL, prevBoneL, dt, true);
                 Foot(sb, (FootContactState)_rF.GetValue(_ik), moving.DebugRightRole, pose.RightFootPosition, prevPoseR, pose.RightFootRotation, pose.RightFootBottomHeight,
-                    td.RightFootPosition, td.RightFootPositionWeight, td.RightFootRotation, td.RightFootRotationWeight, boneR, prevBoneR, dt);
+                    td.RightFootPosition, td.RightFootPositionWeight, td.RightFootRotation, td.RightFootRotationWeight, boneR, prevBoneR, dt, false);
                 Csv.Append(sb).Append('\n');
             }
 
             private void Foot(StringBuilder sb, FootContactState c, int role, Vector3 posePos, Vector3 prevPose, Quaternion poseRot, float bottom,
-                Vector3 tgt, float posW, Quaternion tgtRot, float rotW, Vector3 bone, Vector3 prevBone, float dt)
+                Vector3 tgt, float posW, Quaternion tgtRot, float rotW, Vector3 bone, Vector3 prevBone, float dt, bool left)
             {
                 // T3 的一帧外插（PredictPose）：pose ＋（pose − 上一帧 pose）；瞬移判定與 T3 相同
                 Vector3 step = posePos - prevPose;
@@ -284,6 +415,47 @@ namespace Project.Tests.PlayMode
                   .Append(',').Append(F(hy[0])).Append(',').Append(F(hy[1])).Append(',').Append(F(hy[2]))
                   .Append(',').Append(F(liveSup)).Append(',').Append(bestPt)
                   .Append(',').Append(F(cfSup)).Append(',').Append(cfPt);
+                // A2：外插比例 k 的反事實支撐——XZ ＝ 動畫踝 ＋ k ×（T3 實際外插步＝目標 − 動畫踝；Unlocked／鎖定當帧時目標＝外插點），同一高度與旋轉、同一條三點最大穿透規則
+                for (int ki = 0; ki <= 4; ki++)
+                {
+                    float k = ki * 0.25f;
+                    Vector3 kAnkle = new Vector3(posePos.x + k * (tgt.x - posePos.x), ankle.y, posePos.z + k * (tgt.z - posePos.z));
+                    float kBest = float.NegativeInfinity; float kSup = float.NaN;
+                    for (int i = 0; i < 3; i++)
+                    {
+                        Vector3 pt = FootContactSolver.SolePoint(kAnkle, shown, bottom, offs[i]);
+                        if (Physics.Raycast(new Vector3(pt.x, Mathf.Max(pt.y, kAnkle.y) + _settings.RaycastUpOffset, pt.z), Vector3.down, out RaycastHit h,
+                                _settings.RaycastUpOffset + _settings.RaycastDistance, _settings.GroundLayers, QueryTriggerInteraction.Ignore)
+                            && h.point.y - pt.y > kBest) { kBest = h.point.y - pt.y; kSup = h.point.y; }
+                    }
+                    sb.Append(',').Append(F(kSup));
+                }
+                // A2：ADR-010 D5 next planned plant（就是這隻腳時）——「plant 信心」夾限策略的輸入
+                LocomotionStopPrediction pred = _player.RuntimeData.LocomotionStopPrediction;
+                bool nOk = false, nFinal = false; Vector3 n = default;
+                if (pred.HasNextPlant && _ik.TryPredictNextPlantGoal(in pred, out bool nLeft, out nFinal, out n)) nOk = nLeft == left;
+                sb.Append(',').Append(nOk ? 1 : 0).Append(',').Append(nOk && nFinal ? 1 : 0).Append(',').Append(F(nOk ? n.x : float.NaN)).Append(',').Append(F(nOk ? n.z : float.NaN));
+            }
+
+            private void MixerChildren(StringBuilder sb)
+            {
+                float idleW = float.NaN, walkW = float.NaN, walkNT = float.NaN, runW = float.NaN, runNT = float.NaN;
+                object mixer = LocomotionMixer(_player);
+                if (mixer != null)
+                {
+                    float mw = (float)mixer.GetType().GetProperty("Weight").GetValue(mixer);
+                    foreach (object c in Children(mixer))
+                    {
+                        string n = ClipName(c);
+                        float w = (float)c.GetType().GetProperty("Weight").GetValue(c) * mw;
+                        float t = (float)c.GetType().GetProperty("NormalizedTime").GetValue(c);
+                        if (n.Contains("Idle")) idleW = w;
+                        else if (n.Contains("Walk")) { walkW = w; walkNT = t; }
+                        else if (n.Contains("Run")) { runW = w; runNT = t; }
+                    }
+                }
+                sb.Append(',').Append(F(idleW)).Append(',').Append(F(walkW)).Append(',').Append(F(walkNT)).Append(',').Append(F(runW)).Append(',').Append(F(runNT))
+                  .Append(',').Append(F(_player.RuntimeData.MovementIntent.DesiredSpeedNormalized));
             }
 
             /// <summary>Animancer 第 0 層目前狀態（反射；測試組件不引用 Animancer）。</summary>

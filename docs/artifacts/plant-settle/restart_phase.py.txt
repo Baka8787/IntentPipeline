@@ -1,0 +1,52 @@
+"""B 研究：起跑 transition 的起始 phase（phi0..7）vs 縮短 crossfade（fast）vs 不介入（base）。
+PlantSettleProbe.Probe_RestartPhase 的 phase_<variant>_<LU|RU>_*.csv。
+每隻腳：離地前（腳的絕對高度離開起跑前 ±3 cm 之前）的貼地水平位移，沿行進方向有號（cm）——動畫踝與畫面腳骨骼；
+離地帧；以及介入是否生效（按鍵後第 1 帧 mixer Walk 子狀態的 normalized time）。
+用法：python restart_phase.py.txt <csv 目錄>（也讀平地版 Probe_RestartPhaseFlat 的 flatphase_*.csv；平地才能乾淨分辨貼地滑動）"""
+import csv, glob, math, os, sys, collections
+D = sys.argv[1]; LOW = 0.03
+def f(x):
+    try: return float(x)
+    except: return float('nan')
+def ok(v): return not math.isnan(v)
+
+def slide(r, a, s, k):
+    k_ = min(a + 40, len(r) - 1)
+    dx, dz = f(r[k_]['rootX']) - f(r[a]['rootX']), f(r[k_]['rootZ']) - f(r[a]['rootZ']); n = math.hypot(dx, dz) or 1; ux, uz = dx / n, dz / n
+    # 貼地 ＝ 腳的絕對高度仍在起跑前 ±LOW 內（腳還在原本那一階上；抬起或踏上／踏下另一階都會離開這個帶）
+    y0 = f(r[a - 1][s + k + 'Y'])
+    lift = next((i for i in range(a, min(a + 40, len(r))) if abs(f(r[i][s + k + 'Y']) - y0) > LOW), min(a + 40, len(r)))
+    al = [(f(r[i][s + k + 'X']) - f(r[a - 1][s + k + 'X'])) * ux + (f(r[i][s + k + 'Z']) - f(r[a - 1][s + k + 'Z'])) * uz for i in range(a, lift)]
+    worst = max(al, key=abs) if al else 0.0
+    path = sum(math.hypot(f(r[i][s + k + 'X']) - f(r[i - 1][s + k + 'X']), f(r[i][s + k + 'Z']) - f(r[i - 1][s + k + 'Z'])) for i in range(a, lift))
+    return worst * 100, path * 100, lift - a
+
+rows = collections.defaultdict(dict)
+for p in sorted(glob.glob(os.path.join(D, 'phase_*.csv')) + glob.glob(os.path.join(D, 'flatphase_*.csv'))):
+    base_ = os.path.basename(p)
+    r = list(csv.DictReader(open(p)))
+    a = next(i for i, x in enumerate(r) if x['phase'] == 'restart')
+    st0 = next(i for i, x in enumerate(r) if x['phase'] == 'stop')
+    stopClip = next((x['animClip'] for x in r[st0:a] if 'Stop' in x['animClip']), '?').replace('RunFwdStop_', '')
+    if base_.startswith('flatphase_'):          # flatphase_<variant>_o<N>_flat_Run_Up_y0_fN
+        parts = base_[10:-4].split('_'); variant = parts[0]
+        case, d = stopClip, 'Flat ' + parts[1]
+    else:                                        # phase_<variant>_<LU|RU>_proto_Run_<Dir>_y0_NN
+        name = base_[6:-4]; variant, case = name.split('_')[0], name.split('_')[1]; d = name.split('_')[4]
+    res = {}
+    for s in 'lr':
+        wp, pp, lp = slide(r, a, s, 'pose')
+        wb, pb, lb = slide(r, a, s, 'bone')
+        res[s] = (wp, pp, lp, wb, pb, lb)
+    rows[(case, d)][variant] = dict(res=res, walkNT=f(r[a]['mixWalkNT']), walkNT1=f(r[a + 1]['mixWalkNT']), idleW=f(r[a - 1]['mixIdleW']),
+                                     layer=r[a - 1]['layerActive'], mixW=f(r[a - 1]['animWeight']))
+order = ['base'] + ['phi%d' % i for i in range(8)] + ['p%d' % v for v in range(72, 101, 4)] + ['fast']
+for key in sorted(rows):
+    case, d = key
+    print('== 前一個停步 %s，Run %s（起跑前：layer 狀態數 %s、Idle 權重 %.2f）' % (case, d, rows[key]['base']['layer'], rows[key]['base']['idleW']))
+    print('  variant  walkNT@t0→t1 | L 動畫 最遠 / 路徑 / 離地帧 | L 骨骼 最遠 / 路徑 | R 動畫 最遠 / 路徑 / 離地帧 | R 骨骼 最遠 / 路徑 | 兩腳骨骼路徑合計')
+    for v in order:
+        if v not in rows[key]: continue
+        x = rows[key][v]; L, R = x['res']['l'], x['res']['r']
+        print('  %-6s  %.2f→%.2f | %6.1f %5.1f %3d | %6.1f %5.1f | %6.1f %5.1f %3d | %6.1f %5.1f | %5.1f' % (
+            v, x['walkNT'], x['walkNT1'], L[0], L[1], L[2], L[3], L[4], R[0], R[1], R[2], R[3], R[4], L[4] + R[4]))
