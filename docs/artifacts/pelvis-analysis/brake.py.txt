@@ -1,0 +1,177 @@
+"""docs/46 §34 下樓停步煞車：以 Probe_StepFlip 錄下的每帧事實離線重播 MovingPelvisSolver 的停步路徑
+（StopHold → SupportTransfer → Stand、§27 硬夾 owner 規則、FootIKController 的 PelvisSmoothSpeed 每帧上限），
+再換掉 Landing 約束的定義，比較放開後的下沉。用法：python brake.py.txt <csv 目錄> [w6|w15 標籤]
+CSV ＝ flip_<stair>_<gait>_Down_NN_st_rule.csv（Temp/StepFlip；Unity 重啟會清空，先複製出來）。"""
+import csv, glob, os, sys, math, statistics as stt
+
+DT = 1 / 60
+DROP, STAND = 12.0, 6.0
+FLOOR = -0.35
+KAPPA, HARD_RATIO = 1.5, 1.05
+APPLY_STEP = 5.0 * DT  # FootIKSettings.PelvisSmoothSpeed
+INF = float('inf')
+
+
+def f(x):
+    try: return float(x)
+    except: return float('nan')
+
+
+def leg_bound(hip, tgt, reach):
+    dx, dz = hip[0] - tgt[0], hip[2] - tgt[2]
+    h2, r2 = dx * dx + dz * dz, reach * reach
+    vert = 0.0 if h2 >= r2 else math.sqrt(r2 - h2)
+    return vert - (hip[1] - tgt[1])
+
+
+def foot_facts(r, s):
+    hip = (f(r[s + 'HipX']), f(r[s + 'HipY']), f(r[s + 'HipZ']))
+    tgt = (f(r[s + 'tgtX']), f(r[s + 'tgtY']), f(r[s + 'tgtZ']))
+    return hip, tgt, f(r[s + 'Leg']), r[s + 'ph'], r[s + 'gHas'] == '1', f(r[s + 'gY'])
+
+
+def bottoms(rows):
+    """腳底厚度沒有記錄：由 Landing 帧反推（limit − LegBound ＝ κ·h，h ＝ tgtY − bottom − gY）。"""
+    out = {}
+    for s in 'lr':
+        vals = []
+        for r in rows:
+            if r[s + 'Role'] != '2': continue
+            hip, tgt, L, *_ = foot_facts(r, s)
+            kh = f(r[s + 'Limit']) - leg_bound(hip, tgt, L)
+            if kh > 1e-4: vals.append(tgt[1] - f(r[s + 'gY']) - kh / KAPPA)
+        out[s] = stt.median(vals) if vals else 0.0
+    return out
+
+
+def replay(rows, st, mode='recorded'):
+    """mode：recorded ＝ 用錄下的每腳角色／上限（保真度）；其他 ＝ 停步中重算 Landing（見 VARIANTS）。"""
+    bot = bottoms(rows)
+    x = f(rows[st - 1]['mOffset']); v = f(rows[st - 1]['mVel'])
+    applied = f(rows[st - 1]['pelvisApplied'])
+    prev_hard = f(rows[st - 1]['hardLimit']); prev_hard = None if math.isinf(prev_hard) else max(prev_hard, FLOOR)
+    prev_owner = 0
+    prev_sole = {s: None for s in 'lr'}; prev_ty = {s: None for s in 'lr'}; last_land = {s: None for s in 'lr'}
+    a = rows[st - 1]
+    for s in 'lr':
+        hip, tgt, L, ph, has, gy = foot_facts(a, s)
+        prev_sole[s] = tgt[1] - bot[s] - gy; prev_ty[s] = tgt[1]
+    out = []
+    next_lock = {}
+    for s in 'lr':
+        nl = [None] * len(rows); nxt = None
+        for i in range(len(rows) - 1, -1, -1):
+            if rows[i][s + 'ph'] == '1': nxt = i
+            nl[i] = nxt
+        next_lock[s] = nl
+    for idx in range(st, min(len(rows), st + 61)):
+        r = rows[idx]
+        stopping = f(r['intent']) <= 0.0
+        lim, hard, role = {}, {}, {}
+        for s in 'lr':
+            hip, tgt, L, ph, has, gy = foot_facts(r, s)
+            sole = tgt[1] - bot[s] - gy
+            if mode in ('recorded', 'xland') or not stopping:
+                role[s] = int(r[s + 'Role']); lim[s] = f(r[s + 'Limit']); hard[s] = f(r[s + 'Hard'])
+            elif ph == '1':
+                role[s] = 1; lim[s] = leg_bound(hip, tgt, L); hard[s] = leg_bound(hip, tgt, HARD_RATIO * L)
+            else:
+                hard[s] = INF; role[s] = 0; lim[s] = INF
+                if ph == '0' and mode.startswith('oracle'):
+                    # 上限：已知「k 帧後鎖定那一帧的實際 Support 上限」（完美預知接觸需求；只量測可得的上界）
+                    k = int(mode[6:]); j = next_lock[s][idx]
+                    if j is not None and j - idx <= k:
+                        role[s] = 2; lim[s] = f(rows[j][s + 'Limit'])
+                elif ph == '0':
+                    if mode in ('steady', 'project', 'project_hard', 'xland_steady'):
+                        # 下降判定看腳目標世界高度（不受「腳下換階／漏打」影響）；沒打到地面 ⇒ 沿用上一帧的地面
+                        if has: last_land[s] = gy
+                        gyy = last_land[s]
+                        if gyy is not None and tgt[1] <= prev_ty[s] + 1e-6:
+                            h = max(0.0, tgt[1] - bot[s] - gyy)
+                            if mode in ('steady', 'xland_steady'):
+                                role[s] = 2; lim[s] = leg_bound(hip, tgt, L) + KAPPA * h
+                            else:
+                                # 投影著地：假設腳就在目前 XZ 落到腳下地面（不放寬）
+                                role[s] = 2; lim[s] = leg_bound(hip, (tgt[0], tgt[1] - h, tgt[2]), L)
+                                if mode == 'project_hard':
+                                    hard[s] = leg_bound(hip, (tgt[0], tgt[1] - h, tgt[2]), HARD_RATIO * L)
+                    else:
+                        raise ValueError(mode)
+            prev_sole[s] = sole; prev_ty[s] = tgt[1]
+        limit = min(lim.values()); hd = min(hard.values())
+        target = max(min(0.0, limit), FLOOR)
+        pri = int(r['primary']); settled = r['settled'] == '1'
+        hold = False
+        if stopping and pri != 0 and not settled:
+            # xland：SupportTransfer 中，正在下降落地（Landing）的尾腳也能往下拉（§19 規則②只排除 Releasing／上升中的擺盪）
+            pull = (1, 2) if mode in ('xland', 'xland_steady') else (1,)
+            sup = min(lim[s] if role[s] in pull else INF for s in 'lr')
+            down = max(min(0.0, sup), FLOOR)
+            tr = 'l' if pri == 2 else 'r'
+            cap = INF
+            if r[tr + 'ph'] != '1':
+                cs = r['capSrc']
+                if cs == '1': cap = f(r['cap'])
+                elif cs == '2': cap = x
+                elif role[tr] == 2: cap = lim[tr]
+            up_to = max(min(down, cap), FLOOR)
+            if down < x: target, w = down, DROP
+            elif up_to > x: target, w = up_to, STAND
+            else: target, w, hold = x, DROP, True
+        else:
+            if target <= x: w = DROP
+            elif stopping and not settled: w, target, hold = DROP, x, True
+            elif stopping: w = STAND
+            else: w = STAND  # 放開前一两帧（意圖尚未歸零）：近似
+        acc = w * w * (target - x) - 2 * w * v
+        v += acc * DT
+        if hold: v = min(v, 0.0)
+        x += v * DT
+        if x < FLOOR: x, v = FLOOR, max(v, 0.0)
+        owner = 0 if math.isinf(hd) else (1 if hard['l'] <= hard['r'] else 2)
+        ch = max(hd, FLOOR)
+        if x > hd:
+            x = ch
+            v = min(v, (ch - prev_hard) / DT) if (prev_hard is not None and owner == prev_owner) else min(v, 0.0)
+        prev_hard = None if math.isinf(hd) else ch; prev_owner = owner
+        applied += max(-APPLY_STEP, min(APPLY_STEP, x - applied))
+        out.append((x, applied, hd))
+    return out
+
+
+def metrics(seq, start):
+    ap = [a for _, a, _ in seq]
+    steps = [ap[i] - ap[i - 1] for i in range(1, len(ap))]
+    debt = [a - h for _, a, h in seq if not math.isinf(h) and a > h + 0.005]
+    return dict(total=(start - min(ap)) * 100, maxstep=-min(steps + [0]) * 100,
+                n5=sum(1 for d in steps if d <= -0.05), n3=sum(1 for d in steps if d <= -0.03),
+                rise=max(steps + [0]) * 100, final=ap[-1] * 100, debt=len(debt), debtmax=max(debt + [0]) * 100)
+
+
+if __name__ == '__main__':
+    D = sys.argv[1]
+    MODES = sys.argv[2].split(',') if len(sys.argv) > 2 else ['recorded', 'steady', 'project', 'project_hard', 'oracle4', 'oracle8', 'oracle12']
+    groups = ('proto_Run', 's1_Run', 'proto_Walk', 's1_Walk')
+    errs = []
+    res = {}
+    for mode in MODES:
+        for g in groups:
+            ms = []
+            for p in sorted(glob.glob(os.path.join(D, 'flip_%s_Down_*_st_rule.csv' % g))):
+                rows = list(csv.DictReader(open(p)))
+                st = next(i for i, r in enumerate(rows) if r['phase'] == 'stop')
+                seq = replay(rows, st, mode)
+                if mode == 'recorded':
+                    errs += [abs(a - f(r['pelvisApplied'])) for (_, a, _), r in zip(seq, rows[st:st + 61])]
+                ms.append(metrics(seq, f(rows[st - 1]['pelvisApplied'])))
+            res[(mode, g)] = ms
+    print('重播保真度（recorded）：逐帧誤差 中位 %.2f／p95 %.2f／最大 %.2f cm' % (
+        stt.median(errs) * 100, sorted(errs)[int(0.95 * len(errs))] * 100, max(errs) * 100))
+    print('%-13s %-11s %-15s %-12s %-6s %-6s %-9s %-14s' % ('mode', 'group', 'total med(max)', 'maxstep med', 'n>=5', 'n>=3', 'rise max', 'debt frames/max'))
+    for (mode, g), ms in res.items():
+        med = lambda k: stt.median(m[k] for m in ms)
+        print('%-13s %-11s %5.1f (%5.1f)    %5.1f (%4.1f)  %4d   %4d   %5.1f     %3d / %4.1f' % (
+            mode, g, med('total'), max(m['total'] for m in ms), med('maxstep'), max(m['maxstep'] for m in ms),
+            sum(m['n5'] for m in ms), sum(m['n3'] for m in ms), max(m['rise'] for m in ms),
+            sum(m['debt'] for m in ms), max(m['debtmax'] for m in ms)))
