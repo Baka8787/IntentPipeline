@@ -564,11 +564,12 @@ namespace Project.Presentation.IK
             float beta = FootContactSolver.ComputeContactBeta(stance, footSpeed,
                 settings.ContactPhaseSpeedMin, settings.ContactPhaseSpeedMax);
             FootLockPhase phaseBefore = state.Phase;
+            float follow = settings.LockedFollowExperiment ? Mathf.Max(0f, settings.LockedFollowDeadZone) : 0f;
             FootContactSolver.StepLock(ref state, beta, predicted, dt,
-                settings.LockBeta, settings.UnlockBeta, settings.UnlockRadius, settings.ReleaseTime);
+                settings.LockBeta, settings.UnlockBeta, settings.UnlockRadius, settings.ReleaseTime, follow);
             // 鎖定當帧：支撐尚未選定，先用即時查詢，再把決定抬升的那一點下方的地面記成鎖定支撐。
             bool supportSelected = state.Phase == FootLockPhase.Locked && phaseBefore == FootLockPhase.Locked;
-            Vector3 horizontal = FootContactSolver.ResolveHorizontal(in state, predicted);
+            Vector3 horizontal = FootContactSolver.ResolveHorizontal(in state, predicted, follow);
 
             // ③ 移動面沒命中（例如腳懸在平台邊緣外）⇒ 退回 pose 平面（＝動畫原本的高度）。
             //    起點用 pose 平面、不加動畫腳高：擺盪腳抬高時起點若跟著抬高，射線會搆不到後腳下方的移動面

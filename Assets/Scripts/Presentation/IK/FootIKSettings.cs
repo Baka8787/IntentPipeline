@@ -92,6 +92,14 @@ namespace Project.Presentation.IK
         [Tooltip("動畫腳一帧位移超過此值（公尺）視為瞬移／不連續：狀態與速度歷史立即重設。")]
         [Min(0f)] public float MaxPoseStepPerFrame = 0.5f;
 
+        [Header("🧪 docs/45 §24 R1c（預設關閉 ＝ 逐位元現行）")]
+        [Tooltip("Locked 仍是 Locked，只讓輸出的水平位置在原始錨點周圍有限度跟隨動畫；UnlockRadius 仍以原始錨點量，" +
+                 "垂直與鎖定支撐語意不變。與 UseStandingPosturePrototype 路徑同時開啟不受支援（該路徑鎖存世界座標）。")]
+        public bool LockedFollowExperiment = false;
+
+        [Tooltip("Locked 輸出可落後動畫腳的最大水平距離（公尺）。只有 LockedFollowExperiment 開啟時使用。")]
+        [Min(0f)] public float LockedFollowDeadZone = 0.03f;
+
         [Tooltip("🧪（docs/45 §18）擺盪參考取腳跟／腳踝／腳尖三點下方移動面的最高者（原本只看腳踝）。" +
                  "移動面通過每一個階緣 ⇒ 腳尖／腳跟保有自己的動畫離地高度，不會先伸進相鄰一階的 riser 而被整隻腳瞬間抬起。" +
                  "平地三點相同 ⇒ 不變；樓梯上擺盪腳會比動畫高約 斜率 × 腳尖／腳跟偏移。預設關閉 ＝ 現行。")]

@@ -19,14 +19,15 @@ namespace Project.Presentation.IK
     {
         public FootLockPhase Phase;
 
-        /// <summary>鎖定的腳踝水平位置（世界 XZ；y 不使用——高度每帧由接觸解重算）。</summary>
+        /// <summary>鎖定當帧的原始腳踝水平錨點（世界 XZ；R1c 不寫它；y 不使用——高度每帧由接觸解重算）。</summary>
         public Vector3 LockPosition;
 
         /// <summary>釋放進度：1 ＝ 仍在鎖定點，0 ＝ 已回到動畫腳位。只在 <see cref="FootLockPhase.Releasing"/> 有意義。</summary>
         public float ReleaseBlend;
 
         /// <summary>
-        /// 釋放開始那一帧的「鎖定點 − 動畫腳位」（水平）。釋放期間目標 ＝ 當下動畫腳位 ＋ smoothstep(ReleaseBlend) × 這個偏移：
+        /// 釋放開始那一帧的「effective Locked 位置 − 動畫腳位」（水平；現行即鎖定點，R1c 最長 d0）。
+        /// 釋放期間目標 ＝ 當下動畫腳位 ＋ smoothstep(ReleaseBlend) × 這個偏移：
         /// 腳立刻跟上動畫的移動，只有「開始時的差距」逐漸消失——不再朝一個留在原地的鎖定點插值
         /// （舊寫法下動畫腳一離開，目標就越拖越遠：Run 釋放中落後髖部 p90 0.62 m，docs/45 §9）。
         /// </summary>
@@ -135,15 +136,20 @@ namespace Project.Presentation.IK
             => contactDelta >= 0f ? contactDelta : Mathf.Clamp01(beta) * contactDelta;
 
         /// <summary>
-        /// 目前狀態下的目標水平位置：未鎖 ⇒ 動畫（外插後）；鎖定 ⇒ 鎖定點；
+        /// 目前狀態下的目標水平位置：未鎖 ⇒ 動畫（外插後）；鎖定 ⇒ 鎖定點，或在其周圍有限度跟隨動畫；
         /// 釋放中 ⇒ 動畫 ＋ smoothstep(ReleaseBlend) × 釋放開始時凍結的偏移（見 <see cref="FootContactState.ReleaseOffset"/>）。
         /// </summary>
-        public static Vector3 ResolveHorizontal(in FootContactState state, Vector3 animationPosition)
+        public static Vector3 ResolveHorizontal(in FootContactState state, Vector3 animationPosition, float followRadius = 0f)
         {
             switch (state.Phase)
             {
                 case FootLockPhase.Locked:
-                    return new Vector3(state.LockPosition.x, animationPosition.y, state.LockPosition.z);
+                    // 關閉時直接走原本的建構路徑；不可用 anim + (lock - anim) 假裝等價，否則會多一次浮點運算。
+                    if (followRadius <= 0f)
+                        return new Vector3(state.LockPosition.x, animationPosition.y, state.LockPosition.z);
+                    Vector2 offset = ClampLockOffset(
+                        new Vector2(state.LockPosition.x - animationPosition.x, state.LockPosition.z - animationPosition.z), followRadius);
+                    return new Vector3(animationPosition.x + offset.x, animationPosition.y, animationPosition.z + offset.y);
                 case FootLockPhase.Releasing:
                     float s = ReleaseWeight(in state);
                     return new Vector3(animationPosition.x + s * state.ReleaseOffset.x, animationPosition.y,
@@ -151,6 +157,20 @@ namespace Project.Presentation.IK
                 default:
                     return animationPosition;
             }
+        }
+
+        /// <summary>
+        /// R1c：把「錨點 − 動畫腳」限制在 <paramref name="followRadius"/> 內。
+        /// 半徑 ≤ 0 直接回傳原值，供關閉路徑保留現行數值語意。
+        /// </summary>
+        public static Vector2 ClampLockOffset(Vector2 offset, float followRadius)
+        {
+            if (followRadius <= 0f) return offset;
+            float sqrMagnitude = offset.sqrMagnitude;
+            float radiusSquared = followRadius * followRadius;
+            return sqrMagnitude > radiusSquared
+                ? offset * (followRadius / Mathf.Sqrt(sqrMagnitude))
+                : offset;
         }
 
         /// <summary>
@@ -195,7 +215,7 @@ namespace Project.Presentation.IK
         /// 完成後才可能再次鎖定（避免在門檻附近來回抖動）。
         /// </summary>
         public static void StepLock(ref FootContactState state, float beta, Vector3 animationPosition, float deltaTime,
-            float lockBeta, float unlockBeta, float unlockRadius, float releaseTime)
+            float lockBeta, float unlockBeta, float unlockRadius, float releaseTime, float followRadius = 0f)
         {
             switch (state.Phase)
             {
@@ -214,8 +234,17 @@ namespace Project.Presentation.IK
                     {
                         state.Phase = FootLockPhase.Releasing;
                         state.ReleaseBlend = 1f;
-                        // 與傳進來的動畫腳位同一個參數凍結 ⇒ 轉移當帧的目標正好是鎖定點（不跳）。
-                        state.ReleaseOffset = new Vector3(-dx, 0f, -dz);
+                        // 與傳進來的動畫腳位同一個參數凍結 ⇒ 轉移當帧目標與 Locked 的 effective 位置相同（不跳）。
+                        // 關閉時直接保留原路徑，避免 clamp 引入多餘浮點運算。
+                        if (followRadius <= 0f)
+                        {
+                            state.ReleaseOffset = new Vector3(-dx, 0f, -dz);
+                        }
+                        else
+                        {
+                            Vector2 offset = ClampLockOffset(new Vector2(-dx, -dz), followRadius);
+                            state.ReleaseOffset = new Vector3(offset.x, 0f, offset.y);
+                        }
                     }
                     break;
 

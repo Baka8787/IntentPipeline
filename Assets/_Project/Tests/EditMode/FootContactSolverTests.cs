@@ -176,6 +176,97 @@ namespace Project.Tests.EditMode
             Assert.AreEqual(0.1f, target.y, Epsilon, "高度不由鎖定決定（每帧由接觸解重算）。");
         }
 
+        [Test]
+        public void LockedFollow_ZeroRadius_UsesOriginalAnchorOutput()
+        {
+            var state = ReadyToLock();
+            Vector3 anchor = new Vector3(1.25f, 0f, -2.5f);
+            FootContactSolver.StepLock(ref state, 1f, anchor, Dt, 0.95f, 0.7f, 0.2f, 0.12f, 0f);
+            Vector3 animation = new Vector3(1.32f, 0.4f, -2.44f);
+
+            Vector3 target = FootContactSolver.ResolveHorizontal(in state, animation, 0f);
+
+            Assert.AreEqual(new Vector3(anchor.x, animation.y, anchor.z), target,
+                "r=0 必須直接走現行錨點輸出，不靠浮點抵銷得到近似值。");
+        }
+
+        [Test]
+        public void LockedFollow_InsideDeadZoneHoldsAnchor_OutsideTrailsAnimationByRadius()
+        {
+            var state = ReadyToLock();
+            FootContactSolver.StepLock(ref state, 1f, Vector3.zero, Dt, 0.95f, 0.7f, 0.2f, 0.12f, 0.03f);
+
+            Vector3 inside = new Vector3(0.012f, 0.2f, 0.016f); // 與錨點相距 2 cm。
+            Assert.AreEqual(new Vector3(0f, inside.y, 0f), FootContactSolver.ResolveHorizontal(in state, inside, 0.03f));
+
+            Vector3 outside = new Vector3(0.08f, 0.2f, 0.06f); // 與錨點相距 10 cm。
+            Vector3 target = FootContactSolver.ResolveHorizontal(in state, outside, 0.03f);
+            Vector2 offset = new Vector2(target.x - outside.x, target.z - outside.z);
+            Vector2 towardAnchor = new Vector2(-outside.x, -outside.z).normalized;
+
+            Assert.AreEqual(0.03f, offset.magnitude, Epsilon, "超出死區後只保留 d0 的落後量。");
+            Assert.AreEqual(towardAnchor.x, offset.normalized.x, Epsilon);
+            Assert.AreEqual(towardAnchor.y, offset.normalized.y, Epsilon, "落後方向仍沿錨點 − 動畫腳。");
+        }
+
+        [Test]
+        public void LockedFollow_ReleaseTransitionIsContinuousAndCapsFrozenOffset()
+        {
+            var state = ReadyToLock();
+            const float radius = 0.03f;
+            FootContactSolver.StepLock(ref state, 1f, Vector3.zero, Dt, 0.95f, 0.7f, 0.2f, 0.12f, radius);
+            Vector3 animation = new Vector3(0.25f, 0.1f, 0f);
+            Vector3 lockedTarget = FootContactSolver.ResolveHorizontal(in state, animation, radius);
+
+            FootContactSolver.StepLock(ref state, 1f, animation, Dt, 0.95f, 0.7f, 0.2f, 0.12f, radius);
+            Vector3 releaseTarget = FootContactSolver.ResolveHorizontal(in state, animation, radius);
+
+            Assert.AreEqual(FootLockPhase.Releasing, state.Phase);
+            Assert.AreEqual(lockedTarget, releaseTarget, "轉移當帧 effective 位置必須連續。");
+            Assert.LessOrEqual(new Vector2(state.ReleaseOffset.x, state.ReleaseOffset.z).magnitude, radius + Epsilon,
+                "釋放補回最多 d0。");
+            Assert.AreEqual(Vector3.zero, state.LockPosition, "R1c 不得移動原始錨點。");
+        }
+
+        [Test]
+        public void LockedFollow_UnlockRadiusStillMeasuresFromOriginalAnchor()
+        {
+            const float radius = 0.03f;
+            var within = ReadyToLock();
+            FootContactSolver.StepLock(ref within, 1f, Vector3.zero, Dt, 0.95f, 0.7f, 0.2f, 0.12f, radius);
+            FootContactSolver.StepLock(ref within, 1f, new Vector3(0.15f, 0f, 0f), Dt, 0.95f, 0.7f, 0.2f, 0.12f, radius);
+            Assert.AreEqual(FootLockPhase.Locked, within.Phase, "動畫腳離原始錨點 15 cm 仍在 UnlockRadius 內。");
+
+            var outside = ReadyToLock();
+            FootContactSolver.StepLock(ref outside, 1f, Vector3.zero, Dt, 0.95f, 0.7f, 0.2f, 0.12f, radius);
+            FootContactSolver.StepLock(ref outside, 1f, new Vector3(0.25f, 0f, 0f), Dt, 0.95f, 0.7f, 0.2f, 0.12f, radius);
+            Assert.AreEqual(FootLockPhase.Releasing, outside.Phase,
+                "effective 只離動畫 3 cm 也不能改寫 UnlockRadius 的原始錨點判準。");
+        }
+
+        [Test]
+        public void LockedFollow_DoesNotChangePhaseSequence()
+        {
+            float[] betas = { 1f, 0.9f, 1f, 1f, 0.6f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 1f };
+            float[] positions = { 0f, 0.04f, 0.15f, 0.25f, 0.30f, 0.35f, 0.40f, 0.45f, 0.50f, 0.55f, 0.60f, 0.65f, 0.70f };
+            float[] radii = { 0f, 0.03f, 0.05f };
+            var states = new FootContactState[radii.Length];
+            for (int i = 0; i < states.Length; i++) states[i] = ReadyToLock();
+
+            for (int frame = 0; frame < betas.Length; frame++)
+            {
+                for (int arm = 0; arm < states.Length; arm++)
+                {
+                    states[arm].PrevContactValid = true;
+                    FootContactSolver.StepLock(ref states[arm], betas[frame], new Vector3(positions[frame], 0f, 0f), Dt,
+                        0.95f, 0.7f, 0.2f, 0.12f, radii[arm]);
+                }
+
+                Assert.AreEqual(states[0].Phase, states[1].Phase, $"frame {frame}: f3 不得改變 lock timing。");
+                Assert.AreEqual(states[0].Phase, states[2].Phase, $"frame {frame}: f5 不得改變 lock timing。");
+            }
+        }
+
         [TestCase(0.6f, 0f, true, TestName = "Lock_Releases_WhenBetaDropsBelowUnlockBeta")]
         [TestCase(1f, 0.25f, true, TestName = "Lock_Releases_WhenAnimationLeavesUnlockRadius")]
         [TestCase(1f, 0f, false, TestName = "Lock_Releases_WhenContactIsLost")]
