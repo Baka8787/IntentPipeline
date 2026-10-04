@@ -1070,3 +1070,80 @@ Python 移植 `PredictPose → β → StepLock → ResolveHorizontal`，以 X Bo
 - **語意影響（實作前必須確認）**：R1c 讓 `Locked` 的 `LockPosition` 不再固定。讀它的地方都在 `FootIKController` 內（鎖定支撐 `LockedSupportY／Point`、`MovingPelvisSolver`／`StandingPostureSolver` 的 `Reliable`、resolver 的驗證、`ResolveHeight` 的 `LockedHeight`）——不是黑板契約，依路由規則屬 Living Spec（本檔），**不需要 ADR**；但這些消費者在腳「鎖住且移動」時的行為必須逐一檢查。
 - **下一步建議**：runtime A/B（`FootIKSettings` 實驗開關、程式預設關、X Bot 先不開），d0 ＝ 0.03／0.05 兩檔；以 `PlantSettleProbe` 量水平（應重現本表）＋**樓梯垂直**（本輪未重播）＋支撐面選擇是否改變；最後人工 Play。
 - 限制：只有水平；每個情境決定性（平地樣本是 2 種 Run 停步與 Walk RU 為主的重複）；Walk LU 平地只 1 次。
+
+## 24. R1c runtime A/B：Locked 腳有限度跟隨動畫（2026-10-05；🧪 實驗開關，預設關；X Bot 不永久開）
+
+使用者裁決（§23 之後）：只實作 R1c，d0 ＝ 3 cm／5 cm 兩檔做 runtime A/B；不實作其他 release policy、R2、speed cap；不動 blackboard、不開 ADR；P8b／A2 獨立。
+
+### 24.1 語意（Living Spec）
+- **Locked 仍是 Locked**——相位、鎖定時刻、釋放判準（β／UnlockRadius／接觸失效）、`LockPosition` 全部不變。`LockPosition` 是**原始錨點**。
+- 只改「Locked 時輸出的水平位置」：`effective.xz = anim.xz + clamp(LockPosition.xz − anim.xz, d0)`，`anim` ＝ T3 本帧的外插動畫腳位（與現行 `ResolveHorizontal` 同一個輸入）。
+  ⇒ 動畫腳離錨點 ≤ d0：與現行完全相同（腳不動）；> d0：腳留在動畫後方 d0、沿動畫方向以動畫速度移動。
+- **釋放**：凍結的 `ReleaseOffset` 改為「轉移當帧的 effective − anim」（＝ clamp 後的差距，長度 ≤ d0）⇒ 轉移當帧目標連續，補回最多 d0。
+- **UnlockRadius 仍以原始錨點量**（安全網保留）；超過時補回也只有 d0。
+- **垂直不變**：`LockedSupportY／Point`（鎖定當帧選定，之後作為該點的下限）、`LockedHeight`、`ResolveHeight`、lift、resolver 都不改；射線本來就打在本帧水平位置上。
+- 開關：`FootIKSettings.LockedFollowExperiment`（預設 false ⇒ 逐位元現行）＋ `LockedFollowDeadZone`（m）。
+
+### 24.2 Locked 的 consumer 審查（實作前）
+| consumer | 讀什麼 | 需要的是 | R1c 影響 |
+|---|---|---|---|
+| `StepLock` 釋放判準 | `LockPosition` 到動畫腳距離（UnlockRadius）、β、接觸 | 原始錨點 | 不變（錨點不動） |
+| 鎖定支撐 `LockedSupportY／Point`（`ContactGround`） | 鎖定當帧三點中最大穿透點的地面；之後對該點取 max(即時, 鎖定) | 「選定的支撐面」 | 射線打在 effective 位置；**風險**：跟隨跨過階緣時舊下限仍生效（往下階 ⇒ 懸空在舊階高度；往上階 ⇒ 即時命中較高 ⇒ 抬起）。不改語意，量測「鎖定中支撐換階」與單帧 ΔY |
+| riser-intrusion（`ankleOnSupport`） | 本帧腳踝底即時命中 vs `LockedSupportY` | 每帧重新判斷 | 無 |
+| `LockedHeight` → 釋放時 `ResolveHeight` | 每個 Locked 帧覆寫 | 最後一帧高度 | 無 |
+| `Reliable`（→ `MovingPelvisSolver` Primary、`StandingPostureSolver`） | 相位、β、動畫腳速度、即時命中、連續 | 「這隻腳仍可靠支撐」 | 無（不讀位置） |
+| `MovingPelvisSolver.FootLimit`（Support 上限） | 本帧 `Target`（每帧） | 本帧腳目標 | 腳目標移動 ≤ 跟隨量 ⇒ 上限隨之連續變化（量 pelvis ΔY） |
+| `MovingPelvisSolver` StopSettled／Primary 鎖存 | 相位與 Reliable 邊沿（腳的身分，不是位置） | 身分 | 無 |
+| `StandingPostureSolver` `PrimarySupportPosition`／`TrailingLatchPosition` | **鎖存世界座標**（假設鎖住的腳不動） | **世界座標零位移** | ⚠️ 唯一的零位移假設——但 X Bot `UseUnifiedStandingPelvis＝1` ⇒ 這條路徑關閉。**R1c 與 `UseStandingPosturePrototype` 路徑同時開啟不受支援**（實驗開關的 tooltip 註明；不修） |
+| `LandingSurfaceResolver` | 只在 Unlocked 運作，Locked 重設 | — | 無 |
+| `PlantAwareExtrapolation`（P8b） | 外插比例（Locked 前） | — | 獨立；A/B 中保持關 |
+
+結論：啟用路徑上沒有 consumer 把 Locked 當成「世界座標零位移」契約；鎖定支撐面在跨階緣時是唯一要量的風險。
+
+### 24.3 A/B 設計
+- 三臂：`cur`（關）／`f3`（d0 0.03）／`f5`（d0 0.05），只改場景實例設定（不存檔）。探針 `PlantSettleProbe.Probe_LockFollowFlat`／`Probe_LockFollowStairs`；分析 `docs/artifacts/stop-snap/ab.py.txt`。
+- 案例：Known bad＝Run LU re-step、Walk LU 最後一步、Walk RU hidden 15 cm step；Known good＝Run RU；loop 對照；平地／上樓／下樓。
+- 指標：見 `docs/artifacts/stop-snap/AB_PLAN.md`。
+- 結果與人工 Play 清單：§24.4–§24.6。
+
+### 24.4 結果（72 次：平地 Walk／Run × 6 放開位置 × 3 臂；proto 樓梯 Walk／Run × 上／下 × 3 位置 × 3 臂）
+EditMode **820／819／0 failed／1 skipped**（+5：R1c 純函數）。runtime 與 §23 offline replay 一致（同案例的補回比完全相同）。彙總 `docs/artifacts/stop-snap/data/ab_summary.md.txt`；逐案例 `ab_cases.py.txt`。
+
+**Known bad**（補回＝釋放時 \|C−A\| 與釋放後 10 帧畫面／動畫路徑比；可見爬行＝cur 判為 Locked 的帧裡畫面腳路徑；平地／上樓／下樓）
+| 案例 | 指標 | cur | 3 cm | 5 cm |
+|---|---|---|---|---|
+| Run LU re-step | 釋放時 gap | 8.8／8.8／9.0 cm | 3.2 | 5.2 |
+| | 補回路徑比 | ×1.59／1.59／1.60 | **×1.20** | ×1.33 |
+| | 補回 peak 比 | ×1.60 | **×1.03** | ×1.19 |
+| | 可見爬行（每帧 max） | 4.4（1.35）cm | 5.8（1.35） | 5.3（1.35） |
+| Walk LU 最後一步 | 釋放時 gap | 10.1／10.1／12.4 | 3.4 | 5.4 |
+| | 補回路徑比 | ×1.30／1.30／1.37 | **×1.10** | ×1.16 |
+| | 可見爬行（每帧 max） | 1.3（0.3） | 5.3（1.5） | 3.7（1.5） |
+| | 畫面腳 peak 速度 | 3.5 m/s | 2.8 | 2.8 |
+| Walk RU 最後一步（L） | 釋放時 gap | 11.4／11.4／10.9 | 3.5 | 5.5 |
+| | 補回路徑比 | ×1.26／1.26／1.24 | **×1.08** | ×1.12 |
+| | 畫面腳 peak 速度 | 5.3 m/s | 3.9 | 4.2 |
+| Walk RU hidden step（R） | 停步結束時 \|C−A\| | 9.0／8.8／9.0 cm | **3.0** | 5.0 |
+| | 後半段畫面／動畫路徑 | 7–13% | **57%** | 41% |
+| | 可見路徑（每帧 max） | 4.3（2.0）cm | 11.0（2.0） | 8.8（2.0） |
+
+**Known good**：Run RU——最後一步（R）三臂逐項相同（爬行 0.6 cm）；煞車步（L）釋放比 ×1.07 → ×1.06／×1.07；L 停步後持續鎖住的那次可見爬行 3.6 → 5.4／4.1 cm（每帧 0.5，不變）。
+
+**Loop**：Run——除釋放 gap 5.1 → 3.6（3 cm）外逐項相同；Walk——釋放比 ×1.07 → ×1.05／×1.07，可見爬行 0.3 → 0.8／0.4 cm（每帧 0.3 → 0.6／0.3）。
+
+**不變的**：lock／release 次數（每個 gait × terrain 三臂完全相同）、鎖定時刻、`lockedAwayFrames`、最終支撐踏面（`lockSupY`／`liveSup`）、骨盆目標與輸出 ΔY（差 ≤ 0.2 cm）、Hips ΔY（≤ 0.1 cm）。跟隨的速度＝動畫速度（每帧 ≤ 1.5 cm），沒有加速。
+
+### 24.5 樓梯垂直（offline replay 沒有的部分）
+- **整體**：每帧腳 ΔY、骨盆、最終支撐踏面三臂幾乎相同；**鎖定中跨踏面**只出現在一個案例。
+- ⚠️ **Walk RU 最後一步（L），上樓，3 cm**：釋放中腳尖提早 1 帧碰到上一階 ⇒ 同一段爬升（2.064 → 2.509 m）分配成 6.2／**12.1**／4.3／7.5 cm（cur 5.8／8.7／8.5／8.3）。是既有擺盪的踏面切換時機被提前，不是鎖定支撐；5 cm 不發生。Walk loop 上樓單帧 max 13.2 → 15.6（3 cm）／14.4（5 cm）cm，同一型態。
+- ⚠️ **Walk RU 最後一步（L），下樓，3 cm 與 5 cm**：鎖定中跟隨讓腳跟越過階緣（三點都在下一階 1.755），但**鎖定支撐下限（1.950）讓腳維持在上一階高度** 3–4 帧，直到釋放——沒有 Y 跳動，但腳短暫「越過階緣仍在舊高度」。這就是 §24.2 預期的唯一風險；依裁決不改鎖定支撐語意。
+- Run 的樓梯（上下）三臂垂直逐項相同。
+
+### 24.6 ⏳ 人工 Play（使用者）
+切換方式：Play 中選 X Bot → `FootIKController` → `Settings` → 🧪 docs/45 §24 R1c：`LockedFollowExperiment` 勾／不勾、`LockedFollowDeadZone` 0.03／0.05（元件內嵌設定，離開 Play 自動還原；不要在 Edit 模式改 prefab）。
+1. 平地 Run 停步（LU：放開時左腳在前的那種，會有收腳）：「被吸過去」是否減少？
+2. 平地 Walk 停步：最後一步是否變自然；有沒有變成腳在地上慢慢滑。
+3. Walk RU 的小步（最後右腳收 ~15 cm）：恢復後像正常步伐還是碎步。
+4. 樓梯上下 Walk／Run 停步：換階是否更自然；下樓最後一步腳跟越過階緣的瞬間是否看得到「懸在舊階」。
+5. 3 cm：站立時腳有沒有不穩／漂；5 cm：是否仍看得到明顯補回。
+

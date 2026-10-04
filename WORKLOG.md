@@ -7,6 +7,17 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🟧 下一會話開場：**R1c runtime A/B 完成（`docs/45` §24）——⏳ 使用者 Play 比較 Current／3 cm／5 cm 後裁決正式方向**
+>
+> **開場只需讀**：本段 ＋ `docs/45` §24.4–§24.6。
+>
+> - Runtime：`FootIKSettings.LockedFollowExperiment`（預設關 ⇒ 逐位元現行）＋ `LockedFollowDeadZone`；`FootContactSolver.ClampLockOffset`；Locked 仍 Locked、`LockPosition` 是原始錨點、釋放判準與垂直語意不動。X Bot **未開**。EditMode **820／819／0 failed／1 skipped**（+5）。PlayMode 回歸未跑（關閉路徑逐位元）。
+> - 結果（72 次）：最後一步補回 Run LU re-step ×1.60 → ×1.20／×1.33、Walk ×1.26–1.37 → ×1.08–1.10／×1.12–1.16；hidden step 結束差距 9 → 3／5 cm、可見 57%／41%；lock／release 次數、鎖定時刻、最終踏面、骨盆 ΔY 三臂相同；loop 幾乎不變。代價：原本被鎖藏的爬行以動畫速度可見（每帧 ≤ 1.5 cm）。
+> - 樓梯：①Walk RU 最後一步上樓 3 cm 單帧 ΔY 8.7 → 12.1（擺盪踏面切換提早 1 帧）②Walk RU 最後一步下樓 3／5 cm：鎖定中腳跟越過階緣、被鎖定支撐下限留在上一階高度 3–4 帧（依裁決未改語意）。
+> - ⛔ 依裁決未做：選定 d0、開 X Bot、R2、P8b 合併、改 clip／playback、改 locked 垂直語意。
+>
+> ---
+>
 > # 🟧 下一會話開場：**T3 release-catch-up offline replay 完成（`docs/45` §23）——首選 R1c「鎖定點跟隨（死區 d0）」；待裁決是否進 runtime A/B**
 >
 > **開場只需讀**：本段 ＋ `docs/45` §23（表 23.2、23.4）。工具：`docs/artifacts/stop-snap/README.md` §5／§5.1。
