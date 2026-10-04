@@ -1,0 +1,35 @@
+"""停步後擺盪腳瞬拉（offset 二階差分 ≥ TH）的成因分類：
+A 周邊端點伸進相鄰一階 riser（腳跟／腳尖決定抬升、其下踏面比腳踝下高 0.08–0.30）
+B 外插過衝（目標水平位置二階差分 ≥ 6 cm：腳急停時一帧外插衝過頭再拉回）
+C 其他（腳下踏面切換、移動斜坡變化…）"""
+import csv, glob, os, sys, collections, math
+D = sys.argv[1]; TH = float(sys.argv[2]); PRE = sys.argv[3]
+def f(x):
+    try: return float(x)
+    except: return float('nan')
+def ok(v): return not math.isnan(v)
+def intr(x, s):
+    rise = f(x[s + 'repSup']) - f(x[s + 'treadY'])
+    return x[s + 'repPt'] in ('0', '2') and ok(rise) and 0.08 <= abs(rise) <= 0.30
+tab = collections.defaultdict(collections.Counter)
+for p in sorted(glob.glob(os.path.join(D, PRE + '*.csv'))):
+    r = list(csv.DictReader(open(p)))
+    name = os.path.basename(p)[5:-4]; gd = name.split('_')[1] + name.split('_')[2]
+    st0 = next((i for i, x in enumerate(r) if x['phase'] == 'stop'), None)
+    if st0 is None: continue
+    for s in 'lr':
+        for i in range(st0 + 2, len(r)):
+            a, b, c = r[i - 2], r[i - 1], r[i]
+            if not (a[s + 'ph'] == b[s + 'ph'] == c[s + 'ph'] == '0'): continue
+            off = [f(x[s + 'tgtY']) - f(x[s + 'poseY']) for x in (a, b, c)]
+            if not all(ok(v) for v in off): continue
+            if abs(off[2] - 2 * off[1] + off[0]) < TH: continue
+            hx = f(c[s + 'tgtX']) - 2 * f(b[s + 'tgtX']) + f(a[s + 'tgtX'])
+            hz = f(c[s + 'tgtZ']) - 2 * f(b[s + 'tgtZ']) + f(a[s + 'tgtZ'])
+            if intr(c, s) or intr(b, s): k = 'A 端點伸進 riser'
+            elif math.hypot(hx, hz) >= 0.06: k = 'B 外插過衝'
+            else: k = 'C 其他'
+            tab[gd][k] += 1
+for gd in sorted(tab):
+    t = tab[gd]; n = sum(t.values())
+    print('%-9s n=%4d  ' % (gd, n) + '  '.join('%s %d（%.0f%%）' % (k, t[k], 100.0 * t[k] / n) for k in sorted(t)))

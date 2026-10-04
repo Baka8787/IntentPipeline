@@ -4560,6 +4560,7 @@ MonoBehaviour:
     UnlockRadius: 0.2
     ReleaseTime: 0.12
     MaxPoseStepPerFrame: 0.5
+    SwingFootLengthReference: 1
     UseLandingSurfaceResolver: 1
     LandingVerifyBeta: 0.7
     LandingConfirmFrames: 2

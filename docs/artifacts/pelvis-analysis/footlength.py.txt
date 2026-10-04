@@ -1,0 +1,84 @@
+"""docs/45 §18：擺盪腳長參考 關（flr0_）／開（flr1_）A/B。
+① 瞬拉：擺盪中（Unlocked 連續 3 帧）腳目標 −動畫踝 的二階差分 ≥ TH 的次數，分 移動中／停步 × 情境，並按成因分類
+   （A 腳跟／腳尖決定抬升且其下踏面比腳踝下高 0.08–0.30；B 目標水平二階差分 ≥ 6 cm＝外插過衝；C 其他）。
+② 代價：同一帧（root 軌跡與 IK 無關 ⇒ 兩組逐帧對齊）擺盪中腳目標的高度差（開 − 關），中位／p90／max。
+③ 鎖定瞬間：鎖定當帧 implied 落腳面的單帧 |Δ|；鎖定支撐踏面兩組不同的落地數。
+④ 骨盆：停步後 pelvisSolver／pelvisOut／hipsRel 單帧 |Δ| 的 max 與 ≥ 3 cm 帧數。
+用法：python footlength.py.txt <csv 目錄> [TH=0.08]
+"""
+import csv, glob, math, os, sys, collections
+D = sys.argv[1]; TH = float(sys.argv[2]) if len(sys.argv) > 2 else 0.08
+def f(x):
+    try: return float(x)
+    except: return float('nan')
+def ok(v): return not math.isnan(v)
+def p(v, q): v = sorted(v); return v[int(q * (len(v) - 1))] if v else float('nan')
+def intr(x, s):
+    rise = f(x[s + 'repSup']) - f(x[s + 'treadY'])
+    return x[s + 'repPt'] in ('0', '2') and ok(rise) and 0.08 <= abs(rise) <= 0.30
+
+jerk = {0: collections.Counter(), 1: collections.Counter()}
+height = collections.defaultdict(list)
+lockj = {0: collections.defaultdict(list), 1: collections.defaultdict(list)}
+lockdiff = collections.Counter(); lockn = collections.Counter()
+pel = {0: collections.defaultdict(list), 1: collections.defaultdict(list)}
+for p1 in sorted(glob.glob(os.path.join(D, 'flr1_*.csv'))):
+    p0 = p1.replace('flr1_', 'flr0_')
+    if not os.path.exists(p0): continue
+    name = os.path.basename(p1)[5:-4]; gd = name.split('_')[1] + name.split('_')[2]
+    runs = {0: list(csv.DictReader(open(p0))), 1: list(csv.DictReader(open(p1)))}
+    for k, r in runs.items():
+        st0 = next((i for i, x in enumerate(r) if x['phase'] == 'stop'), len(r))
+        for s in 'lr':
+            for i in range(2, len(r)):
+                a, b, c = r[i - 2], r[i - 1], r[i]
+                if not (a[s + 'ph'] == b[s + 'ph'] == c[s + 'ph'] == '0'): continue
+                off = [f(x[s + 'tgtY']) - f(x[s + 'poseY']) for x in (a, b, c)]
+                if not all(ok(v) for v in off) or abs(off[2] - 2 * off[1] + off[0]) < TH: continue
+                hx = f(c[s + 'tgtX']) - 2 * f(b[s + 'tgtX']) + f(a[s + 'tgtX'])
+                hz = f(c[s + 'tgtZ']) - 2 * f(b[s + 'tgtZ']) + f(a[s + 'tgtZ'])
+                cls = 'A' if intr(c, s) or intr(b, s) else ('B' if math.hypot(hx, hz) >= 0.06 else 'C')
+                jerk[k][('停步' if i >= st0 else '移動中', gd, cls)] += 1
+            for j in range(st0 + 1, len(r)):
+                if r[j][s + 'ph'] == '1' and r[j - 1][s + 'ph'] != '1':
+                    im = lambda x: f(x[s + 'rampY']) + f(x[s + 'lift'])
+                    lockj[k][gd].append(abs(f(r[j][s + 'tgtY']) - f(r[j - 1][s + 'tgtY']) - (f(r[j][s + 'poseY']) - f(r[j - 1][s + 'poseY']))))
+        v = [f(x['pelvisSolver']) for x in r[st0:]]; o = [f(x['pelvisOut']) for x in r[st0:]]; h = [f(x['hipsRel']) for x in r[st0:]]
+        for tag, series in (('solver', v), ('out', o), ('hips', h)):
+            d = [abs(y - x) for x, y in zip(series, series[1:]) if ok(x) and ok(y)]
+            pel[k][(gd, tag)].append((max(d) if d else 0.0, sum(1 for x in d if x >= 0.03)))
+    r0, r1 = runs[0], runs[1]
+    for i in range(min(len(r0), len(r1))):
+        for s in 'lr':
+            if r0[i][s + 'ph'] == '0' and r1[i][s + 'ph'] == '0':
+                dh = f(r1[i][s + 'tgtY']) - f(r0[i][s + 'tgtY'])
+                if ok(dh): height[gd].append(dh)
+    st0 = next((i for i, x in enumerate(r1) if x['phase'] == 'stop'), len(r1))
+    for s in 'lr':
+        for j in range(st0 + 1, min(len(r0), len(r1))):
+            if r1[j][s + 'ph'] == '1' and r1[j - 1][s + 'ph'] != '1':
+                lockn[gd] += 1
+                a, b = f(r0[j][s + 'lockSupY']), f(r1[j][s + 'lockSupY'])
+                if ok(a) and ok(b) and abs(a - b) > 0.03: lockdiff[gd] += 1
+
+print('① 瞬拉（二階差分 ≥ %.0f cm）  關 → 開' % (TH * 100))
+keys = sorted(set(jerk[0]) | set(jerk[1]))
+for ph in ('移動中', '停步'):
+    for gd in sorted(set(k[1] for k in keys)):
+        row = []
+        for cls in 'ABC':
+            a, b = jerk[0][(ph, gd, cls)], jerk[1][(ph, gd, cls)]
+            row.append('%s %d→%d' % (cls, a, b))
+        ta = sum(jerk[0][(ph, gd, c)] for c in 'ABC'); tb = sum(jerk[1][(ph, gd, c)] for c in 'ABC')
+        print('  %-4s %-9s 合計 %4d → %4d   %s' % (ph, gd, ta, tb, '  '.join(row)))
+print('② 擺盪腳目標高度差（開 − 關，同一帧）')
+for gd, v in sorted(height.items()):
+    print('  %-9s n %5d  中位 %+.3f  p90 %+.3f  max %+.3f  min %+.3f' % (gd, len(v), p(v, 0.5), p(v, 0.9), max(v), min(v)))
+print('③ 鎖定當帧（目標 − 動畫）單帧 |Δ|  關 → 開；鎖定支撐不同的落地')
+for gd in sorted(lockn):
+    a, b = lockj[0][gd], lockj[1][gd]
+    print('  %-9s p90 %.3f → %.3f  max %.3f → %.3f   支撐不同 %d／%d' % (gd, p(a, .9), p(b, .9), max(a or [0]), max(b or [0]), lockdiff[gd], lockn[gd]))
+print('④ 骨盆（停步後單帧 |Δ|）  max 關 → 開；≥3 cm 帧數 關 → 開')
+for gd in sorted(set(k[0] for k in pel[0])):
+    print('  %-9s ' % gd + '  '.join('%s %.3f→%.3f (%d→%d)' % (t, max(x[0] for x in pel[0][(gd, t)]), max(x[0] for x in pel[1][(gd, t)]),
+                                       sum(x[1] for x in pel[0][(gd, t)]), sum(x[1] for x in pel[1][(gd, t)])) for t in ('solver', 'out', 'hips')))

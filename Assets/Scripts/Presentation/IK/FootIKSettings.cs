@@ -92,6 +92,11 @@ namespace Project.Presentation.IK
         [Tooltip("動畫腳一帧位移超過此值（公尺）視為瞬移／不連續：狀態與速度歷史立即重設。")]
         [Min(0f)] public float MaxPoseStepPerFrame = 0.5f;
 
+        [Tooltip("🧪（docs/45 §18）擺盪參考取腳跟／腳踝／腳尖三點下方移動面的最高者（原本只看腳踝）。" +
+                 "移動面通過每一個階緣 ⇒ 腳尖／腳跟保有自己的動畫離地高度，不會先伸進相鄰一階的 riser 而被整隻腳瞬間抬起。" +
+                 "平地三點相同 ⇒ 不變；樓梯上擺盪腳會比動畫高約 斜率 × 腳尖／腳跟偏移。預設關閉 ＝ 現行。")]
+        public bool SwingFootLengthReference = false;
+
         [Header("🧪 T3 目的地踏面（docs/45 §17；LandingSurfaceResolver；需要 T3；預設關閉）")]
         [Tooltip("開啟後，擺盪中（Unlocked）的腳以 ADR-010 next planned plant 的落點踏面為目的地，抬升逐步從「目前腳下」過渡到目的地；" +
                  "落腳前以即時三點驗證。Locked／Releasing 與鎖定支撐的選擇不變。沒有目的地時與關閉逐位元相同。\n還原 ＝ 關閉。")]

@@ -1,5 +1,6 @@
 """docs/45 §17 Phase 2：LandingSurfaceResolver 關（lsr0_）／開（lsr1_）的 runtime outcome A/B。
-輸入：LandingSurfaceProbe.Probe_LandingResolverAB 的 CSV。用法：python outcome.py.txt <csv 目錄>
+輸入：LandingSurfaceProbe 的 A/B CSV。用法：python outcome.py.txt <csv 目錄> [lsr|sri]
+  lsr ＝ Probe_LandingResolverAB（resolver 關／開）；sri ＝ Probe_SwingIntrusionAB（§18 擺盪 riser 侵入規則關／開）
 指標（停步後、每一次 Unlocked → Locked 的落地）：
   ① destination 改答案：次數、最晚時刻（鎖定前帧數）、首次承諾錯；依可信度（鎖定前一帧的 intent）分組
   ② 擺盪目標：鎖定前 12 帧內與鎖定當帧，implied 落腳面（rampY ＋ lift）的單帧 |Δ| 最大值；implied 落腳面最後一次離最終支撐 > 3 cm 的時刻（settle）
@@ -9,6 +10,9 @@
 """
 import csv, glob, math, os, statistics as st, sys
 D = sys.argv[1]
+AB = sys.argv[2] if len(sys.argv) > 2 else 'lsr'
+# 逐位元比對的終點：處理組第一次「介入」的帧
+TRIGGER = ('lLw', 'rLw') if AB == 'lsr' else ('lIc', 'rIc')
 TOL = 0.03
 
 def f(x):
@@ -82,23 +86,23 @@ def pelvis_metrics(r):
 def bitwise(r0, r1):
     cols = ['ltgtX', 'ltgtY', 'ltgtZ', 'rtgtX', 'rtgtY', 'rtgtZ', 'pelvisOut']
     for a, b in zip(r0, r1):
-        if f(b['lLw']) > 0 or f(b['rLw']) > 0: return True, a['frame']
+        if any(f(b[c]) > 0 for c in TRIGGER): return True, a['frame']
         for c in cols:
             if a[c] != b[c]: return False, a['frame']
     return True, None
 
 pairs = {}
-for p in sorted(glob.glob(os.path.join(D, 'lsr*_*.csv'))):
+for p in sorted(glob.glob(os.path.join(D, AB + '*_*.csv'))):
     name = os.path.basename(p)
-    if name.startswith('semlsr'): continue
+    if name.startswith('sem'): continue
     pairs.setdefault(name[5:-4], {})[name[:4]] = p
 
 rows = {0: [], 1: []}
 pel = {0: [], 1: []}
 bit_ok = bit_bad = 0; bad_names = []
 for key, pr in sorted(pairs.items()):
-    if 'lsr0' not in pr or 'lsr1' not in pr: continue
-    r0, r1 = load(pr['lsr0']), load(pr['lsr1'])
+    if AB + '0' not in pr or AB + '1' not in pr: continue
+    r0, r1 = load(pr[AB + '0']), load(pr[AB + '1'])
     okb, fr = bitwise(r0, r1)
     if okb: bit_ok += 1
     else: bit_bad += 1; bad_names.append((key, fr))
@@ -113,7 +117,7 @@ for key, pr in sorted(pairs.items()):
             m.update(gait=gait, dir=d, diff=ok(other) and abs(other - F) >= TOL, key=key)
             rows[side].append(m)
 
-print('⑤ 逐位元（第一次 Weight>0 之前完全相同）: %d 組相同、%d 組不同 %s' % (bit_ok, bit_bad, bad_names[:5]))
+print('⑤ 逐位元（處理組第一次介入之前完全相同）: %d 組相同、%d 組不同 %s' % (bit_ok, bit_bad, bad_names[:5]))
 print()
 for gait in ('Walk', 'Run'):
     for d in ('Up', 'Down'):

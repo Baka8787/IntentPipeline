@@ -7,19 +7,29 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
-> # 🟧 下一會話開場：**等使用者回報 Phase 2 人工 Play（`docs/45` §17.5）**
+> # 🟧 下一會話開場：**等使用者回報擺盪腳長參考的人工 Play（`docs/45` §18.6）**
 >
-> **開場只需讀**：本段 ＋ `docs/45` §17（實作、四個缺陷、結果、Play 清單）。⛔ 不需要重讀 §10–§16。
+> **開場只需讀**：本段 ＋ `docs/45` §18（瞬拉成因、否決的規則、結果、Play 清單）。§17 只在需要 resolver 細節時讀。
 >
-> - 使用者回報前**不要**再調參數：上樓的改善與下樓的不變都已量化（§17.3），剩下的是「看起來對不對」。
-> - Play 回報「上樓還會卡 riser」⇒ 先看是不是沒有 next plant 的落地（Walk 中途落地沒有 intent）或 β 低的擺盪中段（腳尖擦 riser），兩者都不在本 slice 的資訊範圍內（§17.4）。
-> - Play 回報「階緣附近腳先抬再落」⇒ 錯誤目的地的退出（§17.2-4），可調 `LandingVerifyBeta`／`LandingContradictionRate`，先用 `verify_window.py.txt` 在 A/B 資料上量。
-> - 下樓跨階緣跳動不是 destination 能解的（§17.4）；若要處理，另開「腳姿勢（腳尖先下）／步態」slice，需使用者裁決。
-> - 還原：X Bot prefab `UseLandingSurfaceResolver` 設 False（Editor API）。
+> - 使用者回報「上樓還會瞬拉」⇒ 先用 `yank_classes.py.txt`／`footlength.py.txt` 看是不是剩下的 A（Walk 64、Run 99，未拆）。
+> - 回報「擺盪腳太高」⇒ 代價已量化（p90 +5–9 cm）；可改成只在腳尖／腳跟會穿進 riser 時才抬（需再設計，先問）。
+> - 回報「下樓還會瞬拉」⇒ 預期中：Run 下樓 B（一帧外插過衝，34%）＋ C（49%，未拆）；下一個槓桿是 T3 一帧外插在急停落地時的處理（§8.1 ①），需使用者裁決是否開。
+> - 還原：X Bot prefab `SwingFootLengthReference`／`UseLandingSurfaceResolver` 設 False（Editor API）。
 >
 > ## 工具
-> - A/B：`LandingSurfaceProbe.Probe_LandingResolverAB`（`[Explicit]`；416 次約 60 分鐘；輸出 `Temp/LandingSurface/lsr0_*／lsr1_*`——**Unity 重啟會清空，跑完立刻複製**）。分析 `docs/artifacts/pelvis-analysis/outcome.py.txt`（`PYTHONIOENCODING=utf-8`）、`verify_window.py.txt`。
+> - A/B：`LandingSurfaceProbe.Probe_LandingResolverAB`（lsr）、`Probe_FootLengthReferenceAB`（flr）（`[Explicit]`；各 416 次約 60 分鐘；輸出 `Temp/LandingSurface/`——**Unity 重啟會清空，跑完立刻複製**）。
+> - 分析（`PYTHONIOENCODING=utf-8`）：`docs/artifacts/pelvis-analysis/{outcome,footlength,yank_classes,verify_window}.py.txt`。瞬拉一律用「腳目標 − 動畫踝的二階差分」，⛔ 不要再用落腳窗單帧（§18.1）。
 > - 指令順序：`unity cmd recompile` → 輪詢 `recompile_status` → 確認 `isPlaying=false` → `run_tests`（PlayMode 要 `--async_tests true --include_explicit true --filter <name>`）。
+>
+> ---
+
+> # 🟨 2026-10-04 — **停步最後一兩步仍瞬拉：成因拆解（A 腳尖／腳跟伸進 riser 為上樓主因）→ 擴展 riser 侵入規則 ❌ 否決並還原 → 擺盪腳長參考（X Bot 開）：Walk 上樓瞬拉 175 → 71、移動中 177 → 79；Run 下樓未解；⏳ 待人工 Play**
+>
+> 📖 正本：`docs/45` §18。EditMode **795／794／0 failed／1 skipped**（+5）；PlayMode **96／95／1 failed**（既有 `C0`；X Bot 已開）。
+>
+> - §17 的「落腳窗單帧」指標低估了問題（只看最後幾帧）；改用二階差分後，resolver 只少了約四分之一的停步瞬拉。
+> - riser 侵入擴到擺盪：侵入一開始就 4–9 cm 深 ⇒ 腳鎖到錯的階、腳尖埋進 riser、骨盆跳 13.7 cm ⇒ 使用者裁決還原（程式、測試、設定已移除）。
+> - 新：`FootIKSettings.SwingFootLengthReference`（擺盪參考＝三點下方移動面最高者）＋ `FootIKController.FootLengthReference`＋5 個測試；探針 A/B 驅動改為設定委派。
 >
 > ---
 

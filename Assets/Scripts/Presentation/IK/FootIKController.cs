@@ -565,18 +565,24 @@ namespace Project.Presentation.IK
             //    上坡側的移動面會高過 pose 平面 ＋ 0.5，起點落在斜面裡面 ⇒ 射線從內部出發、打不到它（第二次 Play 量測）。
             float up = settings.RaycastUpOffset;
             Vector3 root = transform.position;
-            float reach = new Vector2(horizontal.x - root.x, horizontal.z - root.z).magnitude;
             float probeDistance = up + settings.RaycastDistance;
-            float referenceY = posePlaneY;
-            if (Physics.Raycast(new Vector3(horizontal.x, posePlaneY + up + reach, horizontal.z), Vector3.down,
-                    out RaycastHit referenceHit, probeDistance + 2f * reach, _movementMask, QueryTriggerInteraction.Ignore))
+            float referenceY = TrySampleMovementSurface(horizontal.x, horizontal.z, root, posePlaneY, out float ankleSurfaceY)
+                ? ankleSurfaceY : posePlaneY;
+            Quaternion shownRotation = Quaternion.Slerp(poseRotation, rotationTarget, rotationWeight);
+            // 🧪（docs/45 §18）腳長參考：參考面取腳跟／腳踝／腳尖三點下方移動面的最高者 ⇒ 每一點都保有它自己的動畫離地高度，
+            //    腳尖不會先伸進下一階的 riser（移動面通過每一個階緣）。平地三點相同 ⇒ 不變。
+            if (settings.SwingFootLengthReference)
             {
-                referenceY = referenceHit.point.y;
+                Vector3 probeAnkle = new Vector3(horizontal.x, referenceY + predictedHeight, horizontal.z);
+                Vector3 heel = FootContactSolver.SolePoint(probeAnkle, shownRotation, footBottomHeight, -Mathf.Max(0f, settings.HeelOffset));
+                Vector3 toe = FootContactSolver.SolePoint(probeAnkle, shownRotation, footBottomHeight, Mathf.Max(0f, settings.ToeOffset));
+                bool heelHit = TrySampleMovementSurface(heel.x, heel.z, root, posePlaneY, out float heelY);
+                bool toeHit = TrySampleMovementSurface(toe.x, toe.z, root, posePlaneY, out float toeY);
+                referenceY = FootLengthReference(referenceY, heelHit, heelY, toeHit, toeY);
             }
             Vector3 ankle = new Vector3(horizontal.x, referenceY + predictedHeight, horizontal.z);
 
             // ④
-            Quaternion shownRotation = Quaternion.Slerp(poseRotation, rotationTarget, rotationWeight);
             float contactDelta = float.NegativeInfinity;
             float supportY = 0f;
             int supportPoint = 0;
@@ -681,6 +687,36 @@ namespace Project.Presentation.IK
                     && beta >= settings.LockBeta
                     && footSpeed < settings.StandingReliableFootSpeedMax,
             };
+        }
+
+        /// <summary>
+        /// （純函數）🧪（docs/45 §18）腳長參考：腳踝下方的參考（移動面，或沒命中時的 pose 平面）與腳跟／腳尖下方移動面的最高者。
+        /// 沒命中的端點不參與（不會因為射線落空把參考拉低或拉高）。
+        /// </summary>
+        public static float FootLengthReference(float ankleReferenceY, bool heelHit, float heelSurfaceY, bool toeHit, float toeSurfaceY)
+        {
+            float y = ankleReferenceY;
+            if (heelHit && heelSurfaceY > y) y = heelSurfaceY;
+            if (toeHit && toeSurfaceY > y) y = toeSurfaceY;
+            return y;
+        }
+
+        /// <summary>
+        /// T3 擺盪參考：某個水平位置下方的**移動面**（<c>_movementMask</c>；樓梯上是踏面前緣連線的包絡）。
+        /// 起點＝pose 平面 ＋ RaycastUpOffset ＋ 到 root 的水平距離（45° 錐，見 ③ 的說明）。
+        /// </summary>
+        private bool TrySampleMovementSurface(float x, float z, Vector3 root, float posePlaneY, out float surfaceY)
+        {
+            float up = settings.RaycastUpOffset;
+            float reach = new Vector2(x - root.x, z - root.z).magnitude;
+            if (Physics.Raycast(new Vector3(x, posePlaneY + up + reach, z), Vector3.down, out RaycastHit hit,
+                    up + settings.RaycastDistance + 2f * reach, _movementMask, QueryTriggerInteraction.Ignore))
+            {
+                surfaceY = hit.point.y;
+                return true;
+            }
+            surfaceY = 0f;
+            return false;
         }
 
         /// <summary>
