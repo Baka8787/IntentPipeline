@@ -1,0 +1,92 @@
+"""A1：強制 RU（forcedRU_*）vs 自然選片（settle_*，同一情境）——放開到「第一次穩定落地」（兩腳同時 Locked 連續 10 帧）為止。
+每隻腳：
+  鎖住時動畫腳的水平位移（動畫自己在滑、被 T3 鎖藏起來的量）；鎖住時畫面腳骨骼的水平位移；
+  鎖定段數（> 1 ＝ 放開又重鎖）；畫面腳骨骼單帧加速度（二階差分）最大值（可見的頓／拉）。
+另：root 位移、到穩定的帧數、入場腳相不匹配（放開當帧 Run loop 的 FootPhaseCurve 值 vs 停步 clip 入場值）。
+用法：python forced_ru.py.txt <forcedRU csv 目錄> <自然 settle csv 目錄> <phase.csv（選用：clip,nt,value）>"""
+import csv, glob, math, os, sys, statistics as st
+DF, DN = sys.argv[1], sys.argv[2]
+PH = sys.argv[3] if len(sys.argv) > 3 else None
+def f(x):
+    try: return float(x)
+    except: return float('nan')
+def ok(v): return not math.isnan(v)
+curves = {}
+if PH:
+    for x in csv.DictReader(open(PH)): curves.setdefault(x['clip'], []).append((float(x['nt']), float(x['value'])))
+def curve(clip, nt):
+    c = curves.get(clip)
+    if not c: return float('nan')
+    nt = nt % 1.0
+    for (a, va), (b, vb) in zip(c, c[1:]):
+        if a <= nt <= b: return va + (vb - va) * (nt - a) / (b - a) if b > a else va
+    return c[-1][1]
+
+def analyse(p):
+    r = list(csv.DictReader(open(p)))
+    st0 = next(i for i, x in enumerate(r) if x['phase'] == 'stop')
+    re0 = next(i for i, x in enumerate(r) if x['phase'] == 'restart')
+    clip = next((x['animClip'] for x in r[st0:re0] if 'Stop' in x['animClip']), '?')
+    end = re0
+    for i in range(st0, re0 - 10):
+        if all(r[k]['lph'] == '1' and r[k]['rph'] == '1' for k in range(i, i + 10)): end = i; break
+    out = dict(clip=clip, frames=end - st0,
+               root=math.hypot(f(r[end]['rootX']) - f(r[st0]['rootX']), f(r[end]['rootZ']) - f(r[st0]['rootZ'])),
+               loopNT=f(r[st0]['mixRunNT']))
+    for s in 'lr':
+        aL = bL = 0.0; segs = 0; jerk = 0.0
+        for i in range(st0 + 1, end + 1):
+            a, b = r[i - 1], r[i]
+            if b[s + 'ph'] == '1' and a[s + 'ph'] != '1': segs += 1
+            if b[s + 'ph'] == '1' and a[s + 'ph'] == '1':
+                aL += math.hypot(f(b[s + 'poseX']) - f(a[s + 'poseX']), f(b[s + 'poseZ']) - f(a[s + 'poseZ']))
+                bL += math.hypot(f(b[s + 'boneX']) - f(a[s + 'boneX']), f(b[s + 'boneZ']) - f(a[s + 'boneZ']))
+            if i >= st0 + 2:
+                c = r[i - 2]
+                j = math.hypot(f(b[s + 'boneX']) - 2 * f(a[s + 'boneX']) + f(c[s + 'boneX']),
+                               f(b[s + 'boneY']) - 2 * f(a[s + 'boneY']) + f(c[s + 'boneY']),
+                               f(b[s + 'boneZ']) - 2 * f(a[s + 'boneZ']) + f(c[s + 'boneZ']))
+                jerk = max(jerk, j)
+        # 入場：放開時這隻腳若在 Locked（剛落地／支撐中），量它「再離地前」的貼地滑動與總停留時間
+        dwell = slideA = slideB = float('nan')
+        if r[st0][s + 'ph'] == '1':
+            k0 = st0
+            while k0 > 0 and r[k0 - 1][s + 'ph'] == '1': k0 -= 1          # 這次鎖定從哪一帧開始
+            # 離地：畫面腳＝骨骼高度離開放開當帧 ±3 cm；動畫腳＝（動畫踝 − root）的高度離開 ±3 cm（扣掉 root 沿斜坡的升降）
+            y0b = f(r[st0][s + 'boneY']); y0a = f(r[st0][s + 'poseY']) - f(r[st0]['rootY'])
+            kb = next((i for i in range(st0, end + 1) if abs(f(r[i][s + 'boneY']) - y0b) > 0.03), end)
+            ka = next((i for i in range(st0, end + 1) if abs(f(r[i][s + 'poseY']) - f(r[i]['rootY']) - y0a) > 0.03), end)
+            dwell = kb - k0
+            slideA = max(math.hypot(f(r[i][s + 'poseX']) - f(r[st0][s + 'poseX']), f(r[i][s + 'poseZ']) - f(r[st0][s + 'poseZ'])) for i in range(st0, ka + 1))
+            slideB = max(math.hypot(f(r[i][s + 'boneX']) - f(r[st0][s + 'boneX']), f(r[i][s + 'boneZ']) - f(r[st0][s + 'boneZ'])) for i in range(st0, kb + 1))
+        out[s] = dict(animLocked=aL, boneLocked=bL, segs=segs, jerk=jerk, dwell=dwell, slideA=slideA, slideB=slideB)
+    return out
+
+rows = []
+for p in sorted(glob.glob(os.path.join(DF, 'forcedRU_*.csv'))):
+    name = os.path.basename(p)[9:-4]
+    q = os.path.join(DN, 'settle_' + name + '.csv')
+    if not os.path.exists(q): continue
+    rows.append((name, analyse(q), analyse(p)))
+
+def q_(v, p): v = sorted(v); return v[int(p * (len(v) - 1))] if v else float('nan')
+for label, sel in (('自然選 LU → 強制 RU（代價所在）', [x for x in rows if 'LU' in x[1]['clip']]),
+                   ('自然本來就是 RU（對照：應相同）', [x for x in rows if 'RU' in x[1]['clip']])):
+    print('== %s  n=%d' % (label, len(sel)))
+    for tag, k in (('自然', 1), ('強制 RU', 2)):
+        g = [x[k] for x in sel]
+        feet = [x[k][s] for x in sel for s in 'lr']
+        print('  %-6s clip %-18s 到穩定 中位 %s 帧 | root 位移 中位 %.2f m | 鎖住時動畫腳滑 中位 %.1f p90 %.1f max %.1f cm | 鎖住時畫面腳動 max %.1f cm | 鎖定段 >1 的腳 %d／%d | 畫面腳單帧加速度 中位 %.1f p90 %.1f max %.1f cm' % (
+            tag, ','.join(sorted(set(x['clip'].replace('RunFwdStop_', '') for x in g))), q_([x['frames'] for x in g], .5), q_([x['root'] for x in g], .5),
+            100 * q_([f_['animLocked'] for f_ in feet], .5), 100 * q_([f_['animLocked'] for f_ in feet], .9), 100 * max(f_['animLocked'] for f_ in feet),
+            100 * max(f_['boneLocked'] for f_ in feet), sum(1 for f_ in feet if f_['segs'] > 1), len(feet),
+            100 * q_([f_['jerk'] for f_ in feet], .5), 100 * q_([f_['jerk'] for f_ in feet], .9), 100 * max(f_['jerk'] for f_ in feet)))
+        en = [x[k][s] for x in sel for s in 'lr' if ok(x[k][s]['dwell'])]
+        print('           入場：放開時正在支撐的腳 n=%d｜總停留（落地到再離地）中位 %s p10 %s 帧｜再離地前貼地滑動 動畫 中位 %.1f p90 %.1f、畫面 中位 %.1f p90 %.1f cm' % (
+            len(en), q_([e['dwell'] for e in en], .5), q_([e['dwell'] for e in en], .1),
+            100 * q_([e['slideA'] for e in en], .5), 100 * q_([e['slideA'] for e in en], .9),
+            100 * q_([e['slideB'] for e in en], .5), 100 * q_([e['slideB'] for e in en], .9)))
+    if curves and sel:
+        mism = [abs(curve('RunFwdLoop', x[2]['loopNT']) - curves['RunFwdStop_RU'][0][1]) for x in sel]
+        nat = [abs(curve('RunFwdLoop', x[1]['loopNT']) - curves[x[1]['clip']][0][1]) for x in sel if x[1]['clip'] in curves]
+        print('  入場腳相不匹配 |loop(放開) − 入場|：自然 中位 %.3f、強制 RU 中位 %.3f（FootPhaseCurve 值；Run loop 振幅約 ±0.44）' % (q_(nat, .5), q_(mism, .5)))

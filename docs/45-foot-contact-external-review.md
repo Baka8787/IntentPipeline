@@ -884,6 +884,26 @@ throwaway 探針 `PlantSettleProbe.Probe_RunStopSettleRestart`：樓梯上 Run �
 
 使用者裁決（§20 之後）：A1 繼續研究（強制 RU 的代價，不實作地形選片）；A2 把 P8b 放進暫時的 runtime A/B 開關做視覺驗證（不是接受策略）；B 以 start-phase alignment 實作最小 slice（開 Trial ADR-011）。
 
+### 21.1 A1 —— 強制 RU 的代價（測試內：場景實例的 `runStopVariants` 只留 RU；⛔ 未實作選片）
+`PlantSettleProbe.Probe_ForcedRU`（56 次，與自然選片同一組情境）；分析 `forced_ru.py.txt`。窗口＝放開到「兩腳同時 Locked 連續 10 帧」。
+**對照組（自然本來就是 RU 的 28 次）：強制與自然逐項相同** ⇒ 介入本身乾淨。
+
+| 自然選 LU 的 28 次 | 自然 LU | 強制 RU |
+|---|---|---|
+| LU 的同腳 re-step（放開又重鎖的腳） | 28／56 | **0／56** |
+| 停步距離（root，中位） | 1.70 m | **2.11 m（+0.41 m）**——RU 自己的烘焙位移；不需要等 phase |
+| 入場腳相不匹配（loop 放開當帧 vs 停步 clip 入場的 FootPhaseCurve 值；振幅 ±0.44） | 0.15 | **0.72**（幾乎反相） |
+| 放開時正在支撐的腳：落地到再離地的總停留 | 中位 7 帧（p10 4） | 中位 6 帧（p10 3） |
+| 那隻腳再離地前的貼地滑動——動畫腳 | 中位 4.9、p90 13.2 cm | **中位 2.5、p90 3.0 cm** |
+| 同上——畫面腳 | 中位 2.3、p90 7.8 cm | 中位 1.5、p90 23.1 cm（p90 來自斜向 y20 的樓梯側邊掉落） |
+| 鎖住時動畫腳在滑（被 T3 藏起來） | 中位 8.6 cm（LU 的爬行） | 中位 0.9 cm |
+| 畫面腳單帧加速度（二階差分） | 中位 16.5、p90 26.8 cm | 中位 21.2、p90 32.3 cm |
+
+- **逐帧看（`s1_Run_Down_y20_10` 右腳）**：自然 LU 時那隻剛落地的腳先貼地滑 13 cm、t10 才擺出去；強制 RU 時它在 t1 就被釋放、t3 離地、直接擺 1.2 m（RU 的第一步就是它）——**不是貼地滑動，是「剛落地又立刻抬起」**（停留 6 帧，與 LU 的 7 帧相近）。
+- 強制 RU 的最大單帧加速度 90 cm 是斜向 y20 跑到 `Stairs (1)` 側邊外、目標掉到地面一帧（既有的側邊掉落），不是 RU 本身。
+- **結論**：強制 RU 沒有比自然 LU「明顯更差」——入場貼地滑動反而更小、re-step 消失；代價是**停步距離 +0.41 m**（遠小於等 phase 的 +0.9／+1.8 m）與入場時那隻腳只停 ~6 帧就再抬起（需要人工 Play 判斷是否像「多踏一步」），畫面腳單帧加速度中位 +4.7 cm。
+- 下一步（待裁決）：若接受，地形感知選片＝「樓梯上強制 RU」；需要 §20.1 的 Core 踏面查詢（`LocomotionModel` 擁有決策）。⛔ 尚未實作。
+
 ### 21.2 A2 —— P8b runtime A/B（`FootIKSettings.PlantAwareExtrapolation`，暫時開關，預設關）
 實作：`FootIKController.PlantAwareExtrapolationScale`（純函數）＋ `ResolveContactPosition` 在 `PredictPose` 後縮放水平外插（高度外插不動）；next plant 查詢在開關開啟時也會執行。EditMode +7。
 `Probe_PlantAwareExtrapAB`（56 情境 × 關／開，307 次鎖定）；分析 `p8b_ab.py.txt`。
