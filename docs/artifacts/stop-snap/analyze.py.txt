@@ -1,0 +1,767 @@
+"""Stop-snap diagnosis analyzer (PLAN §§4, 6). Python standard library only.
+
+Usage:
+  python analyze.py.txt <runtime-csv-dir> <clips.csv> [--schedule schedule.csv] [--out output-dir]
+
+Only snap_*.csv is consumed from the runtime directory. Outputs plants.csv, summary.md,
+and traj_<case>_<side>_<event>.csv. Validation failures are reported in red at the top
+of summary.md but do not suppress metric output.
+"""
+import argparse
+import csv
+import glob
+import math
+import os
+import re
+import statistics
+
+NAN = float("nan")
+RUNTIME_DT = 1.0 / 60.0
+LOCKED = 1
+
+
+def f(value, default=NAN):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def finite(value):
+    return math.isfinite(value)
+
+
+def vec(row, prefix):
+    return (f(row.get(prefix + "X")), f(row.get(prefix + "Y")), f(row.get(prefix + "Z")))
+
+
+def add(a, b):
+    return tuple(a[i] + b[i] for i in range(3))
+
+
+def sub(a, b):
+    return tuple(a[i] - b[i] for i in range(3))
+
+
+def valid_vec(v):
+    return all(finite(x) for x in v)
+
+
+def dist_xz(a, b):
+    return math.hypot(a[0] - b[0], a[2] - b[2]) if valid_vec(a) and valid_vec(b) else NAN
+
+
+def dist_3d(a, b):
+    return math.sqrt(sum((a[i] - b[i]) ** 2 for i in range(3))) if valid_vec(a) and valid_vec(b) else NAN
+
+
+def median(values):
+    clean = [x for x in values if finite(x)]
+    return statistics.median(clean) if clean else NAN
+
+
+def maximum(values):
+    clean = [x for x in values if finite(x)]
+    return max(clean) if clean else NAN
+
+
+def ratio(a, b):
+    return a / b if finite(a) and finite(b) and abs(b) > 1e-9 else NAN
+
+
+def path_length(points, begin, end, horizontal=True):
+    begin = max(0, begin)
+    end = min(len(points) - 1, end)
+    total = 0.0
+    used = False
+    for i in range(begin + 1, end + 1):
+        d = dist_xz(points[i], points[i - 1]) if horizontal else dist_3d(points[i], points[i - 1])
+        if finite(d):
+            total += d
+            used = True
+    return total if used else NAN
+
+
+def speed_series(points, times):
+    result = [NAN] * len(points)
+    for i in range(1, len(points)):
+        dt = times[i] - times[i - 1]
+        d = dist_xz(points[i], points[i - 1])
+        if dt > 0 and finite(d):
+            result[i] = d / dt
+    return result
+
+
+def deceleration(speed, times, begin, end):
+    peak = NAN
+    peak_i = -1
+    for i in range(max(begin + 1, 1), min(end, len(speed) - 2) + 1):
+        dt = times[i + 1] - times[i - 1]
+        if dt <= 0 or not finite(speed[i - 1]) or not finite(speed[i + 1]):
+            continue
+        value = -(speed[i + 1] - speed[i - 1]) / dt
+        if not finite(peak) or value > peak:
+            peak = value
+            peak_i = i
+    return peak, peak_i
+
+
+def linear_slope(times, values):
+    pairs = [(t, v) for t, v in zip(times, values) if finite(t) and finite(v)]
+    if len(pairs) < 2:
+        return NAN
+    mt = sum(t for t, _ in pairs) / len(pairs)
+    mv = sum(v for _, v in pairs) / len(pairs)
+    den = sum((t - mt) ** 2 for t, _ in pairs)
+    return sum((t - mt) * (v - mv) for t, v in pairs) / den if den > 0 else 0.0
+
+
+def parse_case(path):
+    name = os.path.splitext(os.path.basename(path))[0]
+    match = re.match(
+        r"^snap_(on|zero|p8b)_(?:o(\d+)_)?(flat|proto)_(Walk|Run)_(Down|Up)_y(-?\d+)_(f\d+|\d+)$",
+        name,
+    )
+    if not match:
+        return None
+    arm, offset, terrain, gait, direction, yaw, stop = match.groups()
+    return {
+        "case": name,
+        "arm": arm,
+        "offset": int(offset) if offset is not None else -1,
+        "terrain": terrain,
+        "gait": gait,
+        "direction": direction,
+        "yaw": int(yaw),
+        "stop": stop,
+    }
+
+
+def load_runtime(directory):
+    cases = []
+    for path in sorted(glob.glob(os.path.join(directory, "snap_*.csv"))):
+        meta = parse_case(path)
+        if meta is None:
+            continue
+        with open(path, newline="", encoding="utf-8-sig") as handle:
+            rows = list(csv.DictReader(handle))
+        if not rows:
+            continue
+        required = {"rootEvalX", "rootEvalY", "rootEvalZ", "ikZeroed", "stopBake"}
+        missing = required.difference(rows[0])
+        if missing:
+            raise ValueError("%s 缺少 append-only 欄位：%s" % (path, sorted(missing)))
+        meta.update(path=path, rows=rows)
+        cases.append(meta)
+    return cases
+
+
+def load_schedule(path):
+    plants = {}
+    mixer = []
+    if not os.path.exists(path):
+        raise FileNotFoundError(path)
+    with open(path, newline="", encoding="utf-8-sig") as handle:
+        for row in csv.DictReader(handle):
+            if row.get("recordType") == "mixer":
+                mixer.append(row)
+                continue
+            bake = row.get("bake", "")
+            if not bake:
+                continue
+            info = plants.setdefault(
+                bake,
+                {
+                    "gait": row.get("gait", ""),
+                    "variant": row.get("variant", ""),
+                    "clip": row.get("clip", ""),
+                    "duration": f(row.get("duration")),
+                    "playback": f(row.get("playback")),
+                    "events": [],
+                },
+            )
+            idx = int(f(row.get("eventIdx"), -1))
+            if idx >= 0:
+                info["events"].append(
+                    {
+                        "index": idx,
+                        "side": "l" if row.get("side") == "Left" else "r",
+                        "clipTime": f(row.get("clipTime")),
+                    }
+                )
+    for info in plants.values():
+        info["events"].sort(key=lambda item: item["index"])
+    return plants, mixer
+
+
+def load_offline(path):
+    groups = {}
+    with open(path, newline="", encoding="utf-8-sig") as handle:
+        for row in csv.DictReader(handle):
+            groups.setdefault(row["clip"], []).append(row)
+    for name, rows in groups.items():
+        rows.sort(key=lambda row: f(row["t"]))
+        # runtime 秒 ＝ clip 秒 ／ playback（停步 transition 與 locomotion mixer 的 _Speed；PLAN §1）
+        p = PLAYBACK.get(name, 1.0)
+        for row in rows:
+            row["clipT"] = row["t"]
+            row["t"] = repr(f(row["t"]) / p)
+        # loop：接一個完整循環（root 與腳加上整段位移），避免 clip 邊界截斷 plant／swing
+        if rows and rows[0].get("kind") == "loop":
+            first, last = rows[0], rows[-1]
+            span = f(last["t"])
+            shift = {a: f(last["root" + a]) - f(first["root" + a]) for a in "XYZ"}
+            extra = []
+            for row in rows[1:]:
+                copy = dict(row)
+                copy["t"] = repr(f(row["t"]) + span)
+                for key in list(copy):
+                    if key[-1:] in ("X", "Z") and key[:-1] in ("root", "lAnkle", "rAnkle", "lToe", "rToe"):
+                        copy[key] = repr(f(row[key]) + shift[key[-1]])
+                extra.append(copy)
+            rows.extend(extra)
+    return groups
+
+
+PLAYBACK = {
+    "RunFwdStop_LU": 1.3124558, "RunFwdStop_RU": 1.2588,
+    "WalkFwdStop_LU": 1.3327742, "WalkFwdStop_RU": 1.3327742,
+    "RunFwdLoop": 1.3124558, "WalkFwdLoop": 1.3327742,
+}
+
+
+def runtime_track(case, side):
+    rows = case["rows"]
+    cut = next((i for i, row in enumerate(rows) if row.get("phase") == "restart"), len(rows))
+    rows = rows[:cut]
+    frames = [int(f(row.get("frame"), 0)) for row in rows]
+    times = [(frame - frames[0]) * RUNTIME_DT for frame in frames] if frames else []
+    root = [vec(row, "root") for row in rows]
+    root_eval = [vec(row, "rootEval") for row in rows]
+    pose = [vec(row, side + "pose") for row in rows]
+    target = [vec(row, side + "tgt") for row in rows]
+    displayed = [vec(row, side + "bone") for row in rows]
+    raw = [add(pose[i], sub(root[i], root_eval[i])) for i in range(len(rows))]
+    applied = [(NAN, NAN, NAN)] * len(rows)
+    for i in range(1, len(rows)):
+        applied[i] = add(target[i - 1], sub(root[i], root_eval[i]))
+    return {
+        "rows": rows,
+        "times": times,
+        "root": root,
+        "rootEval": root_eval,
+        "pose": pose,
+        "A": raw,
+        "B": applied,
+        "C": displayed,
+        "vA": speed_series(raw, times),
+        "vC": speed_series(displayed, times),
+        "phase": [int(f(row.get(side + "ph"), -1)) for row in rows],
+        "beta": [f(row.get(side + "beta")) for row in rows],
+        "posW": [f(row.get(side + "posW")) for row in rows],
+        "side": side,
+        "case": case,
+        "dt": RUNTIME_DT,
+        "source": "runtime",
+    }
+
+
+def offline_track(rows, side):
+    times = [f(row["t"]) for row in rows]
+    root = [vec(row, "root") for row in rows]
+    prefix = "lAnkle" if side == "l" else "rAnkle"
+    raw = [vec(row, prefix) for row in rows]
+    empty = [(NAN, NAN, NAN)] * len(rows)
+    return {
+        "rows": rows,
+        "times": times,
+        "root": root,
+        "rootEval": root,
+        "pose": raw,
+        "A": raw,
+        "B": empty,
+        "C": empty,
+        "vA": speed_series(raw, times),
+        "vC": [NAN] * len(rows),
+        "phase": [-1] * len(rows),
+        "beta": [NAN] * len(rows),
+        "posW": [NAN] * len(rows),
+        "side": side,
+        "dt": median([times[i] - times[i - 1] for i in range(1, len(times))]),
+        "source": "offline",
+    }
+
+
+def detect_plants(track, threshold=0.25):
+    speed = track["vA"]
+    result = []
+    last = 1
+    for plant in range(1, len(speed) - 2):
+        if not all(finite(speed[j]) and speed[j] <= threshold for j in range(plant, plant + 3)):
+            continue
+        intervals = []
+        i = last
+        while i < plant:
+            if finite(speed[i]) and speed[i] > 0.5:
+                start = i
+                while i + 1 < plant and finite(speed[i + 1]) and speed[i + 1] > 0.5:
+                    i += 1
+                intervals.append((start, i))
+            i += 1
+        if not intervals:
+            continue
+        swing = max(intervals, key=lambda pair: (pair[1] - pair[0] + 1, pair[1]))
+        result.append((swing[0], plant))
+        last = plant + 3
+    return result
+
+
+def match_schedule(bake, side, clip_time, schedule, tolerance):
+    info = schedule.get(bake)
+    if not info or not finite(clip_time):
+        return -1, "unmapped"
+    candidates = [event for event in info["events"] if event["side"] == side]
+    if not candidates:
+        return -1, "unmapped"
+    event = min(candidates, key=lambda item: abs(item["clipTime"] - clip_time))
+    if abs(event["clipTime"] - clip_time) > tolerance:
+        return -1, "unmapped"
+    last_index = max(item["index"] for item in info["events"])
+    if event["index"] == last_index and bake == "Bake_RunFwdStop_LU" and side == "l":
+        label = "LU_restep"
+    elif event["index"] == last_index:
+        label = "final"
+    else:
+        label = "brake"
+    return event["index"], label
+
+
+def index_at_or_after(track, plant, seconds_before):
+    target = track["times"][plant] - seconds_before
+    return min(range(plant + 1), key=lambda i: abs(track["times"][i] - target))
+
+
+def metrics(track, swing, plant, identity):
+    times = track["times"]
+    A, B, C = track["A"], track["B"], track["C"]
+    vA, vC = track["vA"], track["vC"]
+    phase = track["phase"]
+    # 第一次「進入」Locked（swing 起點時上一個支撐期可能還沒釋放，不能把它當成這一次的鎖定）
+    lock = next((i for i in range(max(swing, 1), len(phase)) if phase[i] == LOCKED and phase[i - 1] != LOCKED), -1)
+    release = next((i for i in range(lock + 1, len(phase)) if phase[i] != LOCKED), -1) if lock >= 0 else -1
+    if release < 0 and lock >= 0:
+        release = len(phase) - 1
+
+    d_a = path_length(A, swing, plant)
+    d_c = path_length(C, swing, plant)
+    row = dict(identity)
+    row.update(tS=swing, tP=plant, tL=lock, release=release, tP_s=times[plant], D_A_cm=d_a * 100, D_C_cm=d_c * 100)
+
+    for ms in (200, 100, 50):
+        start = index_at_or_after(track, plant, ms / 1000.0)
+        ra = path_length(A, start, plant)
+        rc = path_length(C, start, plant)
+        row["A_remain_%dms_cm" % ms] = ra * 100
+        row["A_remain_%dms_pct" % ms] = ratio(ra, d_a) * 100
+        row["C_remain_%dms_cm" % ms] = rc * 100
+        row["C_remain_%dms_pct" % ms] = ratio(rc, d_c) * 100
+
+    tail = times[swing] + 0.8 * (times[plant] - times[swing])
+    tail_i = min(range(swing, plant + 1), key=lambda i: abs(times[i] - tail))
+    row["A_final20_pct"] = ratio(path_length(A, tail_i, plant), d_a) * 100
+    row["C_final20_pct"] = ratio(path_length(C, tail_i, plant), d_c) * 100
+    row["A_peakSpeed_mps"] = maximum(vA[swing : plant + 1])
+    row["C_peakSpeed_mps"] = maximum(vC[swing : plant + 1])
+    a_decel, a_decel_i = deceleration(vA, times, swing, plant)
+    c_decel, c_decel_i = deceleration(vC, times, swing, plant)
+    row["A_peakDecel_mps2"] = a_decel
+    row["C_peakDecel_mps2"] = c_decel
+    row["A_peakDecel_to_tP_ms"] = (times[plant] - times[a_decel_i]) * 1000 if a_decel_i >= 0 else NAN
+    row["C_peakDecel_to_tP_ms"] = (times[plant] - times[c_decel_i]) * 1000 if c_decel_i >= 0 else NAN
+
+    row["lockMinusPlant_frames"] = lock - plant if lock >= 0 else NAN
+    row["vA_at_lock_mps"] = vA[lock] if lock >= 0 else NAN
+    row["A_lock_to_plant_cm"] = path_length(A, lock, plant) * 100 if lock >= 0 and lock <= plant else 0.0 if lock == plant else NAN
+    row["A_slide_during_lock_cm"] = path_length(A, lock, release) * 100 if lock >= 0 else NAN
+    row["beta_at_lock"] = track["beta"][lock] if lock >= 0 else NAN
+
+    lock_point = (NAN, NAN, NAN)
+    if lock >= 0 and track["source"] == "runtime":
+        source_row = track["rows"][lock]
+        lock_point = (f(source_row.get(track["side"] + "lockX")), A[plant][1], f(source_row.get(track["side"] + "lockZ")))
+    row["lockXZ_to_A_tP_cm"] = dist_xz(lock_point, A[plant]) * 100
+    row["C_to_B_at_lock_cm"] = dist_xz(C[lock], B[lock]) * 100 if lock >= 0 else NAN
+    row["amp_remaining100_ratio"] = ratio(row["C_remain_100ms_cm"], row["A_remain_100ms_cm"])
+    row["amp_peakDecel_ratio"] = ratio(c_decel, a_decel)
+    row["C_speed_jump_at_lock_mps"] = abs(vC[lock + 1] - vC[lock - 1]) if 0 < lock < len(vC) - 1 and finite(vC[lock + 1]) and finite(vC[lock - 1]) else NAN
+    row["prelock6_max_CminusA_cm"] = maximum(
+        [dist_xz(C[i], A[i]) * 100 for i in range(max(swing, lock - 6), lock)]
+    ) if lock >= 0 else NAN
+    row["lock_max_CminusA_cm"] = maximum(
+        [dist_xz(C[i], A[i]) * 100 for i in range(lock, release + 1)]
+    ) if lock >= 0 else NAN
+    row["untilPlant_max_CminusA_cm"] = maximum(
+        [dist_xz(C[i], A[i]) * 100 for i in range(swing, plant + 1)]
+    )
+
+    final100 = index_at_or_after(track, plant, 0.1)
+    row["A_vertical_last100_cm"] = (A[plant][1] - A[final100][1]) * 100 if valid_vec(A[plant]) and valid_vec(A[final100]) else NAN
+    row["C_vertical_last100_cm"] = (C[plant][1] - C[final100][1]) * 100 if valid_vec(C[plant]) and valid_vec(C[final100]) else NAN
+    support_values = []
+    if track["source"] == "runtime":
+        key = track["side"] + "liveSup"
+        support_values = [f(track["rows"][i].get(key)) for i in range(final100, plant + 1)]
+    support_values = [value for value in support_values if finite(value)]
+    row["liveSupportChangedLast100"] = int(max(support_values) - min(support_values) > 0.05) if support_values else -1
+    row["liveSupportRangeLast100_cm"] = (max(support_values) - min(support_values)) * 100 if support_values else NAN
+
+    if lock >= 0 and lock < plant and finite(row["A_lock_to_plant_cm"]) and row["A_lock_to_plant_cm"] > 3.0:
+        category = "early-freeze"
+    elif (finite(row["amp_remaining100_ratio"]) and row["amp_remaining100_ratio"] > 1.25) or (
+        finite(row["amp_peakDecel_ratio"]) and row["amp_peakDecel_ratio"] > 1.25
+    ):
+        category = "pull"
+    elif finite(row["untilPlant_max_CminusA_cm"]) and row["untilPlant_max_CminusA_cm"] <= 1.0 and lock >= 0 and abs(lock - plant) <= 1:
+        category = "faithful"
+    elif track["source"] == "offline":
+        category = "offline"
+    else:
+        category = "extra"
+    row["classification"] = category
+    return row
+
+
+def safe_name(value):
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value)).strip("_")
+
+
+def write_trajectory(out_dir, track, swing, plant, identity, serial):
+    before = track["times"][plant] - 0.5
+    after = track["times"][plant] + 0.3
+    indices = [i for i, t in enumerate(track["times"]) if before <= t <= after]
+    if not indices:
+        return
+    anchor = track["A"][plant]
+    label = "%s_%s_%s_%02d" % (identity["case"], identity["side"], identity["eventLabel"], serial)
+    path = os.path.join(out_dir, "traj_" + safe_name(label) + ".csv")
+    fields = [
+        "t_ms", "AX", "AZ", "BX", "BZ", "CX", "CZ", "rootX", "rootZ",
+        "A_distToPlant", "B_distToPlant", "C_distToPlant", "root_distToPlant", "vA", "vC", "phase", "beta",
+    ]
+    with open(path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for i in indices:
+            A, B, C, root = track["A"][i], track["B"][i], track["C"][i], track["root"][i]
+            writer.writerow(
+                {
+                    "t_ms": (track["times"][i] - track["times"][plant]) * 1000,
+                    "AX": A[0], "AZ": A[2], "BX": B[0], "BZ": B[2], "CX": C[0], "CZ": C[2],
+                    "rootX": root[0], "rootZ": root[2],
+                    "A_distToPlant": dist_xz(A, anchor), "B_distToPlant": dist_xz(B, anchor),
+                    "C_distToPlant": dist_xz(C, anchor), "root_distToPlant": dist_xz(root, anchor),
+                    "vA": track["vA"][i], "vC": track["vC"][i], "phase": track["phase"][i], "beta": track["beta"][i],
+                }
+            )
+
+
+def validate_v1(cases):
+    details = []
+    passed = True
+    for case in [item for item in cases if item["arm"] == "zero"]:
+        for side in "lr":
+            track = runtime_track(case, side)
+            errors = [dist_xz(c, a) for c, a in zip(track["C"], track["A"])]
+            offsets = [sub(c, a) for c, a in zip(track["C"], track["A"]) if valid_vec(c) and valid_vec(a)]
+            ox = median([value[0] for value in offsets])
+            oz = median([value[2] for value in offsets])
+            differential = []
+            if offsets:
+                base = offsets[0]
+                differential = [math.hypot(value[0] - base[0], value[2] - base[2]) for value in offsets]
+            raw_med = median(errors)
+            diff_med = median(differential)
+            slope = linear_slope(track["times"], differential)
+            ok = (raw_med <= 0.003 or diff_med <= 0.003) and (not finite(slope) or abs(slope) <= 0.003)
+            passed &= ok
+            details.append("%s/%s raw %.3f cm, diff %.3f cm, fixed (%.3f, %.3f) cm, drift %.3f cm/s" % (
+                case["case"], side, raw_med * 100, diff_med * 100, ox * 100, oz * 100, slope * 100))
+    return passed and bool(details), details or ["沒有 zero arm 資料"]
+
+
+def pair_key(case):
+    return (case["gait"], case["offset"], case["terrain"], case["direction"], case["yaw"], case["stop"])
+
+
+def validate_v2(cases):
+    on = {pair_key(case): case for case in cases if case["arm"] == "on" and case["terrain"] == "flat"}
+    zero = {pair_key(case): case for case in cases if case["arm"] == "zero" and case["terrain"] == "flat"}
+    details = []
+    passed = True
+    for key in sorted(set(on).intersection(zero)):
+        a, b = on[key]["rows"], zero[key]["rows"]
+        n = min(len(a), len(b))
+        root_error = maximum([dist_3d(vec(a[i], "root"), vec(b[i], "root")) for i in range(n)])
+        nt_error = maximum([abs(f(a[i].get("stopNT")) - f(b[i].get("stopNT"))) for i in range(n)])
+        mismatch = sum(a[i].get("stopBake", "") != b[i].get("stopBake", "") for i in range(n))
+        ok = len(a) == len(b) and root_error <= 1e-5 and nt_error <= 1e-5 and mismatch == 0
+        passed &= ok
+        details.append("%s rows %d/%d, root max %.5f cm, stopNT max %.7f, variant mismatch %d" % (
+            key, len(a), len(b), root_error * 100, nt_error, mismatch))
+    return passed and bool(details), details or ["沒有可配對的 on/zero flat 資料"]
+
+
+def validate_v3(cases):
+    values = []
+    for case in cases:
+        if case["arm"] not in ("on", "p8b"):
+            continue
+        for side in "lr":
+            track = runtime_track(case, side)
+            values.extend(
+                dist_xz(track["C"][i], track["B"][i])
+                for i in range(len(track["rows"]))
+                if track["posW"][i] >= 0.999 and valid_vec(track["B"][i])
+            )
+    med = median(values)
+    return bool(values) and med <= 0.005, ["posW=1 samples %d, median |C-B| %.3f cm" % (len(values), med * 100)]
+
+
+def interpolate_offline(rows, side, time_value):
+    if not rows:
+        return (NAN, NAN, NAN)
+    times = [f(row.get("clipT", row["t"])) for row in rows]
+    i = min(range(len(times)), key=lambda j: abs(times[j] - time_value))
+    prefix = "lAnkle" if side == "l" else "rAnkle"
+    return sub(vec(rows[i], prefix), vec(rows[i], "root"))
+
+
+def validate_v4(cases, offline, schedule):
+    errors = []
+    details = []
+    # A0 是骨骼空間（foot bone transform）⇒ 對照必須用 zero arm 的最終骨骼（同為骨骼空間、無 IK），
+    # 而不是 pose（humanoid IK goal 空間，與骨骼差約 6 cm）。骨骼在 LateUpdate 已含本帧 root 位移 ⇒ 減 root（非 rootEval）。
+    for case in [item for item in cases if item["arm"] == "zero"]:
+        rows = case["rows"]
+        bakes = [row.get("stopBake", "") for row in rows if row.get("stopBake", "")]
+        if not bakes:
+            continue
+        bake = max(set(bakes), key=bakes.count)
+        info = schedule.get(bake)
+        if not info or not info["events"] or info["clip"] not in offline:
+            continue
+        event = max(info["events"], key=lambda item: item["index"])
+        side = event["side"]
+        candidates = [i for i, row in enumerate(rows) if row.get("stopBake") == bake]
+        if not candidates:
+            continue
+        center = min(candidates, key=lambda i: abs(f(rows[i].get("stopNT")) * info["duration"] - event["clipTime"]))
+        samples = []
+        for i in range(max(0, center - 3), min(len(rows), center + 4)):
+            clip_time = f(rows[i].get("stopNT")) * info["duration"]
+            runtime_local = sub(vec(rows[i], side + "bone"), vec(rows[i], "root"))
+            clip_local = interpolate_offline(offline[info["clip"]], side, clip_time)
+            if valid_vec(runtime_local) and valid_vec(clip_local):
+                samples.append((clip_local, runtime_local))
+        if len(samples) < 3:
+            continue
+        dot = sum(a[0] * b[0] + a[2] * b[2] for a, b in samples)
+        cross = sum(a[0] * b[2] - a[2] * b[0] for a, b in samples)
+        angle = math.atan2(cross, dot)
+        ca, sa = math.cos(angle), math.sin(angle)
+        local_errors = []
+        for a, b in samples:
+            rotated = (ca * a[0] - sa * a[2], a[1], sa * a[0] + ca * a[2])
+            local_errors.append(dist_3d(rotated, b))
+        errors.extend(local_errors)
+        details.append("%s %s final event: median %.3f cm, max %.3f cm, fitted yaw %.2f°" % (
+            case["case"], bake, median(local_errors) * 100, maximum(local_errors) * 100, math.degrees(angle)))
+    worst = maximum(errors)
+    return bool(errors) and worst <= 0.01, details or ["沒有可做 A1↔A0 final-plant 對齊的資料"]
+
+
+def md_status(ok):
+    return "✅ PASS" if ok else '<span style="color:red">🔴 **FAIL**</span>'
+
+
+def fmt(value, digits=2):
+    return ("%%.%df" % digits) % value if finite(value) else "n/a"
+
+
+def aggregate(rows):
+    return {
+        "n": len(rows),
+        "remain100": median([f(row.get("A_remain_100ms_cm")) for row in rows]),
+        "remain100pct": median([f(row.get("A_remain_100ms_pct")) for row in rows]),
+        "final20": median([f(row.get("A_final20_pct")) for row in rows]),
+        "peakSpeed": median([f(row.get("A_peakSpeed_mps")) for row in rows]),
+        "peakDecel": median([f(row.get("A_peakDecel_mps2")) for row in rows]),
+    }
+
+
+def table_row(label, rows):
+    a = aggregate(rows)
+    return "| %s | %d | %s | %s | %s | %s | %s |" % (
+        label, a["n"], fmt(a["remain100"]), fmt(a["remain100pct"]), fmt(a["final20"]), fmt(a["peakSpeed"]), fmt(a["peakDecel"])
+    )
+
+
+def write_summary(path, validations, plants, mixer):
+    lines = ["# Stop-snap diagnosis", "", "## Validation（先看這裡）", ""]
+    for name, ok, details in validations:
+        lines.append("### %s — %s" % (name, md_status(ok)))
+        lines.append("")
+        for detail in details:
+            lines.append("- " + detail)
+        lines.append("")
+
+    lines.extend([
+        "## Raw animation：Loop vs Stop", "",
+        "| 組別 | plants | A 最後100ms行程 cm | 佔 swing % | 最後20%集中度 % | peak速度 m/s | peak減速 m/s² |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ])
+    for gait in ("Run", "Walk"):
+        for kind in ("Loop", "Stop"):
+            subset = [row for row in plants if row["source"] == "offline" and row["gait"] == gait and row["kind"] == kind]
+            lines.append(table_row(gait + " " + kind, subset))
+
+    lines.extend(["", "## 四支 Stop clip（A0）", "",
+                  "| clip | plants | A 最後100ms行程 cm | 佔 swing % | 最後20%集中度 % | peak速度 m/s | peak減速 m/s² |",
+                  "|---|---:|---:|---:|---:|---:|---:|"])
+    for variant in ("Bake_RunFwdStop_LU", "Bake_RunFwdStop_RU", "Bake_WalkFwdStop_LU", "Bake_WalkFwdStop_RU"):
+        lines.append(table_row(variant, [row for row in plants if row["source"] == "offline" and row["stopBake"] == variant]))
+
+    lines.extend(["", "## Runtime：平地與樓梯", "",
+                  "| terrain / arm | plants | A 最後100ms行程 cm | 佔 swing % | 最後20%集中度 % | peak速度 m/s | peak減速 m/s² |",
+                  "|---|---:|---:|---:|---:|---:|---:|"])
+    for terrain in ("flat", "proto"):
+        for arm in ("on", "zero", "p8b"):
+            subset = [row for row in plants if row["source"] == "runtime" and row["terrain"] == terrain and row["arm"] == arm]
+            if subset:
+                lines.append(table_row(terrain + " / " + arm, subset))
+
+    lines.extend(["", "## T3 分類", ""])
+    runtime = [row for row in plants if row["source"] == "runtime"]
+    for category in ("early-freeze", "pull", "faithful", "extra"):
+        lines.append("- %s: %d" % (category, sum(row["classification"] == category for row in runtime)))
+
+    lines.extend(["", "## Locomotion mixer 與 loop Bake SourceClip", "",
+                  "| index | child | expected | match |", "|---:|---|---|---|"])
+    for row in mixer:
+        match = row.get("matchesLoopSource", "")
+        lines.append("| %s | %s | %s | %s |" % (
+            row.get("mixerIndex", ""), row.get("mixerClip", ""), row.get("expectedLoopClip", ""),
+            "✅" if match == "1" else "—" if match == "" else "🔴"))
+
+    lines.extend(["", "## Notes", "",
+                  "- A = pose + (root − rootEval)；B = 上一列 target + (本列 root − rootEval)；C = 最終 foot bone。",
+                  "- V4 因 runtime CSV 沒有 root rotation，使用 7-sample 最小平方 yaw 對齊後比較 3D root-space ankle；不以單點自行配準。",
+                  "- `plants.csv` 保留每個 plant 的全部數值；每個 `traj_*.csv` 是 tP 前 500 ms 到後 300 ms。", ""])
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write("\n".join(lines))
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Analyze PlantSettleProbe stop-snap CSVs")
+    parser.add_argument("runtime_dir")
+    parser.add_argument("clips_csv")
+    parser.add_argument("--schedule", default=None)
+    parser.add_argument("--out", default=None)
+    args = parser.parse_args()
+    schedule_path = args.schedule or os.path.join(os.path.dirname(os.path.abspath(args.clips_csv)), "schedule.csv")
+    out_dir = args.out or os.path.join(os.path.dirname(os.path.abspath(args.clips_csv)), "analysis")
+    os.makedirs(out_dir, exist_ok=True)
+
+    cases = load_runtime(args.runtime_dir)
+    offline = load_offline(args.clips_csv)
+    schedule, mixer = load_schedule(schedule_path)
+    plants = []
+    serial = 0
+
+    for case in cases:
+        for side in "lr":
+            track = runtime_track(case, side)
+            loop_index = 0
+            for swing, plant in detect_plants(track):
+                source_row = track["rows"][plant]
+                bake = source_row.get("stopBake", "")
+                info = schedule.get(bake)
+                clip_time = f(source_row.get("stopNT")) * info["duration"] if info else NAN
+                if bake:
+                    event_idx, event_label = match_schedule(bake, side, clip_time, schedule, 3 * RUNTIME_DT)
+                    kind = "Stop"
+                    variant = bake.replace("Bake_", "")
+                else:
+                    event_idx, event_label = loop_index, "loop"
+                    loop_index += 1
+                    kind = "Loop"
+                    variant = case["gait"] + "FwdLoop"
+                identity = {
+                    "source": "runtime", "case": case["case"], "gait": case["gait"], "variant": variant,
+                    "side": side, "eventIdx": event_idx, "eventLabel": event_label, "terrain": case["terrain"],
+                    "arm": case["arm"], "kind": kind, "stopBake": bake, "clipTime": clip_time,
+                }
+                result = metrics(track, swing, plant, identity)
+                plants.append(result)
+                write_trajectory(out_dir, track, swing, plant, identity, serial)
+                serial += 1
+
+    for clip_name, rows in offline.items():
+        meta = rows[0]
+        bake = meta.get("bake", "")
+        for side in "lr":
+            track = offline_track(rows, side)
+            loop_index = 0
+            for swing, plant in detect_plants(track):
+                clip_time = f(rows[plant].get("clipT", rows[plant]["t"]))
+                if meta.get("kind") == "loop" and f(rows[plant]["t"]) > f(rows[len(rows) // 2]["t"]) + 0.3:
+                    continue  # 接上的第二循環只用來補 swing，不重複計 plant
+                if meta.get("kind") == "stop":
+                    event_idx, event_label = match_schedule(bake, side, clip_time, schedule, 3.0 / 120.0 * 1.4)
+                    if event_idx < 0:
+                        continue
+                    kind = "Stop"
+                else:
+                    event_idx, event_label = loop_index, "loop"
+                    loop_index += 1
+                    kind = "Loop"
+                identity = {
+                    "source": "offline", "case": clip_name, "gait": meta.get("gait", ""),
+                    "variant": clip_name, "side": side, "eventIdx": event_idx, "eventLabel": event_label,
+                    "terrain": "clip", "arm": "none", "kind": kind, "stopBake": bake, "clipTime": clip_time,
+                }
+                result = metrics(track, swing, plant, identity)
+                plants.append(result)
+                write_trajectory(out_dir, track, swing, plant, identity, serial)
+                serial += 1
+
+    validations = []
+    for label, func in (("V1 — zero arm：C vs A", validate_v1), ("V2 — on/zero Core invariance", validate_v2), ("V3 — IK on：C vs B", validate_v3)):
+        ok, details = func(cases)
+        validations.append((label, ok, details))
+    ok, details = validate_v4(cases, offline, schedule)
+    validations.append(("V4 — runtime A1 vs offline A0", ok, details))
+
+    fieldnames = [
+        "source", "case", "gait", "variant", "side", "eventIdx", "eventLabel", "terrain", "arm", "kind", "stopBake", "clipTime",
+        "tS", "tP", "tL", "release", "tP_s", "D_A_cm", "D_C_cm",
+        "A_remain_200ms_cm", "A_remain_200ms_pct", "C_remain_200ms_cm", "C_remain_200ms_pct",
+        "A_remain_100ms_cm", "A_remain_100ms_pct", "C_remain_100ms_cm", "C_remain_100ms_pct",
+        "A_remain_50ms_cm", "A_remain_50ms_pct", "C_remain_50ms_cm", "C_remain_50ms_pct",
+        "A_final20_pct", "C_final20_pct", "A_peakSpeed_mps", "C_peakSpeed_mps",
+        "A_peakDecel_mps2", "C_peakDecel_mps2", "A_peakDecel_to_tP_ms", "C_peakDecel_to_tP_ms",
+        "lockMinusPlant_frames", "vA_at_lock_mps", "A_lock_to_plant_cm", "lockXZ_to_A_tP_cm", "A_slide_during_lock_cm", "beta_at_lock",
+        "amp_remaining100_ratio", "amp_peakDecel_ratio", "C_speed_jump_at_lock_mps", "prelock6_max_CminusA_cm",
+        "lock_max_CminusA_cm", "untilPlant_max_CminusA_cm", "C_to_B_at_lock_cm", "classification",
+        "A_vertical_last100_cm", "C_vertical_last100_cm", "liveSupportChangedLast100", "liveSupportRangeLast100_cm",
+    ]
+    with open(os.path.join(out_dir, "plants.csv"), "w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(plants)
+    write_summary(os.path.join(out_dir, "summary.md"), validations, plants, mixer)
+    print("runtime cases=%d, offline clips=%d, plants=%d, output=%s" % (len(cases), len(offline), len(plants), out_dir))
+
+
+if __name__ == "__main__":
+    main()

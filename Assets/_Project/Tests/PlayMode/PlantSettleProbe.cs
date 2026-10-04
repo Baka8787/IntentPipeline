@@ -35,6 +35,7 @@ namespace Project.Tests.PlayMode
         private GameObject _camera;
 
         public enum Dir { Down, Up }
+        public enum Gait { Walk, Run }
 
         public override void Setup()
         {
@@ -131,7 +132,33 @@ namespace Project.Tests.PlayMode
             [Values("p72", "p76", "p80", "p84", "p88", "p92", "p96", "p100")] string variant)
             => Drive("Stairs_650_400_300_Prefab", Dir.Up, 0f, -1 - offset, "flatphase_" + variant + "_o" + offset + "_", variant);
 
-        private IEnumerator Drive(string stairName, Dir dir, float yaw, int stopIndex, string prefix, string restartVariant)
+        /// <summary>
+        /// Stop 吸附感診斷：平地 loop 對照 + Stop。p8b 只屬 Run；NUnit 仍依規格展開完整 Values，
+        /// Walk/p8b 組合在執行時明確略過，避免把未定義情境混進輸出。
+        /// </summary>
+        [UnityTest, Explicit]
+        public IEnumerator Probe_StopSnapFlat(
+            [Values(Gait.Walk, Gait.Run)] Gait gait,
+            [Values(0, 1, 2, 3, 4, 5)] int offset,
+            [Values("on", "zero", "p8b")] string arm)
+        {
+            if (gait == Gait.Walk && arm == "p8b")
+                Assert.Ignore("PLAN §5：PlantAwareExtrapolation 對照只跑 Run。 ");
+
+            string intervention = arm == "zero" ? "zero" : arm == "p8b" ? "xab1" : null;
+            return Drive("Stairs_650_400_300_Prefab", Dir.Up, 0f, -1 - offset,
+                "snap_" + arm + "_o" + offset + "_", intervention, gait);
+        }
+
+        /// <summary>Stop 吸附感診斷：proto 樓梯、yaw 0、Run、IK 開。</summary>
+        [UnityTest, Explicit]
+        public IEnumerator Probe_StopSnapStairs(
+            [Values(Dir.Down, Dir.Up)] Dir dir,
+            [Values(2, 6, 10)] int stopIndex)
+            => Drive("Stairs_650_400_300_Prefab", dir, 0f, stopIndex, "snap_on_", null, Gait.Run);
+
+        private IEnumerator Drive(string stairName, Dir dir, float yaw, int stopIndex, string prefix, string restartVariant,
+            Gait gait = Gait.Run)
         {
             const float diagonalRun = 2.5f;
             Time.captureDeltaTime = 1f / 60f;
@@ -195,13 +222,17 @@ namespace Project.Tests.PlayMode
                 var settings = (FootIKSettings)typeof(FootIKController).GetField("settings", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(footIK);
                 settings.PlantAwareExtrapolation = restartVariant == "xab1";
             }
+            var rootAtUpdate = player.gameObject.AddComponent<RootAtUpdate>();
+            rootAtUpdate.Init(player.transform);
             var rec = footIK.gameObject.AddComponent<SettleRecorder>();
-            rec.Init(player, footIK);
+            rec.Init(player, footIK, rootAtUpdate, restartVariant == "zero");
 
             string phase = "approach";
             Key move = dir == Dir.Up ? Key.W : Key.S;
+            if (gait == Gait.Walk) Press(_keyboard.leftCtrlKey);
             Press(_keyboard.wKey);
             int after = 0;
+            bool snapFlat = prefix.StartsWith("snap_") && flat;
             for (int frame = 0; frame < 4000; frame++)
             {
                 yield return null;
@@ -227,13 +258,15 @@ namespace Project.Tests.PlayMode
                 }
                 else if (phase == "restart" && ++after > RestartFrames) break;
                 rec.Phase = phase;
-                rec.Recording = phase == "stop" || phase == "restart" || (phase == "diag" && Mathf.Abs(s - stopS) <= 1.2f);
+                rec.Recording = (snapFlat && frame >= 90) || phase == "stop" || phase == "restart"
+                                || (phase == "diag" && Mathf.Abs(s - stopS) <= 1.2f);
             }
+            if (gait == Gait.Walk) Release(_keyboard.leftCtrlKey);
             Release(_keyboard.sKey); Release(_keyboard.wKey);
 
             string outDir = Path.GetFullPath(Path.Combine(Application.dataPath, "../Temp/PlantSettle"));
             Directory.CreateDirectory(outDir);
-            string label = prefix + (stopIndex < 0 ? "flat" : stairName.StartsWith("Stairs_") ? "proto" : "s1") + "_Run_" + dir
+            string label = prefix + (stopIndex < 0 ? "flat" : stairName.StartsWith("Stairs_") ? "proto" : "s1") + "_" + gait + "_" + dir
                            + "_y" + yaw.ToString("0", CultureInfo.InvariantCulture) + "_" + (stopIndex < 0 ? "f" + (-1 - stopIndex) : stopIndex.ToString("00"));
             File.WriteAllText(Path.Combine(outDir, label + ".csv"), rec.Csv.ToString());
         }
@@ -341,6 +374,24 @@ namespace Project.Tests.PlayMode
         private static float TopY(Vector3 xz) =>
             Physics.Raycast(new Vector3(xz.x, 50f, xz.z), Vector3.down, out RaycastHit h, 100f) ? h.point.y : float.NaN;
 
+        /// <summary>動畫評估前的 player root 實測值；Frame 防止 recorder 誤讀上一幀。</summary>
+        [DefaultExecutionOrder(-32000)]
+        private sealed class RootAtUpdate : MonoBehaviour
+        {
+            private Transform _root;
+            public Vector3 Position { get; private set; }
+            public int Frame { get; private set; } = int.MinValue;
+
+            public void Init(Transform root) => _root = root;
+
+            private void Update()
+            {
+                if (_root == null) return;
+                Position = _root.position;
+                Frame = Time.frameCount;
+            }
+        }
+
         [DefaultExecutionOrder(32000)]
         private sealed class SettleRecorder : MonoBehaviour
         {
@@ -357,13 +408,16 @@ namespace Project.Tests.PlayMode
             private AnimationFacadeBase _facade;
             private PropertyInfo _keyP, _clipP;
             private object _animancer;
-            private Transform _lBone, _rBone, _hips;
+            private Transform _lBone, _rBone, _lToe, _rToe, _hips;
+            private RootAtUpdate _rootAtUpdate;
+            private bool _zeroIk;
+            private FieldInfo _walkVariantsF, _runVariantsF;
             private Vector3 _prevRoot, _prevPoseL, _prevPoseR, _prevBoneL, _prevBoneR;
             private bool _hasPrev;
 
-            public void Init(CharacterPipelineRunner player, FootIKController ik)
+            public void Init(CharacterPipelineRunner player, FootIKController ik, RootAtUpdate rootAtUpdate, bool zeroIk)
             {
-                _player = player; _ik = ik;
+                _player = player; _ik = ik; _rootAtUpdate = rootAtUpdate; _zeroIk = zeroIk;
                 const BindingFlags np = BindingFlags.Instance | BindingFlags.NonPublic;
                 _settings = (FootIKSettings)typeof(FootIKController).GetField("settings", np).GetValue(ik);
                 _poseF = typeof(FootIKController).GetField("_poseData", np);
@@ -372,6 +426,8 @@ namespace Project.Tests.PlayMode
                 _movingF = typeof(FootIKController).GetField("_moving", np);
                 _model = player.GetComponent<LocomotionModel>();
                 _stopF = typeof(LocomotionModel).GetField("_stop", np);
+                _walkVariantsF = typeof(LocomotionModel).GetField("walkStopVariants", np);
+                _runVariantsF = typeof(LocomotionModel).GetField("runStopVariants", np);
                 _facade = player.GetComponent<AnimationFacadeBase>();
                 if (_facade != null)
                 {
@@ -382,6 +438,8 @@ namespace Project.Tests.PlayMode
                 Animator anim = player.GetComponentInChildren<Animator>();
                 _lBone = anim.GetBoneTransform(HumanBodyBones.LeftFoot);
                 _rBone = anim.GetBoneTransform(HumanBodyBones.RightFoot);
+                _lToe = anim.GetBoneTransform(HumanBodyBones.LeftToes);
+                _rToe = anim.GetBoneTransform(HumanBodyBones.RightToes);
                 _hips = anim.GetBoneTransform(HumanBodyBones.Hips);
                 _prevRoot = player.transform.position;
 
@@ -392,6 +450,7 @@ namespace Project.Tests.PlayMode
                     foreach (string c in ("ph,role,beta,lift,posW,poseX,poseY,poseZ,poseVxz,exX,exZ,tgtX,tgtY,tgtZ,lockX,lockZ,relBlend,lockSupY,lockSupPt," +
                                           "boneX,boneY,boneZ,boneVxz,heelY,ankY,toeY,liveSup,livePt,cfSup,cfPt,k0,k25,k50,k75,k100,nOk,nFinal,nX,nZ").Split(','))
                         sb.Append(',').Append(p).Append(c);
+                sb.Append(",rootEvalX,rootEvalY,rootEvalZ,ikZeroed,ltoeBoneX,ltoeBoneY,ltoeBoneZ,rtoeBoneX,rtoeBoneY,rtoeBoneZ,stopBake");
                 Csv.Append(sb).Append('\n');
             }
 
@@ -406,31 +465,66 @@ namespace Project.Tests.PlayMode
                 Vector3 prevBoneL = _hasPrev ? _prevBoneL : boneL, prevBoneR = _hasPrev ? _prevBoneR : boneR;
                 _prevRoot = root; _prevPoseL = pose.LeftFootPosition; _prevPoseR = pose.RightFootPosition; _prevBoneL = boneL; _prevBoneR = boneR;
                 _hasPrev = true;
-                if (!Recording) return;
+                if (Recording)
+                {
+                    PlayerRuntimeData data = _player.RuntimeData;
+                    object stop = _stopF.GetValue(_model);
+                    bool stopActive = (bool)stop.GetType().GetProperty("IsActive").GetValue(stop);
+                    bool stopPlaying = (bool)stop.GetType().GetProperty("IsPlaying").GetValue(stop);
+                    float stopNT = (float)stop.GetType().GetProperty("NormalizedTime").GetValue(stop);
+                    string key = _keyP != null ? (string)_keyP.GetValue(_facade) : "";
+                    string clip = _clipP != null ? (string)_clipP.GetValue(_facade) : "";
+                    AnimState(out float nt, out float speed, out float weight, out int active);
+                    var moving = (MovingPelvisState)_movingF.GetValue(_ik);
+                    var td = _ik.TargetData;
 
-                PlayerRuntimeData data = _player.RuntimeData;
-                object stop = _stopF.GetValue(_model);
-                bool stopActive = (bool)stop.GetType().GetProperty("IsActive").GetValue(stop);
-                bool stopPlaying = (bool)stop.GetType().GetProperty("IsPlaying").GetValue(stop);
-                float stopNT = (float)stop.GetType().GetProperty("NormalizedTime").GetValue(stop);
-                string key = _keyP != null ? (string)_keyP.GetValue(_facade) : "";
-                string clip = _clipP != null ? (string)_clipP.GetValue(_facade) : "";
-                AnimState(out float nt, out float speed, out float weight, out int active);
-                var moving = (MovingPelvisState)_movingF.GetValue(_ik);
-                var td = _ik.TargetData;
+                    var sb = new StringBuilder();
+                    sb.Append(Time.frameCount).Append(',').Append(Phase).Append(',').Append(F(data.MovementIntent.DesiredSpeedNormalized)).Append(',').Append(data.Gait)
+                      .Append(',').Append(V(root)).Append(',').Append(F(vRoot.x)).Append(',').Append(F(vRoot.z)).Append(',').Append(F(new Vector2(vRoot.x, vRoot.z).magnitude))
+                      .Append(',').Append(stopActive ? 1 : 0).Append(',').Append(stopPlaying ? 1 : 0).Append(',').Append(F(stopNT))
+                      .Append(',').Append(key).Append(',').Append(clip).Append(',').Append(F(nt)).Append(',').Append(F(speed)).Append(',').Append(F(weight)).Append(',').Append(active)
+                      .Append(',').Append(F(moving.Offset)).Append(',').Append(F(td.PelvisOffsetY)).Append(',').Append(F(_hips.position.y - root.y));
+                    MixerChildren(sb);
+                    Foot(sb, (FootContactState)_lF.GetValue(_ik), moving.DebugLeftRole, pose.LeftFootPosition, prevPoseL, pose.LeftFootRotation, pose.LeftFootBottomHeight,
+                        td.LeftFootPosition, td.LeftFootPositionWeight, td.LeftFootRotation, td.LeftFootRotationWeight, boneL, prevBoneL, dt, true);
+                    Foot(sb, (FootContactState)_rF.GetValue(_ik), moving.DebugRightRole, pose.RightFootPosition, prevPoseR, pose.RightFootRotation, pose.RightFootBottomHeight,
+                        td.RightFootPosition, td.RightFootPositionWeight, td.RightFootRotation, td.RightFootRotationWeight, boneR, prevBoneR, dt, false);
 
-                var sb = new StringBuilder();
-                sb.Append(Time.frameCount).Append(',').Append(Phase).Append(',').Append(F(data.MovementIntent.DesiredSpeedNormalized)).Append(',').Append(data.Gait)
-                  .Append(',').Append(V(root)).Append(',').Append(F(vRoot.x)).Append(',').Append(F(vRoot.z)).Append(',').Append(F(new Vector2(vRoot.x, vRoot.z).magnitude))
-                  .Append(',').Append(stopActive ? 1 : 0).Append(',').Append(stopPlaying ? 1 : 0).Append(',').Append(F(stopNT))
-                  .Append(',').Append(key).Append(',').Append(clip).Append(',').Append(F(nt)).Append(',').Append(F(speed)).Append(',').Append(F(weight)).Append(',').Append(active)
-                  .Append(',').Append(F(moving.Offset)).Append(',').Append(F(td.PelvisOffsetY)).Append(',').Append(F(_hips.position.y - root.y));
-                MixerChildren(sb);
-                Foot(sb, (FootContactState)_lF.GetValue(_ik), moving.DebugLeftRole, pose.LeftFootPosition, prevPoseL, pose.LeftFootRotation, pose.LeftFootBottomHeight,
-                    td.LeftFootPosition, td.LeftFootPositionWeight, td.LeftFootRotation, td.LeftFootRotationWeight, boneL, prevBoneL, dt, true);
-                Foot(sb, (FootContactState)_rF.GetValue(_ik), moving.DebugRightRole, pose.RightFootPosition, prevPoseR, pose.RightFootRotation, pose.RightFootBottomHeight,
-                    td.RightFootPosition, td.RightFootPositionWeight, td.RightFootRotation, td.RightFootRotationWeight, boneR, prevBoneR, dt, false);
-                Csv.Append(sb).Append('\n');
+                    Vector3 rootEval = _rootAtUpdate != null && _rootAtUpdate.Frame == Time.frameCount
+                        ? _rootAtUpdate.Position
+                        : new Vector3(float.NaN, float.NaN, float.NaN);
+                    sb.Append(',').Append(V(rootEval)).Append(',').Append(_zeroIk ? 1 : 0)
+                      .Append(',').Append(V(_lToe != null ? _lToe.position : new Vector3(float.NaN, float.NaN, float.NaN)))
+                      .Append(',').Append(V(_rToe != null ? _rToe.position : new Vector3(float.NaN, float.NaN, float.NaN)))
+                      .Append(',').Append(StopBakeName(stop));
+                    Csv.Append(sb).Append('\n');
+                }
+
+                // T3（order 6.5）已寫完下一幀目標；本 recorder 最後才清零，讓本列仍反映完整 T3 計算。
+                if (_zeroIk) ZeroIkOutput();
+            }
+
+            private void ZeroIkOutput()
+            {
+                FootIKTargetData td = _ik.TargetData;
+                td.LeftFootPositionWeight = 0f;
+                td.LeftFootRotationWeight = 0f;
+                td.RightFootPositionWeight = 0f;
+                td.RightFootRotationWeight = 0f;
+                td.PelvisOffsetY = 0f;
+            }
+
+            private string StopBakeName(object stop)
+            {
+                if (!(bool)stop.GetType().GetProperty("IsActive").GetValue(stop)) return "";
+                int index = (int)stop.GetType().GetProperty("VariantIndex").GetValue(stop);
+                var tier = (LocomotionStopTier)stop.GetType().GetProperty("Tier").GetValue(stop);
+                FieldInfo variantsField = tier == LocomotionStopTier.Walk ? _walkVariantsF
+                    : tier == LocomotionStopTier.Run ? _runVariantsF : null;
+                var variants = variantsField?.GetValue(_model) as LocomotionStopVariant[];
+                return variants != null && index >= 0 && index < variants.Length && variants[index].BakeData != null
+                    ? variants[index].BakeData.name
+                    : "";
             }
 
             private void Foot(StringBuilder sb, FootContactState c, int role, Vector3 posePos, Vector3 prevPose, Quaternion poseRot, float bottom,

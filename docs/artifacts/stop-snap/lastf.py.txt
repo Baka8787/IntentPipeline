@@ -1,0 +1,35 @@
+import csv,math,sys,glob
+F=float
+def load(path):
+    rows=list(csv.DictReader(open(path)))
+    cut=next((i for i,r in enumerate(rows) if r['phase']=='restart'),len(rows))
+    return rows[:cut]
+def seq(rows,side):
+    A=[];C=[];B=[None]
+    for i,r in enumerate(rows):
+        d=[F(r['root'+a])-F(r['rootEval'+a]) for a in 'XYZ']
+        A.append((F(r[side+'poseX'])+d[0],F(r[side+'poseZ'])+d[2])); C.append((F(r[side+'boneX']),F(r[side+'boneZ'])))
+        if i: B.append((F(rows[i-1][side+'tgtX'])+d[0],F(rows[i-1][side+'tgtZ'])+d[2]))
+    return A,B,C
+def h(a,b): return math.hypot(a[0]-b[0],a[1]-b[1])*100
+# lock entries: phase becomes 1
+out={}
+for path in sorted(glob.glob('snap/snap_on_*flat*.csv')):
+    rows=load(path)
+    rel=next(i for i,r in enumerate(rows) if r['phase']=='stop')
+    for side in 'lr':
+        A,B,C=seq(rows,side)
+        for i in range(8,len(rows)-12):
+            if rows[i][side+'ph']=='1' and rows[i-1][side+'ph']!='1':
+                # anim plant point: A at lock+12 (or min speed) ; use rest = A[i+6]
+                ctx='loop' if i<rel else (rows[i]['stopBake'].replace('Bake_','').replace('FwdStop','')+'@%d'%(i-rel))
+                dA=[h(A[k],A[k-1]) for k in range(i-7,i+5)]
+                dC=[h(C[k],C[k-1]) for k in range(i-7,i+5)]
+                ov=max(0,max((h(C[k],A[i+6]) for k in range(i-3,i+1)),default=0))  # dist displayed from later anim rest
+                key=(path.split('_flat_')[1][:4],ctx,side)
+                out.setdefault(key,[]).append((dA,dC,path.split('/')[-1][5:15]))
+for k in sorted(out):
+    for dA,dC,n in out[k][:2]:
+        print('%-4s %-12s %s %s'%(k[0],k[1],k[2],n))
+        print('   dA',' '.join('%5.1f'%x for x in dA))
+        print('   dC',' '.join('%5.1f'%x for x in dC))

@@ -1,0 +1,139 @@
+var ci = System.Globalization.CultureInfo.InvariantCulture;
+const float sampleRate = 120f;
+var specs = new[]
+{
+    new { Name = "RunFwdStop_LU", Kind = "stop", Gait = "Run", Variant = "LU", Bake = "Bake_RunFwdStop_LU", Transition = "RunStop_LU" },
+    new { Name = "RunFwdStop_RU", Kind = "stop", Gait = "Run", Variant = "RU", Bake = "Bake_RunFwdStop_RU", Transition = "RunStop_RU" },
+    new { Name = "WalkFwdStop_LU", Kind = "stop", Gait = "Walk", Variant = "LU", Bake = "Bake_WalkFwdStop_LU", Transition = "WalkStop_LU" },
+    new { Name = "WalkFwdStop_RU", Kind = "stop", Gait = "Walk", Variant = "RU", Bake = "Bake_WalkFwdStop_RU", Transition = "WalkStop_RU" },
+    new { Name = "RunFwdLoop", Kind = "loop", Gait = "Run", Variant = "Loop", Bake = "Bake_RunFwdLoop", Transition = "" },
+    new { Name = "WalkFwdLoop", Kind = "loop", Gait = "Walk", Variant = "Loop", Bake = "Bake_WalkFwdLoop", Transition = "" },
+};
+
+var prefab = UnityEditor.AssetDatabase.LoadAssetAtPath<UnityEngine.GameObject>("Assets/Prefabs/X Bot.prefab");
+if (prefab == null) throw new System.InvalidOperationException("找不到 Assets/Prefabs/X Bot.prefab");
+
+var clips = new System.Text.StringBuilder(
+    "clip,kind,gait,variant,bake,sourceClip,t,nt,rootX,rootY,rootZ,lAnkleX,lAnkleY,lAnkleZ,rAnkleX,rAnkleY,rAnkleZ,lToeX,lToeY,lToeZ,rToeX,rToeY,rToeZ\n");
+var schedule = new System.Text.StringBuilder(
+    "recordType,gait,variant,bake,clip,duration,playback,eventIdx,side,clipTime,runtimeTime,transitionClip,transitionClipMatchesBake,mixerIndex,mixerClip,expectedLoopClip,matchesLoopSource\n");
+
+int sampled = 0;
+
+foreach (var spec in specs)
+{
+    string bakePath = "Assets/ScriptableObjects/Motion/" + spec.Bake + ".asset";
+    var bake = UnityEditor.AssetDatabase.LoadAssetAtPath<Project.Presentation.Motion.MotionBakeData>(bakePath);
+    if (bake == null || bake.SourceClip == null)
+        throw new System.InvalidOperationException("Bake 或 SourceClip 缺失：" + bakePath);
+
+    UnityEngine.GameObject agent = UnityEngine.Object.Instantiate(prefab);
+    agent.name = "StopSnap-A0-" + spec.Name;
+    agent.hideFlags = UnityEngine.HideFlags.HideAndDontSave;
+    try
+    {
+        UnityEngine.Animator animator = null;
+        foreach (var candidate in agent.GetComponentsInChildren<UnityEngine.Animator>(true))
+            if (candidate.isHuman) { animator = candidate; break; }
+        if (animator == null) throw new System.InvalidOperationException("X Bot 找不到 Humanoid Animator");
+
+        animator.applyRootMotion = true;
+        animator.cullingMode = UnityEngine.AnimatorCullingMode.AlwaysAnimate;
+        UnityEngine.Transform root = animator.transform;
+        UnityEngine.Transform leftAnkle = animator.GetBoneTransform(UnityEngine.HumanBodyBones.LeftFoot);
+        UnityEngine.Transform rightAnkle = animator.GetBoneTransform(UnityEngine.HumanBodyBones.RightFoot);
+        UnityEngine.Transform leftToe = animator.GetBoneTransform(UnityEngine.HumanBodyBones.LeftToes);
+        UnityEngine.Transform rightToe = animator.GetBoneTransform(UnityEngine.HumanBodyBones.RightToes);
+        if (leftAnkle == null || rightAnkle == null)
+            throw new System.InvalidOperationException(spec.Name + " 找不到左右腳踝骨");
+
+        root.SetPositionAndRotation(UnityEngine.Vector3.zero, UnityEngine.Quaternion.identity);
+        float duration = bake.SourceClip.length;
+        int totalFrames = UnityEngine.Mathf.CeilToInt(duration * sampleRate) + 1;
+        for (int i = 0; i < totalFrames; i++)
+        {
+            float t = UnityEngine.Mathf.Min(i / sampleRate, duration);
+            bake.SourceClip.SampleAnimation(animator.gameObject, t);
+            UnityEngine.Vector3 rp = root.position;
+            UnityEngine.Vector3 la = leftAnkle.position;
+            UnityEngine.Vector3 ra = rightAnkle.position;
+            UnityEngine.Vector3 lt = leftToe != null ? leftToe.position
+                : new UnityEngine.Vector3(float.NaN, float.NaN, float.NaN);
+            UnityEngine.Vector3 rt = rightToe != null ? rightToe.position
+                : new UnityEngine.Vector3(float.NaN, float.NaN, float.NaN);
+
+            clips.Append(spec.Name).Append(',').Append(spec.Kind).Append(',').Append(spec.Gait).Append(',').Append(spec.Variant)
+                .Append(',').Append(spec.Bake).Append(',').Append(bake.SourceClip.name)
+                .Append(',').Append(t.ToString("F6", ci)).Append(',').Append((t / duration).ToString("F6", ci))
+                .Append(',').Append(rp.x.ToString("F6", ci)).Append(',').Append(rp.y.ToString("F6", ci)).Append(',').Append(rp.z.ToString("F6", ci))
+                .Append(',').Append(la.x.ToString("F6", ci)).Append(',').Append(la.y.ToString("F6", ci)).Append(',').Append(la.z.ToString("F6", ci))
+                .Append(',').Append(ra.x.ToString("F6", ci)).Append(',').Append(ra.y.ToString("F6", ci)).Append(',').Append(ra.z.ToString("F6", ci))
+                .Append(',').Append(lt.x.ToString("F6", ci)).Append(',').Append(lt.y.ToString("F6", ci)).Append(',').Append(lt.z.ToString("F6", ci))
+                .Append(',').Append(rt.x.ToString("F6", ci)).Append(',').Append(rt.y.ToString("F6", ci)).Append(',').Append(rt.z.ToString("F6", ci)).Append('\n');
+        }
+        sampled++;
+    }
+    finally
+    {
+        UnityEngine.Object.DestroyImmediate(agent);
+    }
+
+    if (spec.Kind != "stop") continue;
+
+    string transitionPath = "Assets/ScriptableObjects/Animation/" + spec.Transition + ".asset";
+    UnityEngine.Object transitionAsset = UnityEditor.AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(transitionPath);
+    if (transitionAsset == null) throw new System.InvalidOperationException("找不到 " + transitionPath);
+    var serializedTransition = new UnityEditor.SerializedObject(transitionAsset);
+    UnityEditor.SerializedProperty transitionProperty = serializedTransition.FindProperty("_Transition");
+    if (transitionProperty == null || transitionProperty.managedReferenceValue == null)
+        throw new System.InvalidOperationException(spec.Transition + " 的 _Transition 為 null");
+    UnityEditor.SerializedProperty speedProperty = transitionProperty.FindPropertyRelative("_Speed");
+    UnityEditor.SerializedProperty clipProperty = transitionProperty.FindPropertyRelative("_Clip");
+    if (speedProperty == null || clipProperty == null)
+        throw new System.InvalidOperationException(spec.Transition + " 缺少 _Speed 或 _Clip");
+    float playback = speedProperty.floatValue;
+    var transitionClip = clipProperty.objectReferenceValue as UnityEngine.AnimationClip;
+    bool transitionMatches = transitionClip == bake.SourceClip;
+    var plants = bake.FootPlantSchedule;
+    int count = plants.ValidEventCount;
+    if (count == 0)
+        schedule.Append("plant,").Append(spec.Gait).Append(',').Append(spec.Variant).Append(',').Append(spec.Bake).Append(',').Append(bake.SourceClip.name)
+            .Append(',').Append(bake.Duration.ToString("F6", ci)).Append(',').Append(playback.ToString("F7", ci))
+            .Append(",-1,,NaN,NaN,").Append(transitionClip != null ? transitionClip.name : "").Append(',').Append(transitionMatches ? 1 : 0)
+            .Append(",,,,\n");
+    for (int i = 0; i < count; i++)
+    {
+        Project.Presentation.Motion.FootPlantScheduleEvent plant = plants.GetEvent(i);
+        schedule.Append("plant,").Append(spec.Gait).Append(',').Append(spec.Variant).Append(',').Append(spec.Bake).Append(',').Append(bake.SourceClip.name)
+            .Append(',').Append(bake.Duration.ToString("F6", ci)).Append(',').Append(playback.ToString("F7", ci))
+            .Append(',').Append(i).Append(',').Append(plant.Side)
+            .Append(',').Append(plant.ClipTime.ToString("F6", ci)).Append(',').Append((plant.ClipTime / playback).ToString("F6", ci))
+            .Append(',').Append(transitionClip != null ? transitionClip.name : "").Append(',').Append(transitionMatches ? 1 : 0)
+            .Append(",,,,\n");
+    }
+}
+
+UnityEngine.Object mixerAsset = UnityEditor.AssetDatabase.LoadAssetAtPath<UnityEngine.Object>("Assets/ScriptableObjects/Animation/Locomotion.asset");
+var serializedMixer = new UnityEditor.SerializedObject(mixerAsset);
+UnityEditor.SerializedProperty mixerProperty = serializedMixer.FindProperty("_Transition");
+UnityEditor.SerializedProperty animations = mixerProperty != null ? mixerProperty.FindPropertyRelative("_Animations") : null;
+if (animations == null || !animations.isArray) throw new System.InvalidOperationException("Locomotion._Animations 不是陣列");
+var walkLoop = UnityEditor.AssetDatabase.LoadAssetAtPath<Project.Presentation.Motion.MotionBakeData>("Assets/ScriptableObjects/Motion/Bake_WalkFwdLoop.asset");
+var runLoop = UnityEditor.AssetDatabase.LoadAssetAtPath<Project.Presentation.Motion.MotionBakeData>("Assets/ScriptableObjects/Motion/Bake_RunFwdLoop.asset");
+for (int i = 0; i < animations.arraySize; i++)
+{
+    UnityEngine.AnimationClip child = animations.GetArrayElementAtIndex(i).objectReferenceValue as UnityEngine.AnimationClip;
+    string gait = child != null && child.name.Contains("Walk") ? "Walk" : child != null && child.name.Contains("Run") ? "Run" : "";
+    UnityEngine.AnimationClip expected = gait == "Walk" ? walkLoop.SourceClip : gait == "Run" ? runLoop.SourceClip : null;
+    bool match = expected != null && child == expected;
+    schedule.Append("mixer,").Append(gait).Append(",Loop,,,")
+        .Append("NaN,NaN,-1,,NaN,NaN,,,").Append(i).Append(',').Append(child != null ? child.name : "")
+        .Append(',').Append(expected != null ? expected.name : "").Append(',').Append(expected == null ? "" : match ? "1" : "0").Append('\n');
+}
+
+string outDir = System.IO.Path.GetFullPath(System.IO.Path.Combine(UnityEngine.Application.dataPath, "../Temp/StopSnap"));
+System.IO.Directory.CreateDirectory(outDir);
+System.IO.File.WriteAllText(System.IO.Path.Combine(outDir, "clips.csv"), clips.ToString());
+System.IO.File.WriteAllText(System.IO.Path.Combine(outDir, "schedule.csv"), schedule.ToString());
+return "StopSnap A0：取樣 " + sampled + " clips；輸出 " + outDir
+    + "（Locomotion mixer 的 Walk/Run child 與 loop Bake SourceClip 比對見 schedule.csv recordType=mixer）";

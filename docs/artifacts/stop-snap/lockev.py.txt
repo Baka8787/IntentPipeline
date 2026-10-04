@@ -1,0 +1,60 @@
+import csv,math,sys,glob,statistics as st
+F=float
+def load(path):
+    rows=list(csv.DictReader(open(path)))
+    cut=next((i for i,r in enumerate(rows) if r['phase']=='restart'),len(rows))
+    return rows[:cut]
+def tracks(rows,side):
+    A=[];C=[]
+    for r in rows:
+        d=[F(r['root'+a])-F(r['rootEval'+a]) for a in 'XYZ']
+        A.append(tuple(F(r[side+'pose'+a])+d[k] for k,a in enumerate('XYZ'))); C.append(tuple(F(r[side+'bone'+a]) for a in 'XYZ'))
+    return A,C
+def hd(a,b): return math.hypot(a[0]-b[0],a[2]-b[2])*100
+def path(P,i0,i1): return sum(hd(P[k],P[k-1]) for k in range(i0+1,i1+1))
+evs=[]
+for fpath in sorted(glob.glob('snap/snap_*.csv')):
+    name=fpath.split('/')[-1][:-4]
+    if '_zero_' in name: continue
+    arm=name.split('_')[1]; terr='flat' if '_flat_' in name else ('Up' if '_Up_' in name else 'Down')
+    rows=load(fpath)
+    rel=next(i for i,r in enumerate(rows) if r['phase']=='stop')
+    for side in 'lr':
+        A,C=tracks(rows,side)
+        ph=[r[side+'ph'] for r in rows]
+        for i in range(8,len(rows)-10):
+            if not(ph[i]=='1' and ph[i-1]!='1'): continue
+            rel_i=i-rel
+            ctx='loop' if i<rel-2 else rows[min(i,len(rows)-1)]['stopBake'].replace('Bake_','').replace('FwdStop','')
+            if not ctx: ctx='?'
+            gait=('Walk' if 'Walk' in name else 'Run')
+            rest=A[i+3]
+            u=(rest[0]-A[i-6][0],rest[2]-A[i-6][2]); n=math.hypot(*u) or 1; u=(u[0]/n,u[1]/n)
+            proj=lambda p:((p[0]-rest[0])*u[0]+(p[2]-rest[2])*u[1])*100
+            dA=[hd(A[k],A[k-1]) for k in range(i-5,i+3)]
+            drop=max(dA[k]-dA[k+1] for k in range(len(dA)-1))
+            over=max(proj(C[k]) for k in range(i-3,i+4))
+            pull=over-proj(C[i+4])
+            lead=max(proj(C[k])-proj(A[k]) for k in range(i-4,i+1))
+            rl=next((k for k in range(i+1,len(rows)) if ph[k]!='1'),None)
+            creep=path(A,i,rl) if rl else path(A,i,len(rows)-1)
+            gap=hd(C[rl],A[rl]) if rl else float('nan')
+            catch=float('nan')
+            if rl and rl+8<len(rows): catch=path(C,rl,rl+8)-path(A,rl,rl+8)
+            vC=max(abs(C[k][1]-C[k-1][1])*100 for k in range(i-6,i+2))
+            vA=max(abs(A[k][1]-A[k-1][1])*100 for k in range(i-6,i+2))
+            evs.append(dict(name=name,arm=arm,terr=terr,gait=gait,ctx=ctx,side=side,t=rel_i,preA=max(dA[:5]),drop=drop,over=over,pull=pull,lead=lead,creep=creep,gap=gap,catch=catch,vC=vC,vA=vA))
+import json
+json.dump(evs,open('lockev.json','w'))
+def med(v):
+    v=[x for x in v if not math.isnan(x)]; return st.median(v) if v else float('nan')
+def mx(v):
+    v=[x for x in v if not math.isnan(x)]; return max(v) if v else float('nan')
+G={}
+for e in evs:
+    phase='loop' if e['ctx']=='loop' else ('stop-early' if e['t']<35 else 'stop-late')
+    G.setdefault((e['arm'],e['terr'],e['gait'],e['ctx'],e['side'],phase),[]).append(e)
+print('arm terr gait ctx side phase | n | rawPre cm/f | rawDrop | dispOver | pullBack | leadC-A | creepUnderLock | gapAtRelease | catchExtra8f | vC_y max | vA_y max   (median / max)')
+for k in sorted(G):
+    v=G[k]
+    print(' '.join(k),'| %d |'%len(v),' | '.join('%.1f/%.1f'%(med([e[c] for e in v]),mx([e[c] for e in v])) for c in ['preA','drop','over','pull','lead','creep','gap','catch','vC','vA']))

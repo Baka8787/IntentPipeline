@@ -1,0 +1,38 @@
+import csv,math,glob,statistics as st
+F=float
+def load(path):
+    rows=list(csv.DictReader(open(path)))
+    cut=next((i for i,r in enumerate(rows) if r['phase']=='restart'),len(rows))
+    return rows[:cut]
+def hd(a,b): return math.hypot(a[0]-b[0],a[2]-b[2])*100
+def path(P,i0,i1): return sum(hd(P[k],P[k-1]) for k in range(i0+1,i1+1))
+G={}
+for fpath in sorted(glob.glob('snap/snap_*.csv')):
+    name=fpath.split('/')[-1][:-4]
+    if '_zero_' in name: continue
+    arm=name.split('_')[1]; terr='flat' if '_flat_' in name else ('Up' if '_Up_' in name else 'Down'); gait='Walk' if 'Walk' in name else 'Run'
+    rows=load(fpath); rel=next(i for i,r in enumerate(rows) if r['phase']=='stop')
+    for side in 'lr':
+        A=[];C=[]
+        for r in rows:
+            d=[F(r['root'+a])-F(r['rootEval'+a]) for a in 'XYZ']
+            A.append(tuple(F(r[side+'pose'+a])+d[k] for k,a in enumerate('XYZ'))); C.append(tuple(F(r[side+'bone'+a]) for a in 'XYZ'))
+        ph=[r[side+'ph'] for r in rows]
+        for i in range(2,len(rows)-12):
+            if not(ph[i]=='2' and ph[i-1]=='1'): continue   # release starts
+            ctx='loop' if i<rel else rows[i]['stopBake'].replace('Bake_','').replace('FwdStop','')
+            # lock start
+            ls=i-1
+            while ls>0 and ph[ls-1]=='1': ls-=1
+            gap=hd(C[i],A[i])
+            # A motion during lock while it was "slow"
+            lockA=path(A,ls,i)
+            w=10
+            pc=path(C,i,i+w); pa=path(A,i,i+w)
+            peakC=max(hd(C[k],C[k-1]) for k in range(i,i+w)); peakA=max(hd(A[k],A[k-1]) for k in range(i,i+w))
+            key=(arm,terr,gait,ctx,side,'stop' if i>=rel else 'loop')
+            G.setdefault(key,[]).append(dict(t=i-rel,lockLen=i-ls,lockA=lockA,gap=gap,pc=pc,pa=pa,ratio=pc/pa if pa>0.5 else float('nan'),peakC=peakC,peakA=peakA))
+print('arm terr gait ctx side | n | t(rel) | lockFrames | animMovedUnderLock cm | gapAtRelease cm | disp/anim path 10f | peak disp/anim cm/f')
+for k in sorted(G):
+    for e in G[k][:3]:
+        print(' '.join(k),'| t%+d | %d | %.1f | %.1f | %.1f/%.1f (x%.2f) | %.1f/%.1f'%(e['t'],e['lockLen'],e['lockA'],e['gap'],e['pc'],e['pa'],e['ratio'],e['peakC'],e['peakA']))

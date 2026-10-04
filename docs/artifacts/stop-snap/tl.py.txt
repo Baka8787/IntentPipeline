@@ -1,0 +1,24 @@
+import csv,math,sys
+F=float
+path=sys.argv[1]; side=sys.argv[2]; zero=sys.argv[3] if len(sys.argv)>3 else None
+rows=list(csv.DictReader(open(path)))
+zrows=list(csv.DictReader(open(zero))) if zero else None
+cut=next((i for i,r in enumerate(rows) if r['phase']=='restart'),len(rows))
+rel=next(i for i,r in enumerate(rows) if r['phase']=='stop')
+def v(r,p): return (F(r[p+'X']),F(r[p+'Y']),F(r[p+'Z']))
+A=[];B=[];C=[];R=[]
+for i,r in enumerate(rows[:cut]):
+    d=[F(r['root'+a])-F(r['rootEval'+a]) for a in 'XYZ']
+    p=v(r,side+'pose'); A.append(tuple(p[k]+d[k] for k in range(3)))
+    if i>0:
+        t=v(rows[i-1],side+'tgt'); B.append(tuple(t[k]+d[k] for k in range(3)))
+    else: B.append((math.nan,)*3)
+    C.append(v(r,side+'bone')); R.append(v(r,'root'))
+end=cut-1
+def h(a,b): return math.hypot(a[0]-b[0],a[2]-b[2])*100
+print('bake',rows[rel+5]['stopBake'],'side',side)
+print(' t  ph  beta  vA    vC  | A→Afin  B→Afin  C→Cfin | C-A  | dA   dC  (cm/frame) | rootV')
+for i in range(rel-6,end+1):
+    r=rows[i]
+    vA=h(A[i],A[i-1]); vC=h(C[i],C[i-1])
+    print('%3d %2s %5.2f %5.1f %5.1f | %6.1f %6.1f %6.1f | %4.1f | %4.1f %4.1f | %4.2f %s'%(i-rel,r[side+'ph'],F(r[side+'beta']),vA*0.6,vC*0.6,h(A[i],A[end]),h(B[i],A[end]),h(C[i],C[end]),h(C[i],A[i]),vA,vC,F(r['rootSpeed']),r['animClip'][:14]))
