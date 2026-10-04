@@ -84,6 +84,46 @@ namespace Project.Tests.PlayMode
             [Values("base", "phi0", "phi1", "phi2", "phi3", "phi4", "phi5", "phi6", "phi7", "fast")] string variant)
             => Drive("Stairs_650_400_300_Prefab", Dir.Up, 0f, -1 - offset, "flatphase_" + variant + "_o" + offset + "_", variant);
 
+        /// <summary>
+        /// A1 研究（2026-10-04，只量測）：強制 Run 停步選 RU（測試內把場景實例的 runStopVariants 換成只剩 RU；不存檔、不改 runtime）。
+        /// 與自然選片（Probe_RunStopSettleRestart）同一組情境比較；自然選 LU 的情境就是「錯腳相入場」的代價。輸出 forcedRU_*.csv。
+        /// </summary>
+        [UnityTest, Explicit]
+        public IEnumerator Probe_ForcedRU(
+            [Values("Stairs_650_400_300_Prefab", "Stairs (1)")] string stairName,
+            [Values(Dir.Down, Dir.Up)] Dir dir,
+            [Values(0f, 20f)] float yaw,
+            [Values(0, 2, 4, 6, 8, 10, 12)] int stopIndex)
+            => Drive(stairName, dir, yaw, stopIndex, "forcedRU_", "forceRU");
+
+        /// <summary>
+        /// A2 實驗（docs/45 §21）：FootIKSettings.PlantAwareExtrapolation 關／開 A/B（只改場景實例設定）。輸出 xab0_*／xab1_*.csv。
+        /// </summary>
+        [UnityTest, Explicit]
+        public IEnumerator Probe_PlantAwareExtrapAB(
+            [Values("Stairs_650_400_300_Prefab", "Stairs (1)")] string stairName,
+            [Values(Dir.Down, Dir.Up)] Dir dir,
+            [Values(0f, 20f)] float yaw,
+            [Values(0, 2, 4, 6, 8, 10, 12)] int stopIndex,
+            [Values(false, true)] bool on)
+            => Drive(stairName, dir, yaw, stopIndex, on ? "xab1_" : "xab0_", on ? "xab1" : "xab0");
+
+        /// <summary>
+        /// B 驗收（ADR-011，Trial）：LocomotionModel.alignRunEntryPhase 關／開（只改場景實例）。平地 LU（o0）／RU（o4）＋兩道樓梯上下 7 個位置。
+        /// 輸出 entry0_*／entry1_*.csv。
+        /// </summary>
+        [UnityTest, Explicit]
+        public IEnumerator Probe_EntryPhaseFlatAB([Values(0, 4)] int offset, [Values(false, true)] bool on)
+            => Drive("Stairs_650_400_300_Prefab", Dir.Up, 0f, -1 - offset, on ? "entry1_" : "entry0_", on ? "ep1" : "ep0");
+
+        [UnityTest, Explicit]
+        public IEnumerator Probe_EntryPhaseStairsAB(
+            [Values("Stairs_650_400_300_Prefab", "Stairs (1)")] string stairName,
+            [Values(Dir.Down, Dir.Up)] Dir dir,
+            [Values(0, 2, 4, 6, 8, 10, 12)] int stopIndex,
+            [Values(false, true)] bool on)
+            => Drive(stairName, dir, 0f, stopIndex, on ? "entry1_" : "entry0_", on ? "ep1" : "ep0");
+
         /// <summary>B 研究：平地細掃起始 phase（pNN ＝ NN/100），LU（o0）與 RU（o4）各一。</summary>
         [UnityTest, Explicit]
         public IEnumerator Probe_RestartPhaseFine(
@@ -146,6 +186,15 @@ namespace Project.Tests.PlayMode
             for (int i = 0; i < 30; i++) yield return null;
 
             var footIK = player.GetComponentInChildren<FootIKController>();
+            if (restartVariant == "forceRU") ForceRunStopVariant(player, "RU");
+            if (restartVariant == "ep0" || restartVariant == "ep1")
+                typeof(LocomotionModel).GetField("alignRunEntryPhase", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(player.GetComponent<LocomotionModel>(), restartVariant == "ep1");
+            if (restartVariant == "xab0" || restartVariant == "xab1")
+            {
+                var settings = (FootIKSettings)typeof(FootIKController).GetField("settings", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(footIK);
+                settings.PlantAwareExtrapolation = restartVariant == "xab1";
+            }
             var rec = footIK.gameObject.AddComponent<SettleRecorder>();
             rec.Init(player, footIK);
 
@@ -174,7 +223,7 @@ namespace Project.Tests.PlayMode
                 {
                     Press(move == Key.W ? _keyboard.wKey : _keyboard.sKey);
                     phase = "restart"; after = 0;
-                    if (restartVariant != null && restartVariant != "base") ApplyRestartIntervention(player, restartVariant);
+                    if (restartVariant != null && (restartVariant.StartsWith("phi") || restartVariant.StartsWith("p") || restartVariant == "fast")) ApplyRestartIntervention(player, restartVariant);
                 }
                 else if (phase == "restart" && ++after > RestartFrames) break;
                 rec.Phase = phase;
@@ -187,6 +236,17 @@ namespace Project.Tests.PlayMode
             string label = prefix + (stopIndex < 0 ? "flat" : stairName.StartsWith("Stairs_") ? "proto" : "s1") + "_Run_" + dir
                            + "_y" + yaw.ToString("0", CultureInfo.InvariantCulture) + "_" + (stopIndex < 0 ? "f" + (-1 - stopIndex) : stopIndex.ToString("00"));
             File.WriteAllText(Path.Combine(outDir, label + ".csv"), rec.Csv.ToString());
+        }
+
+        /// <summary>A1：測試內把場景實例的 Run 停步變體換成只剩名稱含 tag 的那一支（SelectByEntryPhase 找不到腳相相符者時回傳第一個有效者）。</summary>
+        private static void ForceRunStopVariant(CharacterPipelineRunner player, string tag)
+        {
+            var model = player.GetComponent<LocomotionModel>();
+            FieldInfo fi = typeof(LocomotionModel).GetField("runStopVariants", BindingFlags.Instance | BindingFlags.NonPublic);
+            var all = (LocomotionStopVariant[])fi.GetValue(model);
+            var keep = System.Array.FindAll(all, v => v.BakeData != null && v.BakeData.name.Contains(tag));
+            Assert.AreEqual(1, keep.Length, "找不到唯一的 Run 停步變體 " + tag);
+            fi.SetValue(model, keep);
         }
 
         internal static object LocomotionMixer(CharacterPipelineRunner player)

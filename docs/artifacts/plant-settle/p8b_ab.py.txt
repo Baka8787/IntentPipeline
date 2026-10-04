@@ -1,0 +1,66 @@
+"""A2：FootIKSettings.PlantAwareExtrapolation 關（xab0_）／開（xab1_）的 runtime A/B（PlantSettleProbe.Probe_PlantAwareExtrapAB）。
+① 外插造成的錯階暫態：鎖定前 8 帧（Unlocked）內，動畫踝（k0）已在最後鎖定踏面 F 上方，實際目標（liveSup）卻在別階
+② 落地附近的連續性：鎖定前 6 帧到鎖定當帧，畫面腳骨骼單帧加速度（二階差分）與目標單帧位移；「晚修正」＝ 鎖定當帧目標相對前一帧的水平變化
+③ 跨階緣的模糊鎖定（關閉時 F ≠ 動畫踝支撐的那幾次）：兩邊各自的鎖定支撐、三點踏面、之後 10 帧畫面腳底離各踏面的高度
+④ 擺盪早期：β < 0.1 且動畫腳速 > 4 m/s 的帧，目標相對動畫踝的水平偏移、畫面腳骨骼加速度——兩邊逐帧對齊比較
+用法：python p8b_ab.py.txt <csv 目錄> [detail]"""
+import csv, glob, math, os, sys, statistics as stt
+D = sys.argv[1]; DETAIL = len(sys.argv) > 2; TOL = 0.03
+def f(x):
+    try: return float(x)
+    except: return float('nan')
+def ok(v): return not math.isnan(v)
+def q(v, p): v = sorted(v); return v[int(p * (len(v) - 1))] if v else float('nan')
+def hj(r, s, i, k='bone'):
+    return math.hypot(*[f(r[i][s + k + c]) - 2 * f(r[i - 1][s + k + c]) + f(r[i - 2][s + k + c]) for c in 'XYZ'])
+
+res = {0: dict(trans=[], nearJerk=[], lockStep=[], early=[], earlyJerk=[], locks=0), 1: dict(trans=[], nearJerk=[], lockStep=[], early=[], earlyJerk=[], locks=0)}
+straddle = []
+for p1 in sorted(glob.glob(os.path.join(D, 'xab1_*.csv'))):
+    name = os.path.basename(p1)[5:-4]
+    p0 = os.path.join(D, 'xab0_' + name + '.csv')
+    if not os.path.exists(p0): continue
+    runs = {0: list(csv.DictReader(open(p0))), 1: list(csv.DictReader(open(p1)))}
+    for k, r in runs.items():
+        for s in 'lr':
+            for j in range(10, len(r)):
+                if r[j][s + 'ph'] != '1' or r[j - 1][s + 'ph'] == '1': continue
+                F = f(r[j][s + 'lockSupY'])
+                if not ok(F): continue
+                res[k]['locks'] += 1
+                bad = [i - j for i in range(j - 8, j) if r[i][s + 'ph'] == '0' and ok(f(r[i][s + 'k0'])) and ok(f(r[i][s + 'liveSup']))
+                       and abs(f(r[i][s + 'k0']) - F) <= TOL and abs(f(r[i][s + 'liveSup']) - F) > TOL]
+                ctx = 'stop' if r[j]['phase'] == 'stop' else ('restart' if r[j]['phase'] == 'restart' else 'moving')
+                if bad: res[k]['trans'].append((name, s, j, ctx, bad))
+                res[k]['nearJerk'].append(max(hj(r, s, i) for i in range(j - 6, j + 1)))
+                res[k]['lockStep'].append(math.hypot(f(r[j][s + 'tgtX']) - f(r[j - 1][s + 'tgtX']), f(r[j][s + 'tgtZ']) - f(r[j - 1][s + 'tgtZ'])))
+                if k == 0 and ok(f(r[j][s + 'k0'])) and abs(f(r[j][s + 'k0']) - F) > TOL:
+                    straddle.append((name, s, j))
+            for i in range(2, len(r)):
+                x = r[i]
+                if x[s + 'ph'] == '0' and f(x[s + 'beta']) < 0.1 and f(x[s + 'poseVxz']) > 4:
+                    res[k]['early'].append(math.hypot(f(x[s + 'tgtX']) - f(x[s + 'poseX']), f(x[s + 'tgtZ']) - f(x[s + 'poseZ'])))
+                    res[k]['earlyJerk'].append(hj(r, s, i))
+
+for k in (0, 1):
+    R = res[k]; tr = R['trans']
+    byc = {c: sum(1 for t in tr if t[3] == c) for c in ('stop', 'moving', 'restart')}
+    print('%s 鎖定 %d｜① 錯階暫態 %d（停步 %d／移動 %d／起跑 %d）｜② 鎖定前後骨骼單帧加速度 中位 %.1f p90 %.1f max %.1f cm、鎖定當帧目標水平跳 中位 %.1f p90 %.1f max %.1f cm｜④ 擺盪早期 目標−動畫 中位 %.1f p90 %.1f cm、骨骼加速度 中位 %.1f p90 %.1f cm' % (
+        '關' if k == 0 else '開', R['locks'], len(tr), byc['stop'], byc['moving'], byc['restart'],
+        100 * q(R['nearJerk'], .5), 100 * q(R['nearJerk'], .9), 100 * max(R['nearJerk']),
+        100 * q(R['lockStep'], .5), 100 * q(R['lockStep'], .9), 100 * max(R['lockStep']),
+        100 * q(R['early'], .5), 100 * q(R['early'], .9), 100 * q(R['earlyJerk'], .5), 100 * q(R['earlyJerk'], .9)))
+on_keys = set((t[0], t[1], t[2]) for t in res[1]['trans']); off_keys = set((t[0], t[1], t[2]) for t in res[0]['trans'])
+print('開啟後仍在的暫態：', sorted(on_keys)[:10], '；開啟後新增（關閉時沒有）：', sorted(on_keys - off_keys)[:10])
+
+print()
+print('③ 跨階緣模糊鎖定（關閉時鎖定支撐 ≠ 動畫踝支撐）：')
+for name, s, j in straddle:
+    for k in (0, 1):
+        r = list(csv.DictReader(open(os.path.join(D, ('xab%d_' % k) + name + '.csv'))))
+        jj = next((i for i in range(j - 4, j + 5) if r[i][s + 'ph'] == '1' and r[i - 1][s + 'ph'] != '1'), j)
+        x = r[jj]
+        settle = [(round(f(r[i][s + 'lockSupY']), 3) if r[i][s + 'ph'] == '1' else 'U') for i in range(jj, min(jj + 10, len(r)))]
+        hb = [round(100 * (f(r[i][s + 'boneY']) - f(r[i][s + 'lockSupY'])), 1) for i in range(jj, min(jj + 10, len(r))) if r[i][s + 'ph'] == '1']
+        print('  %s %-22s %s t%d 鎖定支撐 %.3f｜腳跟／踝／尖踏面 %s／%s／%s｜動畫踝支撐 %s｜之後 10 帧鎖定支撐 %s｜骨骼高於鎖定支撐(cm) %s' % (
+            '關' if k == 0 else '開', name, s, jj, f(x[s + 'lockSupY']), x[s + 'heelY'], x[s + 'ankY'], x[s + 'toeY'], x[s + 'k0'], settle, hb[:6]))

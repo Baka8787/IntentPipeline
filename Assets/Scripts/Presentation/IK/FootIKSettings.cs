@@ -97,6 +97,19 @@ namespace Project.Presentation.IK
                  "平地三點相同 ⇒ 不變；樓梯上擺盪腳會比動畫高約 斜率 × 腳尖／腳跟偏移。預設關閉 ＝ 現行。")]
         public bool SwingFootLengthReference = false;
 
+        [Header("🧪 A2 外插實驗（docs/45 §21；暫時的 A/B 開關，預設關閉 ＝ 逐位元現行）")]
+        [Tooltip("一帧水平外插改為：ADR-010 next planned plant 的腳離預測落點 PlantAwareNearSteps 步內不外插，其餘依動畫腳速度衰減。")]
+        public bool PlantAwareExtrapolation = false;
+
+        [Tooltip("離預測落點幾個本帧步長之內停止外插。")]
+        [Min(0f)] public float PlantAwareNearSteps = 1.5f;
+
+        [Tooltip("外插比例 smoothstep 的下限（m/s）：動畫腳更慢 ⇒ 不外插。")]
+        [Min(0f)] public float ExtrapolationSpeedMin = 2f;
+
+        [Tooltip("外插比例 smoothstep 的上限（m/s）：動畫腳更快 ⇒ 完整外插。")]
+        [Min(0f)] public float ExtrapolationSpeedMax = 6f;
+
         [Header("🧪 T3 目的地踏面（docs/45 §17；LandingSurfaceResolver；需要 T3；預設關閉）")]
         [Tooltip("開啟後，擺盪中（Unlocked）的腳以 ADR-010 next planned plant 的落點踏面為目的地，抬升逐步從「目前腳下」過渡到目的地；" +
                  "落腳前以即時三點驗證。Locked／Releasing 與鎖定支撐的選擇不變。沒有目的地時與關閉逐位元相同。\n還原 ＝ 關閉。")]

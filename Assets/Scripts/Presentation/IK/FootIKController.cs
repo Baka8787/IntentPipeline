@@ -291,7 +291,7 @@ namespace Project.Presentation.IK
                 bool plantValid = false, plantLeft = false, plantFinal = false;
                 float plantSurfaceY = 0f;
                 Vector3 plantAnkle = default;
-                if (settings.UseLandingSurfaceResolver && data.LocomotionStopPrediction.HasNextPlant)
+                if ((settings.UseLandingSurfaceResolver || settings.PlantAwareExtrapolation) && data.LocomotionStopPrediction.HasNextPlant)
                 {
                     LocomotionStopPrediction prediction = data.LocomotionStopPrediction;
                     plantValid = TryPredictNextPlantGoal(in prediction, out plantLeft, out plantFinal, out plantAnkle);
@@ -547,6 +547,18 @@ namespace Project.Presentation.IK
                 state.PrevContactValid = false;
                 landing.Reset();
             }
+            else if (settings.PlantAwareExtrapolation)
+            {
+                // 🧪（docs/45 §21，A2 A/B 實驗開關；預設關＝逐位元現行）水平外插比例：
+                //    這隻腳是 ADR-010 next planned plant 且離預測落點 NearSteps 步內 ⇒ 不外插（煞車步急停看不到，只有排程看得到）；
+                //    其餘依動畫腳水平速度衰減。高度外插不動。
+                float k = PlantAwareExtrapolationScale(
+                    new Vector2(posePosition.x, posePosition.z), new Vector2(predicted.x - posePosition.x, predicted.z - posePosition.z),
+                    footSpeed, hasPlant, new Vector2(plantPosition.x, plantPosition.z),
+                    settings.PlantAwareNearSteps, settings.ExtrapolationSpeedMin, settings.ExtrapolationSpeedMax);
+                predicted = new Vector3(posePosition.x + k * (predicted.x - posePosition.x), predicted.y,
+                    posePosition.z + k * (predicted.z - posePosition.z));
+            }
 
             // ②
             float beta = FootContactSolver.ComputeContactBeta(stance, footSpeed,
@@ -687,6 +699,25 @@ namespace Project.Presentation.IK
                     && beta >= settings.LockBeta
                     && footSpeed < settings.StandingReliableFootSpeedMax,
             };
+        }
+
+        /// <summary>
+        /// （純函數）🧪（docs/45 §21，A2 實驗）一帧水平外插的比例 k ∈ [0,1]（1 ＝ 現行的完整外插）。
+        /// ① 這隻腳是 next planned plant，且沿外插方向離預測落點不到 <paramref name="nearSteps"/> 個本帧步長 ⇒ 0；
+        /// ② 其餘 ⇒ smoothstep(<paramref name="speedMin"/>, <paramref name="speedMax"/>, 動畫腳水平速度)。
+        /// </summary>
+        public static float PlantAwareExtrapolationScale(Vector2 pose, Vector2 step, float footSpeed,
+            bool hasPlant, Vector2 plant, float nearSteps, float speedMin, float speedMax)
+        {
+            float stepLength = step.magnitude;
+            if (hasPlant)
+            {
+                if (stepLength < 1e-4f) return 0f;
+                float along = Vector2.Dot(plant - pose, step) / stepLength;
+                if (along < nearSteps * stepLength) return 0f;
+            }
+            float t = speedMax > speedMin ? Mathf.Clamp01((footSpeed - speedMin) / (speedMax - speedMin)) : (footSpeed >= speedMax ? 1f : 0f);
+            return t * t * (3f - 2f * t);
         }
 
         /// <summary>
