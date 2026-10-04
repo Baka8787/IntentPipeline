@@ -7,20 +7,31 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
-> # 🟧 下一會話開場：**等使用者回報三個獨立的人工 Play／裁決（`docs/45` §21）**
+> # 🟧 下一會話開場：**收步時的「吸附感」——先驗證是否來自停步 clip 本身（使用者 2026-10-04 Play 回報；context 已滿而交接）**
 >
-> **開場只需讀**：本段 ＋ `docs/45` §21（必要時 §20、ADR-011）。三者獨立、各自驗收、各自 commit。
+> **開場只需讀**：本段 ＋ `docs/45` §19.2（LU 收腳時動畫腳在 T3 鎖下滑動）、§21（三個 track 的現況）、ADR-011。⛔ 不需要重讀 §10–§18。
 >
-> - **A1**（`94ba7ca`，只量測）：強制 RU 讓 LU re-step 消失、停步 +0.41 m、入場滑動不變差；待裁決「樓梯上強制 RU」→ 才做 Core 踏面查詢＋選片（`LocomotionModel` 擁有決策）。
-> - **A2**（`c5ff446`，實驗開關，預設關）：Play 中切 X Bot FootIK 的 `PlantAwareExtrapolation` 做視覺 A/B——看停步煞車步落地、落地前幾帧有沒有可見的追趕／頓、§21.2 表的三個跨階緣情境哪個姿勢對、擺盪早期無變化。通過才回報正式實作與 contract。
-> - **B**（ADR-011 🟡 Trial；X Bot 已開 `alignRunEntryPhase`）：Run 停步後同方向起跑，拖步是否消失（AC4）；Idle 起跑瞬間有無跳動。AC2 未達（動畫腳殘留 9–11 cm，左腳支撐腳＋root 從 0 加速），AC3 大致通過。還原：設 False。
-> - PlayMode 現況 96／91：`C0`（既有）＋ `Climb2m` ×2、`CO5`（WORKLOG 既有 flaky；以 HEAD runtime 對照重跑同樣失敗）＋ `Enemy_TraversesGeneratedStair(Stairs (1),Up)` 59.7%（邊界抖動，B 關閉重跑通過）。
-> - ⛔ 約定未變：不擴 LandingSurfaceResolver、不動 SwingFootLengthReference、P8b 不處理起跑暫態（留給 B）。
+> ## 使用者 Play 回報（2026-10-04，原話）
+> - 「拖步有變好」⇒ B／ADR-011 的 AC4 **使用者確認改善**（仍是 Trial；AC2 未達 9–11 cm 的殘留未被要求處理）。
+> - 「關於腳在收步時的變化，我認為可能跟動畫本身的 clip 有關，因為即使瞬變改善了但還是有吸附感」。
+>   - 「瞬變改善」所指未確認（可能是 SwingFootLengthReference 的瞬拉、或 A2 開關的晚修正）——**開場先問清楚是哪一個開關／哪個情境**。
+>
+> ## 建議的第一步（只量測，不改 runtime）
+> - 假設：「吸附感」＝ T3 把腳鎖在落地點，而停步 clip 裡的動畫腳**在鎖下仍在滑**——鎖越久、身體越往前，最後釋放時腳被拉走（§19.2：LU 左腳鎖住 18 帧期間動畫腳滑 12.7 cm；§21.1：RU 鎖住時動畫腳滑 p90 7.4–8.4 cm）。
+> - 驗證 clip 本身：對 4 支 Stop clip（Run／Walk × LU／RU）用 Bake 資料或 preview scene 取樣，量每次 planted 期間腳在**世界**中的水平速度（root 位移＋腳在 root 空間的變化）——clip 自己就在滑 ⇒ 依 CLAUDE.md 動畫資產升級順序處理（資料／Presentation 參數 → 換 clip → 最後才改 clip 內容），⛔ 不先動 T3 鎖。
+> - 對照：同一指標量 Run／Walk loop 的支撐期，區分「停步 clip 特有」與「所有 clip 都有」。
+>
+> ## 三個 track 的現況（不變，各自獨立）
+> - **A1**（`94ba7ca`，只量測）：強制 RU ⇒ re-step 消失、停步 +0.41 m；地形感知選片待裁決。
+> - **A2**（`c5ff446`，實驗開關 `PlantAwareExtrapolation` 預設關）：視覺 A/B 待使用者；§21.2 三個跨階緣情境待判讀。
+> - **B**（`cc9b231`，ADR-011 🟡 Trial，X Bot 開）：使用者確認拖步改善；Accepted 前仍需決定 AC2（殘留 9–11 cm）是否放寬。
+> - PlayMode 96／91：`C0` 既有＋`Climb2m` ×2、`CO5` 既有 flaky＋`Enemy_TraversesGeneratedStair(Stairs (1),Up)` 邊界抖動。
+> - ⛔ 約定未變：不擴 LandingSurfaceResolver、不動 SwingFootLengthReference、不先動 release threshold。
 >
 > ## 工具
-> - `PlantSettleProbe`：`Probe_ForcedRU`（A1）、`Probe_PlantAwareExtrapAB`（A2，112 次）、`Probe_EntryPhaseFlatAB`／`StairsAB`（B）；其餘見 §19–§20。
-> - 分析：`docs/artifacts/plant-settle/{forced_ru,p8b_ab,entry_ab}.py.txt`。起跑「貼地」判準：動畫腳用（踝 − root）高度、畫面腳用離腳下即時踏面高度（⚠️ 絕對高度在下樓會誤判）。
-> - ⚠️ 暫時換回 HEAD 檔案做對照時，Unity 會刪掉未追蹤 `.cs` 的 `.meta`（重新產生即可，未進版控的檔案沒有引用問題）。
+> - `PlantSettleProbe`（`[Explicit]`）：`Probe_RunStopSettleRestart`／`ForcedRU`／`PlantAwareExtrapAB`／`EntryPhaseFlatAB`／`EntryPhaseStairsAB`／`RestartPhase*`；輸出 `Temp/PlantSettle/`（Unity 重啟會清空）。分析 `docs/artifacts/plant-settle/`（`timeline.py.txt` 單腳逐帧最好用）。
+> - Bake 匯出：`docs/artifacts/pelvis-analysis/export_bake_disp.eval.cs.txt`（複製成 `.cs` 再 `unity cmd eval_file`）。
+> - ⚠️ 排 PlayMode 前單獨查 `isPlaying`（使用者可能正在 Play）；`recompile` 沒吃到新檔時用 `AssetDatabase.Refresh(ForceSynchronousImport)`＋`RequestScriptCompilation`。
 >
 > ---
 
