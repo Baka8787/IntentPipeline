@@ -1,0 +1,209 @@
+"""docs/45 §14 Phase 1d：next plant 自 variant committed 起發布（ADR-010 D1-R1）前後比較（只量測；T3 未改）。
+用法：python early.py.txt <之前 csv 目錄> <之後 csv 目錄>
+（共用 resolver.py.txt 的 landing 定義與策略：next plant only ＋ 最後 3 帧即時驗證；候選連續 2 帧才承諾、3 帧才改答案）"""
+import sys, os, csv, glob, math, statistics as stt
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+TOL = 0.02
+
+
+def load(D):
+    src = open(os.path.join(HERE, 'resolver.py.txt'), encoding='utf-8').read().split("# ---- 0) ")[0]
+    g = {'__name__': 'x'}; argv = sys.argv; sys.argv = ['x', D]
+    exec(src, g); sys.argv = argv
+    return g
+
+
+def f(x):
+    try: return float(x)
+    except: return float('nan')
+
+
+def report(tag, D):
+    g = load(D); ok = g['ok']
+    pol = lambda z, c, L: (z['L'] if z['fb'] <= 3 and ok(z['L']) else z['N'])
+    pol.wantsLanding = True
+    for cname, cf in (('Run 煞車步', lambda L: L.get('braking')), ('Run 最後落地', lambda L: L['gait'] == 'Run' and L['footLast'])):
+        sel = [L for L in g['lands'] if cf(L) and L['rel'] == 'diff']
+        first, acc, fw, stable, lead, before, njump, lockw = [], [], 0, [], [], 0, 0, 0
+        for L in sel:
+            ns = [z['fb'] for z in L['fr'] if ok(z['N'])]
+            if ns: first.append(max(ns))
+            acc += [abs(z['N'] - L['F']) < TOL for z in L['fr'] if ok(z['N'])]
+            series, c1, rev = g['resolve'](L, pol, confirm=2, revise=3)
+            fw += ok(c1) and abs(c1 - L['F']) > TOL
+            sfb = g['stable_fb'](series, L['F'])
+            stable.append(sfb if sfb is not None else -1)
+            lockw += sfb is None
+            fr = L['fr']; jb, jm = None, 0.0
+            for n in range(1, len(fr)):
+                if fr[n]['fb'] <= 15 and abs(fr[n]['imp'] - fr[n - 1]['imp']) > jm: jm, jb = abs(fr[n]['imp'] - fr[n - 1]['imp']), fr[n]['fb']
+            if jb is not None and jm >= 0.03:
+                njump += 1
+                lead.append((sfb if sfb is not None else -1) - jb)
+                before += sfb is not None and sfb > jb
+        print('  [%s] %-10s n=%2d  首次可用 鎖前 med %4.1f 帧  正確階 %3.0f%%  首次承諾錯 %2d  正確且穩定 鎖前 med %4.1f  穩定−跳動 lead med %+4.1f 帧  早於跳動 %d／%d  鎖定時錯 %d' % (
+            tag, cname, len(sel), stt.median(first) if first else float('nan'), 100 * sum(acc) / max(1, len(acc)), fw,
+            stt.median(stable), stt.median(lead) if lead else float('nan'), before, njump, lockw))
+    # 進入期（pending／等待播放頭）vs 播放中：next plant 的正確率與 XZ 誤差
+    ent, play = [], []
+    for p in sorted(glob.glob(os.path.join(D, 'land_*_Run_*.csv'))):
+        r = list(csv.DictReader(open(p)))
+        if 'stopActive' not in r[0]: return
+        for L in [x for x in g['lands'] if x['name'] == os.path.basename(p)[5:-4] and x.get('braking')]:
+            st = next(i for i, x in enumerate(r) if x['phase'] == 'stop'); j = st + L['lockT']; s = L['foot']
+            for i in range(st, j + 1):
+                x = r[i]
+                if x.get(s + 'nOk') != '1': continue
+                right = abs(f(x[s + 'nY']) - f(x[s + 'bottom']) - L['F']) < TOL
+                xz = math.hypot(f(x[s + 'nX']) - f(r[j][s + 'tgtX']), f(x[s + 'nZ']) - f(r[j][s + 'tgtZ']))
+                (play if x['stopPlaying'] == '1' and f(x['stopNT']) > 0 else ent).append((right, xz, j - i))
+    for name, v in (('進入期（pending／等待播放頭）', ent), ('播放中', play)):
+        if v: print('  [%s] 煞車步 %s：%d 帧，正確階 %.0f%%，XZ 誤差 med %.1f cm，鎖前帧 med %d' % (
+            tag, name, len(v), 100 * sum(a[0] for a in v) / len(v), stt.median(a[1] for a in v) * 100, stt.median(a[2] for a in v)))
+
+
+report('之前', sys.argv[1])
+report('之後', sys.argv[2])
+
+
+# ---- 錯誤是否集中在踏面邊界：Editor 匯出的真實階緣（edges.csv：stair,edgeX,edgeZ,axisX,axisZ,lowY,highY）----
+def boundary(D, edges_csv):
+    g = load(D); ok = g['ok']
+    E = {}
+    for row in csv.DictReader(open(edges_csv)):
+        if f(row['lowY']) < 0.01 and f(row['highY']) > 1.0: continue          # 樓梯頂端外的落差，不是踏面邊
+        E.setdefault(row['stair'], []).append((f(row['edgeX']), f(row['edgeZ']), f(row['axisX']), f(row['axisZ'])))
+    def edge_dist(stair, x, z):
+        return min(abs((x - ex) * ax + (z - ez) * az) for ex, ez, ax, az in E[stair])
+    rows = []
+    for L in [x for x in g['lands'] if x.get('braking') and x['rel'] == 'diff']:
+        stair = L['name'].split('_')[0]
+        r = list(csv.DictReader(open(os.path.join(D, 'land_' + L['name'] + '.csv'))))
+        st = next(i for i, x in enumerate(r) if x['phase'] == 'stop'); j = st + L['lockT']; s = L['foot']
+        frames = [i for i in range(st, j + 1) if r[i].get(s + 'nOk') == '1']
+        if not frames: continue
+        k = frames[0]
+        right = abs(f(r[k][s + 'nY']) - f(r[k][s + 'bottom']) - L['F']) < TOL
+        rows.append((right, edge_dist(stair, f(r[j][s + 'tgtX']), f(r[j][s + 'tgtZ'])), edge_dist(stair, f(r[k][s + 'nX']), f(r[k][s + 'nZ']))))
+    print('\n  踏面邊界（真實階緣；cm）：煞車步 next plant 第一次出現時 對／錯 × 到最近階緣的距離')
+    for name, flag in (('正確', True), ('錯一階', False)):
+        v = [x for x in rows if x[0] == flag]
+        if not v: continue
+        a = sorted(x[1] for x in v); b = sorted(x[2] for x in v)
+        print('    %-6s n=%2d  鎖定點 med %.1f（min %.1f max %.1f）｜ 預測點 med %.1f（min %.1f max %.1f）' % (
+            name, len(v), stt.median(a) * 100, a[0] * 100, a[-1] * 100, stt.median(b) * 100, b[0] * 100, b[-1] * 100))
+    near = [x for x in rows if x[1] < 0.05]
+    print('    鎖定點距階緣 < 5 cm 的煞車步 %d／%d，其中錯一階 %d；距階緣 ≥ 5 cm 者錯一階 %d' % (
+        len(near), len(rows), sum(1 for x in near if not x[0]), sum(1 for x in rows if x[1] >= 0.05 and not x[0])))
+
+
+if len(sys.argv) > 3: boundary(sys.argv[2], sys.argv[3])
+
+
+def footprint_boundary(D, edges_csv, heel=0.10, toe=0.15, near=0.05):
+    """腳印（腳跟 −heel／腳踝／腳尖 +toe，沿 publish 朝向）三點中，任一點離階緣 < near 即視為「腳印在邊界」。"""
+    g = load(D); ok = g['ok']
+    E = {}
+    for row in csv.DictReader(open(edges_csv)):
+        if f(row['lowY']) < 0.01 and f(row['highY']) > 1.0: continue
+        E.setdefault(row['stair'], []).append((f(row['edgeX']), f(row['edgeZ']), f(row['axisX']), f(row['axisZ'])))
+    def dist(stair, x, z): return min(abs((x - ex) * ax + (z - ez) * az) for ex, ez, ax, az in E[stair])
+    out = []
+    for L in [x for x in g['lands'] if x.get('braking') and x['rel'] == 'diff']:
+        stair = L['name'].split('_')[0]
+        r = list(csv.DictReader(open(os.path.join(D, 'land_' + L['name'] + '.csv'))))
+        st = next(i for i, x in enumerate(r) if x['phase'] == 'stop'); j = st + L['lockT']; s = L['foot']
+        frames = [i for i in range(st, j + 1) if r[i].get(s + 'nOk') == '1']
+        if not frames: continue
+        k = frames[0]
+        yaw = math.radians(f(r[k]['pubYaw'])); fx, fz = math.sin(yaw), math.cos(yaw)
+        def fp(x, z): return min(dist(stair, x + fx * o, z + fz * o) for o in (-heel, 0.0, toe))
+        right = abs(f(r[k][s + 'nY']) - f(r[k][s + 'bottom']) - L['F']) < TOL
+        out.append((right, fp(f(r[j][s + 'tgtX']), f(r[j][s + 'tgtZ'])), fp(f(r[k][s + 'nX']), f(r[k][s + 'nZ']))))
+    print('\n  腳印（三點）到最近階緣的距離（cm）：煞車步 next plant 第一次出現時 對／錯')
+    for name, flag in (('正確', True), ('錯一階', False)):
+        v = [x for x in out if x[0] == flag]
+        if not v: continue
+        a = sorted(x[1] for x in v); b = sorted(x[2] for x in v)
+        print('    %-6s n=%2d  鎖定腳印 med %.1f（max %.1f）｜ 預測腳印 med %.1f（max %.1f）' % (name, len(v), stt.median(a) * 100, a[-1] * 100, stt.median(b) * 100, b[-1] * 100))
+    for lim in (0.03, 0.05, 0.08):
+        nb = [x for x in out if min(x[1], x[2]) < lim]
+        print('    腳印（鎖定或預測）距階緣 < %d cm：%d／%d；其中錯一階 %d／%d（全部錯一階的 %d%%）' % (
+            lim * 100, len(nb), len(out), sum(1 for x in nb if not x[0]), sum(1 for x in out if not x[0]),
+            100 * sum(1 for x in nb if not x[0]) / max(1, sum(1 for x in out if not x[0]))))
+
+
+if len(sys.argv) > 3: footprint_boundary(sys.argv[2], sys.argv[3])
+
+
+def bias_attribution(D, edges_csv, heel=0.10, toe=0.15):
+    """診斷（⛔ 不是修法）：以真實階緣重建踏面高度，三點最高；把預測腳印沿 publish 朝向平移 δ，看錯一階是否消失。"""
+    g = load(D); ok = g['ok']
+    E = {}
+    for row in csv.DictReader(open(edges_csv)):
+        E.setdefault(row['stair'], []).append((f(row['edgeX']), f(row['edgeZ']), f(row['axisX']), f(row['axisZ']), f(row['lowY']), f(row['highY'])))
+    def tread(stair, x, z):
+        # 沿上升軸：越過一個階緣（往上升方向）就是 highY，否則 lowY；取最高的一個已越過的階緣
+        best = None
+        for ex, ez, ax, az, lo, hi in E[stair]:
+            s = (x - ex) * ax + (z - ez) * az
+            if s >= 0 and (best is None or hi > best): best = hi
+        return best if best is not None else 0.0
+    sel = []
+    for L in [x for x in g['lands'] if x.get('braking') and x['rel'] == 'diff']:
+        stair = L['name'].split('_')[0]
+        r = list(csv.DictReader(open(os.path.join(D, 'land_' + L['name'] + '.csv'))))
+        st = next(i for i, x in enumerate(r) if x['phase'] == 'stop'); s = L['foot']
+        frames = [i for i in range(st, st + L['lockT'] + 1) if r[i].get(s + 'nOk') == '1']
+        if not frames: continue
+        k = frames[0]
+        yaw = math.radians(f(r[k]['pubYaw'])); fx, fz = math.sin(yaw), math.cos(yaw)
+        sel.append((stair, f(r[k][s + 'nX']), f(r[k][s + 'nZ']), fx, fz, L['F'], f(r[k][s + 'nY']) - f(r[k][s + 'bottom'])))
+    # 重建是否與 provider 一致（δ＝0）
+    agree = sum(1 for st_, x, z, fx, fz, F, N in sel if abs(max(tread(st_, x + fx * o, z + fz * o) for o in (-heel, 0, toe)) - N) < TOL)
+    print('\n  診斷：真實階緣重建 vs provider 的三點踏面一致 %d／%d' % (agree, len(sel)))
+    for d_cm in (-6, -4.4, -2, 0, 2, 4.4, 6):
+        d = d_cm / 100
+        wrong = sum(1 for st_, x, z, fx, fz, F, N in sel if abs(max(tread(st_, x + fx * (o + d), z + fz * (o + d)) for o in (-heel, 0, toe)) - F) >= TOL)
+        print('    預測腳印沿前進方向平移 %+5.1f cm ⇒ 錯一階 %2d／%d' % (d_cm, wrong, len(sel)))
+
+
+if len(sys.argv) > 3: bias_attribution(sys.argv[2], sys.argv[3])
+
+
+def rule_mismatch(D, edges_csv, heel=0.10, toe=0.15):
+    """在 T3 實際鎖定的 XZ 上套用「平放腳印三點最高踏面」規則，與 T3 自己選的支撐（LockedSupportY）比較。
+    不一致 ⇒ 錯誤來自落地規則（平放最高 vs T3 以實際腳姿的最大穿透），與位置預測無關。"""
+    g = load(D); ok = g['ok']
+    E = {}
+    for row in csv.DictReader(open(edges_csv)):
+        E.setdefault(row['stair'], []).append((f(row['edgeX']), f(row['edgeZ']), f(row['axisX']), f(row['axisZ']), f(row['lowY']), f(row['highY'])))
+    def tread(stair, x, z):
+        best = None
+        for ex, ez, ax, az, lo, hi in E[stair]:
+            if (x - ex) * ax + (z - ez) * az >= 0 and (best is None or hi > best): best = hi
+        return best if best is not None else 0.0
+    res = []
+    for L in [x for x in g['lands'] if x.get('braking') and x['rel'] == 'diff']:
+        stair = L['name'].split('_')[0]
+        r = list(csv.DictReader(open(os.path.join(D, 'land_' + L['name'] + '.csv'))))
+        st = next(i for i, x in enumerate(r) if x['phase'] == 'stop'); j = st + L['lockT']; s = L['foot']
+        frames = [i for i in range(st, j + 1) if r[i].get(s + 'nOk') == '1']
+        if not frames: continue
+        k = frames[0]
+        yaw = math.radians(f(r[k]['pubYaw'])); fx, fz = math.sin(yaw), math.cos(yaw)
+        lx, lz = f(r[j][s + 'tgtX']), f(r[j][s + 'tgtZ'])
+        flatAtLock = max(tread(stair, lx + fx * o, lz + fz * o) for o in (-heel, 0, toe))
+        ankleAtLock = tread(stair, lx, lz)
+        predRight = abs(f(r[k][s + 'nY']) - f(r[k][s + 'bottom']) - L['F']) < TOL
+        res.append((predRight, abs(flatAtLock - L['F']) < TOL, abs(ankleAtLock - L['F']) < TOL))
+    n = len(res)
+    print('\n  落地規則：在 T3 實際鎖定 XZ 上，「平放三點最高」與 T3 支撐一致 %d／%d；「只看腳踝」一致 %d／%d' % (
+        sum(1 for x in res if x[1]), n, sum(1 for x in res if x[2]), n))
+    miss = [x for x in res if not x[0]]
+    print('    預測錯一階的 %d 次中：平放規則在正確 XZ 上也會錯 %d 次；只看腳踝在正確 XZ 上也會錯 %d 次' % (
+        len(miss), sum(1 for x in miss if not x[1]), sum(1 for x in miss if not x[2])))
+
+
+if len(sys.argv) > 3: rule_mismatch(sys.argv[2], sys.argv[3])

@@ -1,0 +1,64 @@
+"""docs/45 §13 Phase 1c：停步期間 root 實際前進對齊哪一個 clip 時間基準（只量測）。
+輸入：LandingSurfaceProbe CSV（stopNT／facadeNT／clipDur）＋ Editor 匯出的 Bake 位移表 disp.csv（clip,t,disp）。
+用法：python timebase.py.txt <csv 目錄> <disp.csv>
+
+假設 root(f)（LateUpdate 之後）≈ root(stop 起點) ＋ disp(clipT(f) ＋ λ·每帧 clip 前進量)；對 λ 掃描，找殘差最小者。
+λ＝0 ⇒ root 對齊 LocomotionStopRuntime.NormalizedTime；λ＝+1 ⇒ 對齊畫面上的姿勢（facadeNT，晚一帧評估）。
+同時檢查：快照的 publish 基準（PreviousNormalizedTime）與 root 位置差幾帧。"""
+import csv, glob, os, sys, math, bisect, statistics as stt
+from collections import defaultdict
+
+D, DISP = sys.argv[1], sys.argv[2]
+tables = defaultdict(lambda: ([], []))
+for row in csv.DictReader(open(DISP)):
+    t, d = tables[row['clip']]; t.append(float(row['t'])); d.append(float(row['disp']))
+
+
+def disp(clip, t):
+    T, V = tables[clip]
+    if t <= T[0]: return V[0]
+    if t >= T[-1]: return V[-1]
+    i = bisect.bisect_left(T, t)
+    a = (t - T[i - 1]) / (T[i] - T[i - 1])
+    return V[i - 1] + a * (V[i] - V[i - 1])
+
+
+def f(x):
+    try: return float(x)
+    except: return float('nan')
+
+
+DUR = {round(tables[c][0][-1], 3): c for c in tables}
+best = defaultdict(list)
+lead = []
+for p in sorted(glob.glob(os.path.join(D, 'land_*_Run_*.csv'))):
+    r = list(csv.DictReader(open(p)))
+    fr = [x for x in r if x['stopPlaying'] == '1' and not math.isnan(f(x['clipDur']))]
+    if len(fr) < 20: continue
+    clip = DUR.get(round(f(fr[0]['clipDur']), 3))
+    if clip is None: continue
+    dur = f(fr[0]['clipDur'])
+    yaw = math.radians(f(r[next(i for i, x in enumerate(r) if x['phase'] == 'stop')]['rootYaw']))
+    fwd = (math.sin(yaw), math.cos(yaw))
+    nts = [f(x['stopNT']) for x in fr]
+    step = stt.median(nts[i] - nts[i - 1] for i in range(1, len(nts)) if nts[i] > nts[i - 1]) * dur   # 每帧 clip 前進（秒）
+    lead.append((stt.median(f(x['facadeNT']) - f(x['stopNT']) for x in fr) * dur) / step)
+    root0 = (f(fr[0]['rootX']), f(fr[0]['rootZ']))
+    W = [x for x in fr if f(x['stopNT']) * dur < dur - 2 * step][:40]     # 起步後 40 帧（root 仍明顯移動的區段）
+    res = {}
+    for lam10 in range(-30, 31):
+        lam = lam10 / 10
+        e = []
+        base = disp(clip, f(fr[0]['stopNT']) * dur + lam * step)
+        for x in W:
+            act = (f(x['rootX']) - root0[0]) * fwd[0] + (f(x['rootZ']) - root0[1]) * fwd[1]
+            e.append(act - (disp(clip, f(x['stopNT']) * dur + lam * step) - base))
+        res[lam] = stt.pstdev(e)          # 起點常數偏移不重要，看形狀對齊
+    lam_best = min(res, key=res.get)
+    best[clip].append((lam_best, res[lam_best] * 100, res[0.0] * 100, res.get(1.0, float('nan')) * 100, res.get(-1.0, float('nan')) * 100))
+
+print('facadeNT 領先 stopNT（帧）：med %.2f（min %.2f max %.2f）' % (stt.median(lead), min(lead), max(lead)))
+for clip, v in best.items():
+    print('%-15s n=%2d  最佳 λ med %+.1f 帧（min %+.1f max %+.1f）  殘差 cm：最佳 %.2f／λ=0 %.2f／λ=+1 %.2f／λ=−1 %.2f' % (
+        clip, len(v), stt.median(a[0] for a in v), min(a[0] for a in v), max(a[0] for a in v),
+        stt.median(a[1] for a in v), stt.median(a[2] for a in v), stt.median(a[3] for a in v), stt.median(a[4] for a in v)))

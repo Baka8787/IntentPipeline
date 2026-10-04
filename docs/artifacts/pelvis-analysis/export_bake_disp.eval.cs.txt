@@ -1,0 +1,15 @@
+var sb = new System.Text.StringBuilder("clip,t,disp\n");
+foreach (var n in new[] { "RunFwdStop_LU", "RunFwdStop_RU", "WalkFwdStop_LU", "WalkFwdStop_RU" })
+{
+    var b = UnityEditor.AssetDatabase.LoadAssetAtPath<Project.Presentation.Motion.MotionBakeData>("Assets/ScriptableObjects/Motion/Bake_" + n + ".asset");
+    for (int i = 0; i <= 2000; i++)
+    {
+        float t = b.Duration * i / 2000f;
+        sb.Append(n).Append(',').Append(t.ToString("F5", System.Globalization.CultureInfo.InvariantCulture)).Append(',')
+          .Append(b.GetLocomotionStopHorizontalDisplacementAt(t).ToString("F6", System.Globalization.CultureInfo.InvariantCulture)).Append('\n');
+    }
+}
+string outDir = System.IO.Path.GetFullPath(System.IO.Path.Combine(UnityEngine.Application.dataPath, "../Temp/LandingSurface"));
+System.IO.Directory.CreateDirectory(outDir);
+System.IO.File.WriteAllText(System.IO.Path.Combine(outDir, "disp.csv"), sb.ToString());
+return "ok";

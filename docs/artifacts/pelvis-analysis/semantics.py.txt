@@ -1,0 +1,158 @@
+"""docs/45 §15 Phase 1e：T3 support-surface semantics 的重現，與「落地姿勢」能否降低語意不一致（只量測）。
+用法：python semantics.py.txt <csv 目錄> <edges.csv>
+- Step A：鎖定當帧以 T3 實際輸入（ankle＝目標−lift、Slerp(動畫旋轉,目標旋轉,權重)）呼叫 T3 自己的 AccumulateContact（probe 欄位 repSup）→ 與 LockedSupportY 比較；
+  同時驗證離線模型（真實階緣重建的踏面 ＋ 同一條最大穿透規則）是否與 T3 一致。
+- Step B（離線模型）：在 next plant 的預測 XZ 上，比較三種落地規則：
+  B0 現行（平放三點最高）／B1 T3 規則＋Bake plant 時刻的落地姿勢（取「畫面 clip 時間到達 plant」那一帧的旋轉與動畫高度）／
+  B2 T3 規則＋實際鎖定姿勢（上界：姿勢已知、位置用預測）。"""
+import csv, glob, os, sys, math, statistics as stt
+from collections import defaultdict
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+D, EDGES = sys.argv[1], sys.argv[2]
+TOL = 0.02
+HEEL, TOE = 0.10, 0.15
+
+
+def f(x):
+    try: return float(x)
+    except: return float('nan')
+
+
+def ok(v): return not math.isnan(v)
+
+
+# ---- 樓梯幾何（Editor 匯出的真實階緣）----
+E = defaultdict(list)
+for row in csv.DictReader(open(EDGES)):
+    E[row['stair']].append((f(row['edgeX']), f(row['edgeZ']), f(row['axisX']), f(row['axisZ']), f(row['lowY']), f(row['highY'])))
+
+
+def tread(stair, x, z):
+    best = None
+    for ex, ez, ax, az, lo, hi in E[stair]:
+        if (x - ex) * ax + (z - ez) * az >= 0 and (best is None or hi > best): best = hi
+    return best if best is not None else 0.0
+
+
+def ramp(stair, x, z):
+    """CharacterController 移動斜坡：沿踏面前緣（每個階緣的上緣）連線；以上升軸座標線性內插。"""
+    pts = sorted(((x0 * ax + z0 * az), hi) for x0, z0, ax, az, lo, hi in E[stair] if not (lo < 0.01 and hi > 1.0))
+    ex, ez, ax, az = E[stair][0][:4]
+    s = x * ax + z * az
+    if s <= pts[0][0]: return pts[0][1] - (pts[0][0] - s) * (pts[1][1] - pts[0][1]) / (pts[1][0] - pts[0][0])
+    for (s0, h0), (s1, h1) in zip(pts, pts[1:]):
+        if s0 <= s <= s1: return h0 + (s - s0) / (s1 - s0) * (h1 - h0)
+    return pts[-1][1]
+
+
+def qrot(q, v):
+    x, y, z, w = q
+    vx, vy, vz = v
+    # v' = q v q*
+    tx = 2 * (y * vz - z * vy); ty = 2 * (z * vx - x * vz); tz = 2 * (x * vy - y * vx)
+    return (vx + w * tx + (y * tz - z * ty), vy + w * ty + (z * tx - x * tz), vz + w * tz + (x * ty - y * tx))
+
+
+def qmul(a, b):
+    ax, ay, az, aw = a; bx, by, bz, bw = b
+    return (aw * bx + ax * bw + ay * bz - az * by, aw * by - ax * bz + ay * bw + az * bx,
+            aw * bz + ax * by - ay * bx + az * bw, aw * bw - ax * bx - ay * by - az * bz)
+
+
+def yawq(deg):
+    a = math.radians(deg) / 2
+    return (0.0, math.sin(a), 0.0, math.cos(a))
+
+
+def t3_support(stair, ankle, q, bottom):
+    """T3 鎖定當帧：三點（腳跟／腳踝底／腳尖）各取下方踏面，選「踏面 − 端點高度」最大的那一點。"""
+    best = None
+    for o in (-HEEL, 0.0, TOE):
+        d = qrot(q, (0.0, -bottom, o))
+        p = (ankle[0] + d[0], ankle[1] + d[1], ankle[2] + d[2])
+        g = tread(stair, p[0], p[2])
+        if best is None or g - p[1] > best[0]: best = (g - p[1], g)
+    return best[1]
+
+
+def flat_highest(stair, x, z, yaw_deg):
+    a = math.radians(yaw_deg); fx, fz = math.sin(a), math.cos(a)
+    return max(tread(stair, x + fx * o, z + fz * o) for o in (-HEEL, 0.0, TOE))
+
+
+# ---- 讀取所有鎖定事件 ----
+A_in, A_off, A_n = 0, 0, 0
+brk = []
+for p in sorted(glob.glob(os.path.join(D, 'land_*_Run_*.csv'))):
+    name = os.path.basename(p)[5:-4]; stair = name.split('_')[0]
+    r = list(csv.DictReader(open(p)))
+    st = next((i for i, x in enumerate(r) if x['phase'] == 'stop'), None)
+    if st is None: continue
+    locks = sorted((j, s) for s in 'lr' for j in range(st + 1, len(r)) if r[j][s + 'ph'] == '1' and r[j - 1][s + 'ph'] != '1')
+    for j, s in locks:
+        x = r[j]; F = f(x[s + 'lockSupY'])
+        if not ok(F): continue
+        A_n += 1
+        A_in += abs(f(x[s + 'repSup']) - F) < 0.005
+        q = qmul(yawq(f(x['rootYaw'])), (f(x[s + 'rotIRx']), f(x[s + 'rotIRy']), f(x[s + 'rotIRz']), f(x[s + 'rotIRw'])))
+        ankle = (f(x[s + 'tgtX']), f(x[s + 'tgtY']) - f(x[s + 'lift']), f(x[s + 'tgtZ']))
+        A_off += abs(t3_support(stair, ankle, q, f(x[s + 'bottom'])) - F) < TOL
+    # 煞車步：第一次落地，且同一腳之後還會再落地
+    if not locks: continue
+    j, s = locks[0]
+    if not any(ss == s for jj, ss in locks[1:]): continue
+    isLeft = '1' if s == 'l' else '0'
+    frames = [i for i in range(st, j + 1) if r[i].get(s + 'nOk') == '1']
+    if not frames: continue
+    k = frames[0]
+    plantT = f(r[k]['bkPlantT']); dur = f(r[k]['clipDur'])
+    qf = next((i for i in range(st, len(r)) if ok(f(r[i]['facadeNT'])) and f(r[i]['facadeNT']) * dur >= plantT - 1e-4 and r[i]['stopPlaying'] == '1'), None)
+    if qf is None: continue
+    brk.append(dict(name=name, stair=stair, s=s, j=j, k=k, F=f(r[j][s + 'lockSupY']),
+                    N=(f(r[k][s + 'nX']), f(r[k][s + 'nZ'])), Ntread=f(r[k][s + 'nY']) - f(r[k][s + 'bottom']), pubYaw=f(r[k]['pubYaw']),
+                    lockXZ=(f(r[j][s + 'tgtX']), f(r[j][s + 'tgtZ'])), bottom=f(r[j][s + 'bottom']),
+                    lockRot=(f(r[j][s + 'rotIRx']), f(r[j][s + 'rotIRy']), f(r[j][s + 'rotIRz']), f(r[j][s + 'rotIRw'])), lockH=f(r[j][s + 'hAnim']),
+                    plantRot=(f(r[qf][s + 'rotIRx']), f(r[qf][s + 'rotIRy']), f(r[qf][s + 'rotIRz']), f(r[qf][s + 'rotIRw'])), plantH=f(r[qf][s + 'hAnim']),
+                    key=(round(dur, 3), round(plantT, 3), s), dq=qf - j))
+
+print('== Step A：T3 support selection 的重現（Run，所有鎖定事件）')
+print('  T3 自己的 AccumulateContact、以實際輸入重跑：%d／%d 一致' % (A_in, A_n))
+print('  離線模型（真實階緣踏面 ＋ 最大穿透規則）：%d／%d 一致' % (A_off, A_n))
+
+# ---- 落地姿勢表（同一 clip、同一 plant 的樣本應幾乎相同）----
+T = defaultdict(list)
+for b in brk: T[b['key']].append(b)
+print('\n== 落地姿勢樣本（畫面 clip 時間到達 Bake plant 的那一帧；相對鎖定帧的位移 dq）')
+for key, L in sorted(T.items()):
+    pitch = [math.degrees(2 * math.asin(max(-1, min(1, b['plantRot'][0])))) for b in L]
+    print('  clip %.3f s plant @%.3f 腳 %s：n=%d  dq（帧）med %d  動畫高度 med %.1f cm  旋轉 x 分量換算角 med %.1f°（範圍 %.1f）' % (
+        key[0], key[1], key[2], len(L), stt.median(b['dq'] for b in L), stt.median(b['plantH'] for b in L) * 100,
+        stt.median(pitch), max(pitch) - min(pitch)))
+
+# ---- Step B ----
+def classify(b):
+    flat_lock = flat_highest(b['stair'], b['lockXZ'][0], b['lockXZ'][1], b['pubYaw'])
+    return 'semantic' if abs(flat_lock - b['F']) >= TOL else 'position'
+
+res = defaultdict(lambda: defaultdict(int))
+for b in brk:
+    cat = classify(b)
+    q_pub = yawq(b['pubYaw'])
+    N = b['N']
+    def t3_at(xz, rot, h):
+        ankle = (xz[0], ramp(b['stair'], xz[0], xz[1]) + h, xz[1])
+        return t3_support(b['stair'], ankle, qmul(q_pub, rot), b['bottom'])
+    variants = {
+        'B0 平放三點最高（現行）': flat_highest(b['stair'], N[0], N[1], b['pubYaw']),
+        'B1 T3 規則 ＋ Bake plant 時刻姿勢': t3_at(N, b['plantRot'], b['plantH']),
+        'B2 T3 規則 ＋ 實際鎖定姿勢（上界）': t3_at(N, b['lockRot'], b['lockH']),
+        'B3 B1 但在實際鎖定 XZ（只看姿勢）': t3_at(b['lockXZ'], b['plantRot'], b['plantH']),
+    }
+    for vname, v in variants.items():
+        res[vname][cat + '_n'] += 1
+        res[vname][cat + '_ok'] += abs(v - b['F']) < TOL
+print('\n== Step B：煞車步 %d 次（semantic＝在實際鎖定 XZ 上平放規則就與 T3 不一致；position＝其餘）' % len(brk))
+for vname, d in res.items():
+    print('  %-30s 全部 %2d／%2d 正確 ｜ semantic %d／%d ｜ position %d／%d' % (
+        vname, d['semantic_ok'] + d['position_ok'], d['semantic_n'] + d['position_n'], d['semantic_ok'], d['semantic_n'], d['position_ok'], d['position_n']))

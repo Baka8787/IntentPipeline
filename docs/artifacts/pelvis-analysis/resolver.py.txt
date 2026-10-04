@@ -1,0 +1,295 @@
+"""docs/45 §11 Phase 1：destination landing-surface resolver 的離線評估（只量測；T3 未改）。
+輸入：LandingSurfaceProbe 的 CSV（含候選欄位 exTread3／liveTread3／predTread3）。用法：python resolver.py.txt <csv 目錄>
+
+每一次擺盪（腳離開 Locked → 下一次 Locked）都是一個 landing；真值 F ＝ 鎖定後的支撐踏面（LockedSupportY）。
+候選來源（每帧）：
+  P ＝ 停步預測落點（FutureLandingProvider，三點最高踏面）——只描述每隻腳停步結束時的位置
+  X ＝ 動畫踝水平速度 × 到接觸的時間（腳底高度／下降速度）外插的落點下方三點最高踏面——只有腳在下降時才有
+  L ＝ 目前目標 XZ 下方三點最高踏面（現行 T3 的資訊）
+基準：T3 現況 implied（斜坡＋lift）最後一次離 F > 3 cm 的時刻。"""
+import csv, glob, os, sys, math, statistics as stt
+from collections import defaultdict
+
+D = sys.argv[1]
+TOL = 0.02          # 同一踏面
+DIFF = 0.05         # 不同踏面
+
+
+def f(x):
+    try: return float(x)
+    except: return float('nan')
+
+
+def ok(v): return not math.isnan(v)
+
+
+def swings(path):
+    r = list(csv.DictReader(open(path)))
+    st = next((i for i, x in enumerate(r) if x['phase'] == 'stop'), None)
+    if st is None: return
+    name = os.path.basename(path)[5:-4]
+    stair, gait, d, y, _ = name.split('_')
+    lands = []
+    for s, o in (('l', 'r'), ('r', 'l')):
+        for j in range(st + 1, len(r)):
+            if r[j][s + 'ph'] != '1' or r[j - 1][s + 'ph'] == '1': continue
+            k = j - 1
+            while k > 0 and r[k - 1][s + 'ph'] != '1': k -= 1
+            if k <= 0: continue
+            F = f(r[j][s + 'lockSupY'])
+            if not ok(F): continue
+            other = f(r[j][o + 'lockSupY']) if r[j][o + 'ph'] == '1' else f(r[j][o + 'treadY'])
+            rel = 'same' if abs(F - other) < DIFF else 'diff'
+            fr = []
+            for i in range(k, j + 1):
+                x = r[i]
+                P = f(x[s + 'predY']) - f(x[s + 'bottom']) if x[s + 'predOk'] == '1' else float('nan')
+                # 預測腳印跨階緣：踝中心下方踏面 ≠ 三點最高踏面
+                straddle = x[s + 'predOk'] == '1' and ok(f(x[s + 'predTreadY'])) and abs(f(x[s + 'predTreadY']) - P) > DIFF
+                fr.append(dict(fb=j - i, P=P, X=f(x[s + 'exTread3']), L=f(x[s + 'liveTread3']),
+                               imp=f(x[s + 'rampY']) + f(x[s + 'lift']), tc=f(x[s + 'tc']),
+                               pxz=(f(x[s + 'predX']), f(x[s + 'predZ'])), exz=(f(x[s + 'exX']), f(x[s + 'exZ'])),
+                               txz=(f(x[s + 'tgtX']), f(x[s + 'tgtZ'])), straddle=straddle, h=f(x[s + 'h']),
+                               N=(f(x[s + 'nY']) - f(x[s + 'bottom'])) if x.get(s + 'nOk') == '1' else float('nan'),
+                               nFinal=x.get(s + 'nFinal') == '1'))
+            peak = -1e9
+            for z in fr:                           # 過了擺盪最高點（腳底比本次擺盪最高處低 3 cm 以上）
+                peak = max(peak, z['h'] if ok(z['h']) else peak)
+                z['afterApex'] = ok(z['h']) and z['h'] < peak - 0.03
+            lands.append(dict(name=name, gait=gait, dir=d, yaw=y, foot=s, lockT=j - st, F=F, rel=rel, fr=fr,
+                              lockXZ=(f(r[j][s + 'tgtX']), f(r[j][s + 'tgtZ']))))
+    for s in 'lr':
+        mine = [x for x in lands if x['foot'] == s]
+        for x in mine: x['footLast'] = x is max(mine, key=lambda z: z['lockT'])
+    if lands:
+        first = min(lands, key=lambda z: z['lockT'])
+        for x in lands: x['braking'] = x is first and x['gait'] == 'Run' and not x['footLast']
+    yield from lands
+
+
+def stable_fb(series, F):
+    """series：每帧（由早到晚）的承諾值；回傳自哪一帧起持續等於 F（鎖定前帧數；None ＝ 鎖定時仍不對）。"""
+    n = len(series) - 1
+    while n >= 0 and ok(series[n][1]) and abs(series[n][1] - F) < TOL: n -= 1
+    return series[n + 1][0] if n + 1 < len(series) else None
+
+
+def t3_settle(L):
+    far = [z['fb'] for z in L['fr'][:-1] if abs(z['imp'] - L['F']) > 0.03]
+    return (far[-1] - 1) if far else L['fr'][0]['fb']
+
+
+def resolve(L, policy, confirm=2, revise=3):
+    Lnd = L
+    L['lastRevFB'] = None
+    """回傳 (每帧承諾值序列, 第一次承諾的值, 改答案次數)。"""
+    committed = float('nan'); pending = float('nan'); pcount = 0; first = float('nan'); revisions = 0
+    out = []
+    for z in L['fr']:
+        cand = policy(z, committed, Lnd) if getattr(policy, 'wantsLanding', False) else policy(z, committed)
+        if ok(cand):
+            if ok(pending) and abs(cand - pending) < TOL: pcount += 1
+            else: pending, pcount = cand, 1
+            need = confirm if not ok(committed) else revise
+            if (not ok(committed) or abs(pending - committed) > TOL) and pcount >= need:
+                if ok(committed):
+                    revisions += 1
+                    Lnd['lastRevFB'] = z['fb']
+                else: first = pending
+                committed = pending
+        out.append((z['fb'], committed))
+    return out, first, revisions
+
+
+def dist(a, b):
+    return math.hypot(a[0] - b[0], a[1] - b[1]) if ok(a[0]) and ok(b[0]) else float('nan')
+
+
+def gated(R):
+    # P 只有在「這一步正往預測落點走」時才適用：預測落點與外插落點水平距離 < R；沒有外插時看目前目標離預測落點是否已在 R 內
+    def pol(z, c):
+        if ok(z['P']):
+            d = dist(z['pxz'], z['exz']) if ok(z['exz'][0]) else dist(z['pxz'], z['txz'])
+            if ok(d) and d < R: return z['P']
+        return z['X']
+    return pol
+
+
+POLICIES = {
+    'P only': lambda z, c: z['P'],
+    'X only': lambda z, c: z['X'],
+    'P else X': lambda z, c: z['P'] if ok(z['P']) else z['X'],
+    'P∧X agree, else X': lambda z, c: (z['P'] if ok(z['P']) and ok(z['X']) and abs(z['P'] - z['X']) < TOL else z['X'] if ok(z['X']) else z['P']),
+    'P if near (0.15 m) else X': gated(0.15),
+    'P if near (0.25 m) else X': gated(0.25),
+    'P if near (0.40 m) else X': gated(0.40),
+}
+
+def _oracle(z, c, L):
+    return z['P'] if L['footLast'] and ok(z['P']) else z['X']
+_oracle.wantsLanding = True
+
+def _oracle_v(z, c, L):
+    # 有預測時用預測；最後 3 帧以即時三點踏面驗證（仍須連續 revise 帧才會改答案）
+    if L['footLast'] and ok(z['P']):
+        return z['L'] if z['fb'] <= 3 and ok(z['L']) else z['P']
+    return z['X']
+_oracle_v.wantsLanding = True
+POLICIES['ORACLE: P if final else X'] = _oracle
+def _oracle_late(z, c, L):
+    # 可靠來源才承諾：最後落地用預測；外插只在鎖定前 ≤ 5 帧（tc ≤ 0.085 s）使用；最後 3 帧即時驗證
+    if L['footLast'] and ok(z['P']):
+        return z['L'] if z['fb'] <= 3 and ok(z['L']) else z['P']
+    if z['afterApex'] and ok(z['tc']) and z['tc'] <= 0.085: return z['X']
+    return z['L'] if z['fb'] <= 3 and ok(z['L']) else float('nan')
+_oracle_late.wantsLanding = True
+
+def _real_late(z, c, L):
+    # 同上，但「是不是最後落地」用可在執行期取得的門檻：預測落點與外插落點距離 < 0.25 m（沒有外插時不用預測）
+    near = ok(z['P']) and z['afterApex'] and ok(z['exz'][0]) and dist(z['pxz'], z['exz']) < 0.25
+    if near: return z['L'] if z['fb'] <= 3 and ok(z['L']) else z['P']
+    if z['afterApex'] and ok(z['tc']) and z['tc'] <= 0.085: return z['X']
+    return z['L'] if z['fb'] <= 3 and ok(z['L']) else float('nan')
+_real_late.wantsLanding = True
+def _next(z, c, L):
+    # ADR-010 D5：下一次 planned plant 是這隻腳 ⇒ 目的地＝它；否則晚期外插；最後 3 帧即時驗證。無 oracle。
+    if z['fb'] <= 3 and ok(z['L']): return z['L']
+    if ok(z['N']): return z['N']
+    if z['afterApex'] and ok(z['tc']) and z['tc'] <= 0.085: return z['X']
+    return float('nan')
+_next.wantsLanding = True
+
+def _next_p(z, c, L):
+    # 同上，但 IsFinal 時改用結束站姿預測（P；FutureLandingProvider）
+    if z['fb'] <= 3 and ok(z['L']): return z['L']
+    if ok(z['N']): return z['P'] if z['nFinal'] and ok(z['P']) else z['N']
+    if z['afterApex'] and ok(z['tc']) and z['tc'] <= 0.085: return z['X']
+    return float('nan')
+_next_p.wantsLanding = True
+POLICIES['NEXT-PLANT: N, X late, validate'] = _next
+def _next_only(z, c, L):
+    # 不用外插：只用 next plant；最後 3 帧即時驗證
+    if z['fb'] <= 3 and ok(z['L']): return z['L']
+    return z['N']
+_next_only.wantsLanding = True
+POLICIES['NEXT-PLANT only (no X), validate'] = _next_only
+POLICIES['NEXT-PLANT: N (P if final), X late, validate'] = _next_p
+POLICIES['ORACLE: P if final, X late only, validate'] = _oracle_late
+POLICIES['REAL gate: P if near X, X late only, validate'] = _real_late
+POLICIES['ORACLE: P if final else X + live validate'] = _oracle_v
+
+lands = []
+for p in sorted(glob.glob(os.path.join(D, 'land_*.csv'))):
+    lands += list(swings(p))
+
+# ---- 0) 預測落點離實際鎖定點多遠（最後落地 vs 中途落地）----
+print('== 0) 預測落點 XZ 與實際鎖定 XZ 的距離（每次落地取最後一個有預測的帧）')
+for g in ('Walk', 'Run'):
+    for last in (True, False):
+        v = []
+        for L in lands:
+            if L['gait'] != g or L['footLast'] != last: continue
+            zs = [z for z in L['fr'] if ok(z['pxz'][0])]
+            if zs: v.append(dist(zs[-1]['pxz'], L['lockXZ']))
+        if v: v.sort(); print('  %-4s %-8s n=%3d  med %.3f  p90 %.3f  max %.3f m' % (g, '最後落地' if last else '中途落地', len(v), stt.median(v), v[int(0.9 * (len(v) - 1))], v[-1]))
+
+# ---- 0b) 預測錯一階的情況，是否可由「預測腳印跨階緣」事先辨認 ----
+print('\n== 0b) 最後落地：預測第一次出現時的對錯 × 預測腳印是否跨階緣')
+M = defaultdict(int)
+for L in lands:
+    if not L['footLast']: continue
+    zs = [z for z in L['fr'] if ok(z['P'])]
+    if not zs: continue
+    z = zs[0]
+    M[(abs(z['P'] - L['F']) < TOL, z['straddle'])] += 1
+for (right, strad), n in sorted(M.items()):
+    print('  預測%s、腳印%s：%d' % ('對' if right else '錯', '跨階緣' if strad else '不跨', n))
+
+# ---- 1) 各來源在不同時點的正確率 ----
+print('== 1) 各來源指向最終踏面的比例（只看落在與支撐腳不同階的落地；分母＝該時點有值的次數）')
+bins = [(15, 99), (10, 14), (6, 9), (3, 5), (0, 2)]
+for gait in ('Walk', 'Run'):
+    for src in ('P', 'X', 'L'):
+        row = []
+        for lo, hi in bins:
+            v = [abs(z[src] - L['F']) < TOL for L in lands if L['gait'] == gait and L['rel'] == 'diff' and (src != 'P' or L['footLast'])
+                 for z in L['fr'] if lo <= z['fb'] <= hi and ok(z[src])]
+            row.append('%3.0f%%（%3d）' % (100 * sum(v) / len(v), len(v)) if v else '   —      ')
+        print('  %-4s %s  ' % (gait, src) + '  '.join('鎖前%2d–%2d: %s' % (lo, hi, rv) for (lo, hi), rv in zip(bins, row)))
+
+# ---- 2) 策略比較 ----
+print('\n== 2) 策略（confirm＝首次承諾需連續帧數，revise＝改答案需連續帧數）；只看「該腳最後一次落地」且落在不同階')
+def summarize(sel, policy, **kw):
+    R = defaultdict(list)
+    for L in sel:
+        series, first, rev = resolve(L, policy, **kw)
+        sfb = stable_fb(series, L['F'])
+        R['stable'].append(sfb if sfb is not None else -1)
+        R['gain'].append((sfb if sfb is not None else -1) - t3_settle(L))
+        R['firstWrong'].append(ok(first) and abs(first - L['F']) > TOL)
+        R['never'].append(not ok(first))
+        R['rev'].append(rev)
+        R['wrongAtLock'].append(sfb is None)
+    n = len(sel)
+    return n, stt.median(R['stable']), stt.median(R['gain']), sum(R['firstWrong']), sum(R['never']), sum(R['rev']), sum(R['wrongAtLock'])
+
+groups = [('Walk Down', lambda L: L['gait'] == 'Walk' and L['dir'] == 'Down'), ('Walk Up', lambda L: L['gait'] == 'Walk' and L['dir'] == 'Up'),
+          ('Run Down', lambda L: L['gait'] == 'Run' and L['dir'] == 'Down'), ('Run Up', lambda L: L['gait'] == 'Run' and L['dir'] == 'Up')]
+for pname, pol in POLICIES.items():
+    for cf, rv in ((2, 3),):
+        print('  [%s] confirm %d revise %d' % (pname, cf, rv))
+        for gname, g in groups:
+            sel = [L for L in lands if g(L) and L['rel'] == 'diff' and L['footLast']]
+            if not sel: continue
+            n, stable, gain, fw, never, rev, wl = summarize(sel, pol, confirm=cf, revise=rv)
+            print('    %-9s diff n=%3d  正確且穩定 鎖前 med %4.1f 帧（比 T3 早 %4.1f）  首次承諾就錯 %2d  從未承諾 %2d  改答案 %2d  鎖定時仍錯 %2d' % (gname, n, stable, gain, fw, never, rev, wl))
+
+# ---- 3) Run 煞車步 ----
+print('\n== 3) Run 煞車步（放開後第一次落地、不是該腳最後站姿）：P 不適用，看 X')
+for pname in ('X only', 'P else X', 'P∧X agree, else X'):
+    sel = [L for L in lands if L.get('braking')]
+    rows = []
+    for L in sel:
+        series, first, rev = resolve(L, POLICIES[pname], confirm=2, revise=3)
+        sfb = stable_fb(series, L['F'])
+        rows.append((L['rel'], sfb if sfb is not None else -1, t3_settle(L), ok(first) and abs(first - L['F']) > TOL))
+    for rel in ('diff', 'same'):
+        R = [x for x in rows if x[0] == rel]
+        if R: print('  [%s] %-4s n=%2d  正確且穩定 鎖前 med %4.1f 帧（T3 現況 %4.1f）  早於 T3 的次數 %d  首次承諾就錯 %d' % (
+            pname, rel, len(R), stt.median(x[1] for x in R), stt.median(x[2] for x in R), sum(1 for x in R if x[1] > x[2]), sum(1 for x in R if x[3])))
+
+# ---- 4) Phase 1b：next-plant 策略在「所有落地」上的表現（無 oracle）----
+print('\n== 4) Phase 1b（ADR-010 D5 next plant；無 oracle）：所有落在不同階的落地')
+def t3_jump_fb(L):
+    fr = L['fr']; best = None; bj = 0.0
+    for n in range(1, len(fr)):
+        if fr[n]['fb'] > 15: continue
+        d = abs(fr[n]['imp'] - fr[n - 1]['imp'])
+        if d > bj: bj, best = d, fr[n]['fb']
+    return best, bj
+
+for pname in ('NEXT-PLANT: N, X late, validate', 'NEXT-PLANT only (no X), validate', 'ORACLE: P if final, X late only, validate'):
+    print('  [%s]' % pname)
+    cats = [('Walk 最後落地', lambda L: L['gait'] == 'Walk' and L['footLast']),
+            ('Walk 中途落地', lambda L: L['gait'] == 'Walk' and not L['footLast']),
+            ('Run 最後落地', lambda L: L['gait'] == 'Run' and L['footLast']),
+            ('Run 煞車步', lambda L: L.get('braking')),
+            ('Run 其他中途', lambda L: L['gait'] == 'Run' and not L['footLast'] and not L.get('braking'))]
+    for cname, cf in cats:
+        for d in ('Down', 'Up'):
+            sel = [L for L in lands if cf(L) and L['dir'] == d and L['rel'] == 'diff']
+            if not sel: continue
+            st, gain, fw, rev, latest, wl, beforeJump = [], [], 0, 0, [], 0, 0
+            for L in sel:
+                series, first, nrev = resolve(L, POLICIES[pname], confirm=2, revise=3)
+                sfb = stable_fb(series, L['F'])
+                st.append(sfb if sfb is not None else -1); gain.append((sfb if sfb is not None else -1) - t3_settle(L))
+                fw += ok(first) and abs(first - L['F']) > TOL
+                rev += nrev
+                if L['lastRevFB'] is not None: latest.append(L['lastRevFB'])
+                wl += sfb is None
+                jfb, jmag = t3_jump_fb(L)
+                if jfb is not None and jmag >= 0.03 and sfb is not None and sfb > jfb: beforeJump += 1
+            nj = sum(1 for L in sel if (t3_jump_fb(L)[1] or 0) >= 0.03)
+            print('    %-12s %-4s n=%3d  正確且穩定 鎖前 med %4.1f（比 T3 早 %4.1f）  首次承諾錯 %2d  改答案 %2d（最晚 鎖前 min %s）  鎖定時錯 %d  早於 T3 跳動 %d／%d' % (
+                cname, d, len(sel), stt.median(st), stt.median(gain), fw, rev, min(latest) if latest else '-', wl, beforeJump, nj))

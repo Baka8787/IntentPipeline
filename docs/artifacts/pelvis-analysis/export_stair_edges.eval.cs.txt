@@ -1,0 +1,42 @@
+var ik = UnityEngine.Object.FindAnyObjectByType<Project.Presentation.IK.FootIKController>();
+var settings = (Project.Presentation.IK.FootIKSettings)typeof(Project.Presentation.IK.FootIKController)
+    .GetField("settings", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).GetValue(ik);
+int mask = settings.GroundLayers;
+var sb = new System.Text.StringBuilder("stair,edgeX,edgeZ,axisX,axisZ,lowY,highY\n");
+foreach (var t in UnityEngine.Object.FindObjectsByType<UnityEngine.Transform>(UnityEngine.FindObjectsInactive.Include))
+{
+    if (t.name != "Stairs (1)" && t.name != "Stairs_650_400_300_Prefab") continue;
+    var col = t.GetComponent<UnityEngine.Collider>();
+    if (col == null) continue;
+    var b = col.bounds;
+    var center = new UnityEngine.Vector3(b.center.x, 0f, b.center.z);
+    UnityEngine.Vector3 ascent = UnityEngine.Vector3.right; float bestRise = 0f;
+    foreach (var axis in new[] { UnityEngine.Vector3.right, UnityEngine.Vector3.forward })
+    {
+        float half = UnityEngine.Vector3.Dot(b.extents, axis) - 0.1f;
+        UnityEngine.RaycastHit h1, h2;
+        float y1 = UnityEngine.Physics.Raycast(center + axis * half + UnityEngine.Vector3.up * 50f, UnityEngine.Vector3.down, out h1, 100f, mask) ? h1.point.y : 0f;
+        float y2 = UnityEngine.Physics.Raycast(center - axis * half + UnityEngine.Vector3.up * 50f, UnityEngine.Vector3.down, out h2, 100f, mask) ? h2.point.y : 0f;
+        if (UnityEngine.Mathf.Abs(y1 - y2) > UnityEngine.Mathf.Abs(bestRise)) { bestRise = y1 - y2; ascent = bestRise > 0 ? axis : -axis; }
+    }
+    float extent = UnityEngine.Mathf.Abs(UnityEngine.Vector3.Dot(b.extents, ascent)) + 0.5f;
+    string label = t.name.StartsWith("Stairs_") ? "proto" : "s1";
+    float prevY = float.NaN;
+    for (float s = -extent; s <= extent; s += 0.001f)
+    {
+        var p = center + ascent * s;
+        float y = UnityEngine.Physics.Raycast(new UnityEngine.Vector3(p.x, b.max.y + 1f, p.z), UnityEngine.Vector3.down, out var hit, 100f, mask) ? hit.point.y : float.NaN;
+        if (!float.IsNaN(prevY) && !float.IsNaN(y) && UnityEngine.Mathf.Abs(y - prevY) > 0.05f)
+        {
+            var e = center + ascent * (s - 0.0005f);
+            sb.Append(label).Append(',').Append(e.x.ToString("F4")).Append(',').Append(e.z.ToString("F4")).Append(',')
+              .Append(ascent.x.ToString("F0")).Append(',').Append(ascent.z.ToString("F0")).Append(',')
+              .Append(UnityEngine.Mathf.Min(prevY, y).ToString("F4")).Append(',').Append(UnityEngine.Mathf.Max(prevY, y).ToString("F4")).Append('\n');
+        }
+        prevY = y;
+    }
+}
+string outDir = System.IO.Path.GetFullPath(System.IO.Path.Combine(UnityEngine.Application.dataPath, "../Temp/LandingSurface"));
+System.IO.Directory.CreateDirectory(outDir);
+System.IO.File.WriteAllText(System.IO.Path.Combine(outDir, "edges.csv"), sb.ToString());
+return sb.ToString().Split('\n').Length.ToString();

@@ -1,0 +1,128 @@
+"""docs/46 §36 landing-surface continuity（只量測）：斜向上下樓停步時，擺盪腳的 T3 目標何時切到最終踏面。
+輸入：LandingSurfaceProbe 的 CSV（Temp/LandingSurface；Unity 重啟會清空，先複製出來）。
+用法：python landing.py.txt <csv 目錄> [detail]
+
+T3 對未鎖定腳：target.y ＝ referenceY（移動面遮罩 ⇒ 樓梯上是沿踏面前緣的 CharacterController 斜坡）＋ 動畫腳高 ＋ lift，
+lift ＝ ComputeMinimumLift(contactDelta, β)，contactDelta 來自腳跟／腳踝底／腳尖三點下方的踏面（GroundLayers）。
+⇒「T3 以哪個面為落腳面」＝ implied ＝ rampY ＋ lift（本腳本的主要量）。"""
+import csv, glob, os, sys, math, statistics as stt
+from collections import defaultdict
+
+D = sys.argv[1]
+DETAIL = len(sys.argv) > 2
+NEAR, STEP = 0.03, 0.05
+
+
+def f(x):
+    try: return float(x)
+    except: return float('nan')
+
+
+def landings(path):
+    r = list(csv.DictReader(open(path)))
+    st = next((i for i, x in enumerate(r) if x['phase'] == 'stop'), None)
+    if st is None: return []
+    out = []
+    for s, o in (('l', 'r'), ('r', 'l')):
+        for j in range(st + 1, len(r)):
+            if r[j][s + 'ph'] != '1' or r[j - 1][s + 'ph'] == '1': continue
+            k = j - 1
+            while k > 0 and r[k - 1][s + 'ph'] != '1': k -= 1
+            if k <= 0: continue                     # 擺盪起點不在記錄窗內
+            W = list(range(k, j + 1))
+            F = f(r[j][s + 'lockSupY'])
+            if math.isnan(F): continue
+            other = f(r[j][o + 'lockSupY']) if r[j][o + 'ph'] == '1' else f(r[j][o + 'treadY'])
+            rel = 'same' if abs(F - other) < STEP else ('higher' if F > other else 'lower')
+            imp = {i: f(r[i][s + 'rampY']) + f(r[i][s + 'lift']) for i in W}
+            # implied 最後一次離最終踏面 > 3 cm 的帧
+            far = [i for i in W[:-1] if abs(imp[i] - F) > NEAR]
+            settleFB = j - (far[-1] + 1) if far else j - k
+            # 最後 15 帧內 implied 的最大單帧變化
+            tail = [i for i in W[1:] if j - i <= 15]
+            jump_i = max(tail, key=lambda i: abs(imp[i] - imp[i - 1])) if tail else None
+            jump = imp[jump_i] - imp[jump_i - 1] if jump_i else float('nan')
+            # 腳踝正下方踏面最後一次改變（跨階緣）
+            tr = [f(r[i][s + 'treadY']) for i in W]
+            cross = [W[n] for n in range(1, len(W)) if not (math.isnan(tr[n]) or math.isnan(tr[n - 1])) and abs(tr[n] - tr[n - 1]) > STEP]
+            miss = [i for i in W if math.isnan(f(r[i][s + 'treadY']))]
+            crossFB = j - cross[-1] if cross else None
+            # 預測：預測落點（provider，三點最高踏面）自哪一帧起持續等於最終踏面
+            pred = [i for i in W if r[i][s + 'predOk'] == '1']
+            predStableFB = None
+            if pred:
+                n = len(W) - 1
+                while n >= 0 and r[W[n]][s + 'predOk'] == '1' and abs(f(r[W[n]][s + 'predY']) - f(r[W[n]][s + 'bottom']) - F) < 0.02: n -= 1
+                predStableFB = j - W[n + 1] if n + 1 < len(W) else 0
+            predTreadOK = [i for i in pred if abs(f(r[i][s + 'predTreadY']) - F) < 0.02]
+            # 觸發分類（最大跳動帧 ±1）。⚠️ 骨盆求解器的 role 不進 T3 目標（而且隔帧閃爍，FU-14）⇒ 只看 T3 相位。
+            trig = []
+            if jump_i:
+                if jump_i == j: trig.append('lock')
+                if any(abs(c - jump_i) <= 1 for c in cross): trig.append('edge')
+                if any(abs(m - jump_i) <= 1 for m in miss): trig.append('miss')
+                if any(r[i][s + 'ph'] != r[i - 1][s + 'ph'] for i in (jump_i - 1, jump_i, jump_i + 1) if k < i < j): trig.append('phase')
+                if not trig: trig.append('beta')
+            # 腳踝點下方踏面在最後 15 帧是否來回翻（A→B→A）
+            seq = [round(f(r[i][s + 'treadY']), 2) for i in W if j - i <= 15 and not math.isnan(f(r[i][s + 'treadY']))]
+            changes = sum(1 for n in range(1, len(seq)) if abs(seq[n] - seq[n - 1]) > STEP)
+            flipback = sum(1 for n in range(2, len(seq)) if abs(seq[n] - seq[n - 2]) < 0.01 and abs(seq[n] - seq[n - 1]) > STEP)
+            out.append(dict(foot=s, lockT=j - st, swing=j - k, rel=rel, F=F, other=other,
+                            imp6=imp[j - 6] - F if j - 6 >= k else float('nan'),
+                            imp10=imp[j - 10] - F if j - 10 >= k else float('nan'),
+                            settleFB=settleFB, jump=jump, jumpFB=j - jump_i if jump_i else None, trig='+'.join(trig),
+                            crossFB=crossFB, predStableFB=predStableFB, predN=len(pred), predTreadN=len(predTreadOK),
+                            changes=changes, flipback=flipback, footLast=False, run=os.path.basename(path)[5:-4]))
+    for s in 'lr':
+        mine = [x for x in out if x['foot'] == s]
+        if mine: max(mine, key=lambda x: x['lockT'])['footLast'] = True   # 預測只描述每隻腳的最後一次落地
+    return out
+
+
+rows = []
+for p in sorted(glob.glob(os.path.join(D, 'land_*.csv'))):
+    rows += landings(p)
+
+def key(x):
+    stair, gait, d, y, _ = x['run'].split('_')
+    return (gait, d, y)
+
+print('每次「放開後」的落地（只列擺盪全程在記錄窗內者）。implied ＝ T3 隱含落腳面 ＝ rampY ＋ lift；F ＝ 鎖定後的支撐踏面。')
+print('settle ＝ implied 最後一次離 F > 3 cm 之後到鎖定的帧數（越小＝越晚才切到最終階）。')
+print('%-16s %-7s %4s | %-18s %-18s %-14s %-16s %-12s' % ('gait dir yaw', 'rel', 'n', 'imp−F @−10／−6 (cm)', 'settle med(min)', 'jump med／max', 'cross(帧前) med', 'pred 穩定帧前'))
+G = defaultdict(list)
+for x in rows: G[key(x) + (x['rel'],)].append(x)
+for k in sorted(G):
+    L = G[k]
+    def med(v):
+        v = [a for a in v if a is not None and not (isinstance(a, float) and math.isnan(a))]
+        return stt.median(v) if v else float('nan')
+    print('%-16s %-7s %4d | %6.1f ／ %6.1f      %5.1f (%3d)       %5.1f ／ %5.1f  %6.1f           %6.1f' % (
+        ' '.join(k[:3]), k[3], len(L), med([x['imp10'] for x in L]) * 100, med([x['imp6'] for x in L]) * 100,
+        med([x['settleFB'] for x in L]), min(x['settleFB'] for x in L),
+        med([abs(x['jump']) for x in L]) * 100, max(abs(x['jump']) for x in L) * 100,
+        med([x['crossFB'] for x in L]), med([x['predStableFB'] for x in L if x['footLast']])))
+
+print('\n觸發分類（最後 15 帧內 implied 最大單帧變化 ≥ 3 cm 的落地）：')
+T = defaultdict(lambda: defaultdict(int))
+for x in rows:
+    if abs(x['jump']) >= 0.03: T[key(x) + (x['rel'],)][x['trig']] += 1
+for k in sorted(T): print('  %-26s %s' % (' '.join(k), dict(T[k])))
+
+print('\n每隻腳最後一次落地、且落在與支撐腳不同階者：預測比 T3 早多少帧指向最終踏面（predStable − settle）')
+P = defaultdict(list)
+for x in rows:
+    if x['footLast'] and x['rel'] != 'same' and x['predStableFB'] is not None:
+        P[key(x)].append(x['predStableFB'] - x['settleFB'])
+for k in sorted(P):
+    v = sorted(P[k]); print('  %-16s n=%2d  早 med %4.1f 帧（min %d，max %d）；預測不早於 T3 的次數 %d' % (' '.join(k), len(v), stt.median(v), v[0], v[-1], sum(1 for a in v if a <= 0)))
+
+print('\n腳踝點下方踏面（最後 15 帧）：改變次數、來回翻（A→B→A）次數')
+C = defaultdict(lambda: [0, 0, 0])
+for x in rows:
+    c = C[key(x) + (x['rel'],)]; c[0] += 1; c[1] += x['changes']; c[2] += x['flipback']
+for k in sorted(C): print('  %-26s 落地 %3d  改變 %3d  來回翻 %d' % ((' '.join(k),) + tuple(C[k])))
+
+if DETAIL:
+    for x in sorted(rows, key=lambda x: -abs(x['jump']))[:25]:
+        print(x)

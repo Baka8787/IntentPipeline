@@ -1,0 +1,105 @@
+"""docs/45 §13 Phase 1c：Run 煞車步 ~9 cm next-plant 偏差的來源拆解（只量測）。
+輸入：LandingSurfaceProbe CSV（含 stopPlaying／clipT／bkPlant*／pub*／sn* 欄位）。用法：python bias.py.txt <csv 目錄> [detail]
+
+對每個 Run 煞車步（放開後第一次落地、不是該腳最後站姿）：
+  pf ＝ 停步 clip 時間第一次跨過 Bake plant 時間的帧；j ＝ T3 鎖定帧；Δt ＝ j − pf。
+  預測落點（bone）＝ publish root ＋ yaw × NextPlantAnkleInPublishRoot（取 pf 前最後一個有效快照）。
+  ΔXZ ＝ T3 鎖定 XZ − 預測落點 XZ，分解為沿 publish 朝向（前）與側向。
+  root 在 Δt 內的前進、動畫踝在 Δt 內的前進；root 路徑誤差、腳在 root 中的誤差。"""
+import csv, glob, os, sys, math, statistics as stt
+
+D = sys.argv[1]
+DETAIL = len(sys.argv) > 2
+
+
+def f(x):
+    try: return float(x)
+    except: return float('nan')
+
+
+def ok(v): return not math.isnan(v)
+
+
+def rot(yaw_deg, v):
+    a = math.radians(yaw_deg)
+    return (v[0] * math.cos(a) + v[2] * math.sin(a), v[1], -v[0] * math.sin(a) + v[2] * math.cos(a))
+
+
+def comp(d, yaw):
+    """世界 XZ 位移 → (前, 側)，以 publish yaw 為準。"""
+    a = math.radians(yaw)
+    fwd = (math.sin(a), math.cos(a)); right = (math.cos(a), -math.sin(a))
+    return d[0] * fwd[0] + d[1] * fwd[1], d[0] * right[0] + d[1] * right[1]
+
+
+rows = []
+for p in sorted(glob.glob(os.path.join(D, 'land_*_Run_*.csv'))):
+    r = list(csv.DictReader(open(p)))
+    st = next((i for i, x in enumerate(r) if x['phase'] == 'stop'), None)
+    if st is None: continue
+    locks = []
+    for s in 'lr':
+        for j in range(st + 1, len(r)):
+            if r[j][s + 'ph'] == '1' and r[j - 1][s + 'ph'] != '1': locks.append((j, s))
+    if not locks: continue
+    locks.sort()
+    j, s = locks[0]
+    later_same = [x for x in locks[1:] if x[1] == s]
+    if not later_same: continue                       # 煞車步＝第一次落地，且同一腳之後還會再落地
+    isLeft = '1' if s == 'l' else '0'
+    # 快照指向這隻腳的帧
+    sn = [i for i in range(st, j + 1) if r[i]['snHas'] == '1' and r[i]['snLeft'] == isLeft and r[i]['bkPlantLeft'] == isLeft]
+    if not sn: continue
+    plantT = f(r[sn[-1]]['bkPlantT'])
+    pf = next((i for i in range(sn[0], len(r)) if ok(f(r[i]['clipT'])) and f(r[i]['clipT']) >= plantT - 1e-5), None)
+    if pf is None: continue
+    k = max(i for i in sn if i < pf) if any(i < pf for i in sn) else sn[0]
+    x = r[k]
+    yaw = f(x['pubYaw'])
+    pub = (f(x['pubX']), f(x['pubY']), f(x['pubZ']))
+    snp = (f(x['snX']), f(x['snY']), f(x['snZ']))
+    pw = rot(yaw, snp); pred = (pub[0] + pw[0], pub[2] + pw[2])
+    lock = (f(r[j][s + 'tgtX']), f(r[j][s + 'tgtZ']))
+    d = comp((lock[0] - pred[0], lock[1] - pred[1]), yaw)
+    root_pf = (f(r[pf]['rootX']), f(r[pf]['rootZ'])); root_j = (f(r[j]['rootX']), f(r[j]['rootZ']))
+    rootTravel = comp((root_j[0] - root_pf[0], root_j[1] - root_pf[1]), yaw)
+    pose_pf = (f(r[pf][s + 'poseX']), f(r[pf][s + 'poseZ'])); pose_j = (f(r[j][s + 'poseX']), f(r[j][s + 'poseZ']))
+    footTravel = comp((pose_j[0] - pose_pf[0], pose_j[1] - pose_pf[1]), yaw)
+    # root 路徑：預測的 plant 時 root ＝ pub ＋ yaw ×（0,0, snZ − bkAnkZ）；實際 ＝ pf 帧的 root
+    travelPred = snp[2] - f(x['bkAnkZ'])
+    rp = rot(yaw, (0, 0, travelPred)); rootPred = (pub[0] + rp[0], pub[2] + rp[2])
+    rootErr = comp((root_pf[0] - rootPred[0], root_pf[1] - rootPred[1]), yaw)
+    # 腳在 root 中：pf 帧的動畫踝相對 pf 帧 root（publish yaw 座標）vs Bake ankle-in-root
+    footInRoot = comp((pose_pf[0] - root_pf[0], pose_pf[1] - root_pf[1]), yaw)
+    footErr = (footInRoot[0] - f(x['bkAnkZ']), footInRoot[1] - f(x['bkAnkX']))
+    # 同一比較改用 provider 的落點（已含 §18 bone→IK goal 參考點轉換）
+    nxz = (f(x[s + 'nX']), f(x[s + 'nZ']))
+    dN = comp((lock[0] - nxz[0], lock[1] - nxz[1]), yaw) if ok(nxz[0]) else (float('nan'), float('nan'))
+    rows.append(dict(dNF=dN[0], dNS=dN[1], run=os.path.basename(p)[5:-4], foot=s, plantT=plantT, lockClipT=f(r[j]['clipT']), dframes=j - pf,
+                     dF=d[0], dS=d[1], dXZ=math.hypot(*d), rootF=rootTravel[0], footF=footTravel[0],
+                     rootErrF=rootErr[0], footErrF=footErr[0], footErrS=footErr[1]))
+
+print('Run 煞車步 n=%d（單位 cm；前＝沿 publish 朝向）' % len(rows))
+def m(k): v = [x[k] for x in rows]; return stt.median(v), min(v), max(v)
+for k, name in (('dframes', 'Δt（帧，T3 鎖定 − Bake plant）'), ('dXZ', '|ΔXZ|'), ('dF', 'ΔXZ 前'), ('dS', 'ΔXZ 側'),
+                ('rootF', 'root 在 Δt 內前進'), ('footF', '動畫踝在 Δt 內前進'), ('rootErrF', 'root 路徑誤差（前）'),
+                ('footErrF', '腳在 root 中的誤差（前）'), ('footErrS', '腳在 root 中的誤差（側）')):
+    med, lo, hi = m(k)
+    sc = 1 if k == 'dframes' else 100
+    print('  %-28s med %7.1f  min %7.1f  max %7.1f' % (name, med * sc, lo * sc, hi * sc))
+# ΔXZ 前 能否被「root 在 Δt 內前進」或「動畫踝在 Δt 內前進」解釋
+def fit(a, b):
+    res = [x[a] - x[b] for x in rows]
+    return stt.median(res) * 100, max(abs(v) for v in res) * 100
+by = {}
+for x in rows: by.setdefault(round(x['plantT'], 3), []).append(x)
+for t, L in sorted(by.items()):
+    print('  plant @%.3f s（n=%d）：ΔXZ 前／側 raw %.1f／%.1f；含參考點轉換 %.1f／%.1f；Δt %d 帧；腳在 root 誤差 前／側 %.1f／%.1f' % (
+        t, len(L), stt.median(z['dF'] for z in L) * 100, stt.median(z['dS'] for z in L) * 100,
+        stt.median(z['dNF'] for z in L) * 100, stt.median(z['dNS'] for z in L) * 100, stt.median(z['dframes'] for z in L),
+        stt.median(z['footErrF'] for z in L) * 100, stt.median(z['footErrS'] for z in L) * 100))
+print('  ΔXZ前 − root前進：med %.1f  max|·| %.1f' % fit('dF', 'rootF'))
+print('  ΔXZ前 − 動畫踝前進：med %.1f  max|·| %.1f' % fit('dF', 'footF'))
+print('  ΔXZ前 − （root 路徑誤差 ＋ 腳在 root 誤差 ＋ 動畫踝前進）：med %.1f' % (stt.median(x['dF'] - x['rootErrF'] - x['footErrF'] - x['footF'] for x in rows) * 100))
+if DETAIL:
+    for x in rows: print({k: (round(v * 100, 1) if isinstance(v, float) and k not in ('plantT', 'lockClipT') else v) for k, v in x.items()})

@@ -1,0 +1,82 @@
+"""docs/45 §15 Phase 1e Step B（in-engine）：在 next plant 的預測 XZ 上，用 T3 自己的接觸取樣比較三種落地姿勢。
+輸入：LandingSurfaceProbe 的 land_*.csv 與 sem_*.csv（同目錄）＋ edges.csv（只用來分類 semantic／position）。
+用法：python semantics_b.py.txt <csv 目錄> <edges.csv>
+  B0 現行：provider 平放三點最高（next plant 的 y − 腳底厚度）
+  B1 T3 規則 ＋ 「畫面 clip 時間到達 Bake plant」那一帧的腳姿（＝Bake 若在 plant 時刻取樣會得到的落地姿勢）
+  B2 T3 規則 ＋ 該腳實際鎖定那一帧的腳姿（上界：姿勢完全已知、位置仍用預測）
+semantic ＝ 在 T3 實際鎖定 XZ 上「平放三點最高」就與 T3 支撐不一致的煞車步；position ＝ 其餘。"""
+import sys, os, csv, glob, math, statistics as stt
+from collections import defaultdict
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+D, EDGES = sys.argv[1], sys.argv[2]
+TOL = 0.02
+
+
+def f(x):
+    try: return float(x)
+    except: return float('nan')
+
+
+def ok(v): return not math.isnan(v)
+
+
+src = open(os.path.join(HERE, 'resolver.py.txt'), encoding='utf-8').read().split("# ---- 0) ")[0]
+g = {'__name__': 'x'}; argv = sys.argv; sys.argv = ['x', D]; exec(src, g); sys.argv = argv
+
+E = defaultdict(list)
+for row in csv.DictReader(open(EDGES)):
+    E[row['stair']].append((f(row['edgeX']), f(row['edgeZ']), f(row['axisX']), f(row['axisZ']), f(row['lowY']), f(row['highY'])))
+
+
+def tread(stair, x, z):
+    best = None
+    for ex, ez, ax, az, lo, hi in E[stair]:
+        if (x - ex) * ax + (z - ez) * az >= 0 and (best is None or hi > best): best = hi
+    return best if best is not None else 0.0
+
+
+def flat_highest(stair, x, z, yaw):
+    a = math.radians(yaw); fx, fz = math.sin(a), math.cos(a)
+    return max(tread(stair, x + fx * o, z + fz * o) for o in (-0.10, 0.0, 0.15))
+
+
+rows = []
+for L in [x for x in g['lands'] if x.get('braking')]:
+    name = L['name']; stair = name.split('_')[0]
+    r = list(csv.DictReader(open(os.path.join(D, 'land_' + name + '.csv'))))
+    sem = {(int(x['frame']), x['foot']): x for x in csv.DictReader(open(os.path.join(D, 'sem_' + name[0:] + '.csv')))}
+    st = next(i for i, x in enumerate(r) if x['phase'] == 'stop'); j = st + L['lockT']; s = L['foot']
+    k0 = j - (len(L['fr']) - 1)
+    V = {'B0': [], 'B1': [], 'B2': []}
+    for n, z in enumerate(L['fr']):
+        e = sem.get((int(r[k0 + n]['frame']), s))
+        for v, col in (('B0', 'b0'), ('B1', 'b1'), ('B2', 'b2')):
+            V[v].append(f(e[col]) if e else float('nan'))
+    yaw = f(r[j]['rootYaw'])
+    cat = 'semantic' if abs(flat_highest(stair, f(r[j][s + 'tgtX']), f(r[j][s + 'tgtZ']), yaw) - L['F']) >= TOL else 'position'
+    rows.append((L, V, cat))
+
+print('煞車步 %d 次（semantic %d、position %d；全部、不限是否落在不同階）' % (
+    len(rows), sum(1 for x in rows if x[2] == 'semantic'), sum(1 for x in rows if x[2] == 'position')))
+for v in ('B0', 'B1', 'B2'):
+    stats = defaultdict(lambda: [0, 0, 0, 0, []])
+    for L, V, cat in rows:
+        vals = V[v]
+        firstIdx = next((n for n, x in enumerate(vals) if ok(x)), None)
+        if firstIdx is None: continue
+        okFirst = abs(vals[firstIdx] - L['F']) < TOL
+        allOk = [abs(x - L['F']) < TOL for x in vals if ok(x)]
+        # resolver：以該變體取代 N，最後 3 帧即時驗證
+        for n, z in enumerate(L['fr']): z['V'] = vals[n]
+        pol = lambda z, c, LL: (z['L'] if z['fb'] <= 3 and ok(z['L']) else z['V'])
+        pol.wantsLanding = True
+        series, c1, rev = g['resolve'](L, pol, confirm=2, revise=3)
+        sfb = g['stable_fb'](series, L['F'])
+        for key in (cat, 'all'):
+            st_ = stats[key]
+            st_[0] += 1; st_[1] += okFirst; st_[2] += sum(allOk); st_[3] += len(allOk); st_[4].append(sfb if sfb is not None else -1)
+    for key in ('semantic', 'position', 'all'):
+        n, okF, okA, nA, sfbs = stats[key]
+        if n: print('  %s %-9s n=%2d  首次可用就對 %2d（%3.0f%%）  所有可用帧正確 %3.0f%%  resolver 穩定 鎖前 med %4.1f 帧' % (
+            v, key, n, okF, 100 * okF / n, 100 * okA / max(1, nA), stt.median(sfbs)))

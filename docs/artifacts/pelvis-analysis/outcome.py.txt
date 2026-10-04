@@ -1,6 +1,6 @@
 """docs/45 §17 Phase 2：LandingSurfaceResolver 關（lsr0_）／開（lsr1_）的 runtime outcome A/B。
-輸入：LandingSurfaceProbe 的 A/B CSV。用法：python outcome.py.txt <csv 目錄> [lsr|sri]
-  lsr ＝ Probe_LandingResolverAB（resolver 關／開）；sri ＝ Probe_SwingIntrusionAB（§18 擺盪 riser 侵入規則關／開）
+輸入：LandingSurfaceProbe 的 A/B CSV。用法：python outcome.py.txt <csv 目錄> [前綴，預設 lsr]
+  lsr ＝ Probe_LandingResolverAB（resolver 關／開）；flr ＝ Probe_FootLengthReferenceAB（§18）
 指標（停步後、每一次 Unlocked → Locked 的落地）：
   ① destination 改答案：次數、最晚時刻（鎖定前帧數）、首次承諾錯；依可信度（鎖定前一帧的 intent）分組
   ② 擺盪目標：鎖定前 12 帧內與鎖定當帧，implied 落腳面（rampY ＋ lift）的單帧 |Δ| 最大值；implied 落腳面最後一次離最終支撐 > 3 cm 的時刻（settle）
@@ -11,8 +11,8 @@
 import csv, glob, math, os, statistics as st, sys
 D = sys.argv[1]
 AB = sys.argv[2] if len(sys.argv) > 2 else 'lsr'
-# 逐位元比對的終點：處理組第一次「介入」的帧
-TRIGGER = ('lLw', 'rLw') if AB == 'lsr' else ('lIc', 'rIc')
+# 逐位元比對的終點：處理組第一次「介入」的帧（resolver 有過渡強度）；其他前綴沒有介入欄位 ⇒ 整段比對
+TRIGGER = ('lLw', 'rLw') if AB == 'lsr' else ()
 TOL = 0.03
 
 def f(x):
