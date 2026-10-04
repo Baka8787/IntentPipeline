@@ -7,7 +7,29 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
-> # 🟧 下一會話開場：**收步時的「吸附感」——先驗證是否來自停步 clip 本身（使用者 2026-10-04 Play 回報；context 已滿而交接）**
+> # 🟧 下一會話開場：**收步「吸附感」診斷已完成（`docs/45` §22）——結論 C，但「快速拉過去」的時序是 T3 的鎖定／釋放；待使用者裁決下一個 slice**
+>
+> **開場只需讀**：本段 ＋ `docs/45` §22（尤其 §22.4 表、§22.7 建議）。工具與坑：`docs/artifacts/stop-snap/README.md` §4。⛔ 不需要重讀 §10–§21。
+>
+> ## 結論（2026-10-04，只量測、runtime 未改）
+> - **動畫**：停步 clip 的收腳**不快**——最後一步／re-step 0.8–2.7 m/s，最後 100 ms 只剩 6–10 cm（loop 22–35 cm）；playback 與 loop 相同；runtime 收步＝clip 內容（V4 0.3–0.6 cm）。動畫提供的是「站著時的慢速爬行／起步」（< 1.4 m/s）。
+> - **T3**：鎖定時機本身準（鎖時離停點 ≤ 2 cm）。問題是 β 只看速度 ⇒ 慢速移動的腳被鎖住，動畫在鎖下累積 9–11 cm，β < 0.7 時用 0.12 s 補回 ⇒ 最後一步畫面快 **×1.26–1.60**（loop 同機制只有 ×1.03–1.13）。Walk 逐帧：畫面 7 帧走 46 cm，動畫花 16 帧。
+> - **Terrain**：Run LU re-step 的補回在平地／上／下樓相同（×1.6）；樓梯上同一段還要換 1–2 階（下樓每帧最高 8.6 cm 垂直）。
+> - **Asset**：`RunFwdStop_LU` 最嚴重；Walk 最後一步次之；`RunFwdStop_RU` 幾乎乾淨；Walk RU 最後小步（15 cm）被鎖整段藏起來。
+> - 次要：Run LU 煞車步一帧外插過衝 7–8 cm ＋回拉（P8b 開即消失；P8b 不影響釋放補回）。
+>
+> ## ❓ 待使用者
+> 1. 是否開「T3 釋放補回」slice？建議**先離線重播** `StepLock` 三個候選（§22.7：補回速度限幅／鎖定改看 root 空間速度或位移停止／UnlockRadius 降到爬行量級），再談實作。⛔ 此輪沒有證據支持動 clip 或 playback。
+> 2. Walk RU 最後小步被隱藏是否要處理（「該動沒動」，與吸附相反）。
+> 3. handoff 原本的「瞬變改善指哪個開關」仍未確認（不影響本結論；本輪量的是 X Bot 現行設定，P8b 關）。
+>
+> ## 本輪 commit
+> - `697a71b` docs(research)：補 commit `brake.py.txt`、`edges.csv.txt`（docs 已引用）。其餘 5 個未引用的 pelvis-analysis 腳本（attrib／baseline／decomp／replay／stepflip_ab）依賴已移除的 StopLandingProbe ⇒ 判為 throwaway，仍未追蹤，❓ 是否刪除。
+> - 研究工具 commit（`PlantSettleProbe` 擴充＋`docs/artifacts/stop-snap/`）與文件 commit（§22、map、本段）見 `git log`。
+>
+> ---
+>
+> # ~~🟧 下一會話開場：收步時的「吸附感」——先驗證是否來自停步 clip 本身~~ —— ✅ 已由上方 §22 回答（以下保留原交辦）
 >
 > **開場只需讀**：本段 ＋ `docs/45` §19.2（LU 收腳時動畫腳在 T3 鎖下滑動）、§21（三個 track 的現況）、ADR-011。⛔ 不需要重讀 §10–§18。
 >
