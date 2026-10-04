@@ -1,0 +1,44 @@
+"""問題 A 的「小」微調：停步後任一相位，最終腳骨骼在 ≥ 2 帧近乎靜止（< STILL）之後，於 WIN 帧內水平移動 MIN–MAX，再次靜止。
+排除停步後前 3 帧（煞車步的起點）。記錄移動期間每一層誰在動、相位、支撐變化。用法：python small_adjust.py.txt <csv 目錄> [detail]"""
+import csv, glob, math, os, sys, collections
+D = sys.argv[1]; DETAIL = len(sys.argv) > 2
+STILL, MIN, MAX, WIN = 0.30, 0.02, 0.15, 15
+def f(x):
+    try: return float(x)
+    except: return float('nan')
+def ok(v): return not math.isnan(v)
+ev = []
+for p in sorted(glob.glob(os.path.join(D, 'settle_*.csv'))):
+    r = list(csv.DictReader(open(p))); name = os.path.basename(p)[7:-4]
+    st0 = next((i for i, x in enumerate(r) if x['phase'] == 'stop'), None)
+    re0 = next((i for i, x in enumerate(r) if x['phase'] == 'restart'), len(r))
+    if st0 is None: continue
+    for s in 'lr':
+        sup = lambda x: f(x[s + 'lockSupY']) if x[s + 'ph'] == '1' else f(x[s + 'liveSup'])
+        i = st0 + 3
+        while i < re0 - 2:
+            if f(r[i][s + 'boneVxz']) < STILL and f(r[i + 1][s + 'boneVxz']) < STILL:
+                a = i + 1
+                k = a + 1
+                while k < min(re0, a + WIN) and f(r[k][s + 'boneVxz']) >= STILL * 0.5: k += 1
+                d = math.hypot(f(r[k][s + 'boneX']) - f(r[a][s + 'boneX']), f(r[k][s + 'boneZ']) - f(r[a][s + 'boneZ']))
+                if MIN <= d <= MAX and k > a + 1:
+                    dp = math.hypot(f(r[k][s + 'poseX']) - f(r[a][s + 'poseX']), f(r[k][s + 'poseZ']) - f(r[a][s + 'poseZ']))
+                    dt = math.hypot(f(r[k][s + 'tgtX']) - f(r[a][s + 'tgtX']), f(r[k][s + 'tgtZ']) - f(r[a][s + 'tgtZ']))
+                    dr = math.hypot(f(r[k]['rootX']) - f(r[a]['rootX']), f(r[k]['rootZ']) - f(r[a]['rootZ']))
+                    s0, s1 = sup(r[a]), sup(r[k])
+                    ev.append(dict(name=name, foot=s, a=a - st0, k=k - st0, d=d, dp=dp, dt=dt, dr=dr, s0=s0, s1=s1,
+                                   change=ok(s0) and ok(s1) and abs(s1 - s0) > 0.03,
+                                   ph=''.join({'0': 'U', '1': 'L', '2': 'R'}[r[j][s + 'ph']] for j in range(a, k + 1))))
+                    i = k
+                    continue
+            i += 1
+print('小微調（骨骼 %d–%d cm）%d 次；支撐換階 %d' % (MIN * 100, MAX * 100, len(ev), sum(e['change'] for e in ev)))
+for g in ('Run_Up', 'Run_Down'):
+    v = sorted(e['d'] for e in ev if g in e['name'])
+    if v: print('  %-8s n %3d  中位 %.3f  p90 %.3f  max %.3f  換階 %d' % (g, len(v), v[len(v) // 2], v[int(.9 * (len(v) - 1))], v[-1], sum(e['change'] for e in ev if g in e['name'])))
+c = collections.Counter(e['ph'][0] + '→' + e['ph'][-1] for e in ev); print('  相位（起→終）', dict(c))
+if DETAIL:
+    for e in ev:
+        print('%-22s %s t%3d→%3d 骨骼 %.3f 動畫 %.3f 目標 %.3f root %.3f 支撐 %.3f→%.3f %s %s' % (
+            e['name'], e['foot'], e['a'], e['k'], e['d'], e['dp'], e['dt'], e['dr'], e['s0'], e['s1'], '換階' if e['change'] else '', e['ph']))

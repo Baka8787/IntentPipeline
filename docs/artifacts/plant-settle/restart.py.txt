@@ -1,0 +1,63 @@
+"""問題 B：停步靜止後再按 Run（同方向）——各層開始動的帧（t＝按鍵後第幾帧）與每隻腳被 IK 留住的程度。
+每隻腳：動畫踝開始動（水平速度 > MOVE）、T3 離開 Locked、最終骨骼開始動、
+「留住」＝ 動畫踝已在動但 T3 仍 Locked 或 Releasing 的帧數，期間目標與動畫踝的最大水平距離（＝腳被拖在後面多遠），
+以及動畫踝沿行進方向的位移符號（< 0 ＝ 動畫自己先往後收腳，B3 的徵兆）。
+用法：python restart.py.txt <csv 目錄> [detail]"""
+import csv, glob, math, os, sys, collections
+D = sys.argv[1]; DETAIL = len(sys.argv) > 2
+MOVE, ROOT = 0.5, 0.2
+def f(x):
+    try: return float(x)
+    except: return float('nan')
+def first(r, a, b, pred):
+    return next((i - a for i in range(a, b) if pred(r[i])), None)
+rows = []
+for p in sorted(glob.glob(os.path.join(D, 'settle_*.csv'))):
+    r = list(csv.DictReader(open(p))); name = os.path.basename(p)[7:-4]
+    a = next((i for i, x in enumerate(r) if x['phase'] == 'restart'), None)
+    if a is None: continue
+    b = len(r)
+    tIntent = first(r, a, b, lambda x: f(x['intent']) > 0)
+    tRoot = first(r, a, b, lambda x: f(x['rootSpeed']) > ROOT)
+    tAnim = first(r, a, b, lambda x: x['animClip'] not in ('Idle', '') and 'Stop' not in x['animClip'])
+    clip0 = r[a]['animClip']; clipRun = next((x['animClip'] for x in r[a:b] if x['animClip'] not in ('Idle', clip0)), '')
+    # 行進方向：restart 後 40 帧的 root 位移
+    k = min(a + 40, b - 1)
+    dx, dz = f(r[k]['rootX']) - f(r[a]['rootX']), f(r[k]['rootZ']) - f(r[a]['rootZ']); n = math.hypot(dx, dz) or 1.0
+    ux, uz = dx / n, dz / n
+    feet = {}
+    for s in 'lr':
+        tPose = first(r, a, b, lambda x: f(x[s + 'poseVxz']) > MOVE)
+        tRel = first(r, a, b, lambda x: x[s + 'ph'] != '1')
+        tBone = first(r, a, b, lambda x: f(x[s + 'boneVxz']) > MOVE)
+        held = [i for i in range(a, b) if f(r[i][s + 'poseVxz']) > MOVE and r[i][s + 'ph'] in ('1', '2')]
+        gap = max((math.hypot(f(r[i][s + 'tgtX']) - f(r[i][s + 'poseX']), f(r[i][s + 'tgtZ']) - f(r[i][s + 'poseZ'])) for i in held), default=0.0)
+        heldLocked = sum(1 for i in held if r[i][s + 'ph'] == '1')
+        # 動畫踝在開始動之後前 6 帧沿行進方向的位移（負 ＝ 往後）
+        back = None
+        if tPose is not None:
+            i0 = a + tPose
+            i1 = min(i0 + 6, b - 1)
+            back = (f(r[i1][s + 'poseX']) - f(r[i0 - 1][s + 'poseX'])) * ux + (f(r[i1][s + 'poseZ']) - f(r[i0 - 1][s + 'poseZ'])) * uz
+        feet[s] = dict(tPose=tPose, tRel=tRel, tBone=tBone, held=len(held), heldLocked=heldLocked, gap=gap, back=back)
+    rows.append(dict(name=name, tIntent=tIntent, tRoot=tRoot, tAnim=tAnim, clip0=clip0, clipRun=clipRun, feet=feet))
+
+def q(v, p): v = sorted(x for x in v if x is not None); return v[int(p * (len(v) - 1))] if v else float('nan')
+for g in ('Run_Up', 'Run_Down'):
+    sel = [x for x in rows if g in x['name']]
+    allfeet = [x['feet'][s] for x in sel for s in 'lr']
+    print('== %s  n=%d  首帧 clip %s → %s' % (g, len(sel), dict(collections.Counter(x['clip0'] for x in sel)), dict(collections.Counter(x['clipRun'] for x in sel))))
+    print('  意圖 t 中位 %s  root>%.1fm/s t 中位 %s  動畫進 run t 中位 %s' % (q([x['tIntent'] for x in sel], .5), ROOT, q([x['tRoot'] for x in sel], .5), q([x['tAnim'] for x in sel], .5)))
+    print('  腳被留住（動畫踝在動但仍 Locked/Releasing）帧數 中位 %s p90 %s max %s；其中 Locked 帧 max %s；目標落後動畫踝 中位 %.3f p90 %.3f max %.3f' % (
+        q([f['held'] for f in allfeet], .5), q([f['held'] for f in allfeet], .9), max(f['held'] for f in allfeet), max(f['heldLocked'] for f in allfeet),
+        q([f['gap'] for f in allfeet], .5), q([f['gap'] for f in allfeet], .9), max(f['gap'] for f in allfeet)))
+    print('  動畫踝起步前 6 帧往後收（< −2 cm）的腳：%d／%d' % (sum(1 for f in allfeet if f['back'] is not None and f['back'] < -0.02), len(allfeet)))
+if DETAIL:
+    print()
+    print('%-22s intent root anim | L pose rel bone held(L) gap  back | R pose rel bone held(L) gap  back' % '')
+    for x in rows:
+        def ft(s):
+            F = x['feet'][s]
+            return '%4s %3s %4s %3d(%d) %.2f %5s' % (F['tPose'], F['tRel'], F['tBone'], F['held'], F['heldLocked'], F['gap'],
+                                                   '%.2f' % F['back'] if F['back'] is not None else '-')
+        print('%-22s %4s %4s %4s | %s | %s  %s→%s' % (x['name'], x['tIntent'], x['tRoot'], x['tAnim'], ft('l'), ft('r'), x['clip0'], x['clipRun']))

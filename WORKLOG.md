@@ -7,19 +7,26 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
-> # 🟧 下一會話開場：**等使用者回報擺盪腳長參考的人工 Play（`docs/45` §18.6）**
+> # 🟧 下一會話開場：**等使用者對 `docs/45` §19 的診斷裁決修正方向（⛔ 尚未實作任何修正）**
 >
-> **開場只需讀**：本段 ＋ `docs/45` §18（瞬拉成因、否決的規則、結果、Play 清單）。§17 只在需要 resolver 細節時讀。
+> **開場只需讀**：本段 ＋ `docs/45` §19。§18.6 的擺盪腳長參考 Play 回報仍待使用者。
 >
-> - 使用者回報「上樓還會瞬拉」⇒ 先用 `yank_classes.py.txt`／`footlength.py.txt` 看是不是剩下的 A（Walk 64、Run 99，未拆）。
-> - 回報「擺盪腳太高」⇒ 代價已量化（p90 +5–9 cm）；可改成只在腳尖／腳跟會穿進 riser 時才抬（需再設計，先問）。
-> - 回報「下樓還會瞬拉」⇒ 預期中：Run 下樓 B（一帧外插過衝，34%）＋ C（49%，未拆）；下一個槓桿是 T3 一帧外插在急停落地時的處理（§8.1 ①），需使用者裁決是否開。
-> - 還原：X Bot prefab `SwingFootLengthReference`／`UseLandingSurfaceResolver` 設 False（Editor API）。
+> - A-1（主要）：收步後又動＝`RunFwdStop_LU` 自己的第二次左腳落地（28／28；相對身體 16 cm、世界 46 cm、樓梯上必換階）。方向待裁決：鎖住到 clip 結束／停步 variant 選擇／換 clip（§19.5）。先問：LU 的收腳在平地是否要保留。
+> - A-2（1–2 帧）：煞車步一帧外插過衝（≤ 10 cm；7 次換階，counterfactual 7／7 可避免）＝ §18.5 的同一槓桿。
+> - B：起跑拖步＝B3 crossfade 貼地滑動（型態由前一個停步 clip 決定；RU 停步後 Idle 還沒淡完就起跑 ⇒ 左腳往後滑 21 cm）。B1 只 1–4 帧 ⇒ ⛔ 不先動 release threshold。
+> - ⛔ 本輪約定：不擴 LandingSurfaceResolver、不動 SwingFootLengthReference、不調參；使用者沒裁決前不開修正。
 >
 > ## 工具
-> - A/B：`LandingSurfaceProbe.Probe_LandingResolverAB`（lsr）、`Probe_FootLengthReferenceAB`（flr）（`[Explicit]`；各 416 次約 60 分鐘；輸出 `Temp/LandingSurface/`——**Unity 重啟會清空，跑完立刻複製**）。
-> - 分析（`PYTHONIOENCODING=utf-8`）：`docs/artifacts/pelvis-analysis/{outcome,footlength,yank_classes,verify_window}.py.txt`。瞬拉一律用「腳目標 − 動畫踝的二階差分」，⛔ 不要再用落腳窗單帧（§18.1）。
-> - 指令順序：`unity cmd recompile` → 輪詢 `recompile_status` → 確認 `isPlaying=false` → `run_tests`（PlayMode 要 `--async_tests true --include_explicit true --filter <name>`）。
+> - 診斷探針 `PlantSettleProbe.Probe_RunStopSettleRestart`（`[Explicit]`；56 次約 4 分鐘；輸出 `Temp/PlantSettle/`）。腳本 `docs/artifacts/plant-settle/`：`settle_events`／`small_adjust`／`overshoot`（含 counterfactual）／`timeline`（單腳逐帧）／`restart`／`restart_timeline`（含 timeline 條）／`restart_slide`。
+> - 研究探針 `LandingSurfaceProbe` 與 §10–§18 腳本已進版控（`b7bb22c`；`docs/artifacts/pelvis-analysis/README.md`）。
+> - ⚠️ 使用者在 Editor 裡 Play 時排 PlayMode 測試會讓測試整批中止（SaveModifiedScene 在 Play 中失敗）——排之前一定先查 `isPlaying`。
+> - ⚠️ `unity cmd recompile` 偶爾沒吃到剛寫的檔：先 `AssetDatabase.Refresh(ForceSynchronousImport)`＋`RequestScriptCompilation`（eval），再確認 CSV 欄位。
+>
+> ---
+
+> # 🟦 2026-10-04（二）— **Play 可見問題診斷（只量測）：收步後又動＝LU clip 第二次左腳落地（主要）＋煞車步一帧外插過衝；起跑拖步＝B3 crossfade 貼地滑動；runtime 未改**
+>
+> 📖 正本：`docs/45` §19。研究工具 commit `b7bb22c`（LandingSurfaceProbe＋§10–§18 腳本；不含 edges.csv 匯出結果與依賴已移除欄位的 StopLandingProbe 系腳本）。
 >
 > ---
 

@@ -1,0 +1,38 @@
+"""問題 B 逐帧 timeline（兩腳）：沿行進方向的有號位置（cm，相對按鍵那一帧），以及 timeline 條。
+root／動畫踝（pose）／T3 目標（tgt）／最終骨骼（bone）、相位（U/L/R）、β、目標−動畫踝（拖在後面為負）、Animancer 狀態。
+用法：python restart_timeline.py.txt <csv> [終帧=30]"""
+import csv, math, sys
+path = sys.argv[1]; END = int(sys.argv[2]) if len(sys.argv) > 2 else 30
+r = list(csv.DictReader(open(path)))
+a = next(i for i, x in enumerate(r) if x['phase'] == 'restart')
+def f(x):
+    try: return float(x)
+    except: return float('nan')
+k = min(a + 40, len(r) - 1)
+dx, dz = f(r[k]['rootX']) - f(r[a]['rootX']), f(r[k]['rootZ']) - f(r[a]['rootZ']); n = math.hypot(dx, dz); ux, uz = dx / n, dz / n
+A = r[a - 1]
+def al(x, kx, kz, ref=None):
+    ref = ref or A
+    return 100 * ((f(x[kx]) - f(ref[kx])) * ux + (f(x[kz]) - f(ref[kz])) * uz)
+ph = {'0': 'U', '1': 'L', '2': 'R'}
+print('沿行進方向（cm，相對按鍵前一帧）。gap＝目標−動畫踝（負＝腳被留在後面）')
+print('  t intent root  | L ph β    pose   tgt  bone   gap | R ph β    pose   tgt  bone   gap | clip(weight,active)')
+for i in range(a - 1, min(a + END + 1, len(r))):
+    x = r[i]
+    def foot(s):
+        gap = 100 * ((f(x[s + 'tgtX']) - f(x[s + 'poseX'])) * ux + (f(x[s + 'tgtZ']) - f(x[s + 'poseZ'])) * uz)
+        return '%s %.2f %6.1f %5.1f %5.1f %5.1f' % (ph[x[s + 'ph']], f(x[s + 'beta']), al(x, s + 'poseX', s + 'poseZ'),
+                                                    al(x, s + 'tgtX', s + 'tgtZ'), al(x, s + 'boneX', s + 'boneZ'), gap)
+    print('%3d %.2f %6.1f | %s | %s | %s(%.2f,%s) nt %.2f' % (i - a, f(x['intent']), al(x, 'rootX', 'rootZ'), foot('l'), foot('r'),
+                                                         x['animClip'], f(x['animWeight']), x['layerActive'], f(x['animNT'])))
+# timeline 條
+def bar(pred): return ''.join('█' if pred(r[i]) else '·' for i in range(a, min(a + END + 1, len(r))))
+print()
+print('Root moving      ', bar(lambda x: f(x['rootSpeed']) > 0.2))
+print('Anim not Idle    ', bar(lambda x: x['animClip'] not in ('Idle', '')))
+for s, lab in (('l', 'L'), ('r', 'R')):
+    print('%s anim moving    ' % lab, bar(lambda x: f(x[s + 'poseVxz']) > 0.5))
+    print('%s T3 locked      ' % lab, bar(lambda x: x[s + 'ph'] == '1'))
+    print('%s T3 releasing   ' % lab, bar(lambda x: x[s + 'ph'] == '2'))
+    print('%s bone moving    ' % lab, bar(lambda x: f(x[s + 'boneVxz']) > 0.5))
+    print('%s held ≥3cm      ' % lab, bar(lambda x: math.hypot(f(x[s + 'tgtX']) - f(x[s + 'poseX']), f(x[s + 'tgtZ']) - f(x[s + 'poseZ'])) >= 0.03))

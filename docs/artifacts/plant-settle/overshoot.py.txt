@@ -1,0 +1,53 @@
+"""落地前的 XZ 過衝：停步後每一次鎖定，鎖定前 PRE 帧內 T3 目標／最終骨骼／動畫踝／一帧外插，
+沿「進場方向」（鎖定前 6 帧到鎖定點）超過鎖定點的最大距離；以及過衝期間即時支撐與最終鎖定支撐是否不同（＝換階）。
+offline counterfactual：若目標不過衝（以「動畫踝」代替外插），該帧三點最大穿透支撐是否仍不同——用動畫踝 XZ 下方的三點踏面
+（probe 只在目標位置取樣 ⇒ 這裡用動畫踝與目標的距離判斷；離鎖定點 ≤ 1 cm 的視為與鎖定點同一位置，支撐即為最終支撐）。
+用法：python overshoot.py.txt <csv 目錄> [detail]"""
+import csv, glob, math, os, sys
+D = sys.argv[1]; DETAIL = len(sys.argv) > 2; PRE = 8
+def f(x):
+    try: return float(x)
+    except: return float('nan')
+def ok(v): return not math.isnan(v)
+rows = []
+for p in sorted(glob.glob(os.path.join(D, 'settle_*.csv'))):
+    r = list(csv.DictReader(open(p))); name = os.path.basename(p)[7:-4]
+    st0 = next((i for i, x in enumerate(r) if x['phase'] == 'stop'), None)
+    re0 = next((i for i, x in enumerate(r) if x['phase'] == 'restart'), len(r))
+    if st0 is None: continue
+    for s in 'lr':
+        for j in range(st0 + 1, re0):
+            if r[j][s + 'ph'] != '1' or r[j - 1][s + 'ph'] == '1' or j - PRE < 0: continue
+            lx, lz = f(r[j][s + 'tgtX']), f(r[j][s + 'tgtZ'])
+            ax, az = lx - f(r[j - 6][s + 'tgtX']), lz - f(r[j - 6][s + 'tgtZ'])
+            n = math.hypot(ax, az)
+            if n < 0.03: continue
+            ux, uz = ax / n, az / n
+            # 每一層各自以「自己在鎖定後 3 帧（已穩定）的位置」為終點（骨骼與 IK goal 參考點不同，不能共用終點）
+            e3 = min(j + 3, len(r) - 1)
+            def beyond(i, kx, kz):
+                ex, ez = (lx, lz) if kx == 'tgtX' else (f(r[e3][s + kx]), f(r[e3][s + kz]))
+                return (f(r[i][s + kx]) - ex) * ux + (f(r[i][s + kz]) - ez) * uz
+            pre = range(j - PRE, j)
+            ot = max(beyond(i, 'tgtX', 'tgtZ') for i in pre)
+            ob = max(beyond(i, 'boneX', 'boneZ') for i in pre)
+            op = max(beyond(i, 'poseX', 'poseZ') for i in pre)
+            oe = max(beyond(i, 'exX', 'exZ') for i in pre)
+            F = f(r[j][s + 'lockSupY'])
+            sw = [i - j for i in pre if ok(f(r[i][s + 'liveSup'])) and beyond(i, 'tgtX', 'tgtZ') > 0.01 and abs(f(r[i][s + 'liveSup']) - F) > 0.03]
+            # counterfactual：換階的那幾帧，若 XZ 用未外插的動畫踝（probe 的 cfSup，同一條 T3 規則），支撐是否等於最終鎖定支撐
+            cf = [ok(f(r[j + d][s + 'cfSup'])) and abs(f(r[j + d][s + 'cfSup']) - F) <= 0.03 for d in sw]
+            rows.append(dict(name=name, foot=s, t=j - st0, ot=ot, ob=ob, op=op, oe=oe, F=F, sw=sw, cf=cf))
+def q(v, p): v = sorted(v); return v[int(p * (len(v) - 1))] if v else float('nan')
+print('停步後鎖定 %d 次' % len(rows))
+for g in ('Run_Up', 'Run_Down'):
+    sel = [x for x in rows if g in x['name']]
+    for k, lab in (('ot', 'T3 目標'), ('oe', '一帧外插'), ('op', '動畫踝'), ('ob', '最終骨骼')):
+        v = [max(0.0, x[k]) for x in sel]
+        print('  %-8s %-6s 過衝 中位 %.3f p90 %.3f max %.3f  ≥3cm %d／%d' % (g, lab, q(v, .5), q(v, .9), max(v), sum(1 for x in v if x >= .03), len(v)))
+    print('  %-8s 過衝期間即時支撐 ≠ 最終鎖定支撐（換階）：%d／%d；其中改用未外插動畫踝就不換階：%d' % (
+        g, sum(1 for x in sel if x['sw']), len(sel), sum(1 for x in sel if x['sw'] and all(x['cf']))))
+if DETAIL:
+    for x in sorted(rows, key=lambda x: -x['ot'])[:20]:
+        print('%-22s %s t%3d  目標 %.3f 外插 %.3f 動畫 %.3f 骨骼 %.3f  鎖定支撐 %.3f  換階帧 %s cf不換 %s' % (
+            x['name'], x['foot'], x['t'], x['ot'], x['oe'], x['op'], x['ob'], x['F'], x['sw'], x['cf']))

@@ -1,0 +1,30 @@
+"""逐帧 timeline（一隻腳）：每一層的水平位置相對「站好那一帧」的位移，以及是誰在動。
+欄位：t（相對 stop／restart 第一帧）、相位（U 未鎖 L 鎖定 R 釋放）、β、動畫踝 ΔXZ（pose）、一帧外插 ΔXZ、T3 目標 ΔXZ、鎖定點 ΔXZ、
+最終骨骼 ΔXZ、root ΔXZ、動畫踝速度、骨骼速度、目標 y、鎖定支撐、三點命中（腳跟／腳踝／腳尖）、即時支撐、
+cf＝同一規則但 XZ 用未外插動畫踝的支撐（offline counterfactual，in-engine 取樣）、停步 clip NT、動畫狀態。
+用法：python timeline.py.txt <csv> <l|r> <起帧（相對 stop）> <終帧> [ref 帧] [restart]"""
+import csv, math, sys
+path, s, a, b = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
+ref = int(sys.argv[5]) if len(sys.argv) > 5 else a
+anchor = sys.argv[6] if len(sys.argv) > 6 else 'stop'
+r = list(csv.DictReader(open(path)))
+st0 = next(i for i, x in enumerate(r) if x['phase'] == anchor)
+def f(x):
+    try: return float(x)
+    except: return float('nan')
+R = r[st0 + ref]
+def d(x, kx, kz, rx=None, rz=None):
+    return math.hypot(f(x[kx]) - f(R[rx or kx]), f(x[kz]) - f(R[rz or kz]))
+ph = {'0': 'U', '1': 'L', '2': 'R'}
+print('ref t=%d  (Δ 皆相對 ref 帧，cm)' % ref)
+print('  t ph  β    pose  extr  tgt   lock  bone  root | vPose vBone | tgtY   lockSup heel/ank/toe          live   cf    | stopNT clip')
+for i in range(st0 + a, min(st0 + b + 1, len(r))):
+    x = r[i]
+    lock = d(x, s + 'lockX', s + 'lockZ', s + 'tgtX', s + 'tgtZ') if x[s + 'ph'] != '0' else float('nan')
+    print('%3d %s  %.2f %5.1f %5.1f %5.1f %5.1f %5.1f %5.1f | %5.2f %5.2f | %.3f %7.3f %6.3f/%6.3f/%6.3f %6.3f %6.3f | %.2f %s %s' % (
+        i - st0, ph[x[s + 'ph']], f(x[s + 'beta']),
+        100 * d(x, s + 'poseX', s + 'poseZ'), 100 * d(x, s + 'exX', s + 'exZ', s + 'poseX', s + 'poseZ'),
+        100 * d(x, s + 'tgtX', s + 'tgtZ'), 100 * lock, 100 * d(x, s + 'boneX', s + 'boneZ'), 100 * d(x, 'rootX', 'rootZ'),
+        f(x[s + 'poseVxz']), f(x[s + 'boneVxz']), f(x[s + 'tgtY']), f(x[s + 'lockSupY']),
+        f(x[s + 'heelY']), f(x[s + 'ankY']), f(x[s + 'toeY']), f(x[s + 'liveSup']), f(x.get(s + 'cfSup', 'nan')),
+        f(x['stopNT']), x['animClip'], x['phase']))

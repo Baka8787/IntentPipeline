@@ -1,0 +1,57 @@
+"""問題 A 候選事件：停步後某隻腳「畫面上已經站好」（T3 Locked 且最終腳骨骼水平速度 < STILL 連續 ≥ HOLD 帧）之後又水平移動 ≥ MOVE，
+並記錄移動前後的支撐（T3 LockedSupportY；未鎖時用三點即時支撐 liveSup）是否換階（|Δ| > 3 cm）。
+輸入：PlantSettleProbe 的 settle_*.csv。用法：python settle_events.py.txt <csv 目錄> [detail]"""
+import csv, glob, math, os, sys
+D = sys.argv[1]; DETAIL = len(sys.argv) > 2
+STILL, HOLD, MOVE, STEP = 0.30, 3, 0.01, 0.03   # m/s、帧、m、換階門檻
+def f(x):
+    try: return float(x)
+    except: return float('nan')
+def ok(v): return not math.isnan(v)
+
+events = []
+for p in sorted(glob.glob(os.path.join(D, 'settle_*.csv'))):
+    r = list(csv.DictReader(open(p)))
+    name = os.path.basename(p)[7:-4]
+    st0 = next((i for i, x in enumerate(r) if x['phase'] == 'stop'), None)
+    re0 = next((i for i, x in enumerate(r) if x['phase'] == 'restart'), len(r))
+    if st0 is None: continue
+    for s in 'lr':
+        sup = lambda x: f(x[s + 'lockSupY']) if x[s + 'ph'] == '1' else f(x[s + 'liveSup'])
+        i = st0
+        while i < re0:
+            # 找「站好」：連續 HOLD 帧骨骼水平速度 < STILL
+            if all(f(r[k][s + 'boneVxz']) < STILL and r[k][s + 'ph'] == '1' for k in range(i, min(i + HOLD, re0))) and i + HOLD <= re0:
+                anchor = i + HOLD - 1
+                ax, az = f(r[anchor][s + 'boneX']), f(r[anchor][s + 'boneZ'])
+                sup0 = sup(r[anchor])
+                # 之後是否再水平移動 ≥ MOVE（到 restart 前）
+                moved = None
+                for k in range(anchor + 1, re0):
+                    if math.hypot(f(r[k][s + 'boneX']) - ax, f(r[k][s + 'boneZ']) - az) >= MOVE:
+                        moved = k; break
+                if moved is None: break
+                # 移動結束：再次站好或 restart
+                end = moved
+                while end < re0 - 1 and f(r[end][s + 'boneVxz']) >= STILL: end += 1
+                dist = math.hypot(f(r[end][s + 'boneX']) - ax, f(r[end][s + 'boneZ']) - az)
+                sup1 = sup(r[end])
+                supChange = [(k, round(sup(r[k - 1]), 3), round(sup(r[k]), 3)) for k in range(anchor + 1, end + 1)
+                             if ok(sup(r[k])) and ok(sup(r[k - 1])) and abs(sup(r[k]) - sup(r[k - 1])) > STEP]
+                events.append(dict(name=name, foot=s, anchor=anchor - st0, moved=moved - st0, end=end - st0, dist=dist,
+                                   sup0=sup0, sup1=sup1, change=ok(sup0) and ok(sup1) and abs(sup1 - sup0) > STEP, supChange=supChange,
+                                   ph=''.join(r[k][s + 'ph'] for k in range(anchor, end + 1))))
+                i = end + 1
+            else:
+                i += 1
+
+print('候選事件 %d（停步後站好 → 再水平移動 ≥ %.0f cm）；其中支撐換階 %d' % (len(events), MOVE * 100, sum(e['change'] for e in events)))
+for g in ('Run_Up', 'Run_Down'):
+    v = sorted(e['dist'] for e in events if g in e['name'])
+    if v: print('  %-8s n %3d  距離 中位 %.3f  p90 %.3f  max %.3f  換階 %d' % (g, len(v), v[len(v) // 2], v[int(0.9 * (len(v) - 1))], v[-1],
+                                                                       sum(e['change'] for e in events if g in e['name'])))
+if DETAIL:
+    for e in events:
+        print('%-22s %s 站好@%3d 移動@%3d 結束@%3d 距離 %.3f 支撐 %.3f→%.3f %s 相位 %s %s' % (
+            e['name'], e['foot'], e['anchor'], e['moved'], e['end'], e['dist'], e['sup0'], e['sup1'],
+            '換階' if e['change'] else '', e['ph'], e['supChange'][:3]))

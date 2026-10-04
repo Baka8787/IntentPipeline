@@ -1,0 +1,67 @@
+"""問題 B：起跑前 N 帧，腳「貼地滑動」——腳底離支撐 < LOW 時的水平位移（動畫踝 vs 最終骨骼），
+以及 B1（IK 留住）的量：動畫踝在動、T3 仍 Locked 的帧數與目標落後距離。
+腳底高度 ＝ 腳踝 y − 腳底厚度近似（用站立時的腳踝離支撐高度當基準：起跑前一帧 pose y − liveSup）。
+用法：python restart_slide.py.txt <csv 目錄> [N=15]"""
+import csv, glob, math, os, sys, collections
+D = sys.argv[1]; N = int(sys.argv[2]) if len(sys.argv) > 2 else 15; LOW = 0.03
+def f(x):
+    try: return float(x)
+    except: return float('nan')
+def ok(v): return not math.isnan(v)
+res = collections.defaultdict(list)
+for p in sorted(glob.glob(os.path.join(D, 'settle_*.csv'))):
+    r = list(csv.DictReader(open(p))); name = os.path.basename(p)[7:-4]
+    a = next((i for i, x in enumerate(r) if x['phase'] == 'restart'), None)
+    if a is None: continue
+    g = name.split('_')[2]
+    k = min(a + 40, len(r) - 1)
+    dx, dz = f(r[k]['rootX']) - f(r[a]['rootX']), f(r[k]['rootZ']) - f(r[a]['rootZ']); n = math.hypot(dx, dz); ux, uz = dx / n, dz / n
+    for s in 'lr':
+        base_pose = f(r[a - 1][s + 'poseY']) - f(r[a - 1][s + 'liveSup'])
+        base_bone = f(r[a - 1][s + 'boneY']) - f(r[a - 1][s + 'liveSup'])
+        slide_p = slide_b = 0.0; fwd_p = back_p = 0.0; lockedMoving = 0; lockGap = 0.0
+        for i in range(a, min(a + N, len(r))):
+            x, y = r[i - 1], r[i]
+            sup = f(y[s + 'liveSup']) if ok(f(y[s + 'liveSup'])) else f(r[a - 1][s + 'liveSup'])
+            hp = f(y[s + 'poseY']) - sup - base_pose
+            hb = f(y[s + 'boneY']) - sup - base_bone
+            dp = (f(y[s + 'poseX']) - f(x[s + 'poseX'])) * ux + (f(y[s + 'poseZ']) - f(x[s + 'poseZ'])) * uz
+            db = math.hypot(f(y[s + 'boneX']) - f(x[s + 'boneX']), f(y[s + 'boneZ']) - f(x[s + 'boneZ']))
+            if hp < LOW:
+                slide_p += abs(dp)
+                if dp > 0: fwd_p += dp
+                else: back_p += -dp
+            if hb < LOW: slide_b += db
+            if y[s + 'ph'] == '1' and f(y[s + 'poseVxz']) > 0.5:
+                lockedMoving += 1
+                lockGap = max(lockGap, math.hypot(f(y[s + 'tgtX']) - f(y[s + 'poseX']), f(y[s + 'tgtZ']) - f(y[s + 'poseZ'])))
+        # 離地前滑動：從按鍵到腳踝第一次比站立時高 LOW 為止，動畫踝／最終骨骼的有號水平位移與帧數
+        # 離地 ＝ 腳踝離「腳下即時支撐」的高度比起跑前高出 LOW（下樓時腳只會往下，不能用絕對高度）
+        sup0 = f(r[a - 1][s + 'liveSup'])
+        y0p, y0b = f(r[a - 1][s + 'poseY']) - sup0, f(r[a - 1][s + 'boneY']) - sup0
+        def h(i, k):
+            sp = f(r[i][s + 'liveSup']); sp = sp if ok(sp) else sup0
+            return f(r[i][s + k]) - sp
+        lift_p = next((i for i in range(a, min(a + 40, len(r))) if h(i, 'poseY') - y0p > LOW), None)
+        lift_b = next((i for i in range(a, min(a + 40, len(r))) if h(i, 'boneY') - y0b > LOW), None)
+        def along(i, k): return (f(r[i][s + k + 'X']) - f(r[a - 1][s + k + 'X'])) * ux + (f(r[i][s + k + 'Z']) - f(r[a - 1][s + k + 'Z'])) * uz
+        pre_p = [along(i, 'pose') for i in range(a, lift_p)] if lift_p else []
+        pre_b = [along(i, 'bone') for i in range(a, lift_b)] if lift_b else []
+        res[g].append(dict(name=name, foot=s, sp=slide_p, sb=slide_b, fwd=fwd_p, back=back_p, lm=lockedMoving, lg=lockGap,
+                           lp=(lift_p - a) if lift_p else None, lb=(lift_b - a) if lift_b else None,
+                           pp=max(pre_p, key=abs) if pre_p else 0.0, pb=max(pre_b, key=abs) if pre_b else 0.0))
+def q(v, p): v = sorted(v); return v[int(p * (len(v) - 1))] if v else float('nan')
+print('起跑前 %d 帧；貼地 ＝ 腳踝比站立時高不到 %.0f cm' % (N, LOW * 100))
+for g, v in sorted(res.items()):
+    print('== Run %s（%d 隻腳）' % (g, len(v)))
+    print('  動畫踝貼地水平滑動  中位 %.3f p90 %.3f max %.3f（往前 中位 %.3f／往後 中位 %.3f）' % (
+        q([x['sp'] for x in v], .5), q([x['sp'] for x in v], .9), max(x['sp'] for x in v), q([x['fwd'] for x in v], .5), q([x['back'] for x in v], .5)))
+    print('  最終骨骼貼地水平移動 中位 %.3f p90 %.3f max %.3f' % (q([x['sb'] for x in v], .5), q([x['sb'] for x in v], .9), max(x['sb'] for x in v)))
+    print('  離地前貼地滑動（有號，正＝往前）動畫踝 |max| 中位 %.3f p90 %.3f max %.3f；最終骨骼 中位 %.3f p90 %.3f max %.3f；離地帧 動畫 中位 %s／骨骼 中位 %s' % (
+        q([abs(x['pp']) for x in v], .5), q([abs(x['pp']) for x in v], .9), max(abs(x['pp']) for x in v),
+        q([abs(x['pb']) for x in v], .5), q([abs(x['pb']) for x in v], .9), max(abs(x['pb']) for x in v),
+        q([x['lp'] for x in v if x['lp'] is not None], .5), q([x['lb'] for x in v if x['lb'] is not None], .5)))
+    print('    往後滑（< −3 cm）的腳：動畫 %d、骨骼 %d；往前滑（> 3 cm）：動畫 %d、骨骼 %d' % (
+        sum(x['pp'] < -0.03 for x in v), sum(x['pb'] < -0.03 for x in v), sum(x['pp'] > 0.03 for x in v), sum(x['pb'] > 0.03 for x in v)))
+    print('  B1：動畫踝在動但 T3 仍 Locked  帧數 中位 %s max %s；這時目標落後 max %.3f' % (
+        q([x['lm'] for x in v], .5), max(x['lm'] for x in v), max(x['lg'] for x in v)))
