@@ -1,0 +1,508 @@
+#!/usr/bin/env python3
+"""Analyze the docs/45 §24 R1c runtime A/B recordings.
+
+Input is the ``lf_cur_*``, ``lf_f3_*`` and ``lf_f5_*`` CSV produced by
+``PlantSettleProbe``.  Only the Python standard library is used.
+"""
+
+import argparse
+import csv
+import math
+import re
+import statistics
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+
+ARMS = ("cur", "f3", "f5")
+DT = 1.0 / 60.0
+FILE_RE = re.compile(r"^lf_(cur|f3|f5)_(.+)\.csv$")
+REQUIRED = {
+    "frame", "phase", "gait", "stopBake", "rootX", "rootZ", "rootEvalX", "rootEvalZ",
+    "pelvisSolver", "pelvisOut", "hipsY",
+}
+for _side in ("l", "r"):
+    REQUIRED.update({
+        _side + "ph", _side + "poseX", _side + "poseZ", _side + "tgtX", _side + "tgtZ",
+        _side + "boneX", _side + "boneY", _side + "boneZ", _side + "lockX", _side + "lockZ",
+        _side + "lockSupY", _side + "liveSup",
+    })
+
+EVENT_FIELDS = [
+    "arm", "eventId", "case", "gait", "terrain", "side", "context", "ordinal", "tRel", "isLastRelease",
+    "curLockFrame", "curReleaseFrame", "armLockFrame", "armReleaseFrame",
+    "gapPreMaxCm", "gapAtReleaseCm", "relPathRatio", "relPeakRatio",
+    "peakSpeedCCmPerFrame", "peakSpeedCMps", "lockedAwayFrames",
+    "stanceSlideCm", "stanceSlideMaxCmPerFrame", "treadChangesLocked",
+    "finalLockSupY", "finalLiveSupY", "footDYmaxCm", "pelvisTargetDYmaxCm", "pelvisOutDYmaxCm", "hipsDYmaxCm",
+    "lockCountAll", "lockCountStop", "releaseCountAll", "releaseCountStop",
+    "endGapCm", "latePathRatio", "lateCPathCm", "lateAPathCm",
+]
+
+
+def finite(value):
+    return isinstance(value, (int, float)) and math.isfinite(value)
+
+
+def number(row, name):
+    try:
+        return float(row[name])
+    except (KeyError, TypeError, ValueError):
+        return math.nan
+
+
+def distance2(a, b):
+    return math.hypot(a[0] - b[0], a[1] - b[1])
+
+
+def median(values):
+    values = [value for value in values if finite(value)]
+    return statistics.median(values) if values else math.nan
+
+
+def maximum(values):
+    values = [value for value in values if finite(value)]
+    return max(values) if values else math.nan
+
+
+def fmt(value, digits=6):
+    if not finite(value):
+        return ""
+    return ("%%.%df" % digits) % value
+
+
+def md(value, digits=2):
+    return fmt(value, digits) if finite(value) else "—"
+
+
+@dataclass
+class Episode:
+    lock: int
+    release: object
+    locked: list
+
+
+@dataclass
+class Recording:
+    path: Path
+    arm: str
+    name: str
+    rows: list
+    gait: str
+    terrain: str
+    stop_start: int
+
+    @property
+    def stop_end(self):
+        return len(self.rows) - 1
+
+    def stop_bake(self, index):
+        if 0 <= index < len(self.rows) and self.rows[index]["stopBake"]:
+            return self.rows[index]["stopBake"]
+        for i in range(min(index, self.stop_end), self.stop_start - 1, -1):
+            if self.rows[i]["stopBake"]:
+                return self.rows[i]["stopBake"]
+        for i in range(self.stop_start, len(self.rows)):
+            if self.rows[i]["stopBake"]:
+                return self.rows[i]["stopBake"]
+        return ""
+
+    def index_at(self, relative_frame):
+        return self.stop_start + relative_frame
+
+
+def find_episodes(rows, side):
+    phases = [int(number(row, side + "ph")) for row in rows]
+    episodes = []
+    i = 0
+    while i < len(phases):
+        if phases[i] == 1 and (i == 0 or phases[i - 1] != 1):
+            lock = i
+            j = i
+            while j < len(phases) and phases[j] == 1:
+                j += 1
+            release = j if j < len(phases) and phases[j] == 2 else None
+            episodes.append(Episode(lock, release, list(range(lock, j))))
+            i = j
+        else:
+            i += 1
+    return episodes
+
+
+def load_recordings(input_dir):
+    recordings = {}
+    errors = []
+    for path in sorted(input_dir.glob("lf_*.csv")):
+        match = FILE_RE.match(path.name)
+        if not match:
+            continue
+        arm, name = match.groups()
+        with path.open("r", encoding="utf-8-sig", newline="") as stream:
+            reader = csv.DictReader(stream)
+            missing = sorted(REQUIRED - set(reader.fieldnames or []))
+            if missing:
+                errors.append("%s: missing columns: %s" % (path.name, ", ".join(missing)))
+                continue
+            rows = list(reader)
+        restart = next((i for i, row in enumerate(rows) if row["phase"] == "restart"), len(rows))
+        rows = rows[:restart]
+        stop_start = next((i for i, row in enumerate(rows) if row["phase"] == "stop"), None)
+        if not rows or stop_start is None:
+            errors.append("%s: no rows before restart or no stop phase" % path.name)
+            continue
+        frames = [int(number(row, "frame")) for row in rows]
+        gaps = [(frames[i - 1], frames[i]) for i in range(1, len(frames)) if frames[i] != frames[i - 1] + 1]
+        if gaps:
+            errors.append("%s: non-contiguous frames (%d -> %d)" % (path.name, gaps[0][0], gaps[0][1]))
+            continue
+        terrain = "flat" if "_flat_" in path.stem else "Up" if "_Up_" in path.stem else "Down" if "_Down_" in path.stem else "unknown"
+        gait = rows[0]["gait"]
+        if terrain == "unknown" or gait not in ("Walk", "Run"):
+            errors.append("%s: unsupported terrain/gait" % path.name)
+            continue
+        key = (name, arm)
+        if key in recordings:
+            errors.append("duplicate recording for %s/%s" % key)
+            continue
+        recordings[key] = Recording(path, arm, name, rows, gait, terrain, stop_start)
+    if not recordings:
+        errors.append("no lf_{cur,f3,f5}_*.csv files found in %s" % input_dir)
+    names = sorted({name for name, _ in recordings})
+    for name in names:
+        missing_arms = [arm for arm in ARMS if (name, arm) not in recordings]
+        if missing_arms:
+            errors.append("%s: missing arms %s" % (name, ", ".join(missing_arms)))
+    if errors:
+        raise ValueError("input validation failed:\n  " + "\n  ".join(errors))
+    return recordings, names
+
+
+def track_a(recording, side):
+    result = []
+    for row in recording.rows:
+        dx = number(row, "rootX") - number(row, "rootEvalX")
+        dz = number(row, "rootZ") - number(row, "rootEvalZ")
+        result.append((number(row, side + "poseX") + dx, number(row, side + "poseZ") + dz))
+    return result
+
+
+def track_c(recording, side):
+    return [(number(row, side + "boneX"), number(row, side + "boneZ")) for row in recording.rows]
+
+
+def path_length(track, start, end):
+    values = []
+    for i in range(max(1, start + 1), min(end, len(track) - 1) + 1):
+        if all(finite(v) for v in track[i] + track[i - 1]):
+            values.append(distance2(track[i], track[i - 1]) * 100.0)
+    return sum(values) if values else math.nan
+
+
+def max_step(track, start, end):
+    values = []
+    for i in range(max(1, start + 1), min(end, len(track) - 1) + 1):
+        if all(finite(v) for v in track[i] + track[i - 1]):
+            values.append(distance2(track[i], track[i - 1]) * 100.0)
+    return max(values) if values else math.nan
+
+
+def max_scalar_step(rows, column, start, end, scale=1.0):
+    values = []
+    for i in range(max(1, start + 1), min(end, len(rows) - 1) + 1):
+        current, previous = number(rows[i], column), number(rows[i - 1], column)
+        if finite(current) and finite(previous):
+            values.append(abs(current - previous) * scale)
+    return max(values) if values else math.nan
+
+
+def episode_metadata(recording, side, episodes):
+    stop_ordinal = 0
+    stop_releases = [episode.release for episode in episodes if episode.release is not None and episode.release >= recording.stop_start]
+    last_release = max(stop_releases) if stop_releases else None
+    result = []
+    for sequence, episode in enumerate(episodes, 1):
+        if episode.lock >= recording.stop_start:
+            stop_ordinal += 1
+            ordinal = stop_ordinal
+        else:
+            ordinal = 0
+        anchor = episode.release if episode.release is not None else episode.lock
+        result.append({
+            "eventId": "%s:%s:%03d" % (recording.name, side, sequence),
+            "case": recording.name,
+            "gait": recording.gait,
+            "terrain": recording.terrain,
+            "side": side.upper(),
+            "context": "loop" if anchor < recording.stop_start else recording.stop_bake(anchor),
+            "ordinal": ordinal,
+            "tRel": episode.release - recording.stop_start if episode.release is not None else math.nan,
+            "isLastRelease": int(episode.release is not None and episode.release == last_release),
+            "curLockFrame": int(number(recording.rows[episode.lock], "frame")),
+            "curReleaseFrame": int(number(recording.rows[episode.release], "frame")) if episode.release is not None else "",
+        })
+    return result
+
+
+def match_episode(recording, episodes, lower_t, upper_t, target_t):
+    choices = [episode for episode in episodes if lower_t <= episode.lock - recording.stop_start <= upper_t]
+    return min(choices, key=lambda episode: abs((episode.lock - recording.stop_start) - target_t)) if choices else None
+
+
+def count_metrics(recording, episodes):
+    stop = [episode for episode in episodes if episode.lock >= recording.stop_start]
+    return {
+        "lockCountAll": len(episodes),
+        "lockCountStop": len(stop),
+        "releaseCountAll": sum(episode.release is not None for episode in episodes),
+        "releaseCountStop": sum(episode.release is not None and episode.release >= recording.stop_start for episode in episodes),
+    }
+
+
+def event_metrics(recording, side, episode, cur_episode, cur_recording):
+    a, c = track_a(recording, side), track_c(recording, side)
+    lock_t = cur_episode.lock - cur_recording.stop_start
+    release_t = (cur_episode.release if cur_episode.release is not None else cur_episode.locked[-1]) - cur_recording.stop_start
+    window_start = max(0, recording.index_at(lock_t - 6))
+    window_end = min(recording.stop_end, recording.index_at(release_t + 12))
+    values = {}
+    values["gapPreMaxCm"] = maximum(distance2(c[i], a[i]) * 100.0 for i in episode.locked)
+    values["gapAtReleaseCm"] = (distance2(c[episode.release], a[episode.release]) * 100.0
+                                  if episode.release is not None else math.nan)
+    if episode.release is not None:
+        end = min(recording.stop_end, episode.release + 10)
+        c_path, a_path = path_length(c, episode.release, end), path_length(a, episode.release, end)
+        c_peak, a_peak = max_step(c, episode.release, end), max_step(a, episode.release, end)
+        values["relPathRatio"] = c_path / a_path if finite(a_path) and a_path > 0.5 else math.nan
+        values["relPeakRatio"] = c_peak / a_peak if finite(a_peak) and a_peak > 1e-9 else math.nan
+    else:
+        values["relPathRatio"] = values["relPeakRatio"] = math.nan
+    values["peakSpeedCCmPerFrame"] = max_step(c, window_start, window_end)
+    values["peakSpeedCMps"] = values["peakSpeedCCmPerFrame"] * 0.6 if finite(values["peakSpeedCCmPerFrame"]) else math.nan
+
+    away = 0
+    previous = None
+    for i in episode.locked:
+        anchor = (number(recording.rows[i], side + "lockX"), number(recording.rows[i], side + "lockZ"))
+        gap = distance2(a[i], anchor) if all(finite(v) for v in a[i] + anchor) else math.nan
+        if finite(gap) and finite(previous) and gap - previous > 0.001:
+            away += 1
+        previous = gap
+    values["lockedAwayFrames"] = away
+
+    stance_start = max(0, recording.index_at(lock_t))
+    stance_end = min(recording.stop_end, recording.index_at(cur_episode.locked[-1] - cur_recording.stop_start))
+    values["stanceSlideCm"] = path_length(c, stance_start, stance_end)
+    values["stanceSlideMaxCmPerFrame"] = max_step(c, stance_start, stance_end)
+
+    changes = 0
+    previous = math.nan
+    for i in episode.locked:
+        current = number(recording.rows[i], side + "liveSup")
+        if finite(current) and finite(previous) and abs(current - previous) > 0.05:
+            changes += 1
+        if finite(current):
+            previous = current
+    values["treadChangesLocked"] = changes
+    final = recording.rows[recording.stop_end]
+    values["finalLockSupY"] = number(final, side + "lockSupY") if int(number(final, side + "ph")) == 1 else math.nan
+    values["finalLiveSupY"] = number(final, side + "liveSup")
+    values["footDYmaxCm"] = max_scalar_step(recording.rows, side + "boneY", window_start, window_end, 100.0)
+    values["pelvisTargetDYmaxCm"] = max_scalar_step(recording.rows, "pelvisSolver", window_start, window_end, 100.0)
+    values["pelvisOutDYmaxCm"] = max_scalar_step(recording.rows, "pelvisOut", window_start, window_end, 100.0)
+    values["hipsDYmaxCm"] = max_scalar_step(recording.rows, "hipsY", window_start, window_end, 100.0)
+    return values
+
+
+def evaluate(recordings, names):
+    output = []
+    for name in names:
+        cur = recordings[(name, "cur")]
+        for side in ("l", "r"):
+            cur_episodes = find_episodes(cur.rows, side)
+            metadata = episode_metadata(cur, side, cur_episodes)
+            for cur_episode, meta in zip(cur_episodes, metadata):
+                lock_t = cur_episode.lock - cur.stop_start
+                release_t = (cur_episode.release if cur_episode.release is not None else cur_episode.locked[-1]) - cur.stop_start
+                lower_t, upper_t = lock_t - 6, release_t + 12
+                for arm in ARMS:
+                    recording = recordings[(name, arm)]
+                    episodes = find_episodes(recording.rows, side)
+                    matched = match_episode(recording, episodes, lower_t, upper_t, lock_t)
+                    row = {field: "" for field in EVENT_FIELDS}
+                    row.update(meta)
+                    row["arm"] = arm
+                    row.update(count_metrics(recording, episodes))
+                    if matched is not None:
+                        row["armLockFrame"] = int(number(recording.rows[matched.lock], "frame"))
+                        row["armReleaseFrame"] = (int(number(recording.rows[matched.release], "frame"))
+                                                  if matched.release is not None else "")
+                        row.update(event_metrics(recording, side, matched, cur_episode, cur))
+
+                    # Walk RU hidden step：每臂用自己的最後一列與 tRel >= 40 路徑；掛在最後一個 stop episode。
+                    stop_events = [episode for episode in cur_episodes if episode.lock >= cur.stop_start]
+                    if (cur.gait == "Walk" and side == "r" and "WalkFwdStop_RU" in cur.stop_bake(cur.stop_end)
+                            and stop_events and cur_episode is stop_events[-1]):
+                        a, c = track_a(recording, side), track_c(recording, side)
+                        late = min(recording.stop_end, recording.index_at(40))
+                        row["endGapCm"] = distance2(c[recording.stop_end], a[recording.stop_end]) * 100.0
+                        row["lateCPathCm"] = path_length(c, late, recording.stop_end)
+                        row["lateAPathCm"] = path_length(a, late, recording.stop_end)
+                        row["latePathRatio"] = (row["lateCPathCm"] / row["lateAPathCm"]
+                                                if finite(row["lateAPathCm"]) and row["lateAPathCm"] > 0.5 else math.nan)
+                    output.append(row)
+    return output
+
+
+def write_events(path, rows):
+    with path.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=EVENT_FIELDS)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({key: fmt(value) if isinstance(value, float) else value for key, value in row.items()})
+
+
+def metric_value(rows, arm, field, aggregate=median):
+    return aggregate([row.get(field, math.nan) for row in rows if row["arm"] == arm])
+
+
+def append_comparison_table(lines, rows, group_fields, metrics, aggregate=median):
+    lines.extend(["| " + " | ".join(group_fields + ["metric", "cur", "f3", "Δ f3-cur", "f5", "Δ f5-cur"]) + " |",
+                  "|" + "|".join("---" if i <= len(group_fields) else "---:" for i in range(len(group_fields) + 6)) + "|"])
+    groups = sorted({tuple(row[field] for field in group_fields) for row in rows})
+    for group in groups:
+        selected = [row for row in rows if tuple(row[field] for field in group_fields) == group]
+        for field, label, digits in metrics:
+            cur = metric_value(selected, "cur", field, aggregate)
+            f3 = metric_value(selected, "f3", field, aggregate)
+            f5 = metric_value(selected, "f5", field, aggregate)
+            lines.append("| " + " | ".join(list(group) + [label, md(cur, digits), md(f3, digits), md(f3 - cur, digits),
+                                                           md(f5, digits), md(f5 - cur, digits)]) + " |")
+
+
+def parse_replay_summary(path):
+    if path is None or not path.exists():
+        return {}
+    headers = None
+    result = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if cells and cells[0] == "policy":
+            headers = cells
+        elif headers and cells and cells[0].startswith("R1c-follow-d") and not set(cells[0]) <= {"-", ":"}:
+            result[cells[0]] = dict(zip(headers, cells))
+    return result
+
+
+def write_summary(path, rows, replay_path):
+    lines = ["# R1c runtime A/B summary", "", "軌跡：`A = pose + (root - rootEval)`、`C = bone`（goal 空間）。"
+             "事件以 `cur` lock episode 為錨，其他臂在 stop-relative `[L-6, R+12]` 內配對。", ""]
+
+    lines.extend(["## Known bad / good", ""])
+    scenarios = [
+        ("Run LU re-step", lambda r: r["gait"] == "Run" and r["side"] == "L" and "RunFwdStop_LU" in r["context"] and r["isLastRelease"] == 1,
+         [("gapAtReleaseCm", "gapAtRelease cm", 2), ("relPathRatio", "relPathRatio", 2), ("relPeakRatio", "relPeakRatio", 2)]),
+        ("Walk LU last step", lambda r: r["gait"] == "Walk" and r["side"] == "R" and "WalkFwdStop_LU" in r["context"] and r["isLastRelease"] == 1,
+         [("gapAtReleaseCm", "gapAtRelease cm", 2), ("relPathRatio", "relPathRatio", 2), ("relPeakRatio", "relPeakRatio", 2)]),
+        ("Walk RU hidden step", lambda r: r["gait"] == "Walk" and r["side"] == "R" and "WalkFwdStop_RU" in r["context"] and finite(r.get("endGapCm")),
+         [("endGapCm", "stop-end gap cm", 2), ("latePathRatio", "tRel>=40 C/A path", 2)]),
+        ("Run RU known good", lambda r: r["gait"] == "Run" and "RunFwdStop_RU" in r["context"],
+         [("gapAtReleaseCm", "gapAtRelease cm", 2), ("relPathRatio", "relPathRatio", 2), ("relPeakRatio", "relPeakRatio", 2)]),
+    ]
+    known_rows = []
+    for label, predicate, metrics in scenarios:
+        selected = [dict(row, scenario=label) for row in rows if predicate(row)]
+        known_rows.extend(selected)
+        if not selected:
+            lines.extend(["### %s" % label, "", "No matching events.", ""])
+            continue
+        lines.extend(["### %s" % label, ""])
+        append_comparison_table(lines, selected, ["terrain"], metrics)
+        lines.append("")
+
+    lines.extend(["## Loop comparison", ""])
+    loop = [row for row in rows if row["context"] == "loop"]
+    append_comparison_table(lines, loop, ["gait", "terrain"], [
+        ("gapPreMaxCm", "gapPreMax cm", 2), ("gapAtReleaseCm", "gapAtRelease cm", 2),
+        ("stanceSlideCm", "stanceSlide cm", 2), ("stanceSlideMaxCmPerFrame", "stanceSlide max cm/f", 2),
+    ])
+    lines.append("")
+
+    lines.extend(["## Stairs vertical", ""])
+    stairs = [row for row in rows if row["terrain"] != "flat"]
+    append_comparison_table(lines, stairs, ["gait", "terrain"], [
+        ("footDYmaxCm", "footDYmax cm", 2), ("pelvisTargetDYmaxCm", "pelvisTargetDY cm", 2),
+        ("pelvisOutDYmaxCm", "pelvisOutDY cm", 2), ("hipsDYmaxCm", "hipsDY cm", 2),
+        ("treadChangesLocked", "treadChangesLocked", 1), ("finalLockSupY", "final lockSupY m", 3),
+        ("finalLiveSupY", "final liveSup m", 3),
+    ])
+    lines.append("")
+
+    lines.extend(["## Lock / release counts", ""])
+    unique = {}
+    for row in rows:
+        unique[(row["arm"], row["case"], row["side"])] = row
+    count_rows = list(unique.values())
+    append_comparison_table(lines, count_rows, ["gait", "terrain"], [
+        ("lockCountAll", "locks all", 0), ("lockCountStop", "locks stop", 0),
+        ("releaseCountAll", "releases all", 0), ("releaseCountStop", "releases stop", 0),
+    ], aggregate=sum)
+    lines.append("")
+
+    lines.extend(["## Offline replay comparison", ""])
+    replay = parse_replay_summary(replay_path)
+    if not replay:
+        lines.append("Replay summary not found or did not contain R1c rows: `%s`." % replay_path)
+    else:
+        lines.extend(["| arm | metric | replay | runtime | Δ runtime-replay | verdict |", "|---|---|---:|---:|---:|---|"])
+        stop_rows = [row for row in rows if row["context"] != "loop"]
+        for arm, policy in (("f3", "R1c-follow-d0.03"), ("f5", "R1c-follow-d0.05")):
+            for runtime_field, replay_field, label, limit, unit in (
+                    ("gapAtReleaseCm", "M1 stop med cm", "gapAtRelease", 1.0, "cm"),
+                    ("relPathRatio", "M2 path stop med", "relPathRatio", 0.1, "×")):
+                try:
+                    offline = float(replay[policy][replay_field])
+                except (KeyError, ValueError):
+                    offline = math.nan
+                runtime = metric_value(stop_rows, arm, runtime_field)
+                delta = runtime - offline if finite(runtime) and finite(offline) else math.nan
+                verdict = "CHECK" if finite(delta) and abs(delta) > limit else "OK" if finite(delta) else "N/A"
+                lines.append("| %s | %s | %s | %s | %s %s | %s |" %
+                             (arm, label, md(offline, 2), md(runtime, 2), md(delta, 2), unit, verdict))
+        lines.extend(["", "`CHECK` threshold: gap > 1 cm or path ratio > 0.1×."])
+
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(description="Analyze docs/45 §24 R1c runtime A/B CSV files")
+    parser.add_argument("input_dir", type=Path, help="directory containing lf_cur_*, lf_f3_* and lf_f5_* CSV")
+    parser.add_argument("--output-dir", type=Path, help="output directory (default: input_dir)")
+    parser.add_argument("--replay-summary", type=Path,
+                        help="offline replay_summary.md(.txt); default: sibling data/replay_summary.md.txt")
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    output_dir = args.output_dir or args.input_dir
+    replay = args.replay_summary or Path(__file__).resolve().parent / "data" / "replay_summary.md.txt"
+    try:
+        recordings, names = load_recordings(args.input_dir)
+        rows = evaluate(recordings, names)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        write_events(output_dir / "ab_events.csv", rows)
+        write_summary(output_dir / "ab_summary.md", rows, replay)
+    except (OSError, ValueError) as exc:
+        print("ERROR: %s" % exc, file=sys.stderr)
+        return 2
+    print("analyzed %d cases / %d arm-events" % (len(names), len(rows)))
+    print("wrote %s" % (output_dir / "ab_events.csv"))
+    print("wrote %s" % (output_dir / "ab_summary.md"))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

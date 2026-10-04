@@ -115,3 +115,34 @@ python docs/artifacts/stop-snap/replay.py.txt Temp/PlantSettle `
   - `replay_keycols.py.txt <replay_summary.md>`：每 policy 一列的關鍵欄。
   - `replay_groups.py.txt <events.csv[,events2.csv]> <policy,policy,…>`：依 `gait／context／side＋(*＝isLastRelease)＋ordinal／flat|stairs` 分組；欄位＝gap、補回路徑比、peak 比、M4 可見爬行（中位／max）、M4 單帧 max、M5 過衝／回拉。
 - `data/replay_summary.md.txt`：19 個候選＋`R2a-slow-K2-v0.3:R1c-follow-d0.03` 組合的彙總。`replay_events.csv`（600 KB）未存。
+
+## 6. R1c runtime A/B
+
+`PlantSettleProbe.Probe_LockFollowFlat`／`Probe_LockFollowStairs` 產生 `lf_cur_*`、`lf_f3_*`、`lf_f5_*`：
+`cur` 關閉實驗，`f3`／`f5` 分別開啟並使用 0.03／0.05 m dead zone。介入只改載入場景的
+`FootIKSettings` 實例，不存 prefab；三臂都要求 `PlantAwareExtrapolation`（P8b）保持關閉。
+
+Recorder 的 `tgtX/tgtZ` 已經是 `ResolveHorizontal` 之後、本帧 T3 寫入 `FootIKTargetData` 的 effective 水平位置；
+後續只會解算同一目標的 Y。因此不另增重複的 `effX/effZ`。尾欄 `hipsY` 是最終 Hips 世界 Y。
+
+```powershell
+$env:PYTHONIOENCODING='utf-8'
+python docs/artifacts/stop-snap/ab.py.txt Temp/PlantSettle
+
+# 若離線 replay summary 不在預設的 docs/artifacts/stop-snap/data/：
+python docs/artifacts/stop-snap/ab.py.txt Temp/PlantSettle `
+  --replay-summary Temp/StopSnap/replay/replay_summary.md `
+  --output-dir Temp/StopSnap/ab
+```
+
+輸出：
+
+- `ab_events.csv`：一列＝arm × `cur` lock episode；metadata 沿用 replay 的
+  `case,gait,terrain,side,context,ordinal,tRel,isLastRelease`，其他臂在 stop-relative `[L−6, R＋12]` 內配對。
+- `ab_summary.md`：Known bad／good、loop、樓梯垂直、lock／release 次數與 offline replay 對照；
+  每表都含 `f3 − cur`、`f5 − cur`。gap 差超過 1 cm 或 path ratio 差超過 0.1× 會標 `CHECK`。
+- 軌跡沿用既有 goal-space 定義：`A = pose + (root − rootEval)`、`C = bone`。
+
+### 6.1 第一輪 A/B 紀錄（2026-10-05，Claude）
+- 72 次全過（Flat 36、Stairs 36）；`data/ab_summary.md.txt` 為彙總。逐案例（known bad／good × terrain × arm）：`python ab_cases.py.txt <ab_events.csv>`。
+- `ab.py.txt` 的「Offline replay comparison」需要 `--replay-summary docs/artifacts/stop-snap/data/replay_summary.md.txt`；本輪人工比對：Run LU re-step、Walk LU／RU 最後一步的補回比與 §23 replay 完全相同。

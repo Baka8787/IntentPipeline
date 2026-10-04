@@ -158,6 +158,25 @@ namespace Project.Tests.PlayMode
             [Values(Gait.Walk, Gait.Run)] Gait gait)
             => Drive("Stairs_650_400_300_Prefab", dir, 0f, stopIndex, "snap_on_", null, gait);
 
+        /// <summary>R1c runtime A/B（docs/45 §24）：平地六個停步 offset；cur／f3／f5 只改場景實例，不存資產。</summary>
+        [UnityTest, Explicit]
+        public IEnumerator Probe_LockFollowFlat(
+            [Values(Gait.Walk, Gait.Run)] Gait gait,
+            [Values(0, 1, 2, 3, 4, 5)] int offset,
+            [Values("cur", "f3", "f5")] string arm)
+            => Drive("Stairs_650_400_300_Prefab", Dir.Up, 0f, -1 - offset,
+                "lf_" + arm + "_o" + offset + "_", "lf_" + arm, gait);
+
+        /// <summary>R1c runtime A/B（docs/45 §24）：proto 樓梯、yaw 0、上下樓三個停步位置。</summary>
+        [UnityTest, Explicit]
+        public IEnumerator Probe_LockFollowStairs(
+            [Values(Dir.Down, Dir.Up)] Dir dir,
+            [Values(2, 6, 10)] int stopIndex,
+            [Values(Gait.Walk, Gait.Run)] Gait gait,
+            [Values("cur", "f3", "f5")] string arm)
+            => Drive("Stairs_650_400_300_Prefab", dir, 0f, stopIndex,
+                "lf_" + arm + "_", "lf_" + arm, gait);
+
         private IEnumerator Drive(string stairName, Dir dir, float yaw, int stopIndex, string prefix, string restartVariant,
             Gait gait = Gait.Run)
         {
@@ -223,6 +242,13 @@ namespace Project.Tests.PlayMode
                 var settings = (FootIKSettings)typeof(FootIKController).GetField("settings", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(footIK);
                 settings.PlantAwareExtrapolation = restartVariant == "xab1";
             }
+            if (restartVariant == "lf_cur" || restartVariant == "lf_f3" || restartVariant == "lf_f5")
+            {
+                var settings = (FootIKSettings)typeof(FootIKController).GetField("settings", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(footIK);
+                settings.LockedFollowExperiment = restartVariant != "lf_cur";
+                settings.LockedFollowDeadZone = restartVariant == "lf_f5" ? 0.05f : 0.03f;
+                Assert.IsFalse(settings.PlantAwareExtrapolation, "docs/45 §24：R1c A/B 必須保持 P8b 關閉。");
+            }
             var rootAtUpdate = player.gameObject.AddComponent<RootAtUpdate>();
             rootAtUpdate.Init(player.transform);
             var rec = footIK.gameObject.AddComponent<SettleRecorder>();
@@ -233,7 +259,7 @@ namespace Project.Tests.PlayMode
             if (gait == Gait.Walk) Press(_keyboard.leftCtrlKey);
             Press(_keyboard.wKey);
             int after = 0;
-            bool snapRun = prefix.StartsWith("snap_");
+            bool fullRun = prefix.StartsWith("snap_") || prefix.StartsWith("lf_");
             for (int frame = 0; frame < 4000; frame++)
             {
                 yield return null;
@@ -259,7 +285,7 @@ namespace Project.Tests.PlayMode
                 }
                 else if (phase == "restart" && ++after > RestartFrames) break;
                 rec.Phase = phase;
-                rec.Recording = (snapRun && frame >= 90) || phase == "stop" || phase == "restart"
+                rec.Recording = (fullRun && frame >= 90) || phase == "stop" || phase == "restart"
                                 || (phase == "diag" && Mathf.Abs(s - stopS) <= 1.2f);
             }
             if (gait == Gait.Walk) Release(_keyboard.leftCtrlKey);
@@ -452,7 +478,7 @@ namespace Project.Tests.PlayMode
                                           "boneX,boneY,boneZ,boneVxz,heelY,ankY,toeY,liveSup,livePt,cfSup,cfPt,k0,k25,k50,k75,k100,nOk,nFinal,nX,nZ").Split(','))
                         sb.Append(',').Append(p).Append(c);
                 sb.Append(",rootEvalX,rootEvalY,rootEvalZ,ikZeroed,ltoeBoneX,ltoeBoneY,ltoeBoneZ,rtoeBoneX,rtoeBoneY,rtoeBoneZ,stopBake"
-                          + ",posePlaneY,lstance,lprevValid,rstance,rprevValid");
+                          + ",posePlaneY,lstance,lprevValid,rstance,rprevValid,hipsY");
                 Csv.Append(sb).Append('\n');
             }
 
@@ -508,7 +534,8 @@ namespace Project.Tests.PlayMode
                       .Append(',').Append(StopBakeName(stop))
                       .Append(',').Append(F(posePlaneY))
                       .Append(',').Append(F(leftStance)).Append(',').Append(leftContact.PrevContactValid ? 1 : 0)
-                      .Append(',').Append(F(rightStance)).Append(',').Append(rightContact.PrevContactValid ? 1 : 0);
+                      .Append(',').Append(F(rightStance)).Append(',').Append(rightContact.PrevContactValid ? 1 : 0)
+                      .Append(',').Append(F(_hips.position.y));
                     Csv.Append(sb).Append('\n');
                 }
 

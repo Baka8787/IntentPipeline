@@ -1,0 +1,153 @@
+# R1c runtime A/B summary
+
+軌跡：`A = pose + (root - rootEval)`、`C = bone`（goal 空間）。事件以 `cur` lock episode 為錨，其他臂在 stop-relative `[L-6, R+12]` 內配對。
+
+## Known bad / good
+
+### Run LU re-step
+
+| terrain | metric | cur | f3 | Δ f3-cur | f5 | Δ f5-cur |
+|---|---|---:|---:|---:|---:|---:|
+| Down | gapAtRelease cm | 8.97 | 3.16 | -5.81 | 5.16 | -3.81 |
+| Down | relPathRatio | 1.60 | 1.20 | -0.40 | 1.33 | -0.27 |
+| Down | relPeakRatio | 1.61 | 1.02 | -0.58 | 1.19 | -0.42 |
+| Up | gapAtRelease cm | 8.82 | 3.16 | -5.66 | 5.16 | -3.66 |
+| Up | relPathRatio | 1.59 | 1.20 | -0.39 | 1.33 | -0.26 |
+| Up | relPeakRatio | 1.60 | 1.03 | -0.57 | 1.19 | -0.41 |
+| flat | gapAtRelease cm | 8.82 | 3.16 | -5.66 | 5.16 | -3.66 |
+| flat | relPathRatio | 1.59 | 1.20 | -0.39 | 1.33 | -0.26 |
+| flat | relPeakRatio | 1.60 | 1.03 | -0.57 | 1.19 | -0.41 |
+
+### Walk LU last step
+
+| terrain | metric | cur | f3 | Δ f3-cur | f5 | Δ f5-cur |
+|---|---|---:|---:|---:|---:|---:|
+| Down | gapAtRelease cm | 12.36 | 3.42 | -8.94 | 5.42 | -6.94 |
+| Down | relPathRatio | 1.37 | 1.10 | -0.27 | 1.16 | -0.21 |
+| Down | relPeakRatio | 1.46 | 1.07 | -0.38 | 1.07 | -0.38 |
+| Up | gapAtRelease cm | 10.13 | 3.41 | -6.72 | 5.41 | -4.72 |
+| Up | relPathRatio | 1.30 | 1.10 | -0.20 | 1.16 | -0.15 |
+| Up | relPeakRatio | 1.36 | 1.08 | -0.28 | 1.08 | -0.28 |
+| flat | gapAtRelease cm | 10.06 | 3.42 | -6.65 | 5.42 | -4.65 |
+| flat | relPathRatio | 1.30 | 1.10 | -0.20 | 1.16 | -0.14 |
+| flat | relPeakRatio | 1.35 | 1.07 | -0.28 | 1.07 | -0.28 |
+
+### Walk RU hidden step
+
+| terrain | metric | cur | f3 | Δ f3-cur | f5 | Δ f5-cur |
+|---|---|---:|---:|---:|---:|---:|
+| Down | stop-end gap cm | 9.04 | 2.99 | -6.05 | 4.98 | -4.05 |
+| Down | tRel>=40 C/A path | 0.09 | 0.57 | 0.48 | 0.41 | 0.32 |
+| Up | stop-end gap cm | 8.78 | 3.00 | -5.78 | 5.00 | -3.78 |
+| Up | tRel>=40 C/A path | 0.13 | 0.57 | 0.43 | 0.42 | 0.29 |
+| flat | stop-end gap cm | 9.04 | 3.01 | -6.04 | 5.01 | -4.03 |
+| flat | tRel>=40 C/A path | 0.07 | 0.57 | 0.50 | 0.41 | 0.34 |
+
+### Run RU known good
+
+| terrain | metric | cur | f3 | Δ f3-cur | f5 | Δ f5-cur |
+|---|---|---:|---:|---:|---:|---:|
+| Down | gapAtRelease cm | 5.59 | 4.70 | -0.89 | 5.59 | 0.00 |
+| Down | relPathRatio | 1.07 | 1.06 | -0.01 | 1.07 | 0.00 |
+| Down | relPeakRatio | 1.38 | 1.38 | 0.00 | 1.38 | 0.00 |
+| Up | gapAtRelease cm | — | — | — | — | — |
+| Up | relPathRatio | — | — | — | — | — |
+| Up | relPeakRatio | — | — | — | — | — |
+| flat | gapAtRelease cm | — | — | — | — | — |
+| flat | relPathRatio | — | — | — | — | — |
+| flat | relPeakRatio | — | — | — | — | — |
+
+## Loop comparison
+
+| gait | terrain | metric | cur | f3 | Δ f3-cur | f5 | Δ f5-cur |
+|---|---|---|---:|---:|---:|---:|---:|
+| Run | Down | gapPreMax cm | 3.13 | 3.13 | 0.00 | 3.13 | 0.00 |
+| Run | Down | gapAtRelease cm | 4.90 | 3.58 | -1.32 | 4.90 | 0.00 |
+| Run | Down | stanceSlide cm | 1.42 | 1.42 | 0.00 | 1.42 | 0.00 |
+| Run | Down | stanceSlide max cm/f | 1.42 | 1.42 | 0.00 | 1.42 | 0.00 |
+| Run | Up | gapPreMax cm | 2.82 | 2.82 | 0.00 | 2.82 | 0.00 |
+| Run | Up | gapAtRelease cm | 5.45 | 3.59 | -1.86 | 5.45 | 0.00 |
+| Run | Up | stanceSlide cm | 1.65 | 1.65 | 0.00 | 1.65 | 0.00 |
+| Run | Up | stanceSlide max cm/f | 1.65 | 1.65 | 0.00 | 1.65 | 0.00 |
+| Run | flat | gapPreMax cm | 4.30 | 4.30 | 0.00 | 4.30 | 0.00 |
+| Run | flat | gapAtRelease cm | 5.05 | 3.56 | -1.49 | 5.05 | 0.00 |
+| Run | flat | stanceSlide cm | 4.23 | 4.23 | 0.00 | 4.23 | 0.00 |
+| Run | flat | stanceSlide max cm/f | 4.23 | 4.23 | 0.00 | 4.23 | 0.00 |
+| Walk | Down | gapPreMax cm | 3.76 | 3.21 | -0.55 | 3.76 | 0.00 |
+| Walk | Down | gapAtRelease cm | 5.15 | 3.41 | -1.74 | 5.15 | 0.00 |
+| Walk | Down | stanceSlide cm | 0.44 | 0.84 | 0.39 | 0.61 | 0.17 |
+| Walk | Down | stanceSlide max cm/f | 0.44 | 0.66 | 0.21 | 0.44 | 0.00 |
+| Walk | Up | gapPreMax cm | 3.38 | 3.20 | -0.18 | 3.38 | 0.00 |
+| Walk | Up | gapAtRelease cm | 4.91 | 3.62 | -1.29 | 4.91 | 0.00 |
+| Walk | Up | stanceSlide cm | 0.35 | 0.83 | 0.47 | 0.35 | 0.00 |
+| Walk | Up | stanceSlide max cm/f | 0.18 | 0.50 | 0.32 | 0.18 | 0.00 |
+| Walk | flat | gapPreMax cm | 3.63 | 3.21 | -0.42 | 3.63 | 0.00 |
+| Walk | flat | gapAtRelease cm | 5.10 | 3.50 | -1.61 | 5.10 | 0.00 |
+| Walk | flat | stanceSlide cm | 0.30 | 0.77 | 0.47 | 0.41 | 0.11 |
+| Walk | flat | stanceSlide max cm/f | 0.30 | 0.59 | 0.29 | 0.30 | 0.00 |
+
+## Stairs vertical
+
+| gait | terrain | metric | cur | f3 | Δ f3-cur | f5 | Δ f5-cur |
+|---|---|---|---:|---:|---:|---:|---:|
+| Run | Down | footDYmax cm | 11.09 | 11.17 | 0.08 | 11.13 | 0.04 |
+| Run | Down | pelvisTargetDY cm | 2.20 | 2.01 | -0.19 | 2.20 | 0.00 |
+| Run | Down | pelvisOutDY cm | 2.20 | 2.01 | -0.19 | 2.20 | 0.00 |
+| Run | Down | hipsDY cm | 6.42 | 6.42 | 0.00 | 6.42 | 0.00 |
+| Run | Down | treadChangesLocked | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| Run | Down | final lockSupY m | 0.975 | 0.975 | 0.000 | 0.975 | 0.000 |
+| Run | Down | final liveSup m | 0.975 | 0.975 | 0.000 | 0.975 | 0.000 |
+| Run | Up | footDYmax cm | 8.58 | 8.58 | 0.00 | 8.58 | 0.00 |
+| Run | Up | pelvisTargetDY cm | 1.25 | 1.25 | 0.00 | 1.25 | 0.00 |
+| Run | Up | pelvisOutDY cm | 1.25 | 1.25 | 0.00 | 1.25 | 0.00 |
+| Run | Up | hipsDY cm | 3.63 | 3.63 | 0.00 | 3.63 | 0.00 |
+| Run | Up | treadChangesLocked | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| Run | Up | final lockSupY m | 2.535 | 2.535 | 0.000 | 2.535 | 0.000 |
+| Run | Up | final liveSup m | 2.535 | 2.535 | 0.000 | 2.535 | 0.000 |
+| Walk | Down | footDYmax cm | 9.08 | 9.08 | 0.00 | 9.08 | 0.00 |
+| Walk | Down | pelvisTargetDY cm | 2.14 | 1.97 | -0.17 | 1.97 | -0.17 |
+| Walk | Down | pelvisOutDY cm | 2.14 | 1.97 | -0.17 | 1.97 | -0.17 |
+| Walk | Down | hipsDY cm | 3.07 | 3.01 | -0.06 | 3.06 | -0.01 |
+| Walk | Down | treadChangesLocked | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| Walk | Down | final lockSupY m | 1.365 | 1.365 | 0.000 | 1.365 | 0.000 |
+| Walk | Down | final liveSup m | 1.365 | 1.365 | 0.000 | 1.365 | 0.000 |
+| Walk | Up | footDYmax cm | 9.88 | 9.94 | 0.06 | 9.66 | -0.22 |
+| Walk | Up | pelvisTargetDY cm | 0.98 | 1.97 | 0.99 | 0.99 | 0.01 |
+| Walk | Up | pelvisOutDY cm | 0.98 | 1.97 | 0.99 | 0.99 | 0.01 |
+| Walk | Up | hipsDY cm | 2.97 | 2.97 | 0.00 | 2.97 | 0.00 |
+| Walk | Up | treadChangesLocked | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| Walk | Up | final lockSupY m | 2.340 | 2.340 | 0.000 | 2.340 | 0.000 |
+| Walk | Up | final liveSup m | 2.340 | 2.340 | 0.000 | 2.340 | 0.000 |
+
+## Lock / release counts
+
+| gait | terrain | metric | cur | f3 | Δ f3-cur | f5 | Δ f5-cur |
+|---|---|---|---:|---:|---:|---:|---:|
+| Run | Down | locks all | 20 | 20 | 0 | 20 | 0 |
+| Run | Down | locks stop | 7 | 7 | 0 | 7 | 0 |
+| Run | Down | releases all | 14 | 14 | 0 | 14 | 0 |
+| Run | Down | releases stop | 3 | 3 | 0 | 3 | 0 |
+| Run | Up | locks all | 11 | 11 | 0 | 11 | 0 |
+| Run | Up | locks stop | 7 | 7 | 0 | 7 | 0 |
+| Run | Up | releases all | 5 | 5 | 0 | 5 | 0 |
+| Run | Up | releases stop | 2 | 2 | 0 | 2 | 0 |
+| Run | flat | locks all | 22 | 22 | 0 | 22 | 0 |
+| Run | flat | locks stop | 16 | 16 | 0 | 16 | 0 |
+| Run | flat | releases all | 10 | 10 | 0 | 10 | 0 |
+| Run | flat | releases stop | 6 | 6 | 0 | 6 | 0 |
+| Walk | Down | locks all | 32 | 32 | 0 | 32 | 0 |
+| Walk | Down | locks stop | 9 | 9 | 0 | 9 | 0 |
+| Walk | Down | releases all | 26 | 26 | 0 | 26 | 0 |
+| Walk | Down | releases stop | 5 | 5 | 0 | 5 | 0 |
+| Walk | Up | locks all | 21 | 21 | 0 | 21 | 0 |
+| Walk | Up | locks stop | 9 | 9 | 0 | 9 | 0 |
+| Walk | Up | releases all | 15 | 15 | 0 | 15 | 0 |
+| Walk | Up | releases stop | 4 | 4 | 0 | 4 | 0 |
+| Walk | flat | locks all | 42 | 42 | 0 | 42 | 0 |
+| Walk | flat | locks stop | 18 | 18 | 0 | 18 | 0 |
+| Walk | flat | releases all | 30 | 30 | 0 | 30 | 0 |
+| Walk | flat | releases stop | 6 | 6 | 0 | 6 | 0 |
+
+## Offline replay comparison
+
+Replay summary not found or did not contain R1c rows: `C:\Users\USER\AppData\Local\Temp\claude\D--Unity-Project-CharacterController\ffb4c125-88e8-44df-99cc-292c252a32b6\scratchpad\data\replay_summary.md.txt`.

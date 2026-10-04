@@ -1,0 +1,33 @@
+import csv,math,statistics as st,sys
+rows=list(csv.DictReader(open(sys.argv[1],encoding='utf-8')))
+def F(x):
+    try:
+        v=float(x); return v if math.isfinite(v) else None
+    except: return None
+def sel(r):
+    c=r['context'].replace('Bake_','').replace('FwdStop',''); last=r['isLastRelease'] in('1','True','true')
+    if c=='Run_LU' and r['side'].upper()=='L' and last: return 'Run LU re-step'
+    if c=='Walk_LU' and r['side'].upper()=='R' and last: return 'Walk LU final'
+    if c=='Walk_RU' and r['side'].upper()=='L' and last: return 'Walk RU final(L)'
+    if c=='Walk_RU' and r['side'].upper()=='R' and r['ordinal'] not in ('0',) : return 'Walk RU R (hidden)'
+    if c=='Run_RU': return 'Run RU '+r['side'].upper()+r['ordinal']
+    if c=='loop': return 'loop '+r['gait']
+    return None
+cols=[('gapPreMaxCm','gapPre'),('gapAtReleaseCm','gapRel'),('relPathRatio','relx'),('peakSpeedCMps','peakC m/s'),('lockedAwayFrames','awayF'),('stanceSlideCm','slide'),('stanceSlideMaxCmPerFrame','slide/f'),('treadChangesLocked','tread'),('footDYmaxCm','footDY'),('pelvisTargetDYmaxCm','pelvT'),('pelvisOutDYmaxCm','pelvO'),('hipsDYmaxCm','hipsDY'),('endGapCm','endGap')]
+G={}
+for r in rows:
+    k=sel(r)
+    if not k: continue
+    G.setdefault((k,r['terrain']),{}).setdefault(r['arm'],[]).append(r)
+print('case | terrain | arm | n | '+' | '.join(c[1] for c in cols)+'   (median; footDY/pelv/hips = max)')
+for k in sorted(G):
+    for arm in ('cur','f3','f5'):
+        v=G[k].get(arm,[])
+        if not v: continue
+        out=[]
+        for c,_ in cols:
+            vals=[F(r[c]) for r in v if F(r[c]) is not None]
+            if not vals: out.append('  - '); continue
+            agg=max(vals) if c in('footDYmaxCm','pelvisTargetDYmaxCm','pelvisOutDYmaxCm','hipsDYmaxCm','treadChangesLocked') else st.median(vals)
+            out.append('%5.2f'%agg)
+        print('%-20s %-5s %-3s %2d | %s'%(k[0],k[1],arm,len(v),' | '.join(out)))
