@@ -7,6 +7,15 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🟧 2026-10-07：A2／A1／ADR-011 AC2 三份裁決資料（`docs/45` §25–§27；⛔ runtime 未改）
+>
+> - **A2（§25）**：R1c 基線重量 P8b——錯階暫態 15→2（剩 2 在起跑段）、晚修正 max 5.3→2.0 cm、落地前加速度中位 +2.8；4 個跨階緣模糊鎖定 ⇒ ⏳ 使用者 Play（清單在 §25）。
+> - **A1（§26）**：強制 RU 在樓梯上 re-step／換階 6–9→0–2、停步 +0.44 m、上樓首步單帧 +22–26 cm；LU 收腳步是刻意製作、平地無問題，但抬腳 8 cm＜級高 19.5 ⇒ **只在樓梯生效的選片 policy**，不是掩蓋資產缺陷。❓ 是否採用（需 Core 地形查詢，Living Spec）。
+> - **ADR-011 AC2（§27）**：~12 cm 是動畫本身的起跑爬行（非 T3 補回）；⚠️ R1c 上線後畫面腳離地前滑動 4.5→11–13.5 cm ⇒ AC4（「拖步變好」）需在 R1c 下重新 Play。ADR-011 維持 Trial、AC2 不放寬。
+> - 未處理（依裁決原樣保留）：工作樹 WIP（場景含 GroundLayers revert、材質、音量、ProBuilder、`docs/05`、`EditorSettings.asset`）。
+>
+> ---
+>
 > # ✅ 2026-10-06 determinism slice：失地確認 grace 改為累積時間（`docs/02` §825 行）
 >
 > - 問題：`JumpState.fallEntryGrace`（玩家 0.35／敵人 0.1）與 `MotionDriver.groundEdgeEventGrace`（0.1）以 `Time.time` 快照相減；1/60 步長下剛好落在 float32 邊界 ⇒ 依絕對時刻差一帧（樓梯探針 restart 段 `FallingLoop` 進入時刻在跑與跑之間翻轉）。
