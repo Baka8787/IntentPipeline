@@ -201,8 +201,16 @@ namespace Project.Tests.PlayMode
             // committed 期間 EvaluateInterrupts 仍會讓 JumpState 觀察失地，但 Traversal 的空 interrupt
             // 清單會阻止它提前切走。超過既有 fall-entry grace 後才讓 traversal 結束。
             rig.Machine.Tick(rig.Data, 0.01f);
-            yield return new WaitForSeconds(0.12f);
-            rig.Machine.Tick(rig.Data, 0.01f);
+            // 🔄（2026-10-06 determinism slice）fall-entry grace 改為「每個 FSM tick 累積 Time.deltaTime」，
+            // 不再以 Time.time 牆鐘相減——沒有被 tick 觀察到的帧不計時。runtime 每帧都 tick FSM，
+            // 所以這裡也逐帧 tick，直到被觀察到的失地時間超過 grace（原本 WaitForSeconds 期間不 tick）。
+            float observedAirborne = 0f;
+            while (observedAirborne < 0.12f)
+            {
+                yield return null;
+                observedAirborne += Time.deltaTime;
+                rig.Machine.Tick(rig.Data, 0.01f);
+            }
             Assert.AreEqual(StateType.Traversal, rig.Machine.CurrentState.Type);
 
             rig.Machine.Tick(rig.Data, 2f);

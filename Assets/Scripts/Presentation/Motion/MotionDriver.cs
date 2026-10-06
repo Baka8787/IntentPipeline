@@ -324,10 +324,11 @@ namespace Project.Presentation.Motion
         // 不再是「上一幀原始 isGrounded」——樓梯抖動期間它會保持不變，直到分歧持續夠久才追上。
         private bool _wasGrounded;
 
-        // 🆕 2026-09-23：本幀 grounded 與 _wasGrounded 分歧的起始時刻快照（-1 代表目前一致）。
-        // 與 JumpState._ungroundedSince 同一模式（見該檔 TrackUngroundedSince 的說明），
+        // 🆕 2026-09-23：本幀 grounded 與 _wasGrounded 持續分歧的累積時間（-1 代表目前一致）。
+        // 與 JumpState._ungroundedElapsed 同一模式（見該檔 AdvanceUngroundedElapsed 的說明），
         // 獨立持有狀態而非直接引用——Motion 層不得反向依賴 StateMachine.States 的實作細節。
-        private float _groundDivergingSince = -1f;
+        private float _groundDivergingElapsed = -1f;
+        private int _groundDivergingTickFrame = -1;
 
         // 🔬 PROTOTYPE（docs/42）：純粹為了在量測 log 裡印出 PelvisOffsetY 才拿的參考，
         // 不參與任何決策、不影響 gameplay。正式接線前必須跟著整段 prototype 一起刪掉——
@@ -2745,15 +2746,18 @@ namespace Project.Presentation.Motion
             // 已知取捨：主動跳躍離地也會被同一道 grace 延遲最多 groundEdgeEventGrace 秒才發
             // JustLeftGround（進而延遲 JumpTakeoff 音效）。JustLeftGround／JumpTakeoff 的對應
             // 本來就是已知近似（AudioController 註解：走下平台邊緣也會誤觸），可接受的延遲換掉樓梯噪音。
-            float now = Time.time;
-            _groundDivergingSince = TrackGroundStateDivergence(grounded, _wasGrounded, _groundDivergingSince, now);
+            int frame = Time.frameCount;
+            bool isNewTick = frame != _groundDivergingTickFrame;
+            _groundDivergingTickFrame = frame;
+            _groundDivergingElapsed = TrackGroundStateDivergence(
+                grounded, _wasGrounded, _groundDivergingElapsed, Time.deltaTime, isNewTick);
 
-            if (ShouldConfirmGroundStateChange(_groundDivergingSince, now, groundEdgeEventGrace))
+            if (ShouldConfirmGroundStateChange(_groundDivergingElapsed, groundEdgeEventGrace))
             {
                 data.JustLanded = grounded && !_wasGrounded && !suppressGroundEdges;
                 data.JustLeftGround = !grounded && _wasGrounded && !suppressGroundEdges;
                 _wasGrounded = grounded;
-                _groundDivergingSince = -1f;
+                _groundDivergingElapsed = -1f;
             }
             else
             {
@@ -2770,25 +2774,33 @@ namespace Project.Presentation.Motion
 
         /// <summary>
         /// 追蹤本幀 grounded 與「上次已確認回報」的 grounded 是否持續分歧；供 JustLanded／
-        /// JustLeftGround 的 groundEdgeEventGrace 過濾使用。回傳「本次分歧從何時開始」的快照
-        /// （負值代表目前一致、沒有待確認的分歧）。同一段分歧被重複詢問只鎖存第一次 now——
-        /// 語意與 JumpState.TrackUngroundedSince 相同（該檔的說明同樣適用於此）。
+        /// JustLeftGround 的 groundEdgeEventGrace 過濾使用。回傳本次分歧在 Motion tick domain
+        /// 累積的時間（負值代表目前一致、沒有待確認的分歧）。第一次分歧從 0 開始；呼叫端
+        /// 以 Unity frame 作 tick 守門，同一 frame 重複同步不會重複累積 deltaTime。
+        /// 語意與 JumpState.AdvanceUngroundedElapsed 相同（該檔的說明同樣適用於此）。
         /// </summary>
         internal static float TrackGroundStateDivergence(
-            bool grounded, bool reportedGrounded, float divergingSince, float now)
+            bool grounded,
+            bool reportedGrounded,
+            float divergingElapsed,
+            float deltaTime,
+            bool isNewTick)
         {
             if (grounded == reportedGrounded) return -1f;
-            return divergingSince >= 0f ? divergingSince : now;
+            if (divergingElapsed < 0f) return 0f;
+            return isNewTick
+                ? divergingElapsed + Mathf.Max(0f, deltaTime)
+                : divergingElapsed;
         }
 
         /// <summary>
         /// 分歧是否已持續達 grace，可以確認為一次真實的 JustLanded／JustLeftGround。
         /// 只過濾地形造成的 isGrounded 抖動，不是 Coyote Time——期間不放寬任何遊戲性資格。
         /// </summary>
-        internal static bool ShouldConfirmGroundStateChange(float divergingSince, float now, float grace)
+        internal static bool ShouldConfirmGroundStateChange(float divergingElapsed, float grace)
         {
-            if (divergingSince < 0f) return false;
-            return now - divergingSince >= Mathf.Max(0f, grace);
+            if (divergingElapsed < 0f) return false;
+            return divergingElapsed >= Mathf.Max(0f, grace);
         }
 
         private static bool IsFinite(Vector3 value) =>

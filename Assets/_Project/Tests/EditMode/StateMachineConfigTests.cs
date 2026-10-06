@@ -207,21 +207,23 @@ namespace Project.Tests.EditMode
             const float never = -1f;
             const float grace = 0.1f;
 
-            float ungroundedSince = JumpState.TrackUngroundedSince(false, never, 10f);
-            Assert.AreEqual(10f, ungroundedSince, "第一次失地只鎖存 Time.time，不得累加 deltaTime");
-            Assert.AreEqual(10f, JumpState.TrackUngroundedSince(false, ungroundedSince, 10.05f),
-                "同一段失地被重複詢問時必須保留第一次快照");
+            float ungroundedElapsed = JumpState.AdvanceUngroundedElapsed(false, never, 10f, true);
+            Assert.AreEqual(0f, ungroundedElapsed, "第一次失地只建立 elapsed=0，不得累加本 tick 的 deltaTime");
+            Assert.AreEqual(0f, JumpState.AdvanceUngroundedElapsed(false, ungroundedElapsed, 10.05f, false),
+                "同一 tick 被重複詢問時不得再次累積 deltaTime");
+            ungroundedElapsed = JumpState.AdvanceUngroundedElapsed(false, ungroundedElapsed, 0.099f, true);
             Assert.IsFalse(JumpState.ShouldEnterFallFromLostGround(
-                false, ungroundedSince, 10.099f, grace), "短於 grace 的 grounded 抖動不得進 Falling");
+                false, ungroundedElapsed, grace), "短於 grace 的 grounded 抖動不得進 Falling");
 
-            ungroundedSince = JumpState.TrackUngroundedSince(true, ungroundedSince, 10.099f);
-            Assert.AreEqual(never, ungroundedSince, "短暫失地後重新著地必須清除 latch");
+            ungroundedElapsed = JumpState.AdvanceUngroundedElapsed(true, ungroundedElapsed, 0f, true);
+            Assert.AreEqual(never, ungroundedElapsed, "短暫失地後重新著地必須清除 elapsed");
             Assert.IsFalse(JumpState.ShouldEnterFallFromLostGround(
-                true, ungroundedSince, 10.2f, grace));
+                true, ungroundedElapsed, grace));
 
-            ungroundedSince = JumpState.TrackUngroundedSince(false, ungroundedSince, 20f);
+            ungroundedElapsed = JumpState.AdvanceUngroundedElapsed(false, ungroundedElapsed, 20f, true);
+            ungroundedElapsed = JumpState.AdvanceUngroundedElapsed(false, ungroundedElapsed, 0.1f, true);
             Assert.IsTrue(JumpState.ShouldEnterFallFromLostGround(
-                false, ungroundedSince, 20.1f, grace), "連續失地達 grace 必須進 Falling");
+                false, ungroundedElapsed, grace), "連續失地達 grace 必須進 Falling");
 
             var jumpParams = CreateParams<JumpStateParams>();
             Assert.AreEqual(JumpStateParams.DefaultFallEntryGrace, jumpParams.FallEntryGrace,
@@ -445,11 +447,11 @@ namespace Project.Tests.EditMode
 
         private static void EnterPassiveFall(JumpState jump, PlayerRuntimeData data)
         {
-            Assert.IsFalse(jump.CanEnter(data), "第一次失地只應鎖存 grace 起點");
+            Assert.IsFalse(jump.CanEnter(data), "第一次失地只應建立 elapsed=0");
             SetPrivateField(
                 jump,
-                "_ungroundedSince",
-                Time.time - JumpStateParams.DefaultFallEntryGrace - 0.01f);
+                "_ungroundedElapsed",
+                JumpStateParams.DefaultFallEntryGrace + 0.01f);
             Assert.IsTrue(jump.CanEnter(data), "連續失地超過 grace 後應准入");
             jump.OnEnter(data);
         }

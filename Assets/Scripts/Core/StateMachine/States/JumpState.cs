@@ -54,7 +54,8 @@ namespace Project.Core.StateMachine
         private float _stageElapsedTime;  // 當前段自「開始」以來的經過時間，用來對齊該段起跳前搖
         private float _airborneTimer;     // 真正離地後的滯空計時，用於落地保護
         private bool _isVelocityInjected; // 當前段是否已注入發射衝量
-        private float _ungroundedSince = UngroundedNever; // 非主動失地的起始時刻（Time.time 快照）
+        private float _ungroundedElapsed = UngroundedNever; // 非主動失地在狀態機 tick domain 的累積時間
+        private int _ungroundedTickFrame = -1; // 同一 Unity frame 可能被兩條 FSM 評估路徑各問一次
         private bool _enterAsFall;        // 本幀 CanEnter 的裁決：這次進入是非主動失地
         private bool _enteredFromFall;    // 本次 JumpState 執行是否源自非主動失地
 
@@ -163,16 +164,20 @@ namespace Project.Core.StateMachine
 
         public override bool CanEnter(PlayerRuntimeData data)
         {
+            int frame = Time.frameCount;
+            bool isNewTick = frame != _ungroundedTickFrame;
+            _ungroundedTickFrame = frame;
+
             // 主動起跳的資格維持「按下跳躍且已著地」；grace 絕不放寬成 Coyote Time。
             if (data.Intent.JumpRequested && data.IsGrounded)
             {
-                _ungroundedSince = UngroundedNever;
+                _ungroundedElapsed = UngroundedNever;
                 _enterAsFall = false;
                 return true;
             }
 
-            float now = Time.time;
-            _ungroundedSince = TrackUngroundedSince(data.IsGrounded, _ungroundedSince, now);
+            _ungroundedElapsed = AdvanceUngroundedElapsed(
+                data.IsGrounded, _ungroundedElapsed, Time.deltaTime, isNewTick);
             if (data.IsGrounded)
             {
                 _enterAsFall = false;
@@ -183,7 +188,7 @@ namespace Project.Core.StateMachine
                 ? _jumpParams.FallEntryGrace
                 : JumpStateParams.DefaultFallEntryGrace;
             _enterAsFall = ShouldEnterFallFromLostGround(
-                data.IsGrounded, _ungroundedSince, now, fallEntryGrace);
+                data.IsGrounded, _ungroundedElapsed, fallEntryGrace);
             return _enterAsFall;
         }
 
@@ -308,7 +313,7 @@ namespace Project.Core.StateMachine
             _landDuration = 0f;
             _enteredFromFall = false;
             _enterAsFall = false;
-            _ungroundedSince = UngroundedNever;
+            _ungroundedElapsed = UngroundedNever;
         }
 
         // 🆕（ADR-002）當前段前搖結束才點火，注入該段逆推的初速 + 重力；其餘時間走一般貼地移動。
@@ -456,16 +461,21 @@ namespace Project.Core.StateMachine
         }
 
         /// <summary>
-        /// 維護非主動失地的起始快照。重複 CanEnter 只保留第一次的 now，著地則清回 sentinel，
-        /// 因此同幀被 EvaluateInterrupts／EvaluateTransitions 各問一次也不會重複累積時間。
+        /// 累積非主動失地在狀態機 tick domain 經過的時間。第一次失地觀測從 0 開始，
+        /// 著地則清回 sentinel；呼叫端以 Unity frame 作 tick 守門，因此同幀被
+        /// EvaluateInterrupts／EvaluateTransitions 各問一次也只會累積一次 deltaTime。
         /// </summary>
-        internal static float TrackUngroundedSince(
+        internal static float AdvanceUngroundedElapsed(
             bool isGrounded,
-            float ungroundedSince,
-            float now)
+            float ungroundedElapsed,
+            float deltaTime,
+            bool isNewTick)
         {
             if (isGrounded) return UngroundedNever;
-            return ungroundedSince == UngroundedNever ? now : ungroundedSince;
+            if (ungroundedElapsed < 0f) return 0f;
+            return isNewTick
+                ? ungroundedElapsed + Mathf.Max(0f, deltaTime)
+                : ungroundedElapsed;
         }
 
         /// <summary>
@@ -474,12 +484,11 @@ namespace Project.Core.StateMachine
         /// </summary>
         internal static bool ShouldEnterFallFromLostGround(
             bool isGrounded,
-            float ungroundedSince,
-            float now,
+            float ungroundedElapsed,
             float fallEntryGrace)
         {
-            if (isGrounded || ungroundedSince == UngroundedNever) return false;
-            return now - ungroundedSince >= Mathf.Max(0f, fallEntryGrace);
+            if (isGrounded || ungroundedElapsed < 0f) return false;
+            return ungroundedElapsed >= Mathf.Max(0f, fallEntryGrace);
         }
 
         /// <summary>
