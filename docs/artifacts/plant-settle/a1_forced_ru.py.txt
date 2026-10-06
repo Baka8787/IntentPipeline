@@ -1,0 +1,91 @@
+import csv,glob,math,os,statistics as st,collections
+F=lambda x: float(x) if x not in ('','NaN') else float('nan')
+def load(p):
+    rows=list(csv.DictReader(open(p)))
+    s=next(i for i,r in enumerate(rows) if r['phase']=='stop')
+    e=next((i for i,r in enumerate(rows) if r['phase']=='restart'),len(rows))
+    return rows,s,e
+def hd(a,b): return math.hypot(a[0]-b[0],a[1]-b[1])*100
+def metrics(p):
+    rows,s,e=load(p); m={}
+    bake=next((r['stopBake'] for r in rows[s:e] if r['stopBake']),'')
+    m['variant']='LU' if 'LU' in bake else 'RU' if 'RU' in bake else '?'
+    # settle: both feet Locked 10 consecutive frames
+    settle=next((i for i in range(s,e-10) if all(rows[j]['lph']=='1' and rows[j]['rph']=='1' for j in range(i,i+10))),None)
+    m['settleFrames']=(settle-s) if settle else float('nan')
+    r0=(F(rows[s]['rootX']),F(rows[s]['rootZ'])); r1=(F(rows[e-1]['rootX']),F(rows[e-1]['rootZ']))
+    m['stopDist']=hd(r0,r1)
+    relocks=0; tread=0; straddle=0; vis=[]; animslide=[]; footdy=0; resteps=0
+    for sd in 'lr':
+        prev_sup=None; was_locked_after=False; locks=[]
+        for i in range(s,e):
+            r=rows[i]; ph=r[sd+'ph']; pph=rows[i-1][sd+'ph']
+            if ph=='1' and pph!='1':
+                locks.append(i)
+                sup=F(r[sd+'lockSupY']) if r[sd+'lockSupY'] not in ('','NaN') else None
+                # straddle: heel/ank/toe treads differ
+                hy=[F(r[sd+k]) for k in ('heelY','ankY','toeY')]
+                hy=[h for h in hy if not math.isnan(h)]
+                if hy and max(hy)-min(hy)>0.05: straddle+=1
+            if i>s: footdy=max(footdy,abs(F(r[sd+'boneY'])-F(rows[i-1][sd+'boneY']))*100)
+        # re-step: a foot locked after release, released, then locked again
+        lk=[i for i in locks]
+        resteps+=max(0,len(lk)-1)
+        # tread changes between consecutive lock episodes of this foot (by lockSupY on frame after lock)
+        sups=[]
+        for i in lk:
+            v=rows[min(i+1,e-1)][sd+'lockSupY']
+            if v not in ('','NaN'): sups.append(F(v))
+        tread+=sum(1 for a,b in zip(sups,sups[1:]) if abs(a-b)>0.05)
+        # entry: the foot locked within first 3 frames after release (stance at release): anim slide & displayed slide while locked in first 20 frames
+        locked=[i for i in range(s,min(e,s+20)) if rows[i][sd+'ph']=='1']
+        if locked and locked[0]<=s+2:
+            def A(i):
+                r=rows[i]; return (F(r[sd+'poseX'])+F(r['rootX'])-F(r['rootEvalX']),F(r[sd+'poseZ'])+F(r['rootZ'])-F(r['rootEvalZ']))
+            def C(i): return (F(rows[i][sd+'boneX']),F(rows[i][sd+'boneZ']))
+            animslide.append(sum(hd(A(i),A(i-1)) for i in locked[1:]))
+            vis.append(sum(hd(C(i),C(i-1)) for i in locked[1:]))
+    m['resteps']=resteps; m['treadChanges']=tread; m['straddleLocks']=straddle
+    m['entryAnimSlide']=max(animslide) if animslide else 0.0
+    m['entryVisSlide']=max(vis) if vis else 0.0
+    m['footDYmax']=footdy
+    m['pelvisDYmax']=max(abs(F(rows[i]['pelvisOut'])-F(rows[i-1]['pelvisOut']))*100 for i in range(s+1,e))
+    fin=rows[e-1]
+    fl,fr=F(fin['llockSupY']),F(fin['rlockSupY'])
+    m['finalSameTread']=int(abs(fl-fr)<0.05) if not(math.isnan(fl) or math.isnan(fr)) else -1
+    m['finalStraddle']=sum(1 for sd in 'lr' if (lambda hy:(max(hy)-min(hy)>0.05) if hy else False)([F(fin[sd+k]) for k in ('heelY','ankY','toeY') if not math.isnan(F(fin[sd+k]))]))
+    return m
+def case_of(n):
+    n=n[:-4]
+    if n.startswith('a1flat'):
+        arm='nat' if '_nat_' in n else 'ru'; return arm,('flat',n.split('_o')[1][0])
+    arm='nat' if n.startswith('settle_') else 'ru'
+    body=n.split('_',1)[1]
+    parts=body.split('_')  # proto_Run_Up_y0_02
+    return arm,(parts[0]+'_'+parts[2]+'_'+parts[3],parts[4])
+data={}
+for p in glob.glob('a1/*.csv'):
+    arm,key=case_of(os.path.basename(p))
+    data.setdefault(key,{})[arm]=metrics(p)
+keys=['settleFrames','stopDist','resteps','treadChanges','straddleLocks','entryAnimSlide','entryVisSlide','footDYmax','pelvisDYmax','finalSameTread','finalStraddle']
+G=collections.defaultdict(lambda: collections.defaultdict(list))
+for (grp,idx),d in data.items():
+    if 'nat' not in d or 'ru' not in d: continue
+    terr='flat' if grp=='flat' else ('Up' if '_Up_' in grp else 'Down')
+    yaw='' if grp=='flat' else grp.split('_')[-1]
+    nv=d['nat']['variant']
+    for arm in ('nat','ru'):
+        G[(terr,yaw,nv)][arm].append(d[arm])
+def med(v): v=[x for x in v if not math.isnan(x)]; return st.median(v) if v else float('nan')
+print('terrain yaw natVariant n | metric: natural -> forcedRU (median; resteps/tread/straddle = total)')
+for k in sorted(G):
+    nat,ru=G[k]['nat'],G[k]['ru']
+    out=[]
+    for m in keys:
+        if m in ('resteps','treadChanges','straddleLocks','finalStraddle'):
+            out.append('%s %d->%d'%(m,sum(x[m] for x in nat),sum(x[m] for x in ru)))
+        elif m=='finalSameTread':
+            out.append('%s %d/%d->%d/%d'%(m,sum(1 for x in nat if x[m]==1),len(nat),sum(1 for x in ru if x[m]==1),len(ru)))
+        else:
+            out.append('%s %.1f->%.1f'%(m,med([x[m] for x in nat]),med([x[m] for x in ru])))
+    print(k,len(nat),'|',' ; '.join(out))

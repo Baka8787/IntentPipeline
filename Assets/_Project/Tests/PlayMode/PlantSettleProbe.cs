@@ -98,6 +98,13 @@ namespace Project.Tests.PlayMode
             => Drive(stairName, dir, yaw, stopIndex, "forcedRU_", "forceRU");
 
         /// <summary>
+        /// A1 平地對照（2026-10-07，只量測）：平地 Run 停步 6 個放開位置 × 自然選片／強制 RU。輸出 a1flat_nat_*／a1flat_ru_*.csv。
+        /// </summary>
+        [UnityTest, Explicit]
+        public IEnumerator Probe_ForcedRUFlat([Values(0, 1, 2, 3, 4, 5)] int offset, [Values("nat", "ru")] string arm)
+            => Drive("Stairs_650_400_300_Prefab", Dir.Up, 0f, -1 - offset, "a1flat_" + arm + "_o" + offset + "_", arm == "ru" ? "forceRU" : null);
+
+        /// <summary>
         /// A2 實驗（docs/45 §21）：FootIKSettings.PlantAwareExtrapolation 關／開 A/B（只改場景實例設定）。輸出 xab0_*／xab1_*.csv。
         /// </summary>
         [UnityTest, Explicit]
