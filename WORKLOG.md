@@ -13,7 +13,7 @@
 > - 修法：第一個失地 tick elapsed＝0、每 tick 累積 `Time.deltaTime`、`Time.frameCount` 守門（同帧多次 `CanEnter` 只累積一次）。門檻仍是時間。範圍只有這兩處（其他 `Time.time` 使用與 grounded／falling 無關）。
 > - 測試：`GroundLossGraceDeterminismTests`（26；修前 8 紅＝start 2.0／1000.0 的 7≠6、22≠21）；`GroundEdgeEventTests`、`StateMachineConfigTests` 改新簽名；PlayMode `T9` 原本以 `WaitForSeconds` 不 tick 的牆鐘等待 ⇒ 改為逐帧 tick（語意差異：未被觀察的帧不計時；runtime 每帧 tick，無差異）。
 > - 回歸：EditMode **846／845／0 failed／1 skipped**；PlayMode **96／95**（只有既有 `C0`）。樓梯 36 探針連跑兩次：**Foot IK／骨盆／支撐、locomotion、root、grounded 36／36 相同**；`FallingLoop` 一律在失地後 22 個記錄帧進入；剩 8 檔只有探針自己的 `cfSup`／`k25` 射線不同（未修，不升級）。
-> - ❓ 是否抽共用 timing primitive：見本會話回報（建議暫不抽）。
+> - ✅ 使用者裁決（2026-10-07）：**暫不抽共用 timing primitive**——兩處各約 10 行、已有測試保護、Motion 不得依賴 StateMachine；出現第三個同類計時器或重整這一區時再評估（Core 小 struct）。
 >
 > ---
 >
