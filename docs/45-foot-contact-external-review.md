@@ -1163,3 +1163,8 @@ EditMode **820／819／0 failed／1 skipped**（+5：R1c 純函數）。runtime 
 - 下樓階緣的「留在舊階高度」被判為正常速度下不明顯 ⇒ 不改鎖定支撐語意；登記為已知限制。
 - **X Bot 啟用（使用者裁決 2026-10-06）**：X Bot prefab `LockedFollowExperiment = true`、`LockedFollowDeadZone = 0.03`（Editor API；prefab diff 只有這 2 行；場景實例無 override、讀到 True／0.03；Y Bot 不變）。**還原＝把 `LockedFollowExperiment` 設回 false。** 程式預設仍關。
 - 回歸：EditMode 820／818／**1 failed**——`StairAuthoringContractTests.Scene_InstanceMasks_MatchSemanticTable`：場景 X Bot 多了 `settings.GroundLayers.m_Bits = 503` 的 override（HEAD 沒有；本會話開始後新增、測試執行時隨場景存檔落地），期望 −9。與 R1c 無關（R1c 不碰 GroundLayers），待使用者決定是否 revert 該 override。PlayMode **96／95／1 failed**——只有既有的 `C0_TraversalDoesNotReportGroundEdgesFromIncidentalContact`（§19.2 起登記，與本 slice 無關）；樓梯／停步測試全過。
+- **場景 `GroundLayers` override 已 revert（使用者裁決 2026-10-06）**：場景 X Bot 的 `settings.GroundLayers` 503 → 繼承 prefab −9；場景檔只少那 4 行（存檔前 diff 驗證、場景原本不 dirty）。EditMode **820／819／0 failed／1 skipped**。場景其餘 WIP 未動、未 commit。
+- **樓梯探針重現性（2026-10-06）**：revert 後 36 次 stair A/B 與 10-05 比較 25 相同／11 不同；**同設定再跑一次，同樣 25／11、同一批檔案**，且有的檔案在兩次之間翻轉 ⇒ 判為 **nondeterminism**，不是 mask。
+  - 分層：所有差異都在 **restart 段**（重新起跑後跑出樓梯頂端、自由落體中），**stop 段 36／36 逐帧相同**。①probe-only（`cfSup`／`k25` 等探針自己的反事實射線）：最早出現，原因未定（不升級）；②Foot IK／骨盆輸出：只在 ③ 之後、由動畫狀態不同所帶動；③locomotion：root 位置／垂直速度兩次逐帧相同，**只有 `FallingLoop` 進入時刻差 1 帧**（每一例都在 vY ≈ −9.6 cm/帧、rootY ≈ 2.1 m）。
+  - 機制（候選，已用 float32 計算佐證，未改程式）：`JumpState` 的 `fallEntryGrace`（0.1 s）與 `MotionDriver` 的 `groundEdgeEventGrace`（0.1 s）都以 `Time.time` 絕對時刻相減比較；固定 1/60 步長下 0.1 s ＝ 剛好 6 帧，float32 下「6 帧是否 ≥ 0.1」依 `Time.time` 絕對值而定（43–61% 通過，其餘要 7 帧）——Play session 先前跑了多少帧（非同步載入場景的帧數）會改變它。
+  - 結論：不是 runtime regression、與 R1c／GroundLayers 無關；本輪不修。

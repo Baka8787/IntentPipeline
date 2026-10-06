@@ -13,6 +13,8 @@
 > - X Bot prefab：`LockedFollowExperiment` true、`LockedFollowDeadZone` 0.03（還原＝設 false）。
 > - EditMode 820／818／1 failed：`StairAuthoringContractTests.Scene_InstanceMasks_MatchSemanticTable`——場景 X Bot 新增 `GroundLayers.m_Bits = 503` override（期望 −9），本會話開始後才出現、隨測試時的場景存檔落地；❓ 是否 revert 該 override。
 > - PlayMode 全套回歸 **96／95／1 failed**（只有既有 `C0`）；Editor 重啟後執行。
+> - 場景 X Bot `GroundLayers` override 已 revert（−9，只少 4 行；場景未 commit）⇒ EditMode **820／819／0 failed／1 skipped**。
+> - 樓梯探針重現性：同設定連跑兩次 restart 段同樣分岔（stop 段 36／36 相同）⇒ nondeterminism；`FallingLoop` 進入差 1 帧，候選機制＝0.1 s grace 以 `Time.time` 絕對值相減、剛好 6 帧落在 float32 邊界（docs/45 §24.7）。❓ 是否另開修正（例如改成帧數或累積 dt）——本輪未動。
 >
 > ---
 >
