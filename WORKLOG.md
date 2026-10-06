@@ -7,6 +7,16 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # ✅ 2026-10-06 determinism slice：失地確認 grace 改為累積時間（`docs/02` §825 行）
+>
+> - 問題：`JumpState.fallEntryGrace`（玩家 0.35／敵人 0.1）與 `MotionDriver.groundEdgeEventGrace`（0.1）以 `Time.time` 快照相減；1/60 步長下剛好落在 float32 邊界 ⇒ 依絕對時刻差一帧（樓梯探針 restart 段 `FallingLoop` 進入時刻在跑與跑之間翻轉）。
+> - 修法：第一個失地 tick elapsed＝0、每 tick 累積 `Time.deltaTime`、`Time.frameCount` 守門（同帧多次 `CanEnter` 只累積一次）。門檻仍是時間。範圍只有這兩處（其他 `Time.time` 使用與 grounded／falling 無關）。
+> - 測試：`GroundLossGraceDeterminismTests`（26；修前 8 紅＝start 2.0／1000.0 的 7≠6、22≠21）；`GroundEdgeEventTests`、`StateMachineConfigTests` 改新簽名；PlayMode `T9` 原本以 `WaitForSeconds` 不 tick 的牆鐘等待 ⇒ 改為逐帧 tick（語意差異：未被觀察的帧不計時；runtime 每帧 tick，無差異）。
+> - 回歸：EditMode **846／845／0 failed／1 skipped**；PlayMode **96／95**（只有既有 `C0`）。樓梯 36 探針連跑兩次：**Foot IK／骨盆／支撐、locomotion、root、grounded 36／36 相同**；`FallingLoop` 一律在失地後 22 個記錄帧進入；剩 8 檔只有探針自己的 `cfSup`／`k25` 射線不同（未修，不升級）。
+> - ❓ 是否抽共用 timing primitive：見本會話回報（建議暫不抽）。
+>
+> ---
+>
 > # 🟧 下一會話開場：**R1c d0 = 3 cm 已裁決並在 X Bot 開啟（`docs/45` §24.7）；PlayMode 96／95（只有既有 C0）；EditMode 1 個失敗來自場景 GroundLayers override（非 R1c）**
 >
 > - 使用者 Play（2026-10-06）：3 cm 收腳直接完整、無明顯滑步、Walk RU 小步像正常短步、站立穩定；5 cm 仍見補回／較拖／偏碎步；下樓階緣「留在舊階高度」正常速度不明顯（已知限制）。
