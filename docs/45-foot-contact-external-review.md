@@ -1147,3 +1147,19 @@ EditMode **820／819／0 failed／1 skipped**（+5：R1c 純函數）。runtime 
 4. 樓梯上下 Walk／Run 停步：換階是否更自然；下樓最後一步腳跟越過階緣的瞬間是否看得到「懸在舊階」。
 5. 3 cm：站立時腳有沒有不穩／漂；5 cm：是否仍看得到明顯補回。
 
+
+### 24.7 人工 Play 結果與裁決（2026-10-06，使用者）
+**選 `LockedFollowDeadZone = 0.03`。**
+| 觀察點 | 3 cm | 5 cm |
+|---|---|---|
+| 平地 Run LU 收腳 | 最直接、完整 | 有改善，末段仍看得到小幅補回 |
+| 平地 Walk LU 最後一步 | 沒有明顯滑步 | 有一點拖、較晚的修正感 |
+| Walk RU 小步 | 像正常短步 | 稍短、接近碎步 |
+| 下樓階緣（腳跟越過階緣仍在舊階高度，§24.5 ②） | 逐格看得到；正常速度不明顯；比 5 cm 稍易察覺 | 逐格看得到；正常速度不明顯 |
+| 站立穩定 | 穩定，無抖動、無反覆補正 | — |
+| 整體 | 解決 R1c 想改善的觀感 | 仍看得到補回 |
+
+- 與 §24.4 量測一致：3 cm 的補回比（×1.08–1.20）接近 loop，5 cm（×1.12–1.33）留下可見補回。
+- 下樓階緣的「留在舊階高度」被判為正常速度下不明顯 ⇒ 不改鎖定支撐語意；登記為已知限制。
+- **X Bot 啟用（使用者裁決 2026-10-06）**：X Bot prefab `LockedFollowExperiment = true`、`LockedFollowDeadZone = 0.03`（Editor API；prefab diff 只有這 2 行；場景實例無 override、讀到 True／0.03；Y Bot 不變）。**還原＝把 `LockedFollowExperiment` 設回 false。** 程式預設仍關。
+- 回歸：EditMode 820／818／**1 failed**——`StairAuthoringContractTests.Scene_InstanceMasks_MatchSemanticTable`：場景 X Bot 多了 `settings.GroundLayers.m_Bits = 503` 的 override（HEAD 沒有；本會話開始後新增、測試執行時隨場景存檔落地），期望 −9。與 R1c 無關（R1c 不碰 GroundLayers），待使用者決定是否 revert 該 override。PlayMode **96／95／1 failed**——只有既有的 `C0_TraversalDoesNotReportGroundEdgesFromIncidentalContact`（§19.2 起登記，與本 slice 無關）；樓梯／停步測試全過。

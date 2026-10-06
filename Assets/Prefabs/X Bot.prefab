@@ -4560,6 +4560,8 @@ MonoBehaviour:
     UnlockRadius: 0.2
     ReleaseTime: 0.12
     MaxPoseStepPerFrame: 0.5
+    LockedFollowExperiment: 1
+    LockedFollowDeadZone: 0.03
     SwingFootLengthReference: 1
     PlantAwareExtrapolation: 0
     PlantAwareNearSteps: 1.5

@@ -7,7 +7,16 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
-> # 🟧 下一會話開場：**R1c runtime A/B 完成（`docs/45` §24）——⏳ 使用者 Play 比較 Current／3 cm／5 cm 後裁決正式方向**
+> # 🟧 下一會話開場：**R1c d0 = 3 cm 已裁決並在 X Bot 開啟（`docs/45` §24.7）；PlayMode 96／95（只有既有 C0）；EditMode 1 個失敗來自場景 GroundLayers override（非 R1c）**
+>
+> - 使用者 Play（2026-10-06）：3 cm 收腳直接完整、無明顯滑步、Walk RU 小步像正常短步、站立穩定；5 cm 仍見補回／較拖／偏碎步；下樓階緣「留在舊階高度」正常速度不明顯（已知限制）。
+> - X Bot prefab：`LockedFollowExperiment` true、`LockedFollowDeadZone` 0.03（還原＝設 false）。
+> - EditMode 820／818／1 failed：`StairAuthoringContractTests.Scene_InstanceMasks_MatchSemanticTable`——場景 X Bot 新增 `GroundLayers.m_Bits = 503` override（期望 −9），本會話開始後才出現、隨測試時的場景存檔落地；❓ 是否 revert 該 override。
+> - PlayMode 全套回歸 **96／95／1 failed**（只有既有 `C0`）；Editor 重啟後執行。
+>
+> ---
+>
+> # （前一段）**R1c runtime A/B 完成（`docs/45` §24）——使用者 Play 比較 Current／3 cm／5 cm 後裁決正式方向**
 >
 > **開場只需讀**：本段 ＋ `docs/45` §24.4–§24.6。
 >
