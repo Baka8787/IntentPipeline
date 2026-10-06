@@ -53,7 +53,7 @@
 | AC1 | 開關關閉 ⇒ 逐位元現行；EditMode：極值 helper、觸發條件、`LocomotionModel` 接線（Run 起跑會請求、Walk／關閉不請求）；A14 仍通過 | ✅ 2026-10-04 EditMode 815／814／0 failed |
 | AC2 | 平地（`PlantSettleProbe.Probe_EntryPhaseFlatAB`）：LU 後與 RU 後，起跑離地前**動畫腳**貼地位移都降到 ≲ 8 cm（不是只看畫面腳） | ⚠️ **部分**：20.3／33.6 → 9.8／9.4 cm（大幅下降但未達 8 cm；殘留是極值相位下的左腳支撐腳，root 從 0 加速所致）——`docs/45` §21.3 |
 | AC3 | 樓梯（`Probe_EntryPhaseStairsAB`，兩道樓梯 × 上下 × 7 位置）：動畫腳與畫面腳都不比關閉時差；分 LU／RU 前置列出 | ⚠️ **大致**：動畫腳每組都下降；畫面腳只有「樓梯下、RU 後」中位 2.4 → 4.5（max 7.2）略增——§21.3 |
-| AC4 | 人工 Play（X Bot）：Run 上下樓與平地停步後同方向起跑，拖步消失或明顯減輕；Idle 沒有起跑瞬間的可見跳動 | ✅（部分）2026-10-04 使用者 Play：「拖步有變好」；Idle 跳動未特別回報 |
+| AC4 | 人工 Play（X Bot）：Run 上下樓與平地停步後同方向起跑，拖步消失或明顯減輕；Idle 沒有起跑瞬間的可見跳動 | ⏳ **撤回待重驗**（2026-10-07 使用者裁決）：2026-10-04 的「拖步有變好」是在 R1c 之前判定的；R1c 3 cm（`docs/45` §24）上線後畫面腳離地前滑動 4.5 → 11–13.5 cm（§27）。使用者 2026-10-07 初步觀察：「有，但其實不太影響」——仍須在現行設定下正式重驗 |
 
 ## 6. 失敗處置（revert 路徑）
 `alignRunEntryPhase` 設 false（逐位元回到現行）；若 Trial 失敗：移除 `TryAlignEntryPhase`（base＋Animancer）、`TryGetFootPhaseExtremeNormalizedTime`、`LocomotionModel` 的開關與觸發程式、`RunEntryPhaseTests`，ADR 標 Rejected。
@@ -66,3 +66,4 @@ CLAUDE.md Trial 判準 ③：核心驅動介面（`AnimationFacadeBase`）新增
 
 ## 9. 裁決紀錄
 - 2026-10-04（使用者）：採 start-phase alignment；不建 gait-phase 框架；不得硬寫 0.88–0.92；只限 Run／靜止→Run／同方向；開窄範圍 Trial ADR；Core-facing 名稱用意圖型（facade 內部處理權重 0 子狀態）。
+- 2026-10-07（使用者）：AC4 撤回「拖步已改善」結論，必須在 R1c 3 cm 現行設定下重新驗證（`docs/45` §27：起跑殘留是動畫本身的爬行，R1c 讓它可見）；AC2 不放寬；維持 Trial。

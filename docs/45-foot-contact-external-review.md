@@ -1251,3 +1251,10 @@ EditMode **820／819／0 failed／1 skipped**（+5：R1c 純函數）。runtime 
 - **R1c 改變了它的可見度**：R1c 關時 T3 把它鎖住、只露出 4.5 cm（差距 14 cm 在離地時一併帶走）；R1c 3 cm 之後，畫面腳以動畫速度貼地滑 11–13.5 cm 才離地。⇒ 使用者 AC4「拖步有變好」是在 R1c 之前判定的；**R1c 上線後起跑時的貼地滑動可能重新變得可見**，需要重新 Play 確認。
 - 因此 AC2 的問題不是「9–11 cm 是否可接受的量測誤差」，而是「起跑第一步支撐腳 ~12 cm 的貼地滑動在 R1c 下是否可接受」。依裁決不放寬 AC2；不在此輪處理。
 - 若不可接受，方向（未評估，待裁決）：①動畫層——起跑時 root 加速與 loop 姿勢的時間基準（例如起跑段播放速度隨 root 速度、或專用 run-start 素材；CLAUDE.md 動畫資產順序第 1–3 層）；②T3 層——起跑段的 R1c 行為（與 §24 裁決相關，需另議）。
+
+### 25.1 裁決（2026-10-07，使用者）
+- **A2 先開**：X Bot prefab `PlantAwareExtrapolation = true`（Editor API；prefab diff 1 行；場景 X Bot 無 override、Y Bot 不變）。**還原＝設回 false。** 程式預設仍關；正式 contract（目前仍是 `FootIKSettings` 實驗開關）另行處理。
+- 回歸：PlayMode 96／95（只有既有 `C0`）。EditMode 846／844／1 failed——`Scene_InstanceMasks_MatchSemanticTable`：場景 **Y Bot** 的 `GroundLayers` 出現 503 override（場景檔 2026-10-07 03:45 存檔，非本會話寫入；X Bot 的 revert 仍在），與 P8b 無關。
+
+### 26.1 裁決（2026-10-07，使用者）
+- **A1 先不做正式 policy**（樓梯強制 RU 不實作）。§26 的資料保留供日後評估。

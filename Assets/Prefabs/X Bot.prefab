@@ -4563,7 +4563,7 @@ MonoBehaviour:
     LockedFollowExperiment: 1
     LockedFollowDeadZone: 0.03
     SwingFootLengthReference: 1
-    PlantAwareExtrapolation: 0
+    PlantAwareExtrapolation: 1
     PlantAwareNearSteps: 1.5
     ExtrapolationSpeedMin: 2
     ExtrapolationSpeedMax: 6
