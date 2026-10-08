@@ -331,7 +331,7 @@ ResolveContactPosition（:575-620） movement-surface 參考 + heel/ankle/toe �
 | `LandingSurfaceResolver` ＋ Intent/State/Inputs/Tuning | 停步時擺盪腳「跨到哪一階」 | FootIK | **有**（目的地踏面），但只在停步預測存在時有輸入 | Keep；改名避免與 jump landing 混淆 |
 | `StandingPostureSolver`（625 行）＋ `ResolveStandingPosture` | 停步站直原型 | X Bot 上無（被 `UseUnifiedStandingPelvis` 旁路） | 已被 unified standing 取代 | **Merge candidate（＝移除候選，待裁決）** |
 | `UseStandingPosturePrototype`／`UseUnifiedMovingPelvis`／`UseUnifiedStandingPelvis`／`UseContactPrototype` | A/B 開關 | FootIK | 是一個未建模的 mode | Merge candidate（一個 enum 或收斂後移除） |
-| `PlantAwareExtrapolation` | docs/45 §21 A2 實驗 | FootIK | 無（X Bot 關閉） | Investigate（是否刪） |
+| `PlantAwareExtrapolation` | docs/45 §21 A2 實驗 | FootIK | ~~無（X Bot 關閉）~~ 🔄 `58480b3` 起 X Bot 開啟（P8b） | Keep；名稱用了 `Plant` 卻屬 T3 lock 用語（`docs/48` K6） |
 | `LockedFollowExperiment`／`LockedFollowDeadZone` | R1c（收步吸附） | FootContactSolver | 有（鎖定容許跟隨） | Keep；d0=3 cm 已裁決，未來不應再是 optional |
 | `LockedRiserIntrusionRule` ＋ 額外踝射線 | 樓梯 riser 翻階（docs/46 §22–25） | T3 | 有（幾何規則），但只在樓梯有作用 | Keep |
 | `MovingPelvisContext.WalkGait` | §19「只批准 Walk 下樓停步」 | MovingPelvisSolver | **無**：是 stop tier 的代理 | Merge candidate（→ stop tier） |
