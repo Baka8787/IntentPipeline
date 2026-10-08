@@ -21,7 +21,7 @@
 | # | 概念 | 一句話 |
 |---|---|---|
 | 1 | **Stop（停步）狀態** | `LocomotionModel` 已 commit 停步（含 Walk/Run tier），但只發布「預測快照」；骨盆求解器自己用「意圖放開的邊沿」＋`Gait` 重建一份停步狀態——正是 ADR-010 §3 否決過的方案 |
-| 2 | **Walk／Run 檔位** | 四個定義：`GaitTier`（按鍵）、停步 tier（實際速度帶）、跳躍 tier（意圖門檻）、FootIK 的 `Gait == Walk` 代理。類比搖桿半推、AI 角色都會讓它們互相矛盾 |
+| 2 | **Walk／Run 檔位** | 四個定義：`GaitTier`（按鍵）、停步 tier（實際速度帶）、跳躍 tier（意圖門檻）、FootIK 的 `Gait == Walk` 代理。類比搖桿半推、AI 角色都會讓它們互相矛盾 | 🔄 **改判（2026-10-08，D2-f）**：各自分類是合理 specialization；真問題＝FootIK 拿 Gait 代理 committed stop tier、Jump 可能用 A loop 的時鐘查 B loop 的 Bake（見 F-02 改判框）
 | 3 | **腳的 plant／contact** | 烘焙 plant（≤0.20 m/s）、T3 lock（β≥0.95 ≈ ≤1.3 m/s）、Reliable（≤0.3 m/s）、footstep（≤2.0 m/s）——其中**烘焙 plant 與 T3 lock 被 `LandingSurfaceResolver` 當成同一件事配對使用**，但定義不同 |
 | 4 | **骨盆高度** | 4 個 bool 選出 4 條共存的骨盆管線；出貨設定只走其中一條，`StandingPostureSolver`（625 行）在 X Bot 上是死路徑；AI 角色（Y Bot）走的是另一條（舊）管線 |
 | 5 | **腳下地面** | 同一隻腳同一帧有兩個「地面高度」：`FootSample.GroundY`（兩點規則）與 T3 support（三點最大穿透規則），統一骨盆求解器在同一個式子裡混用兩者 |
@@ -169,6 +169,11 @@ StandingPostureSolver.cs:285-298 canStart / releaseEdge / ReleaseRootSpeed（第
 ---
 
 ### F-02 Walk／Run 檔位有四個定義 — **High**
+
+> 🔄 **改判（2026-10-08，使用者裁決 D2-f；依據 `docs/48` §6）**：
+> - **各 consumer 各自分類本身是合理的 specialization**——Stop、Jump、Footstep、ADR-011 問的是不同問題，邊界、更新時機、owner 都不同（`docs/48` §6.2–§6.3）；⛔ 不建立全域 `BodySpeedTier`。
+> - **真正的問題只有兩個**：①FootIK 用 control `Gait` 代理 **committed stop tier**（F1／ADR-010 D6 處理）；②Jump 可能用 **A loop 的時鐘**去查 **B loop 的 Bake**（F2-J，clock-family ownership；量測 slice 進行中）。
+> - 以下原文保留為審查當時的推導；「High」嚴重度與「四個定義」的框架已不適用。
 
 **Canonical concept**：需要先承認這裡其實有**兩個**合法概念，問題是它們被混用：
 - (a) **控制方案的選擇**（玩家按了 Walk 鍵）——`GaitTier`，合法擁有者 `PlayerLocomotionPolicy`。
@@ -353,7 +358,7 @@ ResolveContactPosition（:575-620） movement-surface 參考 + heel/ankle/toe �
 |---|---|---|
 | 「有移動意圖」 | **5** | Model `≥0.001`（`:114`）；FootIK `>0`（`:867`,`:1059`）；Jump continue `≥0.2`；Action cancel `≥CancelMoveIntentThreshold`；`IsProducingMotion` 用 smoother `≥0.1` |
 | 「停步開始」（意圖下降緣） | **3** | `LocomotionStopSelector.IsReleaseRequest`；`MovingPelvisSolver:283`；`StandingPostureSolver:288` |
-| Walk／Run 分界 | **4** | Gait 按鍵；Stop 0.35–0.50／0.75–0.875（實際速度）；Jump 0.2／0.75（意圖）；FootIK `Gait==Walk` |
+| Walk／Run 分界 | **4** | Gait 按鍵；Stop 0.35–0.50／0.75–0.875（實際速度）；Jump 0.2／0.75（意圖）；FootIK `Gait==Walk` | 🔄 2026-10-08（D2-f）：各自 policy，不再計為重複；FootIK 那一份屬 F1
 | 腳水平速度門檻（plant） | **5** | Bake 0.20；β smoothstep 1–4（lock≈1.3）；Reliable 0.3；Footstep 2.0；Extrapolation 2–6 |
 | Root 水平速度門檻 | **4** | Footstep swing gate 0.5；Unified settle 0.05；Posture final support 1.35；Posture early release 0.1 |
 | Root 垂直「下樓中」 | **2**（同常數） | `MovingPelvisSolver:296`、`:396`，皆 `DescendingStopSpeed=0.2`（硬編） |
@@ -484,7 +489,7 @@ Current   SampleGround（兩點）與 T3（三點）各自取樣；骨盆混用�
 
 **支持「Presentation 局部碎裂」的證據**
 1. ADR-010 自己否決的方案（Presentation 自己判斷停步開始與 clip 家族）在 `MovingPelvisSolver:282-300`／`FootIKController:867-868` 以另一種形式存在（F-01）。
-2. Walk／Run 有 4 個定義，類比搖桿半推、Sprint、AI 三種常見情境就讓它們互相矛盾（F-02 表）。
+2. ~~Walk／Run 有 4 個定義……互相矛盾~~ 🔄 改判（D2-f）：各自分類合理；剩下 FootIK 的 Gait 代理與 Jump 的 clock-family 錯配（F-02 改判框）。
 3. 4 個 A/B bool 留成永久結構；出貨設定下 625 行 solver 是死路徑；玩家與敵人跑不同腳部／骨盆架構（F-04）。
 4. 同一隻腳同一帧兩種地面高度被同一個式子混用（F-06）；同一個 class 裡兩份 root 速度歷史（F-07）。
 5. ~~烘焙 plant 與 T3 lock 定義差約 6 倍，卻被 `LandingSurfaceResolver` 當作同一事件配對~~——🔄 更正（`docs/48` §0.1）：兩者分離是已裁決的設計，resolver 也已用即時驗證處理；剩下的證據是「腳踩哪一階」有三份規則（F-03 更正、F-06）。

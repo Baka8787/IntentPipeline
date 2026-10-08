@@ -537,6 +537,8 @@ Phase 1c 接受（保留 producer 時間基準修正；不改 Bake plant 門檻�
 - **在 T3 實際鎖定的 XZ 上**，「平放腳印三點最高」與 T3 選的支撐只有 **29／35** 一致；錯的 11 次中有 **6 次就算位置完全正確也會錯**。
   原因：provider 以平放的三點取最高踏面；T3 鎖定時以實際腳姿（抬跟／腳尖向下）取「最大穿透」的那一點——兩個規則在階緣附近會選到不同階。
 
+> 🔄 **2026-10-08 重要結論（§28.1，使用者要求保留）**：在**同一組三點命中**上，「最高踏面」與「最大穿透」選到不同階的次數是 **0／6073** 個腳·帧（樓梯 probe，Walk＋Run）。⇒ 上面 29／35 的不一致**不是選擇規則（selector rule）造成的**，而是兩邊的**腳印姿勢與 XZ 落點**不同（平放 vs 抬跟／壓尖，腳跟／腳尖的水平位置隨之改變）。後續追查這個分歧，方向是 **footprint pose／XZ placement**；⛔ 不要再改 selector。
+
 ### 14.5 結論與 ❓ 待使用者
 - D1-R1 讓煞車步的目的地在 26／35 次早於 T3 跳動就穩定，但 lead 只有中位 +1 帧——Run 沒有 pending，可提前的只有等待播放頭那 2 帧；放開之前不存在停步決定，**這是上限**。
 - 剩下的錯誤約一半來自「目的地的落地規則」與 T3 鎖定時的支撐規則不一致（腳印語意），不是遲滯可以處理的。
@@ -1279,7 +1281,17 @@ EditMode **820／819／0 failed／1 skipped**（+5：R1c 純函數）。runtime 
 - **K3**：C-E 只應有**一條選擇規則**——「腳印三點中最大穿透者」（腳平放時＝最高踏面）。各處只差輸入（實際腳姿／預測的平放腳姿）。現況：T3 接觸與預測落點兩份寫法、規則等價；`SampleGround` 的兩點 `ComputeSoleHeight` 是第三份、規則不同（`docs/47` F-06）。收斂順序見 `docs/48` M3.1→M3.2（M3.2 屬 behavioral slice，2026-10-08 裁決延後）。
 - **K4**：預測使用平放腳姿是**已裁決的輸入差異**（§16.1：landing-pose contract 不採），不是規則差異；§14.4「兩個規則不一致」的現象依此重新理解為「同一規則、不同腳姿輸入」。
 - **K5**：C-D 獨立於 C-B（不同問題、門檻各自實測：`docs/35`／本檔）。兩者都以**世界 up** 量高度、與腳旋轉無關（這是 `FootstepDetector` 註解所說的「同一個簡化」）；但**參考點不同**：C-D 量鞋底、C-B 的 stance 量踝（IK goal），差值吸收在 `FootGroundedHeightMin` 0.08 裡。
-- **K6**：詞彙——`plant` 只指 C-A；T3 一律稱 `lock`；C-F 稱 swing destination；`landing` 保留給身體落地。現有命名債（`PlantAwareExtrapolation`、`LandingSurface*`、`FootPlantTracker`）是否改名：`docs/48` D3-c，未裁決。
+- **K6 詞彙**（2026-10-08 使用者裁決 D3-c：**只做 terminology cleanup，不做全域 rename**）。新寫的文件、API、註解一律使用下列四個詞；舊欄位等到碰到相關區域時再逐步改名。
+
+  | 用語 | 意義 | 對應概念 | 現有舊名（不急著改） |
+  |---|---|---|---|
+  | **Animation Plant** | 動畫內容裡這隻腳觸地的時刻與位置（Bake 判準，獨立於 IK） | C-A | `FootPlantSchedule`、`NextPlant*`（ADR-010 D5）、`FootPhaseCurve`（loop 的「哪隻腳較低」） |
+  | **Predicted Contact / Landing** | runtime 對「這隻腳將落在哪、哪一階」的預測（由 Animation Plant 投影到地面） | C-A → C-E 的預測端 | `TryPredictNextPlantGoal`、`TryPredictStopLandingGoal`、`StopLanding*GoalOffset` |
+  | **IK Lock** | IK 把腳釘在世界座標（β＋遲滯＋釋放；R1c 跟隨） | C-B | `FootLockPhase`、`LockPosition`、`PlantAwareExtrapolation`（名稱用了 Plant，實為 IK Lock 側的外插） |
+  | **Committed Surface** | 系統已承諾讓這隻腳站上的踏面：擺盪中＝resolver 承諾的目的地；鎖定後＝IK Lock 的鎖定支撐 | C-F（擺盪）／C-B 的 locked support | `LandingSurfaceIntent.SurfaceY`、`LockedSupportY` |
+
+  - 「Landing」單獨出現時有歧義：腳的預測落點用 **Predicted Landing**，身體落地（JumpState／`JustLanded`）用 **Body Landing**。
+  - C-D（腳步聲）與 C-E（支撐踏面選擇規則）不在這四個詞內：前者稱 **Footstep Event**，後者稱 **support selection**（`FootContactSolver.ConsiderSupport`）。
 
 ### 28.1 M3.1：C-E 收斂為單一函數＋樓梯 probe 逐帧等價（2026-10-08；行為不變）
 - **程式**：`FootContactSolver.ConsiderSupport`＋`SupportSelection`（最大穿透；嚴格大於才換；同值保留先到的點）。T3 的 `AccumulateContact` 與預測端的 `TryPredictGroundedAnkle` 都改呼叫它；預測端以平放腳印（三點鞋底同高）輸入 ⇒ 與舊的 `Mathf.Max` 逐位元相同（`FootContactSolverTests.ConsiderSupport_FlatFootprint_EqualsHighestTread_Exactly`）。`SampleGround` 的兩點規則**未動**（M3.2，behavioral slice，延後）。

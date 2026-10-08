@@ -19,6 +19,12 @@
 | D2-b | **不接受 0.55**。Mixer 是連續 blend，「權重最大的 clip」不天然是 canonical domain fact；⛔ 不得先創造 `BodySpeedTier` 再找 consumer | §2.2 撤銷 |
 | D2-d | **暫緩**。要先證明第二個全域 tier 是穩定的 domain concept；若成立，因 ADR-003 已 Accepted，應開**新 ADR**，不改寫 ADR-003 | §6 的檢查結論：不成立 ⇒ 不開 |
 | D3-b | **暫不排 runtime 修改**。先完成 M3.1，用樓梯 probe 證明兩份 tread／surface attribution 規則逐帧等價；pelvis 改 authority 之後另開 behavioral slice | M3.2／M3.3 延後 |
+| **D2-e**（第二輪） | **Yes**：開 measurement-only slice 驗證 F2-J（combat 側移／後退、analog ≈ 0.6、正常 Walk／Run 對照），記錄 dominant loop／sampled clock／Jump 選的 bake family／最終 LU-RU；**先量、不修** | §6.4、§7 |
+| **D2-f**（第二輪） | **Yes**：`docs/47` F-02 改判——各 consumer 各自分類是合理 specialization；真問題＝FootIK 用 Gait 代理 committed stop tier、Jump 可能用 A loop 的時鐘查 B loop 的 Bake | 已改 `docs/47` |
+| **M1.2／M1.3**（第二輪） | M1.2 開工：ADR-010 **D6** 發布 LocomotionModel 已承諾的 stop tier——**contract 修補，不是新的全域 locomotion tier**。M1.3 在 M1.2 之後、**分開 commit**；屬行為變更，完成後重跑下樓停步驗收 | §1.4 |
+| **D3-c**（第二輪） | **Yes，只做 terminology cleanup**：Animation Plant／Predicted Contact（Landing）／IK Lock／Committed Surface；不做全域 rename | `docs/45` §28 K6 |
+| M3.1 結論（第二輪） | **保留為重要結論**：同一組 hits 上「最高踏面 vs 最大穿透」0／6073 分歧 ⇒ §14.4 的差異應繼續追 **footprint pose／XZ placement**，不是 selector rule | `docs/45` §14.4／§28.1 |
+| 順序 | **先完成 F2-J measurement，再決定 Jump 要不要修 clock-family ownership** | — |
 | 範圍 | 六個 no-behavior-change migration 中，**不依賴新 tier 的可以繼續**；凡預設新 canonical field 已成立的 M2.x 先停 | 繼續：M1.0、M1.1、M3.0、M3.1。停：M2.1–M2.5。M2.0 見 §6.5 |
 
 ---
@@ -245,7 +251,7 @@ SampleGround（:382-460）
 ### 3.6 ❓ 決策點
 1. ✅ **D3-a**（2026-10-08：隨 F3 方向接受）：同意以「C-A 與 C-B 刻意分離＋K1 契約」作為正式定位（不再把兩者的差異當成 bug 追）嗎？
 2. ✅ **D3-b**（2026-10-08）：暫不排 runtime 修改；先完成 M3.1 並以樓梯 probe 證明逐帧等價；pelvis 改 authority 另開 behavioral slice。
-3. ⏳ **D3-c**（未裁決）：M3.4 的改名要不要做（純詞彙債，成本是 `FormerlySerializedAs`）？
+3. ✅ **D3-c = Yes，但只做 terminology cleanup**（2026-10-08）：不做全域 rename；新文件／API／註解統一用 Animation Plant／Predicted Contact（Landing）／IK Lock／Committed Surface，舊欄位碰到相關區域時再逐步改名（對照表見 `docs/45` §28 K6）。原問題：M3.4 的改名要不要做（純詞彙債，成本是 `FormerlySerializedAs`）？
 
 ---
 
