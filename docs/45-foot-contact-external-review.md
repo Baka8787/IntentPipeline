@@ -1280,3 +1280,10 @@ EditMode **820／819／0 failed／1 skipped**（+5：R1c 純函數）。runtime 
 - **K4**：預測使用平放腳姿是**已裁決的輸入差異**（§16.1：landing-pose contract 不採），不是規則差異；§14.4「兩個規則不一致」的現象依此重新理解為「同一規則、不同腳姿輸入」。
 - **K5**：C-D 獨立於 C-B（不同問題、門檻各自實測：`docs/35`／本檔）。兩者都以**世界 up** 量高度、與腳旋轉無關（這是 `FootstepDetector` 註解所說的「同一個簡化」）；但**參考點不同**：C-D 量鞋底、C-B 的 stance 量踝（IK goal），差值吸收在 `FootGroundedHeightMin` 0.08 裡。
 - **K6**：詞彙——`plant` 只指 C-A；T3 一律稱 `lock`；C-F 稱 swing destination；`landing` 保留給身體落地。現有命名債（`PlantAwareExtrapolation`、`LandingSurface*`、`FootPlantTracker`）是否改名：`docs/48` D3-c，未裁決。
+
+### 28.1 M3.1：C-E 收斂為單一函數＋樓梯 probe 逐帧等價（2026-10-08；行為不變）
+- **程式**：`FootContactSolver.ConsiderSupport`＋`SupportSelection`（最大穿透；嚴格大於才換；同值保留先到的點）。T3 的 `AccumulateContact` 與預測端的 `TryPredictGroundedAnkle` 都改呼叫它；預測端以平放腳印（三點鞋底同高）輸入 ⇒ 與舊的 `Mathf.Max` 逐位元相同（`FootContactSolverTests.ConsiderSupport_FlatFootprint_EqualsHighestTread_Exactly`）。`SampleGround` 的兩點規則**未動**（M3.2，behavioral slice，延後）。
+- **Probe**：`PlantSettleProbe.Probe_StopSnapStairs`（proto 樓梯、上／下、停步位置 2／6／10、Walk／Run，12 次、3078 帧）。本輪在列尾加了預測端輸出：`predNextOk,predNextX/Y/Z,predEndOk,predEndL*,predEndR*`。
+  - 重構前跑兩次（base1／base2）、重構後一次（after），逐檔逐帧逐欄字串比對：三組兩兩之間**只有** `frame`（絕對帧號）與 probe 自己的反事實射線（`cfSup／cfPt／k0／k25`）不同——後者在兩次 baseline 之間就已經不同（已知：WORKLOG 2026-10-06 determinism slice 記錄的探針自有射線差異，未修）。
+  - ⇒ T3 目標、相位、鎖定支撐、即時支撐、骨盆輸出、最終骨骼、grounded、next plant 與結束站姿的預測落點（633／742 個有效帧）**全部逐帧相同**。
+- **附帶量測（K4 的證據）**：在 T3 實際腳印的同一組三點命中上，「最高踏面」與「最大穿透」選到不同階（> 1 mm）的次數：**0／6073** 個腳·帧（Walk 3690、Run 2383）。⇒ 本 probe 範圍內，兩者的差異不是選擇規則造成的；§14.4 的 6／35 來自**腳姿輸入**（平放腳印與實際抬跟／壓尖腳印的 XZ 不同）。⚠️ 只涵蓋 proto 樓梯、yaw 0；§14.4 的 Run 煞車步情境未重跑。

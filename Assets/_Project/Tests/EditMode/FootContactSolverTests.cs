@@ -438,5 +438,59 @@ namespace Project.Tests.EditMode
             Assert.IsFalse(state.HasHistory, "失效時速度歷史一併清除（Codex Medium ②）。");
             Assert.IsFalse(state.PrevContactValid);
         }
+
+        // =====================================================================
+        // C-E Support Surface 的唯一選擇規則（docs/45 §28 K3／K4；docs/48 M3.1）
+        // =====================================================================
+
+        [Test]
+        public void SupportSelection_Empty_HasNoContact()
+        {
+            var s = SupportSelection.Empty;
+            Assert.IsFalse(s.HasContact);
+            Assert.AreEqual(float.NegativeInfinity, s.Delta);
+            Assert.AreEqual(0f, s.SurfaceY);
+            Assert.AreEqual(0, s.Point);
+        }
+
+        [Test]
+        public void ConsiderSupport_PicksMaximumPenetration_NotHighestTread()
+        {
+            // 腳尖朝下的腳：腳跟鞋底 0.30、下方是上一階 0.25；腳尖鞋底 0.08、下方是下一階 0.05。
+            // 最高踏面是腳跟那一階（0.25），但最接近／最深入地面的是腳尖（−0.03 > −0.05）⇒ 支撐是下一階。
+            // 這正是 docs/45 §14.4「平放取最高 vs 實際腳姿取最大穿透」會選到不同階的情況。
+            var s = SupportSelection.Empty;
+            FootContactSolver.ConsiderSupport(ref s, 0, 0.25f, 0.30f);   // 腳跟：−0.05
+            FootContactSolver.ConsiderSupport(ref s, 2, 0.05f, 0.08f);   // 腳尖：−0.03 ⇒ 勝
+            Assert.IsTrue(s.HasContact);
+            Assert.AreEqual(2, s.Point);
+            Assert.AreEqual(0.05f, s.SurfaceY, Epsilon);
+            Assert.AreEqual(-0.03f, s.Delta, Epsilon);
+        }
+
+        [Test]
+        public void ConsiderSupport_Tie_KeepsTheFirstPoint()
+        {
+            var s = SupportSelection.Empty;
+            FootContactSolver.ConsiderSupport(ref s, 0, 0.2f, 0.1f);
+            FootContactSolver.ConsiderSupport(ref s, 1, 0.2f, 0.1f);
+            Assert.AreEqual(0, s.Point, "嚴格大於才換——同值保留先到的點（與重構前 T3 的 `delta > contactDelta` 相同）");
+        }
+
+        [Test]
+        public void ConsiderSupport_FlatFootprint_EqualsHighestTread_Exactly()
+        {
+            // 預測端：平放 ⇒ 鞋底同高（0）⇒ 結果必須與舊寫法 Mathf.Max 逐位元相同。
+            float[] ground = { 0.150f, 0.345f, 0.300f };
+            var s = SupportSelection.Empty;
+            float max = float.NegativeInfinity;
+            for (int i = 0; i < ground.Length; i++)
+            {
+                FootContactSolver.ConsiderSupport(ref s, i, ground[i], 0f);
+                max = Mathf.Max(max, ground[i]);
+            }
+            Assert.AreEqual(max, s.SurfaceY);   // 逐位元，不給容忍
+            Assert.AreEqual(1, s.Point);
+        }
     }
 }

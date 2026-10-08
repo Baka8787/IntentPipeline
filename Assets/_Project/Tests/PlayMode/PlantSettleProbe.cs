@@ -485,7 +485,8 @@ namespace Project.Tests.PlayMode
                                           "boneX,boneY,boneZ,boneVxz,heelY,ankY,toeY,liveSup,livePt,cfSup,cfPt,k0,k25,k50,k75,k100,nOk,nFinal,nX,nZ").Split(','))
                         sb.Append(',').Append(p).Append(c);
                 sb.Append(",rootEvalX,rootEvalY,rootEvalZ,ikZeroed,ltoeBoneX,ltoeBoneY,ltoeBoneZ,rtoeBoneX,rtoeBoneY,rtoeBoneZ,stopBake"
-                          + ",posePlaneY,lstance,lprevValid,rstance,rprevValid,hipsY,grounded");
+                          + ",posePlaneY,lstance,lprevValid,rstance,rprevValid,hipsY,grounded"
+                          + ",predNextOk,predNextX,predNextY,predNextZ,predEndOk,predEndLX,predEndLY,predEndLZ,predEndRX,predEndRY,predEndRZ");
                 Csv.Append(sb).Append('\n');
             }
 
@@ -544,6 +545,14 @@ namespace Project.Tests.PlayMode
                       .Append(',').Append(F(rightStance)).Append(',').Append(rightContact.PrevContactValid ? 1 : 0)
                       .Append(',').Append(F(_hips.position.y))
                       .Append(',').Append(data.IsGrounded ? 1 : 0);
+                    // docs/48 M3.1：預測端的 C-E 輸出（next plant 與結束站姿的落地 y）——重構前後逐帧比對用
+                    LocomotionStopPrediction predM = data.LocomotionStopPrediction;
+                    Vector3 pn = default, peL = default, peR = default;
+                    bool pnOk = predM.HasNextPlant && _ik.TryPredictNextPlantGoal(in predM, out _, out _, out pn);
+                    bool peOk = predM.Active && _ik.TryPredictStopLandingGoal(in predM, true, out peL) & _ik.TryPredictStopLandingGoal(in predM, false, out peR);
+                    sb.Append(',').Append(pnOk ? 1 : 0).Append(',').Append(V(pnOk ? pn : new Vector3(float.NaN, float.NaN, float.NaN)))
+                      .Append(',').Append(peOk ? 1 : 0).Append(',').Append(V(peOk ? peL : new Vector3(float.NaN, float.NaN, float.NaN)))
+                      .Append(',').Append(V(peOk ? peR : new Vector3(float.NaN, float.NaN, float.NaN)));
                     Csv.Append(sb).Append('\n');
                 }
 

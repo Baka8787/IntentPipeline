@@ -237,6 +237,7 @@ SampleGround（:382-460）
 | M3.4（可選） | 依 K6 改名：`PlantAwareExtrapolation` → lock 用語、`LandingSurface*` → `SwingDestination*`、`FootPlantTracker` → `FootstepTracker`。⚠️ `FootIKSettings` 欄位改名需要 `FormerlySerializedAs`（X Bot prefab 有序列化值）；C# 型別名不影響序列化 | Living Spec | 編譯＋EditMode＋Unity 匯入後確認 prefab 值保留 | 無 | revert |
 | ⛔ 不做 | 讓 Bake plant 依賴 T3 門檻；預測加入落地腳姿；遲滯 | 已裁決（§16.1） | — | — | — |
 > ✅ **2026-10-08 完成 M3.0**：K1 寫入 ADR-010 D5（Trial 非 schema 文字修訂＋§9 紀錄）；K1–K6 的子系統正本寫入 `docs/45` §28（`docs/05` 有使用者未 commit 的改動，本輪不碰）；`FootstepDetector` 註解補上參考點差異。行為不變。
+> ✅ **2026-10-08 完成 M3.1**：`FootContactSolver.ConsiderSupport` 成為 C-E 唯一規則，T3 與預測落點共用；樓梯 probe（12 次、3078 帧）重構前兩次／後一次逐帧比對，runtime 欄位**全部相同**（只有 `frame` 與 probe 自己的反事實射線不同，兩次 baseline 之間就不同）。附帶：同一組三點命中上「最高踏面 vs 最大穿透」**0／6073** 不同 ⇒ §14.4 的分歧來自腳姿輸入（K4）。詳見 `docs/45` §28.1。M3.2／M3.3 依 D3-b 延後為 behavioral slice。
 
 ### 3.5 開放問題（列出、不提案）
 - **鎖的釋放能否參考 C-A？** 10-03 的裁決禁止的是 **Bake 依賴 T3**，不是 **T3 參考 C-A**。`docs/45` §22.4 的補回問題發生在釋放端：鎖住期間動畫腳已經離開 C-A 的接觸區。因此理論上可以讓 T3 在「C-A 的這次接觸已結束」時提早釋放。限制有三：只有停步 clip 有離散的 C-A（loop／blend 沒有）；R1c（d0 = 3 cm）剛裁決；這會讓 Presentation 的 IK 依賴 Core 發布的動畫事件，是新的耦合。**本提案不推薦現在做**，只記錄這個方向存在。

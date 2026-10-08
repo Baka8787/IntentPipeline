@@ -596,10 +596,8 @@ namespace Project.Presentation.IK
             Vector3 ankle = new Vector3(horizontal.x, referenceY + predictedHeight, horizontal.z);
 
             // ④
-            float contactDelta = float.NegativeInfinity;
-            float supportY = 0f;
-            int supportPoint = 0;
-            bool hasContact = false; // 有可用於求解的地面（含鎖定支撐）
+            // C-E Support Surface（docs/45 §28 K3）：三點中最大穿透者——與預測落點（TryPredictGroundedAnkle）同一條規則，只差腳姿輸入。
+            var support = SupportSelection.Empty;
             bool liveHit = false;    // 本帧真的有射線命中——只有它能決定「接觸是否有效」
             // docs/46 §22–§23 riser-intrusion 的前提：腳的中心（腳踝底）仍站在鎖定支撐上。
             bool ankleOnSupport = false;
@@ -611,11 +609,15 @@ namespace Project.Presentation.IK
                 ankleOnSupport = ankleHit && Mathf.Abs(ankleGround.point.y - state.LockedSupportY) <= settings.LockedRiserIntrusionSupportTolerance;
             }
             AccumulateContact(in state, supportSelected, ankleOnSupport, 0, ankle, shownRotation, footBottomHeight, -Mathf.Max(0f, settings.HeelOffset),
-                probeDistance, ref contactDelta, ref supportY, ref supportPoint, ref hasContact, ref liveHit);
+                probeDistance, ref support, ref liveHit);
             AccumulateContact(in state, supportSelected, ankleOnSupport, 1, ankle, shownRotation, footBottomHeight, 0f,
-                probeDistance, ref contactDelta, ref supportY, ref supportPoint, ref hasContact, ref liveHit);
+                probeDistance, ref support, ref liveHit);
             AccumulateContact(in state, supportSelected, ankleOnSupport, 2, ankle, shownRotation, footBottomHeight, Mathf.Max(0f, settings.ToeOffset),
-                probeDistance, ref contactDelta, ref supportY, ref supportPoint, ref hasContact, ref liveHit);
+                probeDistance, ref support, ref liveHit);
+            float contactDelta = support.Delta;
+            float supportY = support.SurfaceY;
+            int supportPoint = support.Point;
+            bool hasContact = support.HasContact; // 有可用於求解的地面（含鎖定支撐）
             if (state.Phase == FootLockPhase.Locked && !supportSelected && hasContact)
             {
                 state.LockedSupportY = supportY;
@@ -757,7 +759,7 @@ namespace Project.Presentation.IK
         /// </summary>
         private void AccumulateContact(in FootContactState state, bool supportSelected, bool ankleOnSupport, int pointIndex, Vector3 ankle, Quaternion rotation,
             float footBottomHeight, float forwardOffset, float distance,
-            ref float contactDelta, ref float supportY, ref int supportPoint, ref bool hasContact, ref bool liveHit)
+            ref SupportSelection support, ref bool liveHit)
         {
             Vector3 point = FootContactSolver.SolePoint(ankle, rotation, footBottomHeight, forwardOffset);
             Vector3 origin = new Vector3(point.x, Mathf.Max(point.y, ankle.y) + settings.RaycastUpOffset, point.z);
@@ -775,14 +777,7 @@ namespace Project.Presentation.IK
             if (intrusion) hitY = state.LockedSupportY;
             if (!FootContactSolver.ContactGround(in state, supportSelected, pointIndex, hasHit, hitY,
                     out float groundY)) return;
-            float delta = groundY - point.y;
-            if (delta > contactDelta)
-            {
-                contactDelta = delta;
-                supportY = groundY;
-                supportPoint = pointIndex;
-            }
-            hasContact = true;
+            FootContactSolver.ConsiderSupport(ref support, pointIndex, groundY, point.y);
         }
 
         /// <summary>
@@ -940,10 +935,11 @@ namespace Project.Presentation.IK
         {
             Vector3 predictedRoot = prediction.RootWorldPositionAtPublish + forward * forwardDisplacement;
             Vector3 animated = predictedRoot + yaw * ankleInRoot;
-            // 與 T3 接觸同一規則：腳下取腳跟／腳踝／腳尖三點中最高的地面（決定抬升的是最高那一點）。
+            // 與 T3 接觸同一規則（C-E，docs/45 §28 K3）：腳跟／腳踝／腳尖三點中最大穿透者。
+            // 預測沒有落地腳姿 ⇒ 平放（三點鞋底同高，K4 已裁決的輸入差異）⇒ 最大穿透＝最高踏面。
             // 只取腳踝一點時，階緣附近幾公分的水平誤差就會把整隻腳判到下一階（實測 Run 誤差 −20 cm）。
-            bool found = false;
-            float groundY = float.NegativeInfinity;
+            const float flatSoleY = 0f;
+            var support = SupportSelection.Empty;
             for (int point = 0; point < 3; point++)
             {
                 float along = point == 0 ? -Mathf.Max(0f, settings.HeelOffset)
@@ -952,16 +948,15 @@ namespace Project.Presentation.IK
                 if (TryPredictGroundHeight(in prediction, new Vector2(sample.x, sample.z),
                         settings.GroundLayers, out float pointY))
                 {
-                    groundY = Mathf.Max(groundY, pointY);
-                    found = true;
+                    FootContactSolver.ConsiderSupport(ref support, point, pointY, flatSoleY);
                 }
             }
-            if (!found)
+            if (!support.HasContact)
             {
                 ankle = default;
                 return false;
             }
-            ankle = new Vector3(animated.x, groundY + footBottomHeight, animated.z);
+            ankle = new Vector3(animated.x, support.SurfaceY + footBottomHeight, animated.z);
             return true;
         }
 

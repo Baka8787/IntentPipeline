@@ -72,8 +72,42 @@ namespace Project.Presentation.IK
     /// 舊模型擺盪腳權重為 0 所以看不出來；T3 擺盪時位置權重為 1，不外插會讓腳落後動畫一帧
     /// （實測擺盪腳每帧移動 Walk 7.5–10 cm、Run 11–16 cm；一帧外插後殘差中位數約 1 cm）。
     /// </summary>
+    /// <summary>
+    /// C-E Support Surface（docs/45 §28 K3）：一個腳印踩在哪一階的選擇結果。
+    /// 候選點逐一交給 <see cref="FootContactSolver.ConsiderSupport"/>；從 <see cref="Empty"/> 開始。
+    /// </summary>
+    public struct SupportSelection
+    {
+        /// <summary>至少一個候選點有地面。</summary>
+        public bool HasContact;
+        /// <summary>選中點的穿透量（地面 − 鞋底點；正值＝鞋底在地面下）。</summary>
+        public float Delta;
+        /// <summary>選中點的地面高度（世界 y）。</summary>
+        public float SurfaceY;
+        /// <summary>選中點的索引（呼叫端定義；T3 與預測都是 0 腳跟／1 腳踝／2 腳尖）。</summary>
+        public int Point;
+
+        public static SupportSelection Empty => new SupportSelection { Delta = float.NegativeInfinity };
+    }
+
     public static class FootContactSolver
     {
+        /// <summary>
+        /// （純函數）C-E 的唯一選擇規則：**最大穿透**（地面 − 鞋底點）；嚴格大於才換、同值保留先到的點。
+        /// 腳平放（各點鞋底同高）時等同「最高踏面」。T3 接觸與預測落點都呼叫這一條，只差輸入的腳姿（docs/45 §28 K3／K4）。
+        /// </summary>
+        public static void ConsiderSupport(ref SupportSelection selection, int point, float groundY, float soleY)
+        {
+            float delta = groundY - soleY;
+            if (delta > selection.Delta)
+            {
+                selection.Delta = delta;
+                selection.SurfaceY = groundY;
+                selection.Point = point;
+            }
+            selection.HasContact = true;
+        }
+
         /// <summary>
         /// 由 pose 歷史外插下一帧（目標實際套用那一帧）的腳踝水平位置與動畫離地高度，並回傳動畫腳的水平速度。
         /// 沒有歷史或不連續（一帧位移超過 <paramref name="maxStep"/>，例如瞬移）⇒ 回傳 false、不外插、速度 0，
