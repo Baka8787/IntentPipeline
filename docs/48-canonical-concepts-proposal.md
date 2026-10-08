@@ -209,7 +209,7 @@ LocomotionStopPrediction（ADR-010，唯一 Writer：LocomotionModel；每次 ti
 | **K2** | **C-F 的生命週期由 C-B 界定**：只在 Unlocked 存在；鎖定後的支撐由 C-B 自己決定 | 符合（`Phase != Unlocked ⇒ Reset`） | 只補文件 |
 | **K3** | **C-E 只有一條選擇規則**：「三點中最大穿透（平放時＝最高踏面）」，所有需要「腳踩哪一階」的地方都呼叫同一個函數；各處只差輸入（實際腳姿、預測的平放腳姿、無腳姿時的踝單點） | **三份**：T3 `AccumulateContact`；預測 `TryPredictGroundedAnkle`（取最高）；`SampleGround` 的 `ComputeSoleHeight`（兩點，供骨盆 `SoleHeight` 與 footstep 材質） | 見 M3.2／M3.3 |
 | K4 | **預測用平放腳姿**是已裁決的輸入差異（landing-pose contract 不採，§16.1），不是規則差異 | `docs/45` §14.4 把它描述成「兩個規則」 | 文件改寫成「同一規則、不同輸入」；⛔ 不改行為 |
-| K5 | **C-D 獨立於 C-B**：聲音 onset 與釘腳是不同問題（`docs/35` 各自實測），⛔ 不得互相取代；但**參考點要寫明**：C-D 用鞋底，C-B 的 stance 用踝（差值被吸收在 0.08 的門檻裡） | `FootstepDetector` 註解寫「同一個簡化」——不正確 | 改註解／文件；不改行為 |
+| K5 | **C-D 獨立於 C-B**：聲音 onset 與釘腳是不同問題（`docs/35` 各自實測），⛔ 不得互相取代；但**參考點要寫明**：C-D 用鞋底，C-B 的 stance 用踝（差值被吸收在 0.08 的門檻裡） | `FootstepDetector` 註解寫「同一個簡化」——只在「沿世界 up」這點成立，沒寫出參考點不同 | ✅ 2026-10-08 已補註解與 `docs/45` §28；不改行為 |
 | K6 | **詞彙**：`plant` 只指 C-A；T3 一律叫 `lock`；C-F 叫 `swing destination`；`landing` 只指 C-G | `Plant` 同時出現在 C-A（`NextPlant*`）、C-B（`PlantAwareExtrapolation`、`LandingPlantStillDistance`）、C-D（`FootPlantTracker`／`FootPlantPhase`）；`Landing` 同時指 C-F 與 C-G | 見 M3.4（可選） |
 
 ### 3.3 C-E 的三份規則（唯一真正的 duplicate）
@@ -236,6 +236,7 @@ SampleGround（:382-460）
 | **M3.3** | `FootIKGroundData` 發布 T3 實際支撐的 collider（T3 關閉時退回 `SampleGround`） | Living Spec（`docs/36`） | EditMode（材質解析）＋樓梯轉角人工聽感 | 跨材質交界的腳步材質可能改變 | 改回 |
 | M3.4（可選） | 依 K6 改名：`PlantAwareExtrapolation` → lock 用語、`LandingSurface*` → `SwingDestination*`、`FootPlantTracker` → `FootstepTracker`。⚠️ `FootIKSettings` 欄位改名需要 `FormerlySerializedAs`（X Bot prefab 有序列化值）；C# 型別名不影響序列化 | Living Spec | 編譯＋EditMode＋Unity 匯入後確認 prefab 值保留 | 無 | revert |
 | ⛔ 不做 | 讓 Bake plant 依賴 T3 門檻；預測加入落地腳姿；遲滯 | 已裁決（§16.1） | — | — | — |
+> ✅ **2026-10-08 完成 M3.0**：K1 寫入 ADR-010 D5（Trial 非 schema 文字修訂＋§9 紀錄）；K1–K6 的子系統正本寫入 `docs/45` §28（`docs/05` 有使用者未 commit 的改動，本輪不碰）；`FootstepDetector` 註解補上參考點差異。行為不變。
 
 ### 3.5 開放問題（列出、不提案）
 - **鎖的釋放能否參考 C-A？** 10-03 的裁決禁止的是 **Bake 依賴 T3**，不是 **T3 參考 C-A**。`docs/45` §22.4 的補回問題發生在釋放端：鎖住期間動畫腳已經離開 C-A 的接觸區。因此理論上可以讓 T3 在「C-A 的這次接觸已結束」時提早釋放。限制有三：只有停步 clip 有離散的 C-A（loop／blend 沒有）；R1c（d0 = 3 cm）剛裁決；這會讓 Presentation 的 IK 依賴 Core 發布的動畫事件，是新的耦合。**本提案不推薦現在做**，只記錄這個方向存在。

@@ -183,7 +183,8 @@ namespace Project.Presentation.Footstep
             bool groundWarm = ground != null && ground.IsWarm;
 
             // 腳底世界位置＝IK goal 世界位置 − 腳踝到腳底的 Avatar 常數（沿世界 up，與 pose 旋轉無關，
-            // 與 FootIKController 的 FootGroundedHeight 判準同一個簡化）。
+            // 與 FootIKController 的 FootGroundedHeight 判準同一個簡化——相同的只是「沿世界 up」；
+            // 參考點不同：這裡量鞋底，FootIK 的 stance 量踝（IK goal），差值吸收在 FootGroundedHeightMin 裡，docs/45 §28 K5）。
             Vector3 leftBottom = pose.LeftFootPosition;
             leftBottom.y -= pose.LeftFootBottomHeight;
             Vector3 rightBottom = pose.RightFootPosition;

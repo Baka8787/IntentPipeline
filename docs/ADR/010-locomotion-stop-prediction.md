@@ -91,6 +91,9 @@ D2 的原則不變——**只有正式 consumer 需要的資料才進 contract**
 - Provider：`FootIKController.TryPredictNextPlantGoal`，與結束站姿使用同一套參考點轉換與三點落地規則。Phase 1b 只有量測 probe 讀取，T3 輸出不變。
 - **時間基準**（2026-10-03 Phase 1c，`docs/45` §13；Trial 期修訂）：publish 時 root 的位置對應 `PreviousNormalizedTime`，畫面上的姿勢對應 `NormalizedTime`（Animator 的評估比 root 早一次）。
   ⇒ 位置用「姿勢顯示到 plant 那一刻 root 所在的 clip 時間」＝ plant − 本帧實測的 clip 前進量來算 root 前進量。這是時間定義，不是固定偏移。
+- 🔄 **語意界定**（2026-10-08，Trial 期非 schema 修訂；`docs/48` §3.2 K1）：next plant 是 **authored contact**——停步 clip 裡這隻腳**動畫上**觸地的那一刻與位置（Bake 的判準，依 2026-10-03 裁決獨立於 T3）。
+  ⛔ 消費端**不得**假設它就是 T3 鎖定（`FootLockPhase.Locked`）發生的時刻或位置：兩者的 onset 實測相近（`docs/45` §22.4，≤ 2 cm），但**鎖的持續期間**與**支撐踏面的選擇**都可能不同。
+  需要「腳實際被釘在哪」的消費端以 T3 的鎖定支撐為準；next plant 只當**目的地意圖**（`LandingSurfaceResolver` 的低／高可信度＋即時驗證就是這樣用）。
 
 ### D4 — 消費端的批准範圍維持 `docs/46` §19 規則⑦
 預測只批准 **Walk 下樓停步**當 `FutureReachCap`（只限制骨盆最高升到哪，不主動降低）。
@@ -134,6 +137,7 @@ AC2／AC3 的證據來自原型。最小版發布的六個欄位與原型的**�
 ①黑板 schema 變更 —— **成立**。②FSM 拓撲／hierarchy —— 不成立。③管線順序／核心驅動介面 —— 不成立（Writer 在既有順序 3）。④推翻既有不變式 —— **成立**（A12「停步／腳相位不擴張黑板」）。
 
 ## 9. 裁決紀錄
+- 2026-10-08（使用者，接受 `docs/48` F3 方向）：D5 補上語意界定——next plant ＝ authored contact，⛔ 不等於 T3 lock（文字修訂，schema／行為不變）。F1 方向接受、D1-b Yes：規則⑦的 Walk／Run 跟 committed stop tier；對應的 `StopTier` 欄位（D6）待開工時另行定案，**本條尚未改變 schema**。
 - 2026-10-03（使用者，第三次）：D1-R1——next plant 在 stop variant committed 時即可發布，不等待播放頭前進；end-pose 定義與 Bake plant 門檻不變（Phase 1c 不讓 Baker 依賴 T3 門檻）。
 - 2026-10-03（使用者，第二次）：D5——以 `LandingSurfaceResolver` 為正式 consumer，加入最小的 next-plant snapshot（`HasNextPlant`／腳別／publish-root 位置／`IsFinal`）；不推翻 D2。前進距離可由位置推導 ⇒ 不另存。
 - 2026-10-03（使用者）：D1 Yes；D2 A（只保留六個欄位，未來需要時以獨立變更擴充；`Active` 的語意與失效條件必須明確定義）；D3 Confirmed（Planned Stop 軌跡／控制不進正式 commit，不得形成第二套 stop／locomotion authority）。Proposed → **Trial**。

@@ -1259,3 +1259,24 @@ EditMode **820／819／0 failed／1 skipped**（+5：R1c 純函數）。runtime 
 
 ### 26.1 裁決（2026-10-07，使用者）
 - **A1 先不做正式 policy**（樓梯強制 RU 不實作）。§26 的資料保留供日後評估。
+
+## 28. 腳接觸的概念契約（2026-10-08；`docs/48` §3 的 Living Spec 落點；⛔ runtime 未改）
+
+`docs/48` F3 方向已裁決（2026-10-08）。本節是那份提案在本子系統的**正本**：烘焙觸地與 T3 鎖定**刻意分離**（2026-10-03 裁決），要寫下來的是它們之間可以互相假設什麼。
+
+| 概念 | 一句話 | Owner |
+|---|---|---|
+| Authored Contact（C-A） | 動畫上這隻腳何時、在哪觸地（停步 clip 的 next plant／結束站姿；loop 的 `FootPhaseCurve`） | `MotionBakeData`（Editor 烘焙） |
+| Foot Lock（C-B） | runtime 是否把腳釘在世界座標（β＋遲滯＋UnlockRadius；R1c 跟隨） | `FootContactSolver` |
+| Reliable Support（C-C） | C-B 之上的 policy（Locked ∧ β ≥ LockBeta ∧ 即時命中 ∧ 腳速 < 0.3 m/s） | `FootIKController` |
+| Footstep Event（C-D） | 鞋底相對 pose 平面的落腳 onset（聲音） | `FootstepDetector`／`FootPlantTracker` |
+| Support Surface（C-E） | 一個腳印踩在哪一階 | `FootIKController` |
+| Swing Destination（C-F） | 擺盪腳要落到哪一階、可信度多高 | `LandingSurfaceResolver` |
+
+**契約**
+- **K1**：C-A ⇏ C-B。next plant 只能當**目的地意圖**；⛔ 不得假設它就是 T3 鎖的時刻／位置（ADR-010 D5 已同步寫入）。
+- **K2**：C-F 的生命週期由 C-B 界定——只在 `Unlocked` 存在，鎖定後的支撐由 T3 自己決定（現行 `Phase != Unlocked ⇒ Reset`）。
+- **K3**：C-E 只應有**一條選擇規則**——「腳印三點中最大穿透者」（腳平放時＝最高踏面）。各處只差輸入（實際腳姿／預測的平放腳姿）。現況：T3 接觸與預測落點兩份寫法、規則等價；`SampleGround` 的兩點 `ComputeSoleHeight` 是第三份、規則不同（`docs/47` F-06）。收斂順序見 `docs/48` M3.1→M3.2（M3.2 屬 behavioral slice，2026-10-08 裁決延後）。
+- **K4**：預測使用平放腳姿是**已裁決的輸入差異**（§16.1：landing-pose contract 不採），不是規則差異；§14.4「兩個規則不一致」的現象依此重新理解為「同一規則、不同腳姿輸入」。
+- **K5**：C-D 獨立於 C-B（不同問題、門檻各自實測：`docs/35`／本檔）。兩者都以**世界 up** 量高度、與腳旋轉無關（這是 `FootstepDetector` 註解所說的「同一個簡化」）；但**參考點不同**：C-D 量鞋底、C-B 的 stance 量踝（IK goal），差值吸收在 `FootGroundedHeightMin` 0.08 裡。
+- **K6**：詞彙——`plant` 只指 C-A；T3 一律稱 `lock`；C-F 稱 swing destination；`landing` 保留給身體落地。現有命名債（`PlantAwareExtrapolation`、`LandingSurface*`、`FootPlantTracker`）是否改名：`docs/48` D3-c，未裁決。
