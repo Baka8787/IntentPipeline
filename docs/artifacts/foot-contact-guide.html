@@ -1,0 +1,461 @@
+<title>T3 腳部接觸導讀</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@500;700&family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a long-form engineering notebook — narrow reading column, sticky layer index on wide screens, drawings set in "section sheets". */
+:root{
+  --paper:#F2F4F3; --sheet:#FBFCFB; --ink:#17212B; --muted:#56636E; --rule:#D3DAD8;
+  --accent:#1C6A82; --accent-soft:#DCEBEF; --anim:#B8721A; --anim-soft:#F5E8D3; --warn:#AE4630;
+  --lock:#E3EAF0; --release:#F3E9DA;
+  --font-display:"Noto Serif TC","Songti TC","PMingLiU",serif;
+  --font-body:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --paper:#10171D; --sheet:#151F27; --ink:#E2EAEE; --muted:#96A6B1; --rule:#2A3843;
+  --accent:#62B4CB; --accent-soft:#1B3540; --anim:#E1A44E; --anim-soft:#3A2D19; --warn:#E37E66;
+  --lock:#1C2B36; --release:#33291C; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#10171D; --sheet:#151F27; --ink:#E2EAEE; --muted:#96A6B1; --rule:#2A3843;
+  --accent:#62B4CB; --accent-soft:#1B3540; --anim:#E1A44E; --anim-soft:#3A2D19; --warn:#E37E66;
+  --lock:#1C2B36; --release:#33291C; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font-family:var(--font-body);font-size:16px;line-height:1.75;margin:0}
+.wrap{max-width:1180px;margin:0 auto;padding-inline:20px;padding-block:40px 80px;display:grid;grid-template-columns:1fr;gap:40px}
+@media (min-width:1000px){.wrap{grid-template-columns:220px minmax(0,1fr)}}
+nav.toc{font-size:14px;line-height:1.6}
+@media (min-width:1000px){nav.toc{position:sticky;top:calc(env(safe-area-inset-top,0px) + 24px);align-self:start}}
+nav.toc ol{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+nav.toc a{color:var(--muted);text-decoration:none;display:grid;grid-template-columns:2.2em 1fr;gap:4px}
+nav.toc a:hover,nav.toc a:focus-visible{color:var(--accent)}
+nav.toc .n{font-family:var(--font-mono);font-size:12px;padding-top:2px}
+nav.toc h2{font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 12px;font-weight:600}
+main{min-width:0;max-width:72ch}
+.eyebrow{font-family:var(--font-mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);margin:0 0 10px}
+h1{font-family:var(--font-display);font-weight:700;font-size:clamp(2rem,5vw,3rem);line-height:1.2;margin:0 0 16px;text-wrap:balance}
+h2{font-family:var(--font-display);font-weight:700;font-size:1.65rem;line-height:1.3;margin:0 0 6px;text-wrap:balance}
+h3{font-size:1.12rem;margin:32px 0 8px;font-weight:700}
+.lede{font-size:1.12rem;color:var(--muted);margin:0 0 28px}
+section{padding-top:56px;scroll-margin-top:24px}
+.layer{font-family:var(--font-mono);font-size:12px;color:var(--muted);letter-spacing:.08em;margin:0 0 8px}
+p{margin:0 0 14px}
+a{color:var(--accent)}
+code,kbd{font-family:var(--font-mono);font-size:.86em;background:var(--accent-soft);padding:.08em .35em;border-radius:3px}
+pre{font-family:var(--font-mono);font-size:13px;line-height:1.6;background:var(--sheet);border:1px solid var(--rule);border-radius:6px;padding:14px 16px;overflow-x:auto;margin:0 0 18px}
+pre code{background:none;padding:0}
+.audience{display:grid;gap:0;border-top:1px solid var(--rule);margin:0 0 32px}
+.audience div{display:grid;grid-template-columns:7.5em 1fr;gap:12px;padding:12px 0;border-bottom:1px solid var(--rule)}
+.audience dt{font-family:var(--font-mono);font-size:12px;color:var(--muted);padding-top:3px;letter-spacing:.04em}
+.audience dd{margin:0}
+figure{margin:0 0 24px;background:var(--sheet);border:1px solid var(--rule);border-radius:8px;padding:16px}
+figcaption{font-size:13px;color:var(--muted);margin-top:10px}
+.figscroll{overflow-x:auto}
+svg{display:block;width:100%;height:auto}
+.hero-svg{min-width:520px}
+.hero-svg .stair{fill:var(--rule);stroke:var(--muted);stroke-width:1}
+.hero-svg .ramp{stroke:var(--accent);stroke-width:2;stroke-dasharray:7 6;fill:none}
+.hero-svg .path-v2{stroke:var(--warn);stroke-width:2;stroke-dasharray:3 4;fill:none}
+.hero-svg .path-t3{stroke:var(--accent);stroke-width:3;fill:none;stroke-linecap:round}
+.hero-svg .foot-locked{fill:var(--ink)}
+.hero-svg .foot-land{fill:none;stroke:var(--ink);stroke-width:2;stroke-dasharray:4 3}
+.hero-svg .lbl{font-family:var(--font-body);font-size:13px;fill:var(--ink)}
+.hero-svg .lbl-ramp,.hero-svg .lbl-t3{fill:var(--accent);font-weight:700}
+.hero-svg .lbl-v2{fill:var(--warn);font-weight:700}
+.hero-svg .lbl-dim{fill:var(--muted);font-size:12px}
+.chart{min-width:560px}
+.chart .grid{stroke:var(--rule);stroke-width:1}
+.chart .tick,.chart .axis{font-family:var(--font-mono);font-size:11px;fill:var(--muted)}
+.chart .band-lock{fill:var(--lock)}
+.chart .band-rel{fill:var(--release)}
+.chart .band-label{font-family:var(--font-mono);font-size:11px;fill:var(--muted);letter-spacing:.06em}
+.chart .ln-anim{fill:none;stroke:var(--anim);stroke-width:2.5}
+.chart .ln-cur{fill:none;stroke:var(--ink);stroke-width:2.5;stroke-dasharray:6 4}
+.chart .ln-r1c{fill:none;stroke:var(--accent);stroke-width:3}
+.legend{display:flex;flex-wrap:wrap;gap:8px 20px;font-size:13px;margin-top:10px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:8px}
+.legend i{display:inline-block;width:26px;height:0;border-top:3px solid}
+.legend .k-anim{border-color:var(--anim)}
+.legend .k-cur{border-color:var(--ink);border-top-style:dashed}
+.legend .k-r1c{border-color:var(--accent)}
+.tbl{overflow-x:auto;margin:0 0 20px}
+table{border-collapse:collapse;width:100%;font-size:14px;line-height:1.55}
+th,td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--rule)}
+th{font-weight:700;color:var(--muted);font-size:12px;letter-spacing:.04em}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ok{color:var(--accent);font-weight:700}
+.no{color:var(--warn);font-weight:700}
+.tech{border-top:2px solid var(--ink);padding-top:14px;margin-top:36px}
+.tech h3{margin-top:0}
+.pmr{display:grid;gap:0;margin:0 0 12px}
+.pmr div{display:grid;grid-template-columns:5.2em 1fr;gap:10px;padding:7px 0;border-bottom:1px dotted var(--rule)}
+.pmr dt{font-size:13px;color:var(--muted);font-weight:700}
+.pmr dd{margin:0}
+.callout{background:var(--anim-soft);border-radius:6px;padding:14px 16px;margin:0 0 18px}
+.callout p:last-child{margin:0}
+pre.mermaid{background:var(--sheet);text-align:center}
+details{border-top:1px solid var(--rule);padding:10px 0}
+summary{cursor:pointer;font-weight:700}
+summary:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+ol.qs{padding-left:1.4em;margin:0 0 18px}
+ol.qs li{margin-bottom:6px}
+footer{margin-top:64px;padding-top:16px;border-top:1px solid var(--rule);font-size:13px;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+html{scroll-behavior:smooth}
+</style>
+
+<div class="wrap">
+<nav class="toc" aria-label="章節">
+  <h2>由淺入深</h2>
+  <ol>
+    <li><a href="#l0"><span class="n">L0</span>30 秒版本</a></li>
+    <li><a href="#l1"><span class="n">L1</span>基本概念</a></li>
+    <li><a href="#l2"><span class="n">L2</span>架構與責任</a></li>
+    <li><a href="#l3"><span class="n">L3</span>每帧呼叫鏈</a></li>
+    <li><a href="#l4"><span class="n">L4</span>骨盆高度</a></li>
+    <li><a href="#l5"><span class="n">L5</span>七項技術</a></li>
+    <li><a href="#l55"><span class="n">5.5</span>主案例：吸附感</a></li>
+    <li><a href="#l6"><span class="n">L6</span>方法論</a></li>
+    <li><a href="#l7"><span class="n">L7</span>練習與重現</a></li>
+  </ol>
+</nav>
+
+<main>
+<p class="eyebrow">Unity Character Framework · Foot IK</p>
+<h1>腳踩在台階上</h1>
+<p class="lede">動畫只知道平地。這份導讀說明角色在樓梯上走、停、起跑時，腳如何判斷自己是在擺盪還是踩住、何時鎖住、骨盆要降多低——以及每一個決定背後的量測。</p>
+
+<dl class="audience">
+  <div><dt>HR</dt><dd>讓 3D 角色在樓梯上走、停、起跑時，腳自然地踩在台階上。</dd></div>
+  <div><dt>用人主管</dt><dd>解決「動畫假設平地」與「真實地形」的落差；每個修正都有量測與回歸測試。</dd></div>
+  <div><dt>技術面試官</dt><dd>接觸相位 β、鎖腳狀態機、參考面擺盪、可達性骨盆求解；先用與 runtime 99.95% 一致的離線重播篩候選，再做 A/B 與人工 Play；被否決的方案都留有證據。</dd></div>
+</dl>
+
+<figure>
+  <div class="figscroll"><svg class="hero-svg" viewBox="0 0 640 320" role="img" aria-labelledby="hero-title hero-desc">
+<title id="hero-title">樓梯剖面：擺盪腳的兩種參考</title>
+<desc id="hero-desc">台階、角色碰撞用的平滑移動面、v2 追腳下踏面的跳階軌跡，以及 T3 沿移動面加上動畫抬腳高度的平滑軌跡。</desc>
+<polygon class="stair" points="40,292 40,262 150,262 150,228 150,228 260,228 260,194 260,194 370,194 370,160 370,160 480,160 480,126 480,126 590,126 590,292"/>
+<line class="ramp" x1="40" y1="262" x2="590" y2="92"/>
+<polyline class="path-v2" points="190,216.0 194,213.6 198,211.2 202,208.8 206,206.4 210,204.1 214,201.8 218,199.5 222,197.3 226,195.1 230,193.0 234,190.9 238,189.0 242,187.1 246,185.2 250,183.5 254,181.8 258,180.3 262,144.8 266,143.4 270,142.2 274,141.0 278,140.0 282,139.1 286,138.3 290,137.6 294,137.0 298,136.6 302,136.3 306,136.1 310,136.0 314,136.1 318,136.3 322,136.6 326,137.0 330,137.6 334,138.3 338,139.1 342,140.0 346,141.0 350,142.2 354,143.4 358,144.8 362,146.3 366,147.8 370,115.5 374,117.2 378,119.1 382,121.0 386,122.9 390,125.0 394,127.1 398,129.3 402,131.5 406,133.8 410,136.1 414,138.4 418,140.8 422,143.2 426,145.6 430,148.0"/>
+<polyline class="path-t3" points="190,216.0 194,212.5 198,208.9 202,205.4 206,201.9 210,198.4 214,195.0 218,191.6 222,188.2 226,184.9 230,181.7 234,178.5 238,175.4 242,172.3 246,169.4 250,166.5 254,163.7 258,161.0 262,158.4 266,155.9 270,153.5 274,151.2 278,149.0 282,147.0 286,145.1 290,143.2 294,141.5 298,140.0 302,138.5 306,137.2 310,136.0 314,134.9 318,134.0 322,133.2 326,132.5 330,131.9 334,131.5 338,131.1 342,130.9 346,130.8 350,130.8 354,131.0 358,131.2 362,131.5 366,131.9 370,132.5 374,133.1 378,133.8 382,134.6 386,135.4 390,136.3 394,137.3 398,138.4 402,139.4 406,140.6 410,141.8 414,143.0 418,144.2 422,145.5 426,146.7 430,148.0"/>
+<rect class="foot-locked" x="168" y="216" width="44" height="10" rx="3"/>
+<rect class="foot-land" x="408" y="148" width="44" height="10" rx="3"/>
+<text class="lbl" x="150" y="224" text-anchor="end">鎖住的腳</text>
+<text class="lbl" x="462" y="158">落點（目的踏面）</text>
+<text class="lbl lbl-ramp" x="560" y="91">移動面</text>
+<text class="lbl lbl-v2" x="268" y="112">v2：追腳下踏面，跨階緣時跳一階</text>
+<text class="lbl lbl-t3" x="200" y="78">T3：沿移動面＋動畫抬腳高度</text>
+<text class="lbl lbl-dim" x="266" y="214">級高 19.5 cm</text>
+</svg></div>
+  <figcaption>樓梯剖面（示意）。角色的碰撞體走的是虛線的平滑移動面；腳要踩的是一階一階的踏面。舊做法讓擺盪腳追「腳正下方的踏面」，每跨過一個階緣就跳一階；T3 讓擺盪沿連續的移動面、保留動畫的抬腳高度，落地時才貼上目的踏面。</figcaption>
+</figure>
+
+<section id="l0">
+<p class="layer">LAYER 0</p>
+<h2>30 秒版本</h2>
+<p><strong>問題</strong>：遊戲角色的腳是動畫決定的，而動畫假設地面是平的。走上樓梯時腳會穿進台階、懸在空中；停下來時，腳像被磁鐵吸到落腳點。</p>
+<p><strong>做法</strong>：在動畫之上加一層腳部接觸系統（內部代號 <strong>T3</strong>）。它每帧判斷每隻腳在擺盪還是踩住：擺盪時保留動畫的抬腳高度，落地時貼上真正的踏面，踩住後把腳鎖在原地。骨盆依兩腳搆得到的範圍決定身體高度。</p>
+<p><strong>證明</strong>：每個改動都先量測。自動化探針跑上百次停步，把「動畫原本的腳」「系統算出的目標」「玩家看到的腳」三條軌跡逐帧對齊比較。結論常和直覺相反——「停步時腳被吸過去」量出來不是動畫的問題，而是鎖腳機制造成的（<a href="#l55">5.5</a>）。</p>
+</section>
+
+<section id="l1">
+<p class="layer">LAYER 1</p>
+<h2>基本概念</h2>
+<h3>FK 與 IK</h3>
+<p><strong>FK</strong>：動畫給每根骨頭的角度，腳的位置是算出來的結果。<strong>IK</strong>：先指定「腳要在這裡」（<strong>IK goal</strong>），由解算器回推膝蓋與髖部。Unity Humanoid 每帧在 <code>OnAnimatorIK</code> 讓程式讀到 FK 的腳位置、設定目標與<strong>權重</strong>（0＝照動畫，1＝完全照目標），並調整骨盆。</p>
+<h3>為什麼樓梯特別難</h3>
+<ol class="qs">
+  <li><strong>角色碰撞走的不是台階。</strong>樓梯上 CharacterController 碰的是一塊平滑斜面（避免一階一階頂撞而抖動）；台階在另一個 layer，只有腳的射線查得到。root 沿斜面移動，腳卻要踩在階上——兩者每帧差 5–20 cm。</li>
+  <li><strong>台階不連續。</strong>腳往前 1 cm 就可能跨到下一階，腳下高度瞬間跳 19.5 cm。</li>
+  <li><strong>動畫只知道平地。</strong>停步動畫的收腳步可能只抬 8 cm，比一階還矮。</li>
+</ol>
+<h3>三種「地面」，最容易混淆</h3>
+<div class="tbl"><table>
+<thead><tr><th>名稱</th><th>是什麼</th><th>誰用</th></tr></thead>
+<tbody>
+<tr><td>移動面</td><td>樓梯上的平滑斜面 collider</td><td>CharacterController；T3 的擺盪參考</td></tr>
+<tr><td>踏面</td><td>看得到的台階頂面</td><td>T3 的接觸與鎖定支撐</td></tr>
+<tr><td>pose 平面</td><td>動畫評估當下 root 的高度</td><td>判斷動畫裡這隻腳離地多高（stance）</td></tr>
+</tbody></table></div>
+<p>舊版（v2，見 <code>docs/29</code>）每帧在腳正下方找地面、用權重把腳拉過去：擺盪腳跨階時目標跳 9–15 cm（p99），踩住的腳一滾動就跳一階，而權重不知道「這隻腳該不該在地上」。UE 的 Foot Placement、Assassin's Creed Syndicate（GDC 2016）、Johansen 2009 的共同做法是：擺盪沿連續參考面、落腳交給真實接觸面、踩住就鎖。這就是 T3。</p>
+</section>
+
+<section id="l2">
+<p class="layer">LAYER 2</p>
+<h2>架構與責任</h2>
+<p>玩法決策在 Core，表現在 Presentation。IK 只<strong>讀</strong>黑板，不回寫玩法狀態；Controller 與 Rig 之間只有兩份單向資料，沒有方法呼叫。</p>
+<pre class="mermaid">
+flowchart LR
+  subgraph Core["Core：玩法決策"]
+    LM["LocomotionModel<br/>停步選片、停步預測、起跑相位請求"]
+    FSM["FullBodyStateMachine<br/>JumpState 失地確認"]
+    BB[("PlayerRuntimeData 黑板")]
+  end
+  subgraph Pres["Presentation：表現"]
+    AF["AnimancerFacade"]
+    MD["MotionDriver<br/>root 移動、IsGrounded"]
+    RIG["FootIKRig<br/>OnAnimatorIK"]
+    FIC["FootIKController"]
+    T3["FootContactSolver（T3）"]
+    LSR["LandingSurfaceResolver"]
+    MPS["MovingPelvisSolver"]
+  end
+  LM -- 停步預測 --> BB
+  MD -- IsGrounded --> BB
+  BB --> FSM
+  LM -- "Play／TryAlignEntryPhase" --> AF
+  BB -- 下一個預定落點 --> FIC
+  RIG -- FootIKPoseData --> FIC
+  FIC --> T3 --> LSR
+  FIC --> MPS
+  FIC -- "FootIKTargetData（下一帧套用）" --> RIG
+</pre>
+<div class="tbl"><table>
+<thead><tr><th>資料</th><th>誰寫</th><th>誰讀</th><th>內容</th></tr></thead>
+<tbody>
+<tr><td><code>FootIKPoseData</code></td><td>FootIKRig</td><td>FootIKController</td><td>本帧 FK 的腳位置與旋轉、pose 平面</td></tr>
+<tr><td><code>FootIKTargetData</code></td><td>FootIKController</td><td>FootIKRig（下一帧）</td><td>兩腳目標、權重、骨盆偏移</td></tr>
+<tr><td><code>LocomotionStopPrediction</code></td><td>LocomotionModel</td><td>FootIKController</td><td>停步時的下一個預定落點（ADR-010）</td></tr>
+</tbody></table></div>
+</section>
+
+<section id="l3">
+<p class="layer">LAYER 3</p>
+<h2>每帧呼叫鏈</h2>
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant U as Update（Core）
+  participant A as Animator
+  participant R as FootIKRig
+  participant M as MotionDriver
+  participant P as FootIKController
+  U->>U: 輸入 → LocomotionModel → 狀態機
+  U->>A: 播放與參數
+  A->>R: OnAnimatorIK：FK 完成
+  R->>R: 擷取 pose
+  R->>R: 套用上一帧的目標
+  M->>M: LateUpdate：CharacterController.Move
+  M->>M: 寫 IsGrounded
+  P->>P: 每隻腳 ResolveContactPosition（T3）
+  P->>P: MovingPelvisSolver
+  P->>P: 寫目標（下一帧套用）
+</pre>
+<div class="callout">
+<p><strong>三個時序事實，後面每項技術都建立在它們上面。</strong></p>
+<p>① 目標<strong>下一帧</strong>才套用，所以 T3 要把動畫腳外插一帧，否則擺盪腳落後 7–16 cm。② root 在 IK <strong>之後</strong>才移動，比較動畫腳與畫面腳時要補上這一帧的 root 位移。③ <code>GetIKPosition</code> 是 IK goal 空間，和腳骨骼固定差約 6 cm；權重 1 時骨骼正好落在 goal 上，所以比較要在同一空間做。</p>
+</div>
+<h3>一隻腳的 T3 管線</h3>
+<pre><code>① PredictPose         pose ＋（pose − 上一帧 pose）＝ 一帧外插
+   └ P8b              若這隻腳是下一個預定落點且很近 ⇒ 不外插
+② ComputeContactBeta  β ＝ stance × (1 − smoothstep(1, 4 m/s, 動畫腳水平速度))
+   StepLock           Unlocked ⇄ Locked ⇄ Releasing
+   ResolveHorizontal  Locked：錨點（R1c：動畫腳＋最多 3 cm 的落後）
+③ 擺盪參考            水平位置下方的移動面 ＋ 動畫離地高度
+   └ SwingFootLength  取腳跟／腳踝／腳尖三點下方移動面的最高者
+④ 接觸                以腳的朝向取三點各自查踏面
+                      lift ＝ 穿透 ? 全部抬起 : β × 懸空量
+                      Locked：鎖定當帧那一點的踏面是下限
+⑤ LandingSurface      只在 Unlocked：已知下一個落點 ⇒ 參考面提前到目的踏面
+⑥ ResolveHeight       釋放中從鎖定高度平滑回到即時高度</code></pre>
+<h3>鎖腳狀態機</h3>
+<pre class="mermaid">
+stateDiagram-v2
+  [*] --> Unlocked
+  Unlocked --> Locked: β ≥ 0.95 且有接觸
+  Locked --> Releasing: β < 0.7 或 離錨點 > 0.2 m 或 失去接觸
+  Releasing --> Unlocked: 0.12 s 完成
+</pre>
+<p>β 只看速度：動畫腳 ≤ 1 m/s 就是 1，≥ 4 m/s 就是 0。這條簡單規則是 <a href="#l55">5.5</a> 那個問題的根源，也是解法所在。</p>
+</section>
+
+<section id="l4">
+<p class="layer">LAYER 4</p>
+<h2>骨盆高度</h2>
+<p>腳只能伸到腿長那麼遠。兩腳在不同階時，骨盆必須降低，否則高的那隻腳搆不到。<code>MovingPelvisSolver</code> 用一個模型同時處理移動、停步、站立：</p>
+<pre><code>每隻腳提供上限
+  踩住的腳   U = LegBound(下一帧髖位置, 腳目標, 腿長)
+  落地中的腳 U = LegBound(...) + κ × 腳離地高度
+目標  g = clamp( min(動畫想要的高度, 所有上限), −0.35 m, 0 )
+步進  往下快（ω 12，跟上約束）、往上慢（決定每步起伏）
+硬上限 1.05 × 腿長</code></pre>
+<p><strong>為什麼往下快、往上慢</strong>：可達需求在每一步內變化約 20 cm。對稱的求解器每步都會回到原高度再降下，身體每步起伏 20–25 cm；往上的速度就是「允許的步伐起伏」預算。</p>
+<p><strong>為什麼要量最終骨骼</strong>：<code>PelvisOffsetY</code> 只是修正量，動畫本身就有 6.5–11.6 cm／步的起伏。改量最終骨骼後，診斷結論從「骨盆太平穩」翻成「整體下蹲、Walk 上樓過顛」。</p>
+</section>
+
+<section id="l5">
+<p class="layer">LAYER 5</p>
+<h2>七項技術</h2>
+<p>每一項都依同一格式：問題 → 量測 → 做法 → 結果 → 取捨。</p>
+
+<div class="tech"><h3>5.1 落腳踏面解析（LandingSurfaceResolver）</h3>
+<dl class="pmr">
+<div><dt>問題</dt><dd>擺盪參考追著「腳目前在哪一階」，跨階時在鎖定前 1–4 帧才切，單帧跳 8–17 cm。</dd></div>
+<div><dt>量測</dt><dd>208 次停步；停步預測（ADR-010 next plant）早 7–23 帧就指向最終那一階。</dd></div>
+<div><dt>做法</dt><dd>擺盪中（只在 Unlocked）讀下一個預定落點，接近時把參考面提前移到目的踏面；首次承諾連續 2 帧、改答案 3 帧，最後 3 帧以即時踏面驗證。</dd></div>
+<div><dt>結果</dt><dd>上樓跨階跳動 Run 17 → 6 cm、Walk 19 → 9 cm；下樓不變（幾何限制）。</dd></div>
+<div><dt>取捨</dt><dd>只有停步時有可信落點；即時驗證只能驗證、不能自己產生意圖。</dd></div>
+</dl></div>
+
+<div class="tech"><h3>5.2 擺盪腳長參考</h3>
+<dl class="pmr">
+<div><dt>問題</dt><dd>上樓時腳尖或腳跟先伸進下一階的立面，整隻腳被一帧抬起。</dd></div>
+<div><dt>否決</dt><dd>把「鎖定中的立面侵入規則」擴到擺盪：一開始就 4–9 cm 深，腳鎖到錯的階、骨盆跳 13.7 cm。</dd></div>
+<div><dt>做法</dt><dd>參考面取腳跟／腳踝／腳尖三點下方移動面的最高者。</dd></div>
+<div><dt>結果</dt><dd>416 次停步 A/B：Walk 上樓單帧 ≥ 8 cm 的瞬拉次數，停步 175 → 71、移動中 177 → 79。</dd></div>
+</dl></div>
+
+<div class="tech"><h3>5.3 統一骨盆求解器</h3>
+<p>見 <a href="#l4">Layer 4</a>。重點是一個模型處理移動、停步、站立，而不是三套規則各自決定高度。</p></div>
+
+<div class="tech"><h3>5.4 Plant-aware 外插（P8b）</h3>
+<dl class="pmr">
+<div><dt>問題</dt><dd>煞車步急停時，一帧外插會過衝 5–10 cm，有時推到別階，下一帧再拉回。</dd></div>
+<div><dt>量測</dt><dd>in-engine 反事實：同一條支撐規則，比較外插比例 k ∈ {0, .25, .5, .75, 1} 與九種策略。只有停步預測看得到「下一帧會急停」。</dd></div>
+<div><dt>做法</dt><dd>這隻腳是下一個預定落點且在 1.5 步內 ⇒ 不外插；其餘依腳速衰減。</dd></div>
+<div><dt>結果</dt><dd>錯階暫態 15 → 2，鎖定當帧的晚修正 max 5.3 → 2.0 cm。</dd></div>
+<div><dt>取捨</dt><dd>落地前幾帧畫面腳加速度中位 +2.8 cm。</dd></div>
+</dl></div>
+
+<div class="tech" id="l55"><h3>5.5 主案例：收步的「吸附感」</h3>
+<p>這一節示範完整的研究流程。<strong>症狀</strong>：停步時，腳像被快速拉到最後的落腳點。</p>
+<p><strong>三個互斥假設</strong>：H1 停步動畫本身把收腳壓縮在最後幾帧；H2 T3 提早鎖定或修正造成；H3 兩者都有。</p>
+<p><strong>量測設計</strong>：三條軌跡逐帧對齊——動畫腳（補上 root 位移）、T3 目標（上一帧目標＋本帧 root 位移）、畫面腳（最終骨骼）。動畫腳又用三種方式互相驗證：離線純 clip 取樣、runtime pose、runtime 把 IK 輸出歸零的反事實。IK 開啟時「畫面腳 − 套用的目標」中位 0.000 cm，才開始看數字。</p>
+<div class="tbl"><table>
+<thead><tr><th>落地</th><th class="num">最後 100 ms 剩餘行程</th><th class="num">peak 速度</th></tr></thead>
+<tbody>
+<tr><td>Run loop（正常跑步）</td><td class="num">22–35 cm</td><td class="num">7–10 m/s</td></tr>
+<tr><td>停步的最後一步</td><td class="num">6–10 cm</td><td class="num">0.8–2.7 m/s</td></tr>
+</tbody></table></div>
+<p>停步動畫的收腳比正常跑步還慢，H1 不成立。真正的機制在 T3：動畫腳慢速移動時 β＝1，腳被鎖住；動畫在鎖下繼續走 9–11 cm；β 掉到 0.7 時，0.12 秒內把整段差距補回。下圖是同一隻腳的實測：</p>
+<figure>
+  <div class="figscroll"><svg class="chart" viewBox="0 0 720 300" role="img" aria-labelledby="chart-title chart-desc">
+<title id="chart-title">Walk RU 停步，左腳的最後一步</title>
+<desc id="chart-desc">動畫腳、目前的畫面腳、R1c 3 公分的畫面腳，到各自最後落腳點的水平距離，逐帧。</desc>
+<rect class="band-lock" x="169.1" y="24" width="139.2" height="232"/>
+<rect class="band-rel" x="308.4" y="24" width="139.2" height="232"/>
+<line class="grid" x1="56" x2="700" y1="256.0" y2="256.0"/>
+<text class="tick" x="48" y="260.0" text-anchor="end">0</text>
+<line class="grid" x1="56" x2="700" y1="204.4" y2="204.4"/>
+<text class="tick" x="48" y="208.4" text-anchor="end">20</text>
+<line class="grid" x1="56" x2="700" y1="152.9" y2="152.9"/>
+<text class="tick" x="48" y="156.9" text-anchor="end">40</text>
+<line class="grid" x1="56" x2="700" y1="101.3" y2="101.3"/>
+<text class="tick" x="48" y="105.3" text-anchor="end">60</text>
+<line class="grid" x1="56" x2="700" y1="49.8" y2="49.8"/>
+<text class="tick" x="48" y="53.8" text-anchor="end">80</text>
+<text class="tick" x="108.2" y="274" text-anchor="middle">t15</text>
+<text class="tick" x="195.2" y="274" text-anchor="middle">t20</text>
+<text class="tick" x="282.3" y="274" text-anchor="middle">t25</text>
+<text class="tick" x="369.3" y="274" text-anchor="middle">t30</text>
+<text class="tick" x="456.3" y="274" text-anchor="middle">t35</text>
+<text class="tick" x="543.4" y="274" text-anchor="middle">t40</text>
+<text class="tick" x="630.4" y="274" text-anchor="middle">t45</text>
+<text class="axis" x="48" y="16">距離最後落腳點（cm）</text>
+<text class="axis" x="700" y="294" text-anchor="end">放開按鍵後第幾帧（60 fps）</text>
+<text class="band-label" x="238.8" y="40" text-anchor="middle">Locked</text>
+<text class="band-label" x="378.0" y="40" text-anchor="middle">Releasing</text>
+<path class="ln-anim" d="M56.0,46.2 L73.4,47.5 L90.8,48.5 L108.2,49.5 L125.6,51.6 L143.0,53.4 L160.4,55.2 L177.8,56.7 L195.2,58.8 L212.6,61.6 L230.1,64.7 L247.5,68.1 L264.9,71.4 L282.3,74.8 L299.7,79.4 L317.1,85.4 L334.5,93.1 L351.9,101.8 L369.3,111.1 L386.7,123.2 L404.1,136.1 L421.5,149.3 L438.9,162.2 L456.3,175.8 L473.7,189.0 L491.1,202.4 L508.5,214.5 L525.9,225.3 L543.4,234.6 L560.8,242.1 L578.2,248.0 L595.6,252.4 L613.0,252.6 L630.4,252.9 L647.8,253.2 L665.2,253.7 L682.6,253.9 L700.0,254.5"/>
+<path class="ln-cur" d="M56.0,49.3 L73.4,50.0 L90.8,51.3 L108.2,52.6 L125.6,53.4 L143.0,56.2 L160.4,57.8 L177.8,60.1 L195.2,60.3 L212.6,60.1 L230.1,59.8 L247.5,59.6 L264.9,59.3 L282.3,59.1 L299.7,58.8 L317.1,58.8 L334.5,58.5 L351.9,69.6 L369.3,84.8 L386.7,100.8 L404.1,123.5 L421.5,143.9 L438.9,162.4 L456.3,178.2 L473.7,192.1 L491.1,205.2 L508.5,218.6 L525.9,229.4 L543.4,238.7 L560.8,246.2 L578.2,251.6 L595.6,253.9 L613.0,252.4 L630.4,255.7 L647.8,255.5 L665.2,255.5 L682.6,255.2 L700.0,254.7"/>
+<path class="ln-r1c" d="M56.0,49.3 L73.4,50.0 L90.8,51.3 L108.2,52.6 L125.6,53.4 L143.0,56.2 L160.4,57.8 L177.8,60.1 L195.2,60.3 L212.6,60.1 L230.1,59.8 L247.5,62.9 L264.9,66.5 L282.3,69.9 L299.7,73.2 L317.1,78.9 L334.5,86.4 L351.9,96.2 L369.3,107.5 L386.7,118.3 L404.1,135.1 L421.5,150.1 L438.9,164.5 L456.3,178.2 L473.7,192.1 L491.1,205.2 L508.5,218.6 L525.9,229.4 L543.4,238.7 L560.8,246.2 L578.2,251.6 L595.6,253.9 L613.0,252.4 L630.4,255.7 L647.8,255.5 L665.2,255.5 L682.6,255.2 L700.0,254.7"/>
+</svg></div>
+  <div class="legend"><span><i class="k-anim"></i>動畫腳</span><span><i class="k-cur"></i>畫面腳（原本）</span><span><i class="k-r1c"></i>畫面腳（R1c 3 cm）</span></div>
+  <figcaption>平地 Walk 停步（RU），左腳最後一步。原本：Locked 期間畫面腳停在原地，差距長到 14 cm，釋放後 7 帧走完 46 cm，比動畫快 2 倍。R1c：鎖定中只要差距超過 3 cm，腳就以動畫的速度跟上；釋放時只剩 3 cm 要補。</figcaption>
+</figure>
+<p><strong>先離線重播，不改 runtime。</strong>把 T3 的鎖定與釋放移植到 Python，對 24 個錄影重播：相位逐帧一致 99.95%、水平誤差 p99 0.02 cm。重播與 runtime 一致之後，才拿它篩十九個候選：</p>
+<div class="tbl"><table>
+<thead><tr><th>候選</th><th>結果</th></tr></thead>
+<tbody>
+<tr><td>縮小釋放半徑／距離持續增加就提早釋放</td><td><span class="no">否決</span>：釋放後又重鎖，循環補回最差 ×4–10，可見滑動 13–19 cm</td></tr>
+<tr><td>進鎖前要求腳速穩定</td><td><span class="no">否決</span>：不解決最後一步，只是不鎖，爬行全部看得到</td></tr>
+<tr><td>補回速度上限</td><td><span class="no">否決</span>：差距一直拖著，正常跑步出現 13 cm 拖曳</td></tr>
+<tr><td>R1c：鎖定點有限度跟隨</td><td><span class="ok">採用</span>：最後一步 ×1.26–1.60 → ×1.08–1.20；鎖定次數與時刻不變；正常跑步幾乎不變</td></tr>
+</tbody></table></div>
+<p><strong>R1c 的語意</strong>：Locked 仍是 Locked；輸出位置＝動畫腳＋clamp(錨點 − 動畫腳, 3 cm)。動畫腳離錨點 3 cm 以內時與原本完全相同。實作前先逐一審查讀取 Locked 的地方，確認它們要的是「這隻腳仍可靠」還是「世界座標不動」。runtime A/B 72 次，數字與重播一致；人工 Play 選 3 cm（5 cm 仍看得到補回，小步像碎步）。</p>
+</div>
+
+<div class="tech"><h3>5.6 起跑入場相位對齊（ADR-011）</h3>
+<dl class="pmr">
+<div><dt>問題</dt><dd>靜止後起跑，支撐腳貼地拖行 20–34 cm。</dd></div>
+<div><dt>原因</dt><dd>Idle 與 Run 共用一個混合樹；Run 子動畫從它當時剛好在的相位開始，常常是錯的腳在地上。</dd></div>
+<div><dt>做法</dt><dd>起跑那一帧把 Run 子狀態對齊到 loop 的左腳著地相位——由烘焙的腳相曲線算出（φ≈0.91），不是手填。Core 只說「下一個循環從這個相位開始」，不知道混合樹細節。</dd></div>
+<div><dt>結果</dt><dd>動畫腳貼地滑動 20–34 → 9–10 cm。剩下約 12 cm 是 root 從 0 加速、loop 姿勢卻假設全速；接受為動畫限制，不讓 T3 藏起來。</dd></div>
+<div><dt>為何 ADR</dt><dd>Core 第一次主動要求 Animation 改變子狀態播放相位，是新的跨層契約。</dd></div>
+</dl></div>
+
+<div class="tech"><h3>5.7 失地確認的決定性</h3>
+<dl class="pmr">
+<div><dt>現象</dt><dd>同一個測試連跑兩次，角色從樓梯頂跑出去後，進入 Falling 動畫的帧數差 1。</dd></div>
+<div><dt>定位</dt><dd>root 軌跡與下落速度兩次完全相同，只有狀態切換差一帧——是計時，不是物理。</dd></div>
+<div><dt>根因</dt><dd>0.1 s 與 0.35 s 的 grace 用 <code>Time.time</code> 絕對時刻相減。1/60 步長下 0.1 s 剛好 6 帧，float32 誤差讓「6 帧是否 ≥ 0.1」取決於 <code>Time.time</code> 已經多大（43–61% 的起點 6 帧就通過）。</dd></div>
+<div><dt>做法</dt><dd>從 0 累積每 tick 的 dt，以 <code>Time.frameCount</code> 確保同帧只累積一次；門檻仍是時間，不綁死 60 Hz。</dd></div>
+<div><dt>證明</dt><dd>先寫測試在舊程式上重現（8 個 case 紅），修完全綠；連跑兩次 36 個樓梯探針，gameplay 輸出 36／36 相同。</dd></div>
+</dl></div>
+</section>
+
+<section id="l6">
+<p class="layer">LAYER 6</p>
+<h2>方法論</h2>
+<h3>先量再改，不預設答案</h3>
+<p>每一輪的開場：寫下互斥的假設，設計能區分它們的量測，量完才決定改哪一層。</p>
+<h3>時間基準與座標空間先驗證</h3>
+<p>量錯，後面所有比較都失去意義。這個專案踩過：在協程裡讀骨骼得到的是上一帧；root 在 IK 之後才移動；IK goal 與骨骼差 6 cm。做法是先跑一致性驗證（例如畫面腳 − 目標應為 0），通過才看數字。</p>
+<h3>離線重播 → runtime A/B → 人工 Play</h3>
+<div class="tbl"><table>
+<thead><tr><th>階段</th><th>成本</th><th>用途</th></tr></thead>
+<tbody>
+<tr><td>離線重播</td><td>秒級，可跑十九個候選</td><td>篩掉明顯不行的；前提是重播與 runtime 一致</td></tr>
+<tr><td>runtime A/B</td><td>分鐘級</td><td>驗證重播沒模擬到的部分（例如樓梯垂直）</td></tr>
+<tr><td>人工 Play</td><td>人的時間</td><td>「自然不自然」只有人能判斷，只留給這件事</td></tr>
+</tbody></table></div>
+<p>離線模型會漂移：另一輪自己重寫的規則只有 204／247 一致，改成反射呼叫原始程式才 247／247。</p>
+<h3>分層比較</h3>
+<p>探針自己的反事實射線有差，但 IK 輸出與 locomotion 狀態完全相同 ⇒ 不是 runtime regression。</p>
+<h3>治理</h3>
+<p>只有跨系統契約改變才開 ADR；ADR 先是 Trial（可依實作修訂），驗證通過才 Accepted（凍結）。每個實驗都是預設關閉的開關，關閉時與舊版逐位元相同，還原只要把開關設回 false。</p>
+<h3>動畫資產的升級順序</h3>
+<p>資料與 runtime 參數 → 混合與播放速度 → 換 clip → 最後才改 clip 內容。5.5 的量測顯示 clip 本身不快、播放速度與 loop 相同，所以沒有理由動資產。</p>
+</section>
+
+<section id="l7">
+<p class="layer">LAYER 7</p>
+<h2>練習與重現</h2>
+<h3>自我檢查</h3>
+<ol class="qs">
+  <li>T3 為什麼要外插一帧？不外插的話擺盪腳會怎樣？</li>
+  <li>β 只看速度。舉一個「速度低但不該鎖」的情況。</li>
+  <li>擺盪時為什麼用移動面當參考，而不是腳正下方的踏面？</li>
+  <li>R1c 為什麼不會增加鎖腳次數？</li>
+  <li>為什麼「改成 6 帧」不是 5.7 的好修法？</li>
+  <li>骨盆求解器為什麼往下快、往上慢？</li>
+  <li>拿到「看起來不自然」的回報時，你會先量哪三條軌跡？</li>
+</ol>
+<details>
+<summary>自己跑一次</summary>
+<pre><code>unity cmd run_tests --mode PlayMode --async_tests true --include_explicit true \
+  --filter "Project.Tests.PlayMode.PlantSettleProbe.Probe_StopSnapFlat"</code></pre>
+<p>輸出在 <code>Temp/PlantSettle/</code>（Unity 重啟會清空）。分析腳本在 <code>docs/artifacts/stop-snap/</code>：<code>tl.py.txt</code> 單腳逐帧、<code>replay.py.txt</code> 離線重播、<code>ab.py.txt</code> A/B。純函數測試：<code>FootContactSolverTests</code>、<code>LandingSurfaceResolverTests</code>、<code>MovingPelvisSolverTests</code>、<code>GroundLossGraceDeterminismTests</code>。</p>
+</details>
+<details>
+<summary>程式索引</summary>
+<div class="tbl"><table>
+<tbody>
+<tr><td><code>Presentation/IK/FootIKRig.cs</code></td><td>OnAnimatorIK：擷取 pose、套用目標</td></tr>
+<tr><td><code>Presentation/IK/FootIKController.cs</code></td><td>每帧組裝：Tick → ResolveContactPosition → ResolveUnifiedMoving</td></tr>
+<tr><td><code>Presentation/IK/FootContactSolver.cs</code></td><td>T3 純函數：PredictPose、ComputeContactBeta、StepLock、ResolveHorizontal</td></tr>
+<tr><td><code>Presentation/IK/LandingSurfaceResolver.cs</code></td><td>落腳踏面（純邏輯、零 GC）</td></tr>
+<tr><td><code>Presentation/IK/MovingPelvisSolver.cs</code></td><td>骨盆可達性求解</td></tr>
+<tr><td><code>Core/Movement/Models/LocomotionModel.cs</code></td><td>停步選片、停步預測、起跑相位請求</td></tr>
+<tr><td><code>Presentation/Animation/AnimancerFacade.cs</code></td><td>TryAlignEntryPhase（ADR-011）</td></tr>
+<tr><td><code>Presentation/Motion/MotionDriver.cs</code></td><td>root 移動、IsGrounded、落地事件</td></tr>
+<tr><td><code>Core/StateMachine/States/JumpState.cs</code></td><td>非主動失地 → Falling</td></tr>
+</tbody></table></div>
+</details>
+</section>
+
+<footer>
+<p>原始文件：<code>docs/49-foot-contact-learning-guide.md</code>（本頁的 Markdown 版）、<code>docs/45</code>（T3 §8–§28）、<code>docs/46</code>（骨盆）、<code>docs/ADR/010</code>、<code>docs/ADR/011</code>。數字皆為專案內實測。工作線於 2026-10-08 封存。</p>
+</footer>
+</main>
+</div>
