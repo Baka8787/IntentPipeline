@@ -460,7 +460,7 @@ namespace Project.Tests.EditMode
             return new MovingPelvisContext
             {
                 TerrainHint = NoHint, MovementRequested = false, RootHorizontalSpeed = 1f,
-                WalkGait = walk, RootVerticalSpeed = rootVy,
+                WalkStop = walk, RootVerticalSpeed = rootVy,
             };
         }
 

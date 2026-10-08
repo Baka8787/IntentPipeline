@@ -134,8 +134,11 @@ namespace Project.Presentation.IK
         public float RootHorizontalSpeed;
         /// <summary>root 垂直速度（m/s；負＝下降）——放開時鎖存「是不是下樓停步」。</summary>
         public float RootVerticalSpeed;
-        /// <summary>目前是 Walk 步態（黑板 Gait）——放開時鎖存。</summary>
-        public bool WalkGait;
+        /// <summary>
+        /// LocomotionModel 已承諾的是 **Walk 停步 clip**（ADR-010 D6 <c>StopTier</c>）——放開時鎖存。
+        /// 🔄（2026-10-08，docs/48 M1.3）原本是 <c>WalkGait</c>（黑板 Gait，玩家選的步態），改名並改來源：規則⑦批准的是停步 clip 家族。
+        /// </summary>
+        public bool WalkStop;
         /// <summary>左／右腳預測的最後落點（T3 的 IK goal 參考點，世界座標）；Has* ＝ false 表示該腳沒有可用預測。</summary>
         public bool HasLeftLanding, HasRightLanding;
         public Vector3 LeftLanding, RightLanding;
@@ -294,7 +297,7 @@ namespace Project.Presentation.IK
                 if (releaseEdge)
                 {
                     state.StopDescending = context.RootVerticalSpeed < -tuning.DescendingStopSpeed;
-                    state.StopUsesPrediction = context.WalkGait && state.StopDescending;
+                    state.StopUsesPrediction = context.WalkStop && state.StopDescending;
                 }
                 if (!state.StopSettled && left.Phase == FootLockPhase.Locked && right.Phase == FootLockPhase.Locked
                     && context.RootHorizontalSpeed < tuning.SettleRootSpeed)

@@ -1888,5 +1888,31 @@ namespace Project.Tests.EditMode
                 "表現層不得直接讀 MovementIntent.DesiredSpeedNormalized——改用 MovementIntentData.HasMovementRequest（docs/48 §1.3）：\n" +
                 string.Join("\n", violations));
         }
+
+        // =====================================================================
+        // A52 — IK 不得用玩家選的步態代理停步 clip 家族（docs/48 D1-b；ADR-010 D6）
+        // =====================================================================
+
+        /// <summary>
+        /// <c>PlayerRuntimeData.Gait</c> 是控制方案的選擇（按鍵），不是 locomotion 正在播哪一族 clip。
+        /// 規則⑦（docs/46 §19）要的是 LocomotionModel 已承諾的停步 tier（<c>LocomotionStopPrediction.StopTier</c>）。
+        /// 實例：跑步中切 Walk 立刻放開 ⇒ <c>Gait＝Walk</c>、但沒有停步 clip（docs/48 §7.4、M1.3）。
+        /// ⚠️ 只管 <c>Presentation/IK</c>：腳步音色要跟哪個是 D2-a，尚未裁決，不在本條範圍。
+        /// </summary>
+        [Test]
+        public void A52_FootIK_DoesNotUseControlGaitAsStopTier()
+        {
+            var violations = new List<string>();
+            foreach (string path in Directory.GetFiles(Path.Combine(ScriptsRoot, "Presentation", "IK"), "*.cs", SearchOption.AllDirectories))
+            {
+                string code = StripComments(File.ReadAllText(path));
+                if (code.Contains("GaitTier") || Regex.IsMatch(code, @"\.Gait\b"))
+                    violations.Add(RelativePath(path));
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "Presentation/IK 不得讀 PlayerRuntimeData.Gait／GaitTier——停步 clip 家族請讀 LocomotionStopPrediction.StopTier（ADR-010 D6）：\n" +
+                string.Join("\n", violations));
+        }
     }
 }

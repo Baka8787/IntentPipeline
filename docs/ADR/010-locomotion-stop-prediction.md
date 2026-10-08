@@ -108,6 +108,7 @@ FootIK 原本以 `PlayerRuntimeData.Gait == Walk`（玩家選的步態）代理�
 - `CommittedStopTier` 定義在 `Project.Core.Blackboard`（黑板不得依賴 Movement 層型別）；數值與 `LocomotionStopTier` 相同（測試鎖住）。
 - ⛔ **這是 contract 修補，不是新的全域 locomotion tier**（2026-10-08 使用者裁決；`docs/48` §6：全域 tier 不是 canonical fact）。它只描述「這一次停步承諾了哪個家族」，停步結束即為 None。
 - 規則⑦改讀它是**另一個變更**（`docs/48` M1.3，行為變更，分開 commit）；本條只發布，沒有 consumer 改變行為。
+- 🔄 2026-10-08：M1.3 已完成——`FootIKController` 的規則⑦閘門與 `MovingPelvisContext.WalkStop` 改讀 `StopTier == Walk`；驗收見 `docs/46` §19.1 註記。
 
 ### D4 — 消費端的批准範圍維持 `docs/46` §19 規則⑦
 預測只批准 **Walk 下樓停步**當 `FutureReachCap`（只限制骨盆最高升到哪，不主動降低）。

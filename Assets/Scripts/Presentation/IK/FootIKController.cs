@@ -860,17 +860,19 @@ namespace Project.Presentation.IK
             };
             // 地形提示＝原本的 Terrain Envelope（fallback 就是它）：只用來選回升語意（docs/46 §13），⛔ 不是目標、不是上限。
             bool movementRequested = data.MovementIntent.HasMovementRequest;   // S-A（docs/48 §1.3）：與停步觸發同一條規則
-            bool walkGait = data.Gait == GaitTier.Walk;
+            // 規則⑦（docs/46 §19）批准的是 **Walk 停步 clip** ⇒ 讀 LocomotionModel 已承諾的 stop tier（ADR-010 D6），
+            // ⛔ 不讀玩家選的 Gait：兩者在加減速時會不同（docs/48 D1-b、§7.4；例：跑步中切 Walk 立刻放開 ⇒ Gait＝Walk 但沒有停步 clip）。
+            bool walkStop = data.LocomotionStopPrediction.StopTier == CommittedStopTier.Walk;
             var context = new MovingPelvisContext
             {
                 TerrainHint = fallback,
                 MovementRequested = movementRequested,
                 RootHorizontalSpeed = rootSpeed,
                 RootVerticalSpeed = rootVerticalSpeed,
-                WalkGait = walkGait,
+                WalkStop = walkStop,
             };
-            // FutureLandingProvider（§18、ADR-010）：只在「統一站立 ∧ 停步中 ∧ Walk ∧ 預測本帧有效」時查（求解器再判斷是否下樓）。
-            if (settings.UseUnifiedStandingPelvis && !movementRequested && walkGait && data.LocomotionStopPrediction.Active)
+            // FutureLandingProvider（§18、ADR-010）：只在「統一站立 ∧ 停步中 ∧ Walk 停步 ∧ 預測本帧有效」時查（求解器再判斷是否下樓）。
+            if (settings.UseUnifiedStandingPelvis && !movementRequested && walkStop && data.LocomotionStopPrediction.Active)
             {
                 LocomotionStopPrediction prediction = data.LocomotionStopPrediction;
                 context.HasLeftLanding = TryPredictStopLandingGoal(in prediction, true, out context.LeftLanding);

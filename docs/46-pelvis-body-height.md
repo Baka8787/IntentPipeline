@@ -609,6 +609,14 @@ throwaway `StopLandingProbe.Probe_FootPointChain` 逐帧記錄四個點，全部
 ⑤尾腳真正 Locked 後改用 live Support 約束、預測退出；⑥預測不可用時用保守 fallback，但**不重新啟用整段 StopHold**；⑦預測只批准 Walk 下樓。
 不改 bake、IK goal offset、Planned Stop trajectory 或其他骨盆規則。
 
+> 🔄 **2026-10-08 規則③⑦的「Walk」重新界定**（使用者裁決 `docs/48` D1-b；實作 M1.3）：「Walk 下樓停步」的 Walk 指 **LocomotionModel 已承諾的 Walk 停步 clip**（ADR-010 D6 `StopTier`），⛔ 不是黑板 `Gait`（玩家選的步態）。
+> `MovingPelvisContext.WalkGait` 改名為 `WalkStop`、來源改為 `StopTier == Walk`；`A52` 禁止 `Presentation/IK` 讀 `Gait`。
+> 驗收（`PlantSettleProbe.Probe_RuleSevenStairs`，兩道樓梯 × 停步位置 2／6／10 × 4 種輸入，M1.3 前後各一次）：
+> - Walk 鍵、Run（Gait 與 tier 一致）：12 次**逐位元相同**。
+> - 半推搖桿（Gait＝Run、Walk 停步；⚠️ 假設情境，出貨綁定沒有搖桿）：規則⑦開始生效；rise→drop **15.89→0、5.65→0、0.52→0 cm**（其餘 3 次原本就是 0），單帧最大不變或變小，最終高度 ±0.2 cm。
+> - 跑步中切 Walk 後下一帧放開（鍵盤可達；Gait＝Walk，但放開時速度 ≈ 0.73 落在 Walk／Run 帶之間 ⇒ **沒有停步 clip**）：規則⑦不再套用（原本靠 Gait 鎖存了「等預測」的保守模式、但預測永遠不會來）。5／6 指標不變；**1 次 rise→drop 0→4.81 cm**——行為改為與其他非 Walk 停步相同（同一批資料中 Run 停步本來就有 2.9–12.2 cm）。
+> - ❓ 是否要把⑥的保守 fallback 延伸到「下樓、沒有停步 clip」的情況，屬於規則③⑦批准範圍的調整，待使用者裁決（`docs/48` §1.5）。
+
 ### 19.2 實作（`MovingPelvisSolver`／`FootIKController`）
 - `MovingPelvisRecovery.SupportTransfer`（新）：停步中、Primary 已出現、尚未落定。Primary ＝ 放開後第一個**新的** Reliable 邊沿（`PostureFootInputs.Reliable`，同 T3 可靠支撐定義），鎖存到意圖恢復。
 - 目標：`down = min(0, Locked 腳的 Support 上限)`（只有 Locked 腳能往下拉；硬可達照舊）；`upTo = min(down, cap)`。

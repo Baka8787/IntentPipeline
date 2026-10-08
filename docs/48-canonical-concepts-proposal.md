@@ -111,10 +111,12 @@ LocomotionStopPrediction（ADR-010，唯一 Writer：LocomotionModel；每次 ti
 | **M1.4** | `StandingPostureSolver` 那份 release edge 隨 `docs/47` G-3 刪除；本提案不單獨處理 | 依 G-3 | — | — | — |
 > ✅ **2026-10-08 完成 M1.0／M1.1**：`MovementIntentData.RequestEpsilon`／`HasMovementRequest`；`LocomotionModel`、`LocomotionStopSelector`、`FootIKController`（兩處）改用同一規則；新增 `A51`、`MovementIntentTests` 的門檻／release edge 測試、`LocomotionStopTests.Characterization_StopTier_FollowsReleaseSpeed_NotControlGait`（出貨資產）。EditMode **859／858／0 failed／1 skipped**（+13）。行為差異只在意圖 ∈ (0, 0.001)——推導上不會出現，**未跑 probe**。M1.0 的另一半（Sprint 放開仍進 StopHold）已由既有 `MovingPelvisSolverTests.StopHold_*` 覆蓋，未重寫。
 > ✅ **2026-10-08 完成 M1.2**：ADR-010 **D6**——`LocomotionStopPrediction.StopTier`（`CommittedStopTier`，定義在 Blackboard），committed 即有效、只覆寫這一欄；A12 欄位集合更新；新增 `Model_PublishesCommittedStopTier_EvenWithoutSchedule`、`CommittedStopTier_MirrorsMovementTier`。沒有 consumer 改讀 ⇒ 行為不變。EditMode **867／866／0 failed／1 skipped**。
+> ✅ **2026-10-08 完成 M1.3**（行為變更）：規則⑦改讀 `StopTier == Walk`（`MovingPelvisContext.WalkGait` → `WalkStop`）；新增 `A52`（`Presentation/IK` 不得讀 `Gait`）。EditMode **868／867／0 failed／1 skipped**。下樓停步驗收（`Probe_RuleSevenStairs`，24 次 × 前後）：Walk 鍵／Run **逐位元相同**；半推（假設）rise→drop 15.89→0、5.65→0、0.52→0 cm；跑步中切 Walk 立刻放開（鍵盤可達、**沒有停步 clip**）1／6 次 rise→drop 0→4.81 cm（與其他非 Walk 停步同類）。數字與解讀見 `docs/46` §19.1 的 2026-10-08 註記。
 
 ### 1.5 ❓ 決策點
 1. ✅ **D1-a**（2026-10-08：隨 F1 方向接受）：同意「骨盆的停步＝S-A（意圖），規則⑦的 Walk＝S-B（clip tier）」這個切法嗎？
 2. ✅ **D1-b = Yes**（2026-10-08）：搖桿半推觸發的 Walk 停步，是否在規則⑦的批准範圍內？（M1.3 會讓它生效；不同意的話，閘門應寫成 `StopTier == Walk ∧ Gait == Walk`，代表規則⑦限縮為「Walk 鍵」，而且要在 `docs/46` §19 寫明原因）
+3. ⏳ **D1-c**（M1.3 驗收後新增）：「下樓、意圖放開、但**沒有停步 clip**」（例：跑步中切 Walk 後立刻放開，速度落在 Walk／Run 帶之間）是否也要用規則⑥的保守 fallback（等尾腳鎖定才站）？M1.3 前它是被 Gait 代理**意外**套上的；M1.3 後與 Run 停步同類（1／6 次 rise→drop 4.81 cm）。這是規則③⑦批准範圍的調整，不是 tier 的問題。
 
 ---
 
@@ -422,7 +424,7 @@ docs/47 G-3（骨盆管線收斂）會連帶刪掉 F1 的 StandingPostureSolver 
 ### 7.4 解讀
 - 可見問題的根因是 **phase pairing**（被取樣的時鐘 ↔ 解讀它的 Bake），不是 Jump 的家族 policy。⇒ 若要修，最小範圍是「腳相必須用被取樣時鐘那支 loop 的 Bake 讀」；起跳 clip 家族要不要跟意圖走，可以維持現狀（家族錯配本身沒有量到可見後果）。
 - Stop 不受影響：它的速度帶在設計上落在該 loop 主導的區間（`docs/07` §0.2），本輪沒有量到任何 Stop 側的錯配。
-- 🔎 附帶推導（**未量測**）：鍵盤可達的 D1-b 情境不是搖桿半推，而是「跑步中按 Ctrl 後立刻放開 W」——此時 `Gait = Walk`，但放開時的實際速度仍在 Run 帶 ⇒ 播 **Run Stop**，而現行 FootIK 用 `Gait == Walk` 判斷，會對 Run 停步套用只批准給 Walk 的規則⑦。M1.3 的驗收要把這個情境放進去。
+- 🔎 鍵盤可達的 D1-b 情境（M1.3 驗收已量）：「跑步中按 Ctrl 後下一帧放開 W」——`Gait = Walk`，但放開時速度 ≈ 0.73 落在 Walk／Run 帶之間 ⇒ **沒有停步 clip**（原推導說「播 Run Stop」不正確）。M1.3 前 FootIK 依 Gait 鎖存了規則⑦的「等預測」模式；M1.3 後不再套用。見 §1.4 M1.3 註記。
 
 ### 7.5 ⏳ 人工 Play 確認（視覺）
 1. 跑步（W）→ 按一下 Ctrl（切到 Walk）→ **約 0.1 s 內**按 Space。重複多次（步相不同才會觸發）。

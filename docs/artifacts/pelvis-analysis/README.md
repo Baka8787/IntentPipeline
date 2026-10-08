@@ -35,6 +35,7 @@ unity cmd run_tests --mode PlayMode --async_tests true --include_explicit true -
 | `verify_window.py.txt` | 即時驗證窗門檻 | §17 |
 | `yank_classes.py.txt` | 瞬拉（腳目標 − 動畫踝的二階差分）成因分類 | §18 |
 | `footlength.py.txt` | 擺盪腳長參考 A/B | §18 |
+| `r7_metrics.ps1.txt`（PowerShell） | 規則⑦ 前後的下樓停步指標（rise→drop／單帧最大／最終高度）；資料來自 `PlantSettleProbe.Probe_RuleSevenStairs` 的 `Temp/PlantSettle/r7_*.csv`。用法：`r7_metrics.ps1 -Pre <前> -Post <後>` | `docs/46` §19.1（2026-10-08） |
 
 ## 不在版控裡的
 - `edges.csv.txt`：Editor 匯出的結果（可由 `export_stair_edges` 重產，已驗證逐位元相同）。

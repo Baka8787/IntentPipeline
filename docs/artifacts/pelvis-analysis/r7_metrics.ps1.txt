@@ -1,0 +1,29 @@
+param([string]$Pre, [string]$Post)
+# docs/46 section 19 style metrics on pelvisOut during the 'stop' phase (meters -> reported in cm).
+# riseDrop: after the pelvis first starts rising, the largest drop from the running peak.
+# maxStep: largest single-frame |change|. final: value at the last 'stop' frame.
+$inv = [Globalization.CultureInfo]::InvariantCulture
+function Metrics($path) {
+    $l = Get-Content $path; $h = $l[0].Split(',')
+    $ip = [Array]::IndexOf($h, 'phase'); $iv = [Array]::IndexOf($h, 'pelvisOut'); $iu = [Array]::IndexOf($h, 'stopUsesPred'); $it = [Array]::IndexOf($h, 'stopTier')
+    $p = New-Object System.Collections.Generic.List[double]; $use = 0; $tier = ''
+    for ($i = 1; $i -lt $l.Count; $i++) {
+        $c = $l[$i].Split(',')
+        if ($c[$ip] -ne 'stop') { continue }
+        $p.Add([double]::Parse($c[$iv], $inv))
+        if ($c[$iu] -eq '1') { $use = 1 }
+        if ($c[$it] -ne 'None' -and $tier -eq '') { $tier = $c[$it] }
+    }
+    $maxStep = 0.0; for ($k = 1; $k -lt $p.Count; $k++) { $maxStep = [Math]::Max($maxStep, [Math]::Abs($p[$k] - $p[$k-1])) }
+    $riseStart = -1; for ($k = 1; $k -lt $p.Count; $k++) { if ($p[$k] -gt $p[$k-1] + 1e-6) { $riseStart = $k; break } }
+    $riseDrop = 0.0
+    if ($riseStart -ge 0) { $peak = $p[$riseStart]; for ($k = $riseStart; $k -lt $p.Count; $k++) { $peak = [Math]::Max($peak, $p[$k]); $riseDrop = [Math]::Max($riseDrop, $peak - $p[$k]) } }
+    [pscustomobject]@{ use = $use; tier = $tier; riseDrop = 100 * $riseDrop; maxStep = 100 * $maxStep; final = 100 * $p[$p.Count - 1]; min = 100 * ($p | Measure-Object -Minimum).Minimum }
+}
+$rows = foreach ($f in Get-ChildItem $Pre -Filter 'r7_*.csv' | Sort-Object Name) {
+    $a = Metrics $f.FullName; $b = Metrics (Join-Path $Post $f.Name)
+    [pscustomobject]@{ run = ($f.Name -replace 'r7_|_Down_y0|\.csv', ''); tier = $a.tier
+        use = "$($a.use)->$($b.use)"; riseDrop = "{0:F2}->{1:F2}" -f $a.riseDrop, $b.riseDrop; maxStep = "{0:F2}->{1:F2}" -f $a.maxStep, $b.maxStep
+        final = "{0:F1}->{1:F1}" -f $a.final, $b.final; lowest = "{0:F1}->{1:F1}" -f $a.min, $b.min }
+}
+$rows | Format-Table -AutoSize | Out-String -Width 200

@@ -30,7 +30,10 @@ namespace Project.Tests.PlayMode
         private const string ScenePath = "Assets/Scenes/SampleScene.unity";
         private const int SettleFrames = 75;
         private const int RestartFrames = 80;
+        /// <summary>搖桿原始量：預設 deadzone（0.125–0.925）後 ≈ 0.5 ⇒ 強度 0.75 × 0.5 ≈ 0.375（Walk 停步帶）。</summary>
+        private const float AnalogHalfRaw = 0.525f;
         private Keyboard _keyboard;
+        private Gamepad _pad;
         private Scene _scene;
         private GameObject _camera;
 
@@ -41,6 +44,7 @@ namespace Project.Tests.PlayMode
         {
             base.Setup();
             _keyboard = InputSystem.AddDevice<Keyboard>();
+            _pad = InputSystem.AddDevice<Gamepad>();
         }
 
         [UnityTearDown]
@@ -184,8 +188,22 @@ namespace Project.Tests.PlayMode
             => Drive("Stairs_650_400_300_Prefab", dir, 0f, stopIndex,
                 "lf_" + arm + "_", "lf_" + arm, gait);
 
+        /// <summary>
+        /// docs/48 M1.3 驗收：下樓停步時規則⑦的輸入（玩家選的 Gait vs LocomotionModel 已承諾的 stop tier）。
+        /// walkKey／run：兩者一致 ⇒ M1.3 前後必須**逐位元相同**。
+        /// runToWalk：跑到停步點那一帧按 Ctrl、下一帧放開 ⇒ Gait＝Walk、播 Run Stop（鍵盤可達）。
+        /// analogWalk：半推搖桿（強度 ≈ 0.375）⇒ Gait＝Run、播 Walk Stop（⚠️ 假設情境：出貨綁定沒有搖桿）。
+        /// </summary>
+        [UnityTest, Explicit]
+        public IEnumerator Probe_RuleSevenStairs(
+            [Values("Stairs_650_400_300_Prefab", "Stairs (1)")] string stairName,
+            [Values(2, 6, 10)] int stopIndex,
+            [Values("walkKey", "run", "runToWalk", "analogWalk")] string style)
+            => Drive(stairName, Dir.Down, 0f, stopIndex, "r7_" + style + "_", null,
+                style == "walkKey" ? Gait.Walk : Gait.Run, style == "walkKey" || style == "run" ? null : style);
+
         private IEnumerator Drive(string stairName, Dir dir, float yaw, int stopIndex, string prefix, string restartVariant,
-            Gait gait = Gait.Run)
+            Gait gait = Gait.Run, string stopStyle = null)
         {
             const float diagonalRun = 2.5f;
             Time.captureDeltaTime = 1f / 60f;
@@ -262,6 +280,13 @@ namespace Project.Tests.PlayMode
             rec.Init(player, footIK, rootAtUpdate, restartVariant == "zero");
 
             string phase = "approach";
+            bool r2wArmed = false;
+            if (stopStyle == "analogWalk")
+            {
+                // ⚠️ 假設情境（docs/48 §7.1）：出貨 X Bot 的 MoveAction 只綁鍵盤；只在測試場景實例加搖桿綁定。
+                InputAction moveAction = player.GetComponent<PlayerInputSource>().MoveAction;
+                moveAction.Disable(); moveAction.AddBinding("<Gamepad>/leftStick"); moveAction.Enable();
+            }
             Key move = dir == Dir.Up ? Key.W : Key.S;
             if (gait == Gait.Walk) Press(_keyboard.leftCtrlKey);
             Press(_keyboard.wKey);
@@ -280,9 +305,14 @@ namespace Project.Tests.PlayMode
                 else
                 {
                     if (phase == "approach" && s >= extent - 1.2f) { Release(_keyboard.wKey); phase = "turn"; }
-                    else if (phase == "turn") { Press(_keyboard.sKey); phase = "go"; }
+                    else if (phase == "turn") { if (stopStyle == "analogWalk") Set(_pad.leftStick, new Vector2(0f, -AnalogHalfRaw)); else Press(_keyboard.sKey); phase = "go"; }
                     else if (phase == "go" && s <= stopS + diagonalRun) { _camera.transform.rotation = diagonal; phase = "diag"; }
-                    else if (phase == "diag" && s <= stopS) { Release(_keyboard.sKey); phase = "stop"; }
+                    else if (phase == "diag" && s <= stopS)
+                    {
+                        if (stopStyle == "runToWalk" && !r2wArmed) { Press(_keyboard.leftCtrlKey); r2wArmed = true; }   // 本帧切 Walk（Gait＝Walk），下一帧才放開
+                        // ⚠️ 同一帧只送一個鍵盤釋放：連續兩次 Set 同一個 device，後一個事件會用舊狀態蓋掉前一個（S 會一直按著）。Ctrl 在結尾才放開。
+                        else { if (stopStyle == "analogWalk") Set(_pad.leftStick, Vector2.zero); else Release(_keyboard.sKey); phase = "stop"; }
+                    }
                 }
                 if (phase == "stop" && ++after > SettleFrames)
                 {
@@ -296,7 +326,8 @@ namespace Project.Tests.PlayMode
                                 || (phase == "diag" && Mathf.Abs(s - stopS) <= 1.2f);
             }
             if (gait == Gait.Walk) Release(_keyboard.leftCtrlKey);
-            Release(_keyboard.sKey); Release(_keyboard.wKey);
+            Release(_keyboard.sKey); Release(_keyboard.wKey); Release(_keyboard.leftCtrlKey);
+            Set(_pad.leftStick, Vector2.zero);
 
             string outDir = Path.GetFullPath(Path.Combine(Application.dataPath, "../Temp/PlantSettle"));
             Directory.CreateDirectory(outDir);
@@ -486,7 +517,8 @@ namespace Project.Tests.PlayMode
                         sb.Append(',').Append(p).Append(c);
                 sb.Append(",rootEvalX,rootEvalY,rootEvalZ,ikZeroed,ltoeBoneX,ltoeBoneY,ltoeBoneZ,rtoeBoneX,rtoeBoneY,rtoeBoneZ,stopBake"
                           + ",posePlaneY,lstance,lprevValid,rstance,rprevValid,hipsY,grounded"
-                          + ",predNextOk,predNextX,predNextY,predNextZ,predEndOk,predEndLX,predEndLY,predEndLZ,predEndRX,predEndRY,predEndRZ");
+                          + ",predNextOk,predNextX,predNextY,predNextZ,predEndOk,predEndLX,predEndLY,predEndLZ,predEndRX,predEndRY,predEndRZ"
+                          + ",stopTier,gaitBB,stopUsesPred,stopDesc");
                 Csv.Append(sb).Append('\n');
             }
 
@@ -553,6 +585,10 @@ namespace Project.Tests.PlayMode
                     sb.Append(',').Append(pnOk ? 1 : 0).Append(',').Append(V(pnOk ? pn : new Vector3(float.NaN, float.NaN, float.NaN)))
                       .Append(',').Append(peOk ? 1 : 0).Append(',').Append(V(peOk ? peL : new Vector3(float.NaN, float.NaN, float.NaN)))
                       .Append(',').Append(V(peOk ? peR : new Vector3(float.NaN, float.NaN, float.NaN)));
+                    // docs/48 M1.3：規則⑦ 的輸入（committed stop tier vs 黑板 Gait）與求解器自己的鎖存
+                    var movingM = (MovingPelvisState)_movingF.GetValue(_ik);
+                    sb.Append(',').Append(predM.StopTier).Append(',').Append(data.Gait)
+                      .Append(',').Append(movingM.StopUsesPrediction ? 1 : 0).Append(',').Append(movingM.StopDescending ? 1 : 0);
                     Csv.Append(sb).Append('\n');
                 }
 
