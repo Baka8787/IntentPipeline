@@ -110,7 +110,6 @@ html{scroll-behavior:smooth}
   <h2>由淺入深</h2>
   <ol>
     <li><a href="#goals"><span class="n">—</span>學習目標</a></li>
-    <li><a href="#goals"><span class="n">—</span>學習目標</a></li>
     <li><a href="#l0"><span class="n">L0</span>概覽</a></li>
     <li><a href="#l1"><span class="n">L1</span>基本概念</a></li>
     <li><a href="#l2"><span class="n">L2</span>架構與責任</a></li>
@@ -124,12 +123,13 @@ html{scroll-behavior:smooth}
 </nav>
 
 <main>
-<p class="eyebrow">Foot IK · 樓梯與停步技術導讀</p>
+<p class="eyebrow">Foot IK · 樓梯與停步</p>
 <h1>腳與地面的接觸</h1>
-<p class="lede">透過 Unity 角色在樓梯移動、停步與起跑時遇到的腳部接觸問題，介紹 Foot IK 的基本原理、接觸狀態管理、骨盆補償，以及相關的診斷與驗證方法。</p>
+<p class="lede">Foot IK 樓梯與停步技術導讀</p>
 
 <dl class="audience">
-  <div><dt>閱讀方式</dt><dd>由基礎概念開始，逐步理解系統架構、每帧執行流程與具體演算法，再透過實際開發案例觀察問題如何被定位、修正及驗證。</dd></div>
+  <div><dt>文件定位</dt><dd>技術學習與實作導讀。透過 Unity 角色在樓梯移動、停步與起跑時遇到的腳部接觸問題，介紹 Foot IK 的基本原理、接觸狀態管理、骨盆補償，以及相關的診斷與驗證方法。</dd></div>
+  <div><dt>閱讀方式</dt><dd>由基礎概念開始，逐步理解系統架構、每幀執行流程與具體演算法，再透過實際開發案例觀察問題如何被定位、修正及驗證。</dd></div>
   <div><dt>閱讀前提</dt><dd>具備基本的 Unity、Transform 與角色動畫概念。尚未接觸 IK 的讀者，可從第 1 層開始閱讀。</dd></div>
   <div><dt>文件範圍</dt><dd>以專案中的 T3 腳部接觸系統為實例，說明一種具體的工程實作方式，而非將它視為所有角色控制器通用的最佳解。</dd></div>
   <div><dt>相關文件</dt><dd><code>docs/29</code>、<code>docs/45</code>、<code>docs/46</code>、<code>docs/ADR/010</code>、<code>docs/ADR/011</code>（規格正本；本頁是導讀）</dd></div>
@@ -173,8 +173,8 @@ html{scroll-behavior:smooth}
 <p class="layer">LAYER 0</p>
 <h2>概覽</h2>
 <p><strong>問題</strong>：角色的腳由動畫決定，而動畫通常假設地面是平的。走上樓梯時，腳會穿進台階或懸在空中；停步時，腳可能看起來像被快速拉到落腳點。</p>
-<p><strong>做法</strong>：在動畫之上加一層腳部接觸系統（本專案稱為 <strong>T3</strong>）。它每帧判斷每隻腳在擺盪還是踩住：擺盪時保留動畫的抬腳高度，落地時貼上真正的踏面，踩住後把腳的水平位置鎖住。骨盆依兩腳搆得到的範圍決定身體高度。</p>
-<p><strong>驗證方式</strong>：每個改動都先量測。自動化探針跑上百次停步，把「動畫原本的腳」「系統算出的目標」「畫面上的腳」三條軌跡逐帧對齊比較。量測結果經常和第一印象不同——「停步時腳被吸過去」量出來不是動畫素材的問題，而是鎖腳機制造成的（<a href="#l55">5.5</a>）。</p>
+<p><strong>做法</strong>：在動畫之上加一層腳部接觸系統（本專案稱為 <strong>T3</strong>）。它每幀判斷每隻腳在擺盪還是踩住：擺盪時保留動畫的抬腳高度，落地時貼上真正的踏面，踩住後把腳的水平位置鎖住。骨盆依兩腳搆得到的範圍決定身體高度。</p>
+<p><strong>驗證方式</strong>：每個改動都先量測。自動化探針跑上百次停步，把「動畫原本的腳」「系統算出的目標」「畫面上的腳」三條軌跡逐幀對齊比較。量測結果經常和第一印象不同——「停步時腳被吸過去」量出來不是動畫素材的問題，而是鎖腳機制造成的（<a href="#l55">5.5</a>）。</p>
 </section>
 
 <section id="l1">
