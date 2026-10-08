@@ -615,7 +615,8 @@ throwaway `StopLandingProbe.Probe_FootPointChain` 逐帧記錄四個點，全部
 > - Walk 鍵、Run（Gait 與 tier 一致）：12 次**逐位元相同**。
 > - 半推搖桿（Gait＝Run、Walk 停步；⚠️ 假設情境，出貨綁定沒有搖桿）：規則⑦開始生效；rise→drop **15.89→0、5.65→0、0.52→0 cm**（其餘 3 次原本就是 0），單帧最大不變或變小，最終高度 ±0.2 cm。
 > - 跑步中切 Walk 後下一帧放開（鍵盤可達；Gait＝Walk，但放開時速度 ≈ 0.73 落在 Walk／Run 帶之間 ⇒ **沒有停步 clip**）：規則⑦不再套用（原本靠 Gait 鎖存了「等預測」的保守模式、但預測永遠不會來）。5／6 指標不變；**1 次 rise→drop 0→4.81 cm**——行為改為與其他非 Walk 停步相同（同一批資料中 Run 停步本來就有 2.9–12.2 cm）。
-> - ❓ 是否要把⑥的保守 fallback 延伸到「下樓、沒有停步 clip」的情況，屬於規則③⑦批准範圍的調整，待使用者裁決（`docs/48` §1.5）。
+> - ✅ **D1-c（2026-10-08）＝ Descending no-stop-commit fallback**：只在「意圖放開 ∧ 下樓停步（`StopDescending`）∧ `StopTier == None`」時，沿用規則⑥的保守精神——尾腳鎖定前暫不回升（`MovingPelvisCapSource.DescendingNoStopCommit`）。⛔ 不是新的全域停步狀態：committed Walk 停步仍走規則⑦、committed Run 停步維持既有 policy、平地／上樓不介入。實作：`MovingPelvisContext.NoStopCommitted` → 放開當下鎖存 `MovingPelvisState.StopNoCommitFallback`（與 `StopUsesPrediction` 互斥）。
+> - D1-c 驗收（同一組 `Probe_RuleSevenStairs` 24 次 ＋ `Probe_StopSnapStairs` 12 次 ＋ 新增 `Probe_RuleSevenNonDescending` 15 次）：runToWalk 6 次 rise→drop **全部回到 0**（4.81 cm 消失；骨盆／骨骼與 M1.3 之前逐位元相同，只差診斷欄）；Walk 鍵／Run／半推 18 次與 M1.3 **逐位元相同**；StopSnapStairs 上下樓 12 次與先前基線相同（1 次只差 probe 自己的反事實射線）；平地與上樓 15 次 fallback **從未鎖存**（含平地／上樓的 runToWalk）。fallback 只在 6 次下樓 runToWalk 鎖存，實際壓住上限 0–14 帧（到尾腳鎖定為止）。
 
 ### 19.2 實作（`MovingPelvisSolver`／`FootIKController`）
 - `MovingPelvisRecovery.SupportTransfer`（新）：停步中、Primary 已出現、尚未落定。Primary ＝ 放開後第一個**新的** Reliable 邊沿（`PostureFootInputs.Reliable`，同 T3 可靠支撐定義），鎖存到意圖恢復。

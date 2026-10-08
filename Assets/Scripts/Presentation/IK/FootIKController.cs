@@ -870,6 +870,8 @@ namespace Project.Presentation.IK
                 RootHorizontalSpeed = rootSpeed,
                 RootVerticalSpeed = rootVerticalSpeed,
                 WalkStop = walkStop,
+                // Descending no-stop-commit fallback（docs/48 D1-c）：求解器只在「下樓 ∧ 放開」時才用它。
+                NoStopCommitted = data.LocomotionStopPrediction.StopTier == CommittedStopTier.None,
             };
             // FutureLandingProvider（§18、ADR-010）：只在「統一站立 ∧ 停步中 ∧ Walk 停步 ∧ 預測本帧有效」時查（求解器再判斷是否下樓）。
             if (settings.UseUnifiedStandingPelvis && !movementRequested && walkStop && data.LocomotionStopPrediction.Active)

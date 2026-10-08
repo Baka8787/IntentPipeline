@@ -121,6 +121,11 @@ namespace Project.Presentation.IK
         PredictionPending = 2,
         /// <summary>其他停步：尾腳正在下降落地時的即時 Landing 上限（只當上限）。</summary>
         LiveLanding = 3,
+        /// <summary>
+        /// Descending no-stop-commit fallback（docs/48 D1-c）：下樓、意圖放開、LocomotionModel 沒有承諾任何停步 clip
+        /// ⇒ 尾腳鎖定前暫不回升。只作為保守 fallback，不是新的停步狀態。
+        /// </summary>
+        DescendingNoStopCommit = 4,
     }
 
     /// <summary>本帧給求解器的情境（不是約束）：只影響回升語意。</summary>
@@ -139,6 +144,12 @@ namespace Project.Presentation.IK
         /// 🔄（2026-10-08，docs/48 M1.3）原本是 <c>WalkGait</c>（黑板 Gait，玩家選的步態），改名並改來源：規則⑦批准的是停步 clip 家族。
         /// </summary>
         public bool WalkStop;
+        /// <summary>
+        /// LocomotionModel **沒有承諾任何停步 clip**（ADR-010 D6 <c>StopTier == None</c>）——放開時鎖存。
+        /// 🆕（2026-10-08，docs/48 D1-c）只供 <see cref="MovingPelvisCapSource.DescendingNoStopCommit"/> 使用；
+        /// ⛔ 不是新的停步狀態，也不改變非下樓、或已有 committed 停步的行為。預設 false ＝ 不進 fallback。
+        /// </summary>
+        public bool NoStopCommitted;
         /// <summary>左／右腳預測的最後落點（T3 的 IK goal 參考點，世界座標）；Has* ＝ false 表示該腳沒有可用預測。</summary>
         public bool HasLeftLanding, HasRightLanding;
         public Vector3 LeftLanding, RightLanding;
@@ -170,6 +181,11 @@ namespace Project.Presentation.IK
         public bool StopUsesPrediction;
         /// <summary>放開當下鎖存：這次停步是下樓停步（任何步態；docs/46 §35 的閘）。</summary>
         public bool StopDescending;
+        /// <summary>
+        /// 放開當下鎖存：Descending no-stop-commit fallback（docs/48 D1-c）＝ 下樓 ∧ 沒有 committed 停步 clip。
+        /// 尾腳鎖定前不回升（規則⑥的保守精神）；與 <see cref="StopUsesPrediction"/> 互斥（後者需要 committed Walk 停步）。
+        /// </summary>
+        public bool StopNoCommitFallback;
         public bool HasPreviousStopFacts;
         public bool PreviousMovementRequested;
         public bool PreviousLeftReliable, PreviousRightReliable;
@@ -290,14 +306,17 @@ namespace Project.Presentation.IK
                 state.PrimaryFoot = 0;
                 state.StopUsesPrediction = false;
                 state.StopDescending = false;
+                state.StopNoCommitFallback = false;
             }
             else
             {
                 // FutureReachCap 只批准 Walk 下樓停步（使用者裁決 §19）：放開當下鎖存。
+                // Descending no-stop-commit fallback（docs/48 D1-c）：下樓、但 LocomotionModel 沒有承諾任何停步 clip ⇒ 同樣保守地等尾腳鎖定。
                 if (releaseEdge)
                 {
                     state.StopDescending = context.RootVerticalSpeed < -tuning.DescendingStopSpeed;
                     state.StopUsesPrediction = context.WalkStop && state.StopDescending;
+                    state.StopNoCommitFallback = context.NoStopCommitted && state.StopDescending;
                 }
                 if (!state.StopSettled && left.Phase == FootLockPhase.Locked && right.Phase == FootLockPhase.Locked
                     && context.RootHorizontalSpeed < tuning.SettleRootSpeed)
@@ -358,6 +377,12 @@ namespace Project.Presentation.IK
                             cap = state.Offset;
                             state.DebugCapSource = MovingPelvisCapSource.PredictionPending;
                         }
+                    }
+                    else if (state.StopNoCommitFallback)
+                    {
+                        // 下樓、沒有停步 clip ⇒ 沒有預測可等：尾腳鎖定前暫不回升（規則⑥的保守精神，docs/48 D1-c）。
+                        cap = state.Offset;
+                        state.DebugCapSource = MovingPelvisCapSource.DescendingNoStopCommit;
                     }
                     else if ((trailingIsLeft ? state.DebugLeftRole : state.DebugRightRole) == RoleLanding)
                     {

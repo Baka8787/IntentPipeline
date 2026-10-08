@@ -113,11 +113,12 @@ LocomotionStopPrediction（ADR-010，唯一 Writer：LocomotionModel；每次 ti
 > ✅ **2026-10-08 完成 M1.0／M1.1**：`MovementIntentData.RequestEpsilon`／`HasMovementRequest`；`LocomotionModel`、`LocomotionStopSelector`、`FootIKController`（兩處）改用同一規則；新增 `A51`、`MovementIntentTests` 的門檻／release edge 測試、`LocomotionStopTests.Characterization_StopTier_FollowsReleaseSpeed_NotControlGait`（出貨資產）。EditMode **859／858／0 failed／1 skipped**（+13）。行為差異只在意圖 ∈ (0, 0.001)——推導上不會出現，**未跑 probe**。M1.0 的另一半（Sprint 放開仍進 StopHold）已由既有 `MovingPelvisSolverTests.StopHold_*` 覆蓋，未重寫。
 > ✅ **2026-10-08 完成 M1.2**：ADR-010 **D6**——`LocomotionStopPrediction.StopTier`（`CommittedStopTier`，定義在 Blackboard），committed 即有效、只覆寫這一欄；A12 欄位集合更新；新增 `Model_PublishesCommittedStopTier_EvenWithoutSchedule`、`CommittedStopTier_MirrorsMovementTier`。沒有 consumer 改讀 ⇒ 行為不變。EditMode **867／866／0 failed／1 skipped**。
 > ✅ **2026-10-08 完成 M1.3**（行為變更）：規則⑦改讀 `StopTier == Walk`（`MovingPelvisContext.WalkGait` → `WalkStop`）；新增 `A52`（`Presentation/IK` 不得讀 `Gait`）。EditMode **868／867／0 failed／1 skipped**。下樓停步驗收（`Probe_RuleSevenStairs`，24 次 × 前後）：Walk 鍵／Run **逐位元相同**；半推（假設）rise→drop 15.89→0、5.65→0、0.52→0 cm；跑步中切 Walk 立刻放開（鍵盤可達、**沒有停步 clip**）1／6 次 rise→drop 0→4.81 cm（與其他非 Walk 停步同類）。數字與解讀見 `docs/46` §19.1 的 2026-10-08 註記。
+> ✅ **2026-10-08 完成 D1-c**：Descending no-stop-commit fallback（`MovingPelvisCapSource.DescendingNoStopCommit`）。runToWalk 的 4.81 cm 回到 0；Walk 鍵／Run／半推與 M1.3 逐位元相同；平地／上樓 15 次從未介入。EditMode **870／869／0 failed／1 skipped**；PlayMode **96／95**（只有既有 `C0`）。
 
 ### 1.5 ❓ 決策點
 1. ✅ **D1-a**（2026-10-08：隨 F1 方向接受）：同意「骨盆的停步＝S-A（意圖），規則⑦的 Walk＝S-B（clip tier）」這個切法嗎？
 2. ✅ **D1-b = Yes**（2026-10-08）：搖桿半推觸發的 Walk 停步，是否在規則⑦的批准範圍內？（M1.3 會讓它生效；不同意的話，閘門應寫成 `StopTier == Walk ∧ Gait == Walk`，代表規則⑦限縮為「Walk 鍵」，而且要在 `docs/46` §19 寫明原因）
-3. ⏳ **D1-c**（M1.3 驗收後新增）：「下樓、意圖放開、但**沒有停步 clip**」（例：跑步中切 Walk 後立刻放開，速度落在 Walk／Run 帶之間）是否也要用規則⑥的保守 fallback（等尾腳鎖定才站）？M1.3 前它是被 Gait 代理**意外**套上的；M1.3 後與 Run 停步同類（1／6 次 rise→drop 4.81 cm）。這是規則③⑦批准範圍的調整，不是 tier 的問題。
+3. ✅ **D1-c = Yes，限定為 Descending no-stop-commit fallback**（2026-10-08）：條件＝意圖放開 ∧ 下樓 ∧ `CommittedStopTier == None`；尾腳鎖定前暫不回升；⛔ 不提升成全域停步狀態。驗收見 `docs/46` §19.1 註記。原問題：「下樓、意圖放開、但**沒有停步 clip**」（例：跑步中切 Walk 後立刻放開，速度落在 Walk／Run 帶之間）是否也要用規則⑥的保守 fallback（等尾腳鎖定才站）？M1.3 前它是被 Gait 代理**意外**套上的；M1.3 後與 Run 停步同類（1／6 次 rise→drop 4.81 cm）。這是規則③⑦批准範圍的調整，不是 tier 的問題。
 
 ---
 

@@ -26,7 +26,7 @@
 > - ✅ 文件（`1091530`）：`docs/47` F-02 改判（D2-f）；D3-c 詞彙表（`docs/45` §28 K6）；M3.1 結論定錨在 `docs/45` §14.4。
 > - 回歸：EditMode **868／867／0 failed／1 skipped**；PlayMode **96／95**（只有既有 `C0`）。
 > - ✅ **D2-g（2026-10-08）＝不修**：F2-J 標為 **Known low-impact edge case／Deferred**（`docs/48` §7.6）。人工 Play 沒有感受到可見問題；⛔ 不為這一項單獨改 Jump runtime。重開條件：①Play 明確看到起跳換腳／抽動；②加入類比輸入讓 Walk↔Run blend zone 常態可達；③Jump 重構 clock ownership 時順手處理。
-> - ❓ 待使用者：**D1-c** 「下樓、放開、但沒有停步 clip」要不要也用規則⑥的保守 fallback（M1.3 前是被 Gait 代理意外套上的）。
+> - ✅ **D1-c（2026-10-08）＝ Descending no-stop-commit fallback**：意圖放開 ∧ 下樓 ∧ `StopTier == None` ⇒ 尾腳鎖定前不回升（`DescendingNoStopCommit`）；不是新的全域停步狀態。runToWalk 4.81 cm → 0；Walk 鍵／Run／半推逐位元不變；平地／上樓從未介入。EditMode 870／869／0 failed／1 skipped；PlayMode 96／95（只有 `C0`）。目前沒有待使用者裁決的項目。
 > - ⚠️ Probe 坑：PlayMode 下同一帧對鍵盤送兩個事件（放開 D＋按下 S）不可靠——D 會卡住。已在兩支 probe 修正並註解。
 >
 > ---

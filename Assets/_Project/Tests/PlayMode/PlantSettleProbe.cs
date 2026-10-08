@@ -202,6 +202,17 @@ namespace Project.Tests.PlayMode
             => Drive(stairName, Dir.Down, 0f, stopIndex, "r7_" + style + "_", null,
                 style == "walkKey" ? Gait.Walk : Gait.Run, style == "walkKey" || style == "run" ? null : style);
 
+        /// <summary>
+        /// docs/48 D1-c 的反向驗收：Descending no-stop-commit fallback **不得**在平地或上樓停步介入。
+        /// 上樓（proto 樓梯三個停步位置）＋ 平地（兩個 offset）× walkKey／run／runToWalk；看 <c>stopNoCommit</c> 永遠是 0。
+        /// </summary>
+        [UnityTest, Explicit]
+        public IEnumerator Probe_RuleSevenNonDescending(
+            [Values(2, 6, 10, -1, -2)] int stopIndex,
+            [Values("walkKey", "run", "runToWalk")] string style)
+            => Drive("Stairs_650_400_300_Prefab", Dir.Up, 0f, stopIndex, "r7n_" + style + "_", null,
+                style == "walkKey" ? Gait.Walk : Gait.Run, style == "runToWalk" ? style : null);
+
         private IEnumerator Drive(string stairName, Dir dir, float yaw, int stopIndex, string prefix, string restartVariant,
             Gait gait = Gait.Run, string stopStyle = null)
         {
@@ -300,7 +311,11 @@ namespace Project.Tests.PlayMode
                 {
                     if (phase == "approach") phase = "go";
                     else if (phase == "go" && s >= stopS - diagonalRun) { _camera.transform.rotation = diagonal; phase = "diag"; }
-                    else if (phase == "diag" && s >= stopS) { Release(_keyboard.wKey); phase = "stop"; }
+                    else if (phase == "diag" && s >= stopS)
+                    {
+                        if (stopStyle == "runToWalk" && !r2wArmed) { Press(_keyboard.leftCtrlKey); r2wArmed = true; }   // 本帧切 Walk，下一帧才放開（同帧只送一個鍵盤事件）
+                        else { Release(_keyboard.wKey); phase = "stop"; }
+                    }
                 }
                 else
                 {
@@ -518,7 +533,7 @@ namespace Project.Tests.PlayMode
                 sb.Append(",rootEvalX,rootEvalY,rootEvalZ,ikZeroed,ltoeBoneX,ltoeBoneY,ltoeBoneZ,rtoeBoneX,rtoeBoneY,rtoeBoneZ,stopBake"
                           + ",posePlaneY,lstance,lprevValid,rstance,rprevValid,hipsY,grounded"
                           + ",predNextOk,predNextX,predNextY,predNextZ,predEndOk,predEndLX,predEndLY,predEndLZ,predEndRX,predEndRY,predEndRZ"
-                          + ",stopTier,gaitBB,stopUsesPred,stopDesc");
+                          + ",stopTier,gaitBB,stopUsesPred,stopDesc,stopNoCommit,capSource");
                 Csv.Append(sb).Append('\n');
             }
 
@@ -588,7 +603,8 @@ namespace Project.Tests.PlayMode
                     // docs/48 M1.3：規則⑦ 的輸入（committed stop tier vs 黑板 Gait）與求解器自己的鎖存
                     var movingM = (MovingPelvisState)_movingF.GetValue(_ik);
                     sb.Append(',').Append(predM.StopTier).Append(',').Append(data.Gait)
-                      .Append(',').Append(movingM.StopUsesPrediction ? 1 : 0).Append(',').Append(movingM.StopDescending ? 1 : 0);
+                      .Append(',').Append(movingM.StopUsesPrediction ? 1 : 0).Append(',').Append(movingM.StopDescending ? 1 : 0)
+                      .Append(',').Append(movingM.StopNoCommitFallback ? 1 : 0).Append(',').Append(movingM.DebugCapSource);
                     Csv.Append(sb).Append('\n');
                 }
 

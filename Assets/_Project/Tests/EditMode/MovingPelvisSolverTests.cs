@@ -452,7 +452,8 @@ namespace Project.Tests.EditMode
         }
 
         /// <summary>移動中一帧（兩腳都不可靠），接著放開：回傳放開後的 context 範本。</summary>
-        private static MovingPelvisContext Release(ref MovingPelvisState s, bool walk, float rootVy, MovingPelvisTuning t)
+        private static MovingPelvisContext Release(ref MovingPelvisState s, bool walk, float rootVy, MovingPelvisTuning t,
+            bool noStopCommitted = false)
         {
             var moving = new MovingPelvisContext { TerrainHint = NoHint, MovementRequested = true, RootHorizontalSpeed = 1f };
             MovingPelvisFoot l = Free(), r = Free();
@@ -460,8 +461,43 @@ namespace Project.Tests.EditMode
             return new MovingPelvisContext
             {
                 TerrainHint = NoHint, MovementRequested = false, RootHorizontalSpeed = 1f,
-                WalkStop = walk, RootVerticalSpeed = rootVy,
+                WalkStop = walk, RootVerticalSpeed = rootVy, NoStopCommitted = noStopCommitted,
             };
+        }
+
+        // ---------- Descending no-stop-commit fallback（docs/48 D1-c）----------
+
+        [Test]
+        public void DescendingNoStopCommit_HoldsOnlyUntilTrailingLocks()
+        {
+            MovingPelvisTuning t = StopTuning();
+            var s = Started(-0.3f);
+            MovingPelvisContext c = Release(ref s, false, -0.8f, t, noStopCommitted: true);
+            RunStop(ref s, Reliable(0.5f), Foot(FootLockPhase.Unlocked, 0.5f), c, 30, t);
+            Assert.AreEqual(MovingPelvisCapSource.DescendingNoStopCommit, s.DebugCapSource);
+            Assert.AreEqual(-0.3f, s.Offset, 1e-3f, "尾腳還沒鎖定：不回升");
+            RunStop(ref s, Reliable(0.5f), Foot(FootLockPhase.Locked, -0.2f), c, 120, t);
+            Assert.AreEqual(MovingPelvisCapSource.None, s.DebugCapSource, "尾腳鎖定後 fallback 退出");
+            Assert.AreEqual(-0.2f, s.Offset, 1e-3f, "尾腳鎖定後照即時 Support 約束");
+        }
+
+        [Test]
+        public void DescendingNoStopCommit_OnlyWhenDescendingAndNothingCommitted()
+        {
+            MovingPelvisTuning t = StopTuning();
+            (bool fallback, bool prediction) Latch(bool walkStop, bool noCommit, float vy)
+            {
+                var s = Started(-0.3f);
+                MovingPelvisContext c = Release(ref s, walkStop, vy, t, noCommit);
+                MovingPelvisFoot l = Free(), r = Free();
+                MovingPelvisSolver.Step(ref s, in l, in r, in c, Dt, in t);   // 放開那一帧（鎖存發生在這裡）
+                return (s.StopNoCommitFallback, s.StopUsesPrediction);
+            }
+            Assert.AreEqual((true, false), Latch(false, true, -0.8f), "下樓 ∧ 沒有 committed 停步 ⇒ fallback");
+            Assert.AreEqual((false, false), Latch(false, true, 0f), "平地沒有停步 clip ⇒ 不進 fallback");
+            Assert.AreEqual((false, false), Latch(false, true, +0.8f), "上樓沒有停步 clip ⇒ 不進 fallback");
+            Assert.AreEqual((false, false), Latch(false, false, -0.8f), "committed Run 停步下樓 ⇒ 維持既有 Run policy");
+            Assert.AreEqual((false, true), Latch(true, false, -0.8f), "committed Walk 停步下樓 ⇒ 仍走規則⑦，不是 fallback");
         }
 
         private static void RunStop(ref MovingPelvisState s, MovingPelvisFoot l, MovingPelvisFoot r, MovingPelvisContext c, int frames, MovingPelvisTuning t)
