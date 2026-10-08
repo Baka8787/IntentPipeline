@@ -1255,6 +1255,7 @@ EditMode **820／819／0 failed／1 skipped**（+5：R1c 純函數）。runtime 
 ### 25.1 裁決（2026-10-07，使用者）
 - **A2 先開**：X Bot prefab `PlantAwareExtrapolation = true`（Editor API；prefab diff 1 行；場景 X Bot 無 override、Y Bot 不變）。**還原＝設回 false。** 程式預設仍關；正式 contract（目前仍是 `FootIKSettings` 實驗開關）另行處理。
 - 回歸：PlayMode 96／95（只有既有 `C0`）。EditMode 846／844／1 failed——`Scene_InstanceMasks_MatchSemanticTable`：場景 **Y Bot** 的 `GroundLayers` 出現 503 override（場景檔 2026-10-07 03:45 存檔，非本會話寫入；X Bot 的 revert 仍在），與 P8b 無關。
+- 2026-10-08（使用者同意）：場景 Y Bot 的 `GroundLayers` override 已 revert（繼承 −9；場景檔只少那 4 行，未存其他變更）⇒ EditMode **846／845／0 failed／1 skipped**。附註：Y Bot 場景實例另有 `settings.LockedFollowExperiment = 0` 的 override（等於預設，行為無影響，未動）。場景仍未 commit。
 
 ### 26.1 裁決（2026-10-07，使用者）
 - **A1 先不做正式 policy**（樓梯強制 RU 不實作）。§26 的資料保留供日後評估。

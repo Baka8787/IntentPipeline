@@ -10,7 +10,7 @@
 > # 🟧 2026-10-07 裁決：**A2（P8b）X Bot 開**／**A1 不做正式 policy**／**ADR-011 AC4 撤回「拖步已改善」，須在 R1c 3 cm 下重驗**
 >
 > - 使用者對 R1c 下起跑拖步的初步觀察：「有，但其實不太影響」（未作為 AC4 結論）。
-> - 回歸：PlayMode 96／95（只有既有 `C0`）；EditMode 846／844／1 failed——場景 **Y Bot** `GroundLayers` 503 override（場景 10-07 03:45 存檔、非本會話），❓ 是否同法 revert。
+> - 回歸：PlayMode 96／95（只有既有 `C0`）；EditMode 846／844／1 failed——場景 **Y Bot** `GroundLayers` 503 override；✅ 10-08 已 revert ⇒ EditMode **846／845／0 failed／1 skipped**（場景未 commit）。
 >
 > # （前一段）2026-10-07：A2／A1／ADR-011 AC2 三份裁決資料（`docs/45` §25–§27；⛔ runtime 未改）
 >
