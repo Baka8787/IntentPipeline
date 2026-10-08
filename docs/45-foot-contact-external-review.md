@@ -1299,3 +1299,36 @@ EditMode **820／819／0 failed／1 skipped**（+5：R1c 純函數）。runtime 
   - 重構前跑兩次（base1／base2）、重構後一次（after），逐檔逐帧逐欄字串比對：三組兩兩之間**只有** `frame`（絕對帧號）與 probe 自己的反事實射線（`cfSup／cfPt／k0／k25`）不同——後者在兩次 baseline 之間就已經不同（已知：WORKLOG 2026-10-06 determinism slice 記錄的探針自有射線差異，未修）。
   - ⇒ T3 目標、相位、鎖定支撐、即時支撐、骨盆輸出、最終骨骼、grounded、next plant 與結束站姿的預測落點（633／742 個有效帧）**全部逐帧相同**。
 - **附帶量測（K4 的證據）**：在 T3 實際腳印的同一組三點命中上，「最高踏面」與「最大穿透」選到不同階（> 1 mm）的次數：**0／6073** 個腳·帧（Walk 3690、Run 2383）。⇒ 本 probe 範圍內，兩者的差異不是選擇規則造成的；§14.4 的 6／35 來自**腳姿輸入**（平放腳印與實際抬跟／壓尖腳印的 XZ 不同）。⚠️ 只涵蓋 proto 樓梯、yaw 0；§14.4 的 Run 煞車步情境未重跑。
+
+## 28. 🗄️ 封存：樓梯／停步腳部接觸工作線（2026-10-08，使用者裁決）
+
+使用者裁決：不再無限精修；以目前 X Bot 設定封存，只留下列明確 follow-up。ADR-011 AC4 在現行設定下重驗通過 ⇒ **ADR-011 轉 Accepted**（AC2 依 §27 修訂：起跑支撐腳 ~12 cm 爬行＝動畫／起跑過渡限制，不由 T3 隱藏）。
+
+### 28.1 封存時的 X Bot 基線
+| 項目 | 狀態 | 正本 |
+|---|---|---|
+| T3 contact 原型＋`LandingSurfaceResolver`＋`SwingFootLengthReference` | X Bot 開（`FootIKSettings` 開關） | §8、§17、§18 |
+| **R1c 鎖定點跟隨，d0＝3 cm**（`LockedFollowExperiment`） | X Bot 開；程式預設關 | §24 |
+| **P8b plant-aware 外插**（`PlantAwareExtrapolation`） | X Bot 開；程式預設關 | §21.2、§25 |
+| ADR-011 起跑入場相位對齊（`alignRunEntryPhase`） | ✅ Accepted；X Bot 開 | ADR-011、§21.3、§27 |
+| 失地確認 grace 累積時間（determinism） | 已轉正（無開關） | `docs/02` JumpState 入口段 |
+| Run 停步選片 | 依腳相自然選 LU／RU（不做地形感知） | §20.1、§26 |
+
+### 28.2 已否決／不做（不要重開，除非有新證據）
+- R1a 縮 UnlockRadius、R1b 趨勢釋放、R2 movement-stability 進鎖、R3 speed cap（§23）；R1c 5 cm（§24.7）。
+- 樓梯強制 RU 的正式 policy（§26.1；資料保留）。
+- 擴展 riser 侵入規則到擺盪（§18.3）。
+- 改 Stop clip／playback 處理收步吸附（§22：clip 收腳不快）。
+
+### 28.3 Follow-up（只登記，不排程）
+1. **R1c／P8b 轉正**：兩者仍是 `FootIKSettings` 實驗開關、只在 X Bot 開；是否改成正式設定、Y Bot（敵人）是否一併開啟。
+2. **下樓階緣舊階高度**：R1c 跟隨中腳跟越過階緣時被鎖定支撐下限留在上一階 3–4 帧（§24.5 ②）；使用者判定正常速度不明顯——已知限制。
+3. **R1c × `UseStandingPosturePrototype` 不相容**：後者鎖存世界座標（§24.2）；X Bot 未用該路徑。
+4. **樓梯強制 RU**：§26 資料保留；需有樓梯專用停步素材（目前無）或使用者重新裁決才評估。
+5. **ADR-011 是 Run-only、`Gait == Run` 觸發**：類比半推也會對齊（成本低）；若日後要改觸發條件，因 ADR-011 已 Accepted ⇒ 需新 ADR（`docs/48` §6.5 已判為已知限制）。
+6. **探針 `cfSup`／`k25` 反事實射線偶發不一致**：只影響量測工具，不影響 gameplay（§24.7 附註）。
+7. **覆蓋缺口**：Walk 樓梯停步只量了最後一步相關情境；斜向停步、轉向起跑、Walk 起跑未量。
+8. **場景 FootIK `GroundLayers` 曾兩度被 Inspector 改成 503**：契約測試會抓；調參時避開該欄位。
+
+### 28.4 工具（保留）
+`PlantSettleProbe`（全部 `[Explicit]`）、`docs/artifacts/stop-snap/`（replay、A/B、逐帧腳本）、`docs/artifacts/plant-settle/`。

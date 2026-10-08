@@ -667,7 +667,7 @@ public abstract class AnimationFacadeBase : MonoBehaviour
     public virtual bool TryGetDominantChildNormalizedTime(string stateKey, out float normalizedTime);
     // 通用唯讀圖查詢；無 child 概念的後端預設 false。Animancer 實作以最高權重直接子狀態為準，零配置。
     public virtual bool TryAlignEntryPhase(string stateKey, float normalizedTime);
-    // 🧪 ADR-011（Trial）通用寫入：「這個狀態下一個要被看見的循環從 normalizedTime 開始」；後端不得造成可見跳動
+    // ADR-011（Accepted 2026-10-08）通用寫入：「這個狀態下一個要被看見的循環從 normalizedTime 開始」；後端不得造成可見跳動
     // （Animancer 只重設權重 0 的直接子狀態）；預設 false＝no-op。唯一呼叫者：LocomotionModel（Run 靜止同方向起跑）。
     public abstract float GetNormalizedTime();
 }
