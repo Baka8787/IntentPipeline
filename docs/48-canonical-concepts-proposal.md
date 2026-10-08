@@ -25,6 +25,7 @@
 | **D3-c**（第二輪） | **Yes，只做 terminology cleanup**：Animation Plant／Predicted Contact（Landing）／IK Lock／Committed Surface；不做全域 rename | `docs/45` §28 K6 |
 | M3.1 結論（第二輪） | **保留為重要結論**：同一組 hits 上「最高踏面 vs 最大穿透」0／6073 分歧 ⇒ §14.4 的差異應繼續追 **footprint pose／XZ placement**，不是 selector rule | `docs/45` §14.4／§28.1 |
 | 順序 | **先完成 F2-J measurement，再決定 Jump 要不要修 clock-family ownership** | — |
+| **D2-g**（第三輪） | **不修**：F2-J 標為 **Known low-impact edge case／Deferred**；J2′／J1 都不實作，⛔ 不為這一項單獨修改 Jump runtime。重開條件：①人工 Play 看到起跳換腳／抽動；②加入類比輸入使 Walk↔Run blend zone 常態可達；③Jump 重構 clock ownership 時順手處理 | §7.6 |
 | 範圍 | 六個 no-behavior-change migration 中，**不依賴新 tier 的可以繼續**；凡預設新 canonical field 已成立的 M2.x 先停 | 繼續：M1.0、M1.1、M3.0、M3.1。停：M2.1–M2.5。M2.0 見 §6.5 |
 
 ---
@@ -376,7 +377,7 @@ docs/47 G-3（骨盆管線收斂）會連帶刪掉 F1 的 StandingPostureSolver 
 
 ---
 
-## 7. F2-J 量測結果：Jump 的 clock-family 錯配（2026-10-08，measurement-only，⛔ runtime 未改）
+## 7. F2-J 量測結果：Jump 的 clock-family 錯配（2026-10-08，measurement-only，⛔ runtime 未改）——🟡 Known low-impact edge case／Deferred（§7.6）
 
 > 依 D2-e。Probe：`Assets/_Project/Tests/PlayMode/JumpClockFamilyProbe.cs`（throwaway）；資料與腳本：`docs/artifacts/jump-clock/`。
 > 150 次起跳（10 情境 × 15 個時間 offset），X Bot、空曠平地、1/60 固定步長。
@@ -434,7 +435,25 @@ docs/47 G-3（骨盆管線收斂）會連帶刪掉 F1 的 StandingPostureSolver 
 3. 對照：穩定跑步／走路中起跳。
 看的是：起跳瞬間兩腳是否「交換位置」或剪刀狀閃一下。
 
-### 7.6 ❓ 決策點
+### 7.6 ✅ 裁決：Known low-impact edge case／Deferred（2026-10-08，D2-g）
+
+> **F2-J 不修**，保留為已知的低影響邊界情況。⛔ 不為這一項單獨修改 Jump runtime；J2′／J1 都不實作。
+>
+> **理由（使用者裁決）**
+> - 錯配只出現在 Walk↔Run 轉換的短暫窗口：Ctrl 切換後約 0.15 s 內起跳、或起跑最初幾帧。
+> - 穩定 Walk、Run、戰鬥側移／後退沒有量到錯配。
+> - probe 量到少數 wrong-foot 起跳有明顯的幾何不連續，但**人工 Play 沒有感受到可見問題**。
+> - 目前沒有證據顯示它影響正常遊玩品質。
+>
+> **重開條件（任一成立才重開）**
+> 1. 人工 Play 明確看到起跳換腳／抽動。
+> 2. 加入類比輸入後，Walk↔Run blend zone 成為常態可達狀態（目前 `MoveAction` 只綁鍵盤，§7.1）。
+> 3. Jump 系統之後重構 clock ownership 時順手處理。
+>
+> 重開時的起點：§7.2–§7.4 的資料、`docs/artifacts/jump-clock/`、`JumpClockFamilyProbe`（可決定性重跑），以及下方保留的 J2′／J1 兩個方向。
+
+以下是裁決前的原始決策點，保留作為重開時的參考：
+
 1. **D2-g**：要不要修 Jump 的 clock-family ownership？量測支持「有、但窄」——鍵盤可達、代理指標可見、觸發窗口 ≤ 0.15 s。
 2. 若修，範圍選哪個（皆未實作）：
    - **J2′（建議的最小範圍）**：腳相一律用「被取樣時鐘所屬 loop」的 Bake 讀；起跳家族維持意圖選擇。需要讓 Core 知道被取樣的是哪支 loop——`docs/07` §0.2 的「Core 不認識 child index」原則要另議（例如由 model 回報「我讀的是哪支 loop」，而不是 facade 回報 child index）。
