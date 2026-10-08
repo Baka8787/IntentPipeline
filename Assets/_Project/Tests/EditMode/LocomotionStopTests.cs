@@ -449,6 +449,7 @@ namespace Project.Tests.EditMode
             model.Tick(data, facade, 1f / 60f);
             Assert.IsFalse(data.LocomotionStopPrediction.Active, "播放頭尚未前進，倍率未知時不猜結束站姿。");
             Assert.IsTrue(data.LocomotionStopPrediction.HasNextPlant, "ADR-010 D1-R1：variant committed 就發布 next plant，不等播放頭。");
+            Assert.AreEqual(CommittedStopTier.Run, data.LocomotionStopPrediction.StopTier, "ADR-010 D6：committed 的當帧就發布 tier。");
 
             facade.RootNormalizedTime = 0.1f;
             SetPrivateField(model, "_lastMotionFrame", Time.frameCount - 1);
@@ -470,6 +471,49 @@ namespace Project.Tests.EditMode
             Assert.IsFalse(data.LocomotionStopPrediction.Active, "移動意圖中斷 Stop 的同一 Tick 必須清除預測。");
             Assert.AreEqual(Vector3.zero, data.LocomotionStopPrediction.EndLeftAnkleInRoot, "失效時整份快照是 default（ADR-010 D1）。");
             Assert.IsFalse(data.LocomotionStopPrediction.HasNextPlant);
+            Assert.AreEqual(CommittedStopTier.None, data.LocomotionStopPrediction.StopTier, "停步中斷的同一 Tick，tier 也一併清除。");
+        }
+
+        /// <summary>
+        /// ADR-010 D6：tier 的有效條件只看「有沒有 committed 的停步」——Bake 沒有排程（沒有結束站姿、沒有 next plant）時，
+        /// 其他欄位維持 default，tier 照樣發布。⇒ 規則⑦ 不會因為某支 clip 少烘焙了排程就誤判成「不是停步」。
+        /// </summary>
+        [Test]
+        public void Model_PublishesCommittedStopTier_EvenWithoutSchedule()
+        {
+            var go = new GameObject("LocomotionStopTierUnderTest");
+            _created.Add(go);
+            LocomotionModel model = go.AddComponent<LocomotionModel>();
+            LocomotionStopTestFacade facade = go.AddComponent<LocomotionStopTestFacade>();
+            LocomotionStopVariant variant = Variant(-0.2f, "RunStop");
+            variant.BakeData.FootPlantSchedule = default;   // 沒有排程
+            SetPrivateField(model, "runLoopBakeData", variant.BakeData);
+            SetPrivateField(model, "runStopVariants", new[] { variant });
+
+            var smoother = default(LocomotionSpeedSmoother);
+            var runIntent = new MovementIntentData { DesiredSpeedNormalized = 0.75f, DesiredDirection = Vector3.forward };
+            for (int i = 0; i < 120; i++) smoother.Tick(in runIntent, 0.12f, 0.18f, 720f, 1f / 60f);
+            SetPrivateField(model, "_smoother", smoother);
+            SetPrivateField(model, "_wasIntending", true);
+            facade.Play("Idle");
+            var data = new PlayerRuntimeData { IsGrounded = true };
+
+            SetPrivateField(model, "_lastMotionFrame", Time.frameCount - 1);
+            model.Tick(data, facade, 1f / 60f);
+            Assert.AreEqual(CommittedStopTier.Run, data.LocomotionStopPrediction.StopTier);
+            Assert.IsFalse(data.LocomotionStopPrediction.Active);
+            Assert.IsFalse(data.LocomotionStopPrediction.HasNextPlant);
+            Assert.AreEqual(Vector3.zero, data.LocomotionStopPrediction.RootWorldPositionAtPublish,
+                "只有 tier 時，其他區塊仍是 default——D6 只覆寫自己那一欄");
+        }
+
+        [TestCase(LocomotionStopTier.None, CommittedStopTier.None)]
+        [TestCase(LocomotionStopTier.Walk, CommittedStopTier.Walk)]
+        [TestCase(LocomotionStopTier.Run, CommittedStopTier.Run)]
+        public void CommittedStopTier_MirrorsMovementTier(LocomotionStopTier tier, CommittedStopTier expected)
+        {
+            Assert.AreEqual(expected, LocomotionModel.ToCommittedStopTier(tier));
+            Assert.AreEqual((int)tier, (int)expected, "數值保持一致，避免兩個 enum 漂移");
         }
 
         private static void SetPrivateField<T>(object target, string fieldName, T value)

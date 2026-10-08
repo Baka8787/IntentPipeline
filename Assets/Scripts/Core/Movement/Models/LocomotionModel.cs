@@ -184,6 +184,15 @@ namespace Project.Core.Movement
             {
                 PublishStopPrediction(data, predictionVariant.BakeData);
             }
+
+            // ADR-010 D6：已承諾的停步 tier 有自己的有效條件（committed 即有效，不看結束站姿／next plant），
+            // 只覆寫這一欄 ⇒ 其他區塊的值與有效旗標逐位元不變。
+            if (_stop.IsActive)
+            {
+                LocomotionStopPrediction prediction = data.LocomotionStopPrediction;
+                prediction.StopTier = ToCommittedStopTier(_stop.Tier);
+                data.LocomotionStopPrediction = prediction;
+            }
         }
 
         /// <summary>
@@ -512,6 +521,12 @@ namespace Project.Core.Movement
             _locomotionNormalizedTime = normalizedTime;
             _hasLocomotionTimeSnapshot = true;
         }
+
+        /// <summary>（純函數）Movement 層的停步 tier → 黑板的 <see cref="CommittedStopTier"/>（ADR-010 D6）。</summary>
+        internal static CommittedStopTier ToCommittedStopTier(LocomotionStopTier tier) =>
+            tier == LocomotionStopTier.Walk ? CommittedStopTier.Walk
+            : tier == LocomotionStopTier.Run ? CommittedStopTier.Run
+            : CommittedStopTier.None;
 
         private bool TryGetActiveVariant(out LocomotionStopVariant variant)
         {

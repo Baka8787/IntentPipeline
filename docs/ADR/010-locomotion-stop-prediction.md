@@ -95,6 +95,20 @@ D2 的原則不變——**只有正式 consumer 需要的資料才進 contract**
   ⛔ 消費端**不得**假設它就是 T3 鎖定（`FootLockPhase.Locked`）發生的時刻或位置：兩者的 onset 實測相近（`docs/45` §22.4，≤ 2 cm），但**鎖的持續期間**與**支撐踏面的選擇**都可能不同。
   需要「腳實際被釘在哪」的消費端以 T3 的鎖定支撐為準；next plant 只當**目的地意圖**（`LandingSurfaceResolver` 的低／高可信度＋即時驗證就是這樣用）。
 
+### D6 — 已承諾的停步 tier（2026-10-08 獨立擴充；consumer：規則⑦，`docs/46` §19）
+**理由（正式 consumer）**：規則⑦只批准「**Walk 停步**」的落點預測。那個 Walk 是**停步 clip 的家族**——只有 `LocomotionModel` 知道（§1）。
+FootIK 原本以 `PlayerRuntimeData.Gait == Walk`（玩家選的步態）代理它；兩者在加減速時會不同（例：跑步中切 Walk 後立刻放開 ⇒ `Gait = Walk`、但播 Run Stop），
+正是 §3 否決的「Presentation 自己猜 clip 家族」（`docs/47` F-01、`docs/48` §1）。
+
+| 欄位 | 意義 |
+|---|---|
+| `StopTier`（`CommittedStopTier`：None／Walk／Run） | 本帧 committed 的 stop variant 屬於哪個家族；沒有 committed 的停步 ⇒ `None` |
+
+- **有效條件獨立**：committed 即有效（含 pending、等待播放頭），**不看** `Active`／`HasNextPlant`。Producer 只覆寫這一欄 ⇒ 既有區塊逐位元不變；Bake 沒有排程時其他欄位仍是 default、tier 照樣發布。
+- `CommittedStopTier` 定義在 `Project.Core.Blackboard`（黑板不得依賴 Movement 層型別）；數值與 `LocomotionStopTier` 相同（測試鎖住）。
+- ⛔ **這是 contract 修補，不是新的全域 locomotion tier**（2026-10-08 使用者裁決；`docs/48` §6：全域 tier 不是 canonical fact）。它只描述「這一次停步承諾了哪個家族」，停步結束即為 None。
+- 規則⑦改讀它是**另一個變更**（`docs/48` M1.3，行為變更，分開 commit）；本條只發布，沒有 consumer 改變行為。
+
 ### D4 — 消費端的批准範圍維持 `docs/46` §19 規則⑦
 預測只批准 **Walk 下樓停步**當 `FutureReachCap`（只限制骨盆最高升到哪，不主動降低）。
 擴大到 Run 或上樓屬於 Living Spec 層級的調整，但每次擴大都要附上同等的驗收。
@@ -137,6 +151,7 @@ AC2／AC3 的證據來自原型。最小版發布的六個欄位與原型的**�
 ①黑板 schema 變更 —— **成立**。②FSM 拓撲／hierarchy —— 不成立。③管線順序／核心驅動介面 —— 不成立（Writer 在既有順序 3）。④推翻既有不變式 —— **成立**（A12「停步／腳相位不擴張黑板」）。
 
 ## 9. 裁決紀錄
+- 2026-10-08（使用者，第二輪）：**D6** 開工——發布 `LocomotionModel` 已承諾的 stop tier（`StopTier`）。contract 修補，不是新的全域 locomotion tier。規則⑦改讀它（M1.3）在本條之後、分開 commit，完成後重跑下樓停步驗收。
 - 2026-10-08（使用者，接受 `docs/48` F3 方向）：D5 補上語意界定——next plant ＝ authored contact，⛔ 不等於 T3 lock（文字修訂，schema／行為不變）。F1 方向接受、D1-b Yes：規則⑦的 Walk／Run 跟 committed stop tier；對應的 `StopTier` 欄位（D6）待開工時另行定案，**本條尚未改變 schema**。
 - 2026-10-03（使用者，第三次）：D1-R1——next plant 在 stop variant committed 時即可發布，不等待播放頭前進；end-pose 定義與 Bake plant 門檻不變（Phase 1c 不讓 Baker 依賴 T3 門檻）。
 - 2026-10-03（使用者，第二次）：D5——以 `LandingSurfaceResolver` 為正式 consumer，加入最小的 next-plant snapshot（`HasNextPlant`／腳別／publish-root 位置／`IsFinal`）；不推翻 D2。前進距離可由位置推導 ⇒ 不另存。

@@ -714,7 +714,7 @@ namespace Project.Tests.EditMode
             }
             CollectionAssert.IsEmpty(violations);
 
-            // ADR-010 D1：只含 value type（不帶 Presentation／asset reference）。D2：正式 schema 只有這些欄位（D5 加入下一次 planned plant）。
+            // ADR-010 D1：只含 value type（不帶 Presentation／asset reference）。D2：正式 schema 只有這些欄位（D5 加入下一次 planned plant；D6 加入已承諾的 stop tier）。
             System.Type snapshot = typeof(Project.Core.Blackboard.LocomotionStopPrediction);
             Assert.IsTrue(snapshot.IsValueType);
             var fields = new List<string>();
@@ -728,6 +728,7 @@ namespace Project.Tests.EditMode
                 "Active", "RootWorldPositionAtPublish", "RootYawDegreesAtPublish",
                 "RemainingForwardDisplacement", "EndLeftAnkleInRoot", "EndRightAnkleInRoot",
                 "HasNextPlant", "NextPlantIsLeft", "NextPlantAnkleInPublishRoot", "NextPlantIsFinal",
+                "StopTier",   // D6：已承諾停步的 clip 家族（consumer：規則⑦，docs/46 §19）
             }, fields, "ADR-010 D2：擴充欄位需要正式 consumer 的理由與獨立變更");
         }
 

@@ -110,6 +110,7 @@ LocomotionStopPrediction（ADR-010，唯一 Writer：LocomotionModel；每次 ti
 | **M1.3** | FootIK 規則⑦閘門改讀 `StopTier == Walk`；刪 `MovingPelvisContext.WalkGait` | Living Spec（`docs/46` §19） | ①Walk 鍵停步 probe：與 M1.2 **逐位元相同**；②搖桿半推停步：**行為改變**（規則⑦開始生效）⇒ 依 ADR-010 D4，擴大批准範圍要附同等驗收：重跑 §18／§19 的 Walk 下樓停步 probe，加上人工 Play | 搖桿半推的 Walk 下樓停步開始使用 FutureReachCap | 閘門改回 `Gait` |
 | **M1.4** | `StandingPostureSolver` 那份 release edge 隨 `docs/47` G-3 刪除；本提案不單獨處理 | 依 G-3 | — | — | — |
 > ✅ **2026-10-08 完成 M1.0／M1.1**：`MovementIntentData.RequestEpsilon`／`HasMovementRequest`；`LocomotionModel`、`LocomotionStopSelector`、`FootIKController`（兩處）改用同一規則；新增 `A51`、`MovementIntentTests` 的門檻／release edge 測試、`LocomotionStopTests.Characterization_StopTier_FollowsReleaseSpeed_NotControlGait`（出貨資產）。EditMode **859／858／0 failed／1 skipped**（+13）。行為差異只在意圖 ∈ (0, 0.001)——推導上不會出現，**未跑 probe**。M1.0 的另一半（Sprint 放開仍進 StopHold）已由既有 `MovingPelvisSolverTests.StopHold_*` 覆蓋，未重寫。
+> ✅ **2026-10-08 完成 M1.2**：ADR-010 **D6**——`LocomotionStopPrediction.StopTier`（`CommittedStopTier`，定義在 Blackboard），committed 即有效、只覆寫這一欄；A12 欄位集合更新；新增 `Model_PublishesCommittedStopTier_EvenWithoutSchedule`、`CommittedStopTier_MirrorsMovementTier`。沒有 consumer 改讀 ⇒ 行為不變。EditMode **867／866／0 failed／1 skipped**。
 
 ### 1.5 ❓ 決策點
 1. ✅ **D1-a**（2026-10-08：隨 F1 方向接受）：同意「骨盆的停步＝S-A（意圖），規則⑦的 Walk＝S-B（clip tier）」這個切法嗎？

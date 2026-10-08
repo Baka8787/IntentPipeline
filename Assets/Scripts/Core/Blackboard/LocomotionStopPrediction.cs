@@ -3,20 +3,40 @@ using UnityEngine;
 namespace Project.Core.Blackboard
 {
     /// <summary>
+    /// 🆕（ADR-010 D6）已承諾停步的 clip 家族。數值與 <c>Project.Core.Movement.LocomotionStopTier</c> 相同；
+    /// 黑板不得依賴 Movement 層的型別，所以在這裡另立。
+    /// </summary>
+    public enum CommittedStopTier
+    {
+        None = 0,
+        Walk = 1,
+        Run = 2,
+    }
+
+    /// <summary>
     /// Locomotion Stop 預測快照（ADR-010 🟡 Trial）。唯一 Writer 是 <c>LocomotionModel</c>；Presentation 只讀數字，
     /// 不取得 MotionBakeData／AnimationClip／Animator 參照。
     /// <para>
     /// 一份快照 ＝ 寫入它的那一次順序 3 tick（publish）當下，對「本次停步結束時」的預測；不是軌跡。
     /// 兩個區塊各有有效旗標（ADR-010 D1-R1）：<see cref="Active"/> ⇔ producer 在**本帧**確認停步正在播放、播放頭已前進、Bake 有結束站姿
     /// （結束站姿欄位有效）；<see cref="HasNextPlant"/> ⇔ 本帧已有 committed 的 stop variant 且之後仍有 planned plant（next plant 欄位有效；
-    /// 可早於 Active）。publish root 欄位在任一旗標為 true 時有效；兩者皆 false ⇒ 整份為 <c>default</c>。
+    /// 可早於 Active）。publish root 欄位在任一旗標為 true 時有效；兩者皆 false ⇒ 除了 <see cref="StopTier"/> 之外全為 <c>default</c>。
+    /// <see cref="StopTier"/>（D6）有自己的有效條件：本帧有 committed 的 stop variant（含 pending、等待播放頭）⇒ Walk／Run；否則 None。
     /// Writer 每次 tick 先清除 ⇒ 消費端不會讀到前一帧的值，也不得跨帧快取。
     /// </para>
     /// ⛔ 欄位只收正式 consumer 實際讀取的（ADR-010 D2）：結束站姿給 FutureLandingProvider；
-    /// 下一次 planned plant（D5）給 LandingSurfaceResolver。擴充需要正式 consumer 的理由與獨立變更。
+    /// 下一次 planned plant（D5）給 LandingSurfaceResolver；已承諾的停步 tier（D6）給規則⑦（docs/46 §19）。擴充需要正式 consumer 的理由與獨立變更。
     /// </summary>
     public struct LocomotionStopPrediction
     {
+        /// <summary>
+        /// 🆕（ADR-010 D6）<c>LocomotionModel</c> **已承諾**的停步 tier——那支停步 clip 屬於 Walk 還是 Run 家族。
+        /// 有效條件：本帧有 committed 的 stop variant（含 pending、等待播放頭）；沒有 ⇒ <see cref="CommittedStopTier.None"/>。
+        /// ⛔ 這是一次停步的承諾，**不是**全域的 locomotion 速度檔（docs/48 §6：不存在那種 canonical fact）；
+        /// 也不等於玩家選的步態（<c>PlayerRuntimeData.Gait</c>）——搖桿／加減速時兩者會不同。
+        /// </summary>
+        public CommittedStopTier StopTier;
+
         public bool Active;
         /// <summary>publish 當下的 root 世界位置。</summary>
         public Vector3 RootWorldPositionAtPublish;
