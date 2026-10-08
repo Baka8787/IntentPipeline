@@ -2,10 +2,24 @@
 
 | | |
 |---|---|
-| **狀態** | 🟠 **Proposed**——⛔ **不得作為實作基線**。本檔只定義概念、owner、producer、consumer 與 migration path；runtime／資產／測試皆未動 |
+| **狀態** | F1／F3：🟢 **方向已裁決**（2026-10-08，見 §0.2）；F2：⏸ **暫停**——§6 的語意檢查結論是「不提升任何全域 tier」，§2 的 M2.1–M2.5 停止 |
 | **輸入** | `docs/47` F-01（Stop ownership）、F-02（Gait／locomotion tier）、F-03（plant／lock／landing） |
-| **路由** | F1 → ADR-010（Trial）獨立擴充 D6，比照 D5；F2 → 需要**新 ADR**（黑板新欄位；ADR-003 已 Accepted、不可改）＋ ADR-011（Trial）原地修訂；F3 → Living Spec（`docs/05`／`docs/45`），不需 ADR |
-| **閱讀方式** | 每一節最後的「❓ 決策點」是要你裁決的；其餘是推導 |
+| **路由** | F1 → ADR-010（Trial）獨立擴充 D6，比照 D5；F2 → **不開 ADR**（§6：不成立）；F3 → Living Spec（`docs/05`／`docs/45`），不需 ADR |
+| **閱讀方式** | §0.2 是裁決紀錄；§6 是 F2 的語意檢查（取代 §2 的提案）；每節的「❓ 決策點」若已裁決會標 ✅ |
+
+---
+
+## 0.2 裁決紀錄（2026-10-08，使用者）
+
+| # | 裁決 | 影響 |
+|---|---|---|
+| F1／F3 | **接受修正方向** | §1、§3 的概念切法成為後續工作的依據 |
+| **D1-b** | **Yes**：規則⑦的 Walk／Run 跟**已承諾的 authored stop tier**，不跟 control gait。搖桿半推最後若選到 Walk Stop，就屬於 Walk-stop 規則 | 行為變更；M1.3 落地後要**重跑下樓停步驗收** |
+| D2-a | **暫不裁決**。Footstep audio **從 F2 拆出**，視為獨立的 Presentation policy；⛔ 不得從「FootIK／Stop 不該用 control Gait」推出「音色必須跟另一個 tier」 | §2.3 的 Audio 列、M2.5 撤銷 |
+| D2-b | **不接受 0.55**。Mixer 是連續 blend，「權重最大的 clip」不天然是 canonical domain fact；⛔ 不得先創造 `BodySpeedTier` 再找 consumer | §2.2 撤銷 |
+| D2-d | **暫緩**。要先證明第二個全域 tier 是穩定的 domain concept；若成立，因 ADR-003 已 Accepted，應開**新 ADR**，不改寫 ADR-003 | §6 的檢查結論：不成立 ⇒ 不開 |
+| D3-b | **暫不排 runtime 修改**。先完成 M3.1，用樓梯 probe 證明兩份 tread／surface attribution 規則逐帧等價；pelvis 改 authority 之後另開 behavioral slice | M3.2／M3.3 延後 |
+| 範圍 | 六個 no-behavior-change migration 中，**不依賴新 tier 的可以繼續**；凡預設新 canonical field 已成立的 M2.x 先停 | 繼續：M1.0、M1.1、M3.0、M3.1。停：M2.1–M2.5。M2.0 見 §6.5 |
 
 ---
 
@@ -91,12 +105,15 @@ LocomotionStopPrediction（ADR-010，唯一 Writer：LocomotionModel；每次 ti
 | **M1.4** | `StandingPostureSolver` 那份 release edge 隨 `docs/47` G-3 刪除；本提案不單獨處理 | 依 G-3 | — | — | — |
 
 ### 1.5 ❓ 決策點
-1. **D1-a**：同意「骨盆的停步＝S-A（意圖），規則⑦的 Walk＝S-B（clip tier）」這個切法嗎？
-2. **D1-b**：搖桿半推觸發的 Walk 停步，是否在規則⑦的批准範圍內？（M1.3 會讓它生效；不同意的話，閘門應寫成 `StopTier == Walk ∧ Gait == Walk`，代表規則⑦限縮為「Walk 鍵」，而且要在 `docs/46` §19 寫明原因）
+1. ✅ **D1-a**（2026-10-08：隨 F1 方向接受）：同意「骨盆的停步＝S-A（意圖），規則⑦的 Walk＝S-B（clip tier）」這個切法嗎？
+2. ✅ **D1-b = Yes**（2026-10-08）：搖桿半推觸發的 Walk 停步，是否在規則⑦的批准範圍內？（M1.3 會讓它生效；不同意的話，閘門應寫成 `StopTier == Walk ∧ Gait == Walk`，代表規則⑦限縮為「Walk 鍵」，而且要在 `docs/46` §19 寫明原因）
 
 ---
 
 ## 2. F2 — Gait／Locomotion Tier
+
+> ⏸ **本節已被 §6 取代（2026-10-08）**。保留原文作為「為什麼一開始以為需要 `BodySpeedTier`」的紀錄；
+> T-B／T-B′、tier 表、R-nearest、M2.1–M2.5 **全部不成立或暫停**，不得引用為設計依據。
 
 ### 2.1 結論：兩個合法概念被一個欄位混用
 
@@ -223,9 +240,9 @@ SampleGround（:382-460）
 - **鎖的釋放能否參考 C-A？** 10-03 的裁決禁止的是 **Bake 依賴 T3**，不是 **T3 參考 C-A**。`docs/45` §22.4 的補回問題發生在釋放端：鎖住期間動畫腳已經離開 C-A 的接觸區。因此理論上可以讓 T3 在「C-A 的這次接觸已結束」時提早釋放。限制有三：只有停步 clip 有離散的 C-A（loop／blend 沒有）；R1c（d0 = 3 cm）剛裁決；這會讓 Presentation 的 IK 依賴 Core 發布的動畫事件，是新的耦合。**本提案不推薦現在做**，只記錄這個方向存在。
 
 ### 3.6 ❓ 決策點
-1. **D3-a**：同意以「C-A 與 C-B 刻意分離＋K1 契約」作為正式定位（不再把兩者的差異當成 bug 追）嗎？
-2. **D3-b**：M3.2 會改骨盆在階緣的數值——要排進下一個骨盆 slice，還是先擱置？
-3. **D3-c**：M3.4 的改名要不要做（純詞彙債，成本是 `FormerlySerializedAs`）？
+1. ✅ **D3-a**（2026-10-08：隨 F3 方向接受）：同意以「C-A 與 C-B 刻意分離＋K1 契約」作為正式定位（不再把兩者的差異當成 bug 追）嗎？
+2. ✅ **D3-b**（2026-10-08）：暫不排 runtime 修改；先完成 M3.1 並以樓梯 probe 證明逐帧等價；pelvis 改 authority 另開 behavioral slice。
+3. ⏳ **D3-c**（未裁決）：M3.4 的改名要不要做（純詞彙債，成本是 `FormerlySerializedAs`）？
 
 ---
 
@@ -244,8 +261,103 @@ docs/47 G-3（骨盆管線收斂）會連帶刪掉 F1 的 StandingPostureSolver 
 - **改行為、必須人工 Play 的**：M1.3、M2.3、M2.4、M2.5、M3.2、M3.3。
 - 每一步都是獨立 commit，可單獨 revert。
 
+> 🔄 **2026-10-08 更新（§0.2、§6）**：M2.1–M2.5 停止；M2.0 不做（§6.5）。
+> F1 的 `StopTier` **不再與 F2 共用 enum**——§6 結論是沒有全域 tier ⇒ M1.2 的欄位型別應是**停步專用**的（例如把 `LocomotionStopTier` 的 Walk／Run 鏡像到 `Core.Blackboard`），在 M1.2 開工時於 ADR-010 D6 定案。
+> 目前可繼續：M1.0、M1.1、M3.0、M3.1。M1.2／M1.3 方向已裁決（D1-b），但不在「no-behavior-change」範圍內，等開工指示。
+
 ## 5. 本提案刻意不做的事
 - 不建立 `StopService`／`GaitManager` 一類的集中服務；所有 owner 都是既有元件。
 - 不新增 interface（唯一的介面變更是 `IFootPhaseSource` **刪掉**一個參數）。
 - 不碰 grounding、失地時間窗、T3 的鎖定門檻與 R1c、烘焙 plant 判準。
 - 不把骨盆的停步語意改綁到停步 clip（見 1.1）。
+
+---
+
+## 6. F2 語意檢查：`BodySpeedTier` 是 domain fact，還是 convenience representation？（2026-10-08，research-only）
+
+> **判準（使用者裁決）**：只有在**語意、邊界、更新時機、owner 四者都一致**時，才允許提升成黑板的 canonical field。
+> ⛔ Mixer 的 0.55 中點**不是既有事實**，只是對連續 blend 的一種量化規則。本節不把它當輸入。
+
+### 6.1 先釐清 repo 裡**確實存在**的相關事實
+
+| 事實 | 性質 | 出處 |
+|---|---|---|
+| `MoveSpeed`（smoother 輸出，0–1） | **canonical、連續**；mixer 參數就是它 | `LocomotionModel.cs:165,169`；WriterRule |
+| Mixer 有四個 child：Idle／WalkFwdLoop／RunFwdLoop／SprintFwdLoop，門檻 0／0.35／0.75／1.0，`_SynchronizeChildren` 全關 | Presentation 資產；**每個 child 有自己的時鐘** | `Locomotion.asset`；ADR-011 §1 |
+| 三支 loop 的 authored 腳相原點**不同** | 動畫事實 | `docs/07` §0.2 |
+| 「主導 child」＝權重 argmax，同權重取較前者 | **只是取樣規則**：用來決定「讀哪一個時鐘當腳相」；⛔ 不是 tier | `AnimancerFacade.TryGetDominantChildNormalizedTime`；`docs/07` §0.2 |
+| Core 不認識 Mixer／child index／clip | 架構原則 | `docs/07` §0.2；`LocomotionModel.cs:170` 註解 |
+| Stop 帶刻意放在「該 loop 主導」的區間內（Walk 0.35–0.50、Run 0.75–0.875，上界＝同權重取 Run） | **Stop 自己的資料約束**，文件有寫、**沒有測試** | `docs/07` §0.1–§0.2 |
+
+**實測（live Editor，唯讀）**：把某支 loop 的時鐘交給另一支 loop 的 Bake 解讀時，選錯腳的比例：
+
+| 實際被讀的時鐘 | 用來解讀的 Bake | 選錯腳（占循環的比例） |
+|---|---|---|
+| WalkFwdLoop | RunFwdLoop | **26.4%** |
+| RunFwdLoop | WalkFwdLoop | **26.4%** |
+| SprintFwdLoop | RunFwdLoop | 3.3% |
+| RunFwdLoop | SprintFwdLoop | 3.3% |
+
+（2000 個 normalized time 取樣，`GetFootPhaseAt` 比較。）
+
+### 6.2 逐一檢查五個 consumer
+
+| | **Stop**（`LocomotionStopSelector.SelectTier`＋`SelectByEntryPhase`） | **Jump**（`JumpState.SelectSpeedTier`＋`TryGetCurrentLocomotionPhase`） | **FootIK**（規則⑦閘門） | **Footstep**（`AudioController`／`FootstepAudioBankSO`） | **ADR-011**（`ShouldAlignRunEntryPhase`） |
+|---|---|---|---|---|---|
+| **①真正需要的是什麼** | **actual speed**（放開前一刻的 smoother 速度）判斷哪一組 **authored stop clip** 能自然接上；再用主導時鐘＋**同一支 loop 的 Bake** 選 LU／RU | (a) **authored jump clip family**（Idle／Walk／Run 起跳；落地沿用起跳快照）——應對應起跳當下身體在播的東西；(b) LU／RU：需要的是「**被取樣的那個時鐘屬於哪支 clip**」，不是 tier | **committed stop tier**（D1-b 已裁決） | 一個 **Presentation policy**：每一步用哪一組音色。可能的輸入有 control gait（現行）、連續強度、這一步的運動學（tracker 已量到下降速度）——沒有哪一個是被迫的 | 這次起跑**Run child 會不會在畫面上被看見**（它的任意相位才會造成滑步）——是目標強度下 Run child 的**連續權重**，加上「從靜止起跑」與朝向條件 |
+| **②需要離散 Walk／Run 嗎** | 需要——在離散的 authored 資產集合 {Walk Stop, Run Stop, 無} 中選一個 | (a) 需要（離散的 variant 集合）；(b) **不需要**，需要的是時鐘身分 | 需要，但它是**繼承** Stop 的決定，不是自己分類 | 音色池是離散的，但選擇規則可以是連續輸入的函數；**不需要**「身體 tier」 | 不需要；是一個 yes／no 閘門，底層量是連續權重 |
+| **③邊界** | 0.35–0.50／0.75–0.875，**中間與兩端留空 ⇒ 無停步**；上界還受 RU 尖峰速度約束（`docs/07` §0.1：4.696 m/s 錨點） | 意圖 ≤ 0.2 Idle／< 0.75 Walk／≥ 0.75 Run（**分割、無空隙**，輸入是原始意圖） | 無自己的邊界 | 無數值邊界（按鍵） | 現行：按鍵 Run；若改成正確的量，會是「目標強度下 Run 權重 ≥ w*」——需要 mixer 門檻，而 Core 刻意不知道它 |
+| **④更新時機** | 放開那一帧取樣一次，之後整段停步承諾（generation） | 進入 Jump 那一帧一次；落地沿用 | 停步承諾期間 | 每一個腳步事件、每隻腳 | 意圖上升緣（從靜止起跑）一次 |
+| **⑤owner** | `LocomotionModel`（停步 policy） | `JumpState`＋`JumpStateParams`（玩家／敵人各一份） | 生產者 `LocomotionModel`；FootIK 只消費 | `AudioController`（Presentation） | `LocomotionModel`（ADR-011 D1） |
+
+### 6.3 判定
+
+| 判準 | 結果 |
+|---|---|
+| 語意一致？ | ❌ 五個問題：「哪組停步 clip 接得上」、「哪組跳躍 clip＋哪個時鐘」、「已承諾的停步是哪組」、「哪組音色」、「Run child 會不會被看見」 |
+| 邊界一致？ | ❌ 帶狀有空隙／分割無空隙（輸入還不同：速度 vs 意圖）／繼承／無／連續權重 |
+| 更新時機一致？ | ❌ 放開／起跳／承諾期間／每步／起跑緣 |
+| owner 一致？ | ❌ Model（stop）／JumpState／Model（ADR-011）／Audio；FootIK 不是分類者 |
+
+> **結論：`BodySpeedTier` 是 convenience representation，不是 canonical domain fact。不提升、不開 ADR（D2-d 的前提不成立）。**
+> 五個 consumer 共用的真正 canonical 底層只有兩個，而且**都已經存在**：連續的 `MoveSpeed`（Core）與 mixer 的 child 集合（Presentation 資產）。
+> 各 consumer 的離散化屬於它們自己的 policy，邊界不同是**正確的**，不是碎裂。
+> `docs/47` F-02 的「四個定義」因此改判：Stop／Jump／ADR-011／Footstep 各自分類＝healthy specialization；**真正的問題是下面兩個，都不需要新的 tier**。
+
+### 6.4 剩下的兩個真問題
+
+**(1) FootIK 用 control gait 回答「停步 clip 是哪組」** ⇒ 已由 F1／D1-b 處理（M1.2／M1.3）。
+
+**(2) 🆕 Jump 的 phase pairing 不變式沒有被保證——F2-J**
+
+**不變式**：*腳相必須用「被取樣時鐘所屬的那支 clip」的 Bake 來解讀。* 這是一條**契約**，不是欄位。
+
+- Stop **靠資料滿足**它：Stop 帶落在該 loop 主導的區間內（`docs/07` §0.2）——有文件，**沒有測試**。
+- Jump **不滿足**：tier 由**原始意圖**的 0.2／0.75 決定；被取樣的時鐘由**實際速度驅動的 mixer 權重**決定。兩者在下列情況分歧，而 Walk↔Run 錯配會選錯腳 26.4%（§6.1 實測）：
+
+| 情況 | 意圖 → Jump tier | 身體速度 → 主導時鐘 | 錯配 |
+|---|---|---|---|
+| 戰鬥中側移／後退（`XBotSpellDirectionalSpeedProfile`：R 0.488、L 0.467、B／BL／BR 0.477；model 內部取 `min`，黑板上的意圖不變） | 0.75 → **Run** | 0.47–0.49 → **Walk** 時鐘 | Run Bake 讀 Walk 時鐘 |
+| 類比搖桿穩態 0.55–0.75 | **Walk** | **Run** 時鐘 | Walk Bake 讀 Run 時鐘 |
+| 起步／放開 Walk 鍵後的加減速期（accel 0.12 s／decel 0.18 s） | 已是目標 tier | 仍是前一個時鐘 | 短暫 |
+| Sprint（1.0） | Run | Sprint 時鐘 | 3.3%（輕微） |
+| 敵人（Y Bot） | — | — | 不受影響：`EnemyJumpStateParams` 沒有 loop Bake ⇒ 一律退到 Idle 家族 |
+
+- 嚴重度：**Medium**（同類缺陷 `docs/07` §0.2 的「同腳連踩」已經在 Stop 上修過一次）。⚠️ 以上是**資料＋實測的組合推導**，畫面上是否看得出來尚未 Play 驗證。
+- 修法方向（列出、**不提案**、都不需要全域 tier）：
+  - **J1**：Jump 比照 Stop，只在「該 loop 主導」的速度區間才承諾 Walk／Run 家族（輸入改成實際速度），其餘退到 Idle 家族——與 Stop 同一種資料約束。
+  - **J2**：讓腳相查詢一併回報「被取樣的是哪個 child」，由 model 以自己持有的 loop Bake 對應——⚠️ 會碰 `docs/07`「Core 不認識 child index」的原則，需另議。
+  - **J3**：先為現有的 Stop 約束補一條測試（Stop 帶 ⊂ 主導區間），再決定 Jump。⚠️ 讀 mixer 門檻是否觸及 Gate B（Animancer 私有序列化）要先確認；只讀不寫，與 B11 的「寫入」顧慮不同。
+
+### 6.5 M2.x 的處置
+
+| 步 | 處置 | 理由 |
+|---|---|---|
+| M2.0 | **不做** | 它要把 Gait／Stop tier／Jump tier 並排鎖住，前提是「三者是同一件事的不同版本」——§6.3 已否定 |
+| M2.1–M2.4 | **停止** | 都以 `BodySpeedTier`／tier 表成立為前提 |
+| M2.5 | **撤銷** | D2-a：音效獨立處理 |
+| ADR-011 的 `Gait == Run` | **保留現狀，記為已知限制** | 起跑對齊是 Run-only 的窄範圍 Trial；類比半推時誤觸發的成本很低（後端只重設權重 0 的 child），不需要為它建立 tier。真正的量（Run child 權重）若要用，屬於 ADR-011 自己的 Trial 修訂 |
+
+### 6.6 ❓ 決策點
+1. **D2-e**：F2-J（Jump phase pairing）要不要開一個**量測 slice**（戰鬥側移起跳、類比 0.6 起跳的 LU／RU 實際對錯）？量完再在 J1／J2／J3 之間選。
+2. **D2-f**：同意把 `docs/47` F-02 改判為「各 consumer 自有 policy＝healthy；真問題＝F1 的 gait 代理＋F2-J」嗎？
