@@ -1,0 +1,32 @@
+param([string]$Dir)
+$rows = @()
+foreach ($f in Get-ChildItem -Path $Dir -Filter 'summary_*.csv') {
+    $l = Get-Content $f.FullName
+    if ($l.Count -lt 2) { continue }
+    $h = $l[0].Split(','); $v = $l[1].Split(',')
+    $o = [ordered]@{}
+    for ($i = 0; $i -lt $h.Count; $i++) { $o[$h[$i]] = if ($i -lt $v.Count) { $v[$i] } else { '' } }
+    $rows += [pscustomobject]$o
+}
+$inv = [Globalization.CultureInfo]::InvariantCulture
+function Num($s) { $d = 0.0; if ([double]::TryParse($s, [Globalization.NumberStyles]::Float, $inv, [ref]$d)) { $d } else { [double]::NaN } }
+foreach ($g in ($rows | Group-Object case | Sort-Object Name)) {
+    $r = $g.Group | Where-Object { $_.jumpTier -ne $null -and $_.jumpTier -ne '' }
+    $n = $r.Count
+    if ($n -eq 0) { "{0}: no takeoff ({1} runs)" -f $g.Name, $g.Count; continue }
+    $intent = ($r | ForEach-Object { Num $_.intent } | Measure-Object -Minimum -Maximum)
+    $speed = ($r | ForEach-Object { Num $_.moveSpeed } | Measure-Object -Minimum -Maximum)
+    $dom = ($r | Group-Object dominant | ForEach-Object { "$($_.Name)x$($_.Count)" }) -join ' '
+    $smp = ($r | Group-Object sampledChild | ForEach-Object { "$($_.Name)x$($_.Count)" }) -join ' '
+    $tier = ($r | Group-Object jumpTier | ForEach-Object { "$($_.Name)x$($_.Count)" }) -join ' '
+    $mm = ($r | Where-Object { $_.clockFamilyMismatch -eq '1' }).Count
+    $wc = ($r | Where-Object { $_.wrongVsClock -eq '1' }).Count
+    $wp = ($r | Where-Object { $_.wrongVsPose -eq '1' }).Count
+    $cr = ($r | Where-Object { $_.combatReady -eq '0' }).Count
+    $inc = ($r | Where-Object { $_.inCombat -eq '1' }).Count
+    "{0} (n={1}): intent {2:F3}-{3:F3} | speed {4:F3}-{5:F3} | inCombat {6} notReady {7} | dominant[{8}] sampled[{9}] jumpTier[{10}] | familyMismatch {11} | wrongFoot vsClock {12} vsPose {13}" -f `
+        $g.Name, $n, $intent.Minimum, $intent.Maximum, $speed.Minimum, $speed.Maximum, $inc, $cr, $dom, $smp, $tier, $mm, $wc, $wp
+}
+"--- mismatch rows"
+$rows | Where-Object { $_.clockFamilyMismatch -eq '1' -or $_.wrongVsClock -eq '1' -or $_.wrongVsPose -eq '1' } | Sort-Object case, {[int]$_.offset} |
+    Format-Table case, offset, sinceTurn, intent, moveSpeed, localAngle, walkW, runW, dominant, sampledChild, jumpTier, phaseUsed, truthClockPhase, truthPosePhase, startClip, supportSlideMax10, lowerFlips10 -AutoSize | Out-String -Width 400

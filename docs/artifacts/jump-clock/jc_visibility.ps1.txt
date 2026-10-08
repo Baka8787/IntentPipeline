@@ -1,0 +1,33 @@
+param([string]$Dir)
+# Visibility proxy per jump: max per-frame change of the horizontal L-R foot separation (final bones),
+# after takeoff (rel 1..10) vs. during normal gait just before (rel -10..-1). Units m/frame.
+$inv = [Globalization.CultureInfo]::InvariantCulture
+function Num($s) { $d = 0.0; if ([double]::TryParse($s, [Globalization.NumberStyles]::Float, $inv, [ref]$d)) { $d } else { [double]::NaN } }
+$out = @()
+foreach ($f in Get-ChildItem -Path $Dir -Filter '*.csv' | Where-Object { $_.Name -notlike 'summary_*' }) {
+    $sumFile = Join-Path $Dir ('summary_' + $f.Name)
+    if (-not (Test-Path $sumFile)) { continue }
+    $sl = Get-Content $sumFile; if ($sl.Count -lt 2) { continue }
+    $sh = $sl[0].Split(','); $sv = $sl[1].Split(',')
+    $s = @{}; for ($i = 0; $i -lt $sh.Count; $i++) { $s[$sh[$i]] = if ($i -lt $sv.Count) { $sv[$i] } else { '' } }
+    if (-not $s['jumpTier']) { continue }
+    $l = Get-Content $f.FullName; $h = $l[0].Split(',')
+    $iRel = [Array]::IndexOf($h, 'rel')
+    $iLX = [Array]::IndexOf($h, 'boneLX'); $iLZ = [Array]::IndexOf($h, 'boneLZ'); $iRX = [Array]::IndexOf($h, 'boneRX'); $iRZ = [Array]::IndexOf($h, 'boneRZ')
+    # rel is -1 before takeoff; reconstruct pre-takeoff index by position of the first rel==0 row
+    $rows = @(); for ($i = 1; $i -lt $l.Count; $i++) { $rows += ,($l[$i].Split(',')) }
+    $t0 = -1; for ($i = 0; $i -lt $rows.Count; $i++) { if ($rows[$i][$iRel] -eq '0') { $t0 = $i; break } }
+    if ($t0 -lt 11) { continue }
+    $sep = @(); foreach ($r in $rows) { $sep += ,@(((Num $r[$iLX]) - (Num $r[$iRX])), ((Num $r[$iLZ]) - (Num $r[$iRZ]))) }
+    function MaxStep($a, $b) { $m = 0.0; for ($k = $a; $k -le $b; $k++) { $dx = $sep[$k][0] - $sep[$k-1][0]; $dz = $sep[$k][1] - $sep[$k-1][1]; $m = [Math]::Max($m, [Math]::Sqrt($dx*$dx + $dz*$dz)) }; $m }
+    $pre = MaxStep ($t0 - 9) ($t0 - 1)
+    $post = MaxStep ($t0 + 1) ([Math]::Min($t0 + 10, $rows.Count - 1))
+    $out += [pscustomobject]@{ case = $s['case']; offset = [int]$s['offset']; family = $s['clockFamilyMismatch']; wrongClock = $s['wrongVsClock']; wrongPose = $s['wrongVsPose']; pre = $pre; post = $post; ratio = if ($pre -gt 0) { $post / $pre } else { [double]::NaN } }
+}
+"--- per group (post = max L-R separation change per frame in 10 frames after takeoff; pre = same, 9 frames before)"
+foreach ($g in ($out | Group-Object { "famMismatch={0} wrongVsClock={1} wrongVsPose={2}" -f $_.family, $_.wrongClock, $_.wrongPose } | Sort-Object Name)) {
+    $p = $g.Group | Measure-Object post -Average -Maximum; $q = $g.Group | Measure-Object pre -Average; $r = $g.Group | Measure-Object ratio -Average -Maximum
+    "{0}: n={1} post avg {2:F3} max {3:F3} m/f | pre avg {4:F3} | ratio avg {5:F2} max {6:F2}" -f $g.Name, $g.Count, $p.Average, $p.Maximum, $q.Average, $r.Average, $r.Maximum
+}
+
+
