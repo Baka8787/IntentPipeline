@@ -196,6 +196,7 @@ LocomotionModel.cs:131         ADR-011 起跑對齊用 Gait == Run              
 | AI recover（0.5） | **Run** | Walk | Walk |
 
 `AIMovementSource` 不寫 `Gait`（`WriterRules` 只允許 `PlayerLocomotionPolicy.cs`），Y Bot 也沒有掛 policy ⇒ 敵人的腳步音色永遠是 Run 組。
+> 🔄 **更正（2026-10-08，`docs/48` §0.1）**：AI 預設 Run 是 `docs/36` §4.1 的**刻意設計**（「沒有 policy 的角色也應該聽起來在跑」），不是遺漏。本 finding 成立的部分是：`docs/36` 的理由「強度與檔位必須同源」在 `respectAnalogMagnitude = 1`（搖桿半推）時已不成立，以及 Jump／Stop／FootIK 把控制方案檔位當成身體速度檔使用。
 
 **分類**：③ Representation fragmentation（a/b 混用）＋ ② Duplicate fact derivation（Stop 與 Jump 各用不同輸入、不同門檻算 b）。
 
@@ -217,6 +218,7 @@ LocomotionModel.cs:131         ADR-011 起跑對齊用 Gait == Run              
 | Footstep | **鞋底**離 pose 平面 ≤ 4.5 cm、行程 ≥ 6 cm | ≤ 2.0 m/s（root≥0.5 時） | 鞋底 | `FootPlantTracker` |
 
 **為什麼烘焙 plant 與 T3 lock 應是同一概念**：`LandingSurfaceResolver` 拿烘焙的 next plant 當「這次擺盪的目的地」，再用 T3 的 β／Phase 決定驗證窗與結束（`Phase != Unlocked ⇒ Reset`）。它隱含的假設是「烘焙認定的 plant ＝ T3 會鎖的那一下」。但兩者門檻差約 6 倍——`docs/45` §22 量到的「慢速移動的腳被 β 鎖住、動畫在鎖下累積 9–11 cm」就是這兩個定義不一致的可見後果；R1c（鎖定點跟隨）是在 T3 這一側補償它，不是消除它。
+> 🔄 **更正（2026-10-08，`docs/48` §0.1／§3）**：①`docs/45` §22.4 量到**鎖定當下**動畫腳離停點 ≤ 2 cm——onset 沒有差到 6 倍那種程度；真正分歧的是**鎖的持續期間／釋放**與**支撐踏面選擇規則**（§14.4）。②烘焙 plant 不依賴 T3 門檻是 2026-10-03 的明確裁決（ADR-010 §9、`docs/45` §16.1），`LandingSurfaceResolver` 也已經用可信度＋即時驗證處理兩者不等。因此本條改定位為「刻意分離，但契約沒寫下來」；真正的 duplicate 是支撐踏面的三份規則（`docs/48` §3.3，與 F-06 同源）。
 
 **為什麼 footstep 與 T3 lock 不是同一概念**：footstep 問「鞋底何時碰到地（聲音 onset）」，T3 問「何時可以把腳釘住」——不同問題，門檻各自由 `docs/35` 實測。見 H 節。
 
@@ -446,6 +448,7 @@ Current   SampleGround（兩點）與 T3（三點）各自取樣；骨盆混用�
 ⚠️ 會改骨盆數值 ⇒ 需要樓梯 probe 前後對照（`unity-live-control`），不能只靠推導。
 
 **刻意不列入**：F-03（烘焙 plant vs T3 lock）。它是設計問題而非重構——要先決定「預測的是動畫的 plant，還是 T3 的 lock」，而 R1c 這條線才剛裁決。建議在下一次 T3 slice 的開場把它寫成一句明確的契約，再決定要不要動。
+> 🔄 2026-10-08：契約草案見 `docs/48` §3.2（K1：預測的是動畫的 plant，⛔ 不得假設它就是 T3 lock）。
 
 ---
 
@@ -484,7 +487,7 @@ Current   SampleGround（兩點）與 T3（三點）各自取樣；骨盆混用�
 2. Walk／Run 有 4 個定義，類比搖桿半推、Sprint、AI 三種常見情境就讓它們互相矛盾（F-02 表）。
 3. 4 個 A/B bool 留成永久結構；出貨設定下 625 行 solver 是死路徑；玩家與敵人跑不同腳部／骨盆架構（F-04）。
 4. 同一隻腳同一帧兩種地面高度被同一個式子混用（F-06）；同一個 class 裡兩份 root 速度歷史（F-07）。
-5. 烘焙 plant 與 T3 lock 定義差約 6 倍，卻被 `LandingSurfaceResolver` 當作同一事件配對——近三輪 `docs/45` 研究（§22–§24）的量測結果與此一致（F-03）。
+5. ~~烘焙 plant 與 T3 lock 定義差約 6 倍，卻被 `LandingSurfaceResolver` 當作同一事件配對~~——🔄 更正（`docs/48` §0.1）：兩者分離是已裁決的設計，resolver 也已用即時驗證處理；剩下的證據是「腳踩哪一階」有三份規則（F-03 更正、F-06）。
 6. Core 唯一一處 copy（跳躍初速，F-05）邊界已漂移，說明「copy 一次」在本 repo 不是穩定狀態。
 
 **趨勢判斷**：碎裂幾乎全部出生在「為了讓某個 Play 觀察到的瑕疵消失而加一個開關／一個局部判準」的 slice 裡，且每個 slice 都附了 A/B 與測試——個別決定都站得住，問題在於**實驗結束後沒有回收**（開關沒收、被取代的 solver 沒刪、代理判準沒換成 canonical 來源）。建議把「Trial／A/B 結束 ⇒ 收開關、刪輸家、把代理換成 owner」列入 slice 收尾條件，而不是另開重構專案。
