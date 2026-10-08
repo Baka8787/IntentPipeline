@@ -149,7 +149,9 @@ namespace Project.Tests.PlayMode
             for (int i = 0; i < wait; i++) yield return null;
             if (turn)
             {
+                // ⚠️ 釋放與按下分兩帧：同一帧對鍵盤送兩個事件不可靠（2026-10-08 實測：D 會卡住，側移變成 45° 斜走）。
                 Release(_kb.dKey);
+                yield return null;
                 Press(side ? _kb.sKey : _kb.aKey);
                 rec.MarkTurn();
                 for (int i = 0; i < offset * 2; i++) yield return null;
