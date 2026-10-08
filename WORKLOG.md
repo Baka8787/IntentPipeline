@@ -7,6 +7,21 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🟦 2026-10-08 概念收斂：**F1／F3 方向已裁決、F2 不提升 tier**（`docs/48`；審查來源 `docs/47`）
+>
+> **開場只需讀**：本段 ＋ `docs/48` §0.2（裁決）＋ §6（F2 結論）。
+>
+> - ✅ 裁決：D1-b＝Yes（規則⑦跟 committed stop tier，不跟 Gait）；D3-b＝先 M3.1；F2 暫停、footstep audio 拆出；不接受 0.55；不開 ADR。
+> - ✅ **F2 語意檢查（§6）**：Stop／Jump／FootIK／Footstep／ADR-011 的語意、邊界、更新時機、owner 全不一致 ⇒ `BodySpeedTier` 是 convenience representation，**不提升**。真問題只剩 FootIK 的 Gait 代理（F1 處理）與 🆕 **F2-J**：Jump 用原始意圖選 Walk／Run Bake，卻讀實際速度主導的時鐘；Walk↔Run 錯配實測選錯腳 **26.4%**（Sprint↔Run 3.3%）；戰鬥側移／後退（限速 0.47–0.49、意圖仍 0.75）與類比 0.55–0.75 會觸發。未 Play 驗證。
+> - ✅ **M1.0／M1.1**（`41e8799`）：`MovementIntentData.HasMovementRequest`（ε 0.001）＝「意圖放開了沒」唯一規則；Model／Selector／FootIK 兩處共用；`A51` 禁止表現層讀 `DesiredSpeedNormalized`；出貨資產 characterization（半推 Run ⇒ Walk Stop、Sprint ⇒ 無停步）。
+> - ✅ **M3.0**（`2fc37d0`）：K1–K6 契約——ADR-010 D5 語意界定（next plant＝authored contact ≠ T3 lock）、`docs/45` §28。
+> - ✅ **M3.1**（`bed6cb9`）：`FootContactSolver.ConsiderSupport` 成為支撐踏面唯一規則（T3＋預測共用）。樓梯 probe 12 次／3078 帧，重構前 ×2、後 ×1：runtime 欄位**逐帧全部相同**。附帶：同組三點命中上「最高踏面 vs 最大穿透」0／6073 不同（§14.4 的分歧來自腳姿輸入）。
+> - 回歸：EditMode **863／862／0 failed／1 skipped**；PlayMode **96／95**（只有既有 `C0`）。
+> - ❓ 待使用者：①**D2-e** 是否開 F2-J 量測 slice（戰鬥側移起跳、類比 0.6 起跳的 LU／RU 對錯）；②**D2-f** 同意 `docs/47` F-02 改判；③**M1.2／M1.3**（ADR-010 D6 發布 stop tier → 規則⑦改讀它；M1.3 是行為變更，要重跑下樓停步驗收）何時開工；④D3-c 改名。
+> - ⛔ 未做：M1.2／M1.3（不在 no-behavior-change 範圍）、M2.x（停）、M3.2／M3.3（behavioral slice，延後）。
+>
+> ---
+>
 > # 🟧 2026-10-07 裁決：**A2（P8b）X Bot 開**／**A1 不做正式 policy**／**ADR-011 AC4 撤回「拖步已改善」，須在 R1c 3 cm 下重驗**
 >
 > - 使用者對 R1c 下起跑拖步的初步觀察：「有，但其實不太影響」（未作為 AC4 結論）。
