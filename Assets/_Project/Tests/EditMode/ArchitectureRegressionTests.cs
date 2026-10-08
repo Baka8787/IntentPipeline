@@ -1862,5 +1862,30 @@ namespace Project.Tests.EditMode
                 $"{path} 的 transition permission 與已裁決政策不符（docs/26 §I.6）：\n" +
                 string.Join("\n", violations));
         }
+
+        // =====================================================================
+        // A51 — 表現層不自行判讀移動強度（docs/48 §1.3，S-A Movement Request）
+        // =====================================================================
+
+        /// <summary>
+        /// 「意圖放開了沒」只有一條規則：<c>MovementIntentData.HasMovementRequest</c>。
+        /// 表現層若直接讀 <c>DesiredSpeedNormalized</c>，就會自己挑門檻（實例：FootIK 曾用 <c>&gt; 0f</c>，
+        /// Core 用 <c>≥ 0.001</c>）——那是 docs/16 的「下游重新推導已 commit 的狀態」。
+        /// 表現層要的是語意（有沒有請求），不是強度數值；需要強度的是 model。
+        /// </summary>
+        [Test]
+        public void A51_Presentation_DoesNotInterpretRawMovementIntensity()
+        {
+            var violations = new List<string>();
+            foreach (string path in Directory.GetFiles(Path.Combine(ScriptsRoot, "Presentation"), "*.cs", SearchOption.AllDirectories))
+            {
+                if (StripComments(File.ReadAllText(path)).Contains("DesiredSpeedNormalized"))
+                    violations.Add(RelativePath(path));
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "表現層不得直接讀 MovementIntent.DesiredSpeedNormalized——改用 MovementIntentData.HasMovementRequest（docs/48 §1.3）：\n" +
+                string.Join("\n", violations));
+        }
     }
 }

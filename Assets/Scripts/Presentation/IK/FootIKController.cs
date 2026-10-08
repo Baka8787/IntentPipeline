@@ -864,7 +864,7 @@ namespace Project.Presentation.IK
                 MaxOffset = settings.MaxPelvisOffset,
             };
             // 地形提示＝原本的 Terrain Envelope（fallback 就是它）：只用來選回升語意（docs/46 §13），⛔ 不是目標、不是上限。
-            bool movementRequested = data.MovementIntent.DesiredSpeedNormalized > 0f;
+            bool movementRequested = data.MovementIntent.HasMovementRequest;   // S-A（docs/48 §1.3）：與停步觸發同一條規則
             bool walkGait = data.Gait == GaitTier.Walk;
             var context = new MovingPelvisContext
             {
@@ -1056,7 +1056,7 @@ namespace Project.Presentation.IK
                 Preferred = preferred,
                 HardLimit = hard,
                 RootSpeed = haveSpeed ? rootSpeed : float.PositiveInfinity,
-                MovementRequested = data.MovementIntent.DesiredSpeedNormalized > 0f,
+                MovementRequested = data.MovementIntent.HasMovementRequest,
                 PreferredExtension = settings.StandingPreferredExtension,
                 LeftHip = leftHipNext,
                 RightHip = rightHipNext,

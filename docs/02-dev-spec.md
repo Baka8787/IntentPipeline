@@ -367,6 +367,14 @@ public interface IArbiterSource
 public struct MovementIntentData
 {
     public float DesiredSpeedNormalized;  // [0-1]，模型無關的移動強度
+
+    // 🆕（2026-10-08，docs/48 §1.3 S-A）「意圖放開了沒」的唯一判讀規則。
+    // 停步觸發（LocomotionModel／LocomotionStopSelector）與骨盆停步語意（FootIKController）共用；
+    // ⛔ 消費端不得自挑門檻（`> 0f` 之類）。續走／取消等「強度夠不夠」門檻是各自的 policy，不屬此列。
+    // 表現層一律讀這個，不讀 DesiredSpeedNormalized（A51）。
+    public const float RequestEpsilon = 0.001f;           // ＝ LocomotionSpeedSmoother.Epsilon（測試鎖住）
+    public readonly bool HasMovementRequest => DesiredSpeedNormalized >= RequestEpsilon;
+
     public Vector2 DesiredDirection;      // 2D 平面輸入座標系（與 InputData.MoveInput 同語意）
 
     // 🆕（v0.22）Walk 型態是否啟用——**mode state，非單幀事件**。
@@ -1378,6 +1386,7 @@ $$\text{BakedLocalOffset} = \text{CurrentAbsPos} - \text{LastAbsPos}$$
 | **A47** 🟡 Trial | `TraversalEntryPolicy`／`TraversalPlanBuilder`／root solver／warp plan 必須是 pure committed-data transform，不得查 Physics／Time／blackboard／Probe／Transform | ADR-008 D8／D9 | `ArchitectureRegressionTests.A47_*` | 合併掃描 policy／params／plan source token |
 | **A48** 🟡 Trial | `CharacterController.center／height／radius` 的 runtime writer 只能是 `MotionDriver`，且 restore 必須覆蓋三個原始值 | ADR-008 D11 | `ArchitectureRegressionTests.A48_*` | 全 Runtime 掃描 shape assignment 與 restore token |
 | **A49** 🟡 Trial | Traversal Hand IK 與其 Game View debug 只消費 MotionDriver committed plan，不得依賴 Probe／Physics、改 root 或新增 PlayerRuntimeData 欄位；debug 必須直接畫獨立 L/R world target 與 actual hand bone，不得以 `Debug.DrawLine` 依賴 Game View Gizmos | ADR-008 D2／D9；`docs/22` §12 | `ArchitectureRegressionTests.A49_*` | 掃描 Hand IK Controller／Rig、runtime renderer、L/R committed target 與 blackboard schema |
+| **A51** | 表現層不得直接讀 `MovementIntent.DesiredSpeedNormalized`；「意圖放開了沒」一律用 `MovementIntentData.HasMovementRequest` | `docs/48` §1.3（S-A）；`docs/16` 下游重新推導 | `ArchitectureRegressionTests.A51_*` | 掃描 `Scripts/Presentation/**`（去註解）是否出現 `DesiredSpeedNormalized` |
 
 > **掃描法的已知精度（誠實記錄，非缺陷）**：①只掃 Runtime（`Core`／`Presentation`）——單一寫入者是**執行期**契約，`Editor/` 的除錯 Inspector 可手動改寫黑板意圖屬合法例外；②掃描前移除註解，避免文件性文字造成假陽性；字串常值內含 `//` 會被一併截斷，此偏差只會讓檢查**變寬鬆**（漏報），不會假陽性；③token 採子字串比對，刻意保守。
 

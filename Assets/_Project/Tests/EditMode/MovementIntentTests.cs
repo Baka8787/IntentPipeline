@@ -597,5 +597,44 @@ namespace Project.Tests.EditMode
             Assert.AreEqual(first.Direction, second.Direction,
                 "衍生方向必須完全由意圖序列決定（可重現）");
         }
+
+        // =====================================================================
+        // docs/48 §1.3（S-A Movement Request）：「意圖放開了沒」只有一條判讀規則
+        // =====================================================================
+
+        [TestCase(0f, false)]
+        [TestCase(0.0009f, false)]
+        [TestCase(0.001f, true)]
+        [TestCase(0.3651f, true)]
+        [TestCase(1f, true)]
+        [TestCase(1.5f, true)]
+        [TestCase(-0.5f, false)]
+        [TestCase(float.NaN, false)]
+        public void HasMovementRequest_UsesTheSingleRequestThreshold(float desired, bool expected)
+        {
+            var intent = new MovementIntentData { DesiredSpeedNormalized = desired };
+            Assert.AreEqual(expected, intent.HasMovementRequest);
+        }
+
+        [Test]
+        public void RequestEpsilon_MatchesTheSmootherEpsilon()
+        {
+            // 兩者語意不同（判讀規則 vs 數值容忍），但 LocomotionModel 的停步觸發與 smoother 的
+            // 「到達 0」必須在同一個值上同時成立；分歧會讓 release edge 與減速完成錯開。
+            Assert.AreEqual(LocomotionSpeedSmoother.Epsilon, MovementIntentData.RequestEpsilon);
+        }
+
+        [TestCase(0.0009f, true)]
+        [TestCase(0.001f, false)]
+        public void StopReleaseEdge_FlipsExactlyWhereTheRequestEnds(float desired, bool expectedRelease)
+        {
+            var intent = new MovementIntentData { DesiredSpeedNormalized = desired };
+            bool release = LocomotionStopSelector.IsReleaseRequest(
+                wasIntending: true, desiredSpeedNormalized: desired, stopIsActive: false,
+                isGrounded: true, hadAmbientMotionLastFrame: true, deltaTime: 1f / 60f);
+            Assert.AreEqual(expectedRelease, release);
+            Assert.AreEqual(!intent.HasMovementRequest, release,
+                "停步觸發（Core）與骨盆停步語意（Presentation）必須對同一個意圖值給出同一個答案");
+        }
     }
 }

@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 using Project.Presentation.Motion;
+using Project.Core.Blackboard;
 
 namespace Project.Core.Movement
 {
@@ -190,7 +191,7 @@ namespace Project.Core.Movement
             float deltaTime)
         {
             return wasIntending &&
-                   desiredSpeedNormalized < LocomotionSpeedSmoother.Epsilon &&
+                   desiredSpeedNormalized < MovementIntentData.RequestEpsilon &&   // 同 HasMovementRequest 的門檻（docs/48 §1.3）；保留 `<` 寫法 ⇒ NaN 行為不變
                    !stopIsActive &&
                    isGrounded &&
                    hadAmbientMotionLastFrame &&

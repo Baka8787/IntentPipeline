@@ -126,6 +126,38 @@ namespace Project.Tests.EditMode
             Assert.IsFalse(runRu.SourceClip.isLooping);
         }
 
+        /// <summary>
+        /// docs/48 M1.0 characterization（出貨資產）：停步 tier 由**實際速度**決定，與 control gait 無關。
+        /// 搖桿半推 Run ⇒ 強度落在 Walk 帶 ⇒ 播 Walk Stop，而 `Gait` 仍是 Run；Sprint 放開 ⇒ 沒有停步 clip。
+        /// 這兩件事是 D1-b（規則⑦跟 committed stop tier、不跟 Gait）的事實前提；M1.3 不會改變它們。
+        /// </summary>
+        [Test]
+        public void Characterization_StopTier_FollowsReleaseSpeed_NotControlGait()
+        {
+            var gait = AssetDatabase.LoadAssetAtPath<GaitProfileSO>("Assets/ScriptableObjects/Movement/Gait_ActionRPG.asset");
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/X Bot.prefab");
+            Assert.IsNotNull(gait, "Gait_ActionRPG.asset");
+            Assert.IsNotNull(prefab, "X Bot.prefab");
+            var model = prefab.GetComponentInChildren<LocomotionModel>(true);
+            Assert.IsNotNull(model, "X Bot 必須有 LocomotionModel");
+
+            float Band(string field) => (float)typeof(LocomotionModel)
+                .GetField(field, BindingFlags.NonPublic | BindingFlags.Instance).GetValue(model);
+            float walkMin = Band("walkStopMinIntensity"), walkMax = Band("walkStopMaxIntensity");
+            float runMin = Band("runStopMinIntensity"), runMax = Band("runStopMaxIntensity");
+
+            // 半推（0.5）、未按 Walk／Sprint ⇒ policy 寫 Gait = Run，但強度 = defaultIntensity × 0.5。
+            float halfStickRun = gait.ResolveIntensity(0.5f, sprintHeld: false, walkActive: false);
+            Assert.AreEqual(LocomotionStopTier.Walk,
+                LocomotionStopSelector.SelectTier(halfStickRun, walkMin, walkMax, runMin, runMax),
+                $"半推 Run（強度 {halfStickRun:F4}）放開時應播 Walk Stop——停步 tier 跟速度，不跟 Gait");
+
+            float sprint = gait.ResolveIntensity(1f, sprintHeld: true, walkActive: false);
+            Assert.AreEqual(LocomotionStopTier.None,
+                LocomotionStopSelector.SelectTier(sprint, walkMin, walkMax, runMin, runMax),
+                $"Sprint（強度 {sprint:F4}）沒有 Stop 資產 ⇒ 不承諾任何停步（骨盆仍以意圖放開進 StopHold，見 MovingPelvisSolverTests）");
+        }
+
         [Test]
         public void TierSelection_UsesEntryIntensityBeforePhaseSelection()
         {

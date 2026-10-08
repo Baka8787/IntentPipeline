@@ -111,7 +111,8 @@ namespace Project.Core.Movement
             ApplyCombatDirectionalSpeedLimit(data, ref movementIntent);
 
             float desiredSpeed = Mathf.Clamp01(movementIntent.DesiredSpeedNormalized);
-            bool isIntending = desiredSpeed >= LocomotionSpeedSmoother.Epsilon;
+            // docs/48 §1.3（S-A）：「有沒有移動請求」只有一條判讀規則；作用在 model 自己的有效意圖（已套戰鬥方向限速）上。
+            bool isIntending = movementIntent.HasMovementRequest;
 
             // Stop 的「入場強度」是放開發生前一刻的實際速度，不是放開後已被 SmoothDamp
             // 衰減一次的速度。先快照可避免 0.75 Run 在 60/120 FPS 首幀分別掉到約

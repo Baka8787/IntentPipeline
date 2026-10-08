@@ -27,6 +27,20 @@ namespace Project.Core.Blackboard
         public float DesiredSpeedNormalized;
 
         /// <summary>
+        /// 🆕（docs/48 §1.3，S-A Movement Request）「有沒有移動請求」的語意門檻。
+        /// 與 <c>LocomotionSpeedSmoother.Epsilon</c> 數值相同（由測試鎖住），但兩者不是同一件事：
+        /// 那一個是 smoother 的數值容忍，這一個是「意圖放開了沒」的判讀規則。
+        /// </summary>
+        public const float RequestEpsilon = 0.001f;
+
+        /// <summary>
+        /// 🆕（docs/48 §1.3，S-A）本帧是否有移動請求：<see cref="DesiredSpeedNormalized"/> ≥ <see cref="RequestEpsilon"/>。
+        /// 需要回答「意圖放開了沒」的消費者（停步觸發、骨盆停步語意）**一律用這一條**，⛔ 不得自己挑門檻（`> 0f` 之類）。
+        /// 「意圖大到足以續走／取消動作」的門檻（Jump 0.2、Action cancel）是各自的 policy，不屬此列。
+        /// </summary>
+        public readonly bool HasMovementRequest => DesiredSpeedNormalized >= RequestEpsilon;
+
+        /// <summary>
         /// 期望移動方向（世界座標 XZ 平面，y 恆為 0，非相機空間）。
         /// 非零方向須正規化；零向量＝無方向意圖。
         /// </summary>
