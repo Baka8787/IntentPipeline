@@ -1,4 +1,4 @@
-<title>T3 腳部接觸導讀</title>
+<title>腳與地面的接觸</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@500;700&family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
@@ -91,6 +91,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:now
 .pmr div{display:grid;grid-template-columns:5.2em 1fr;gap:10px;padding:7px 0;border-bottom:1px dotted var(--rule)}
 .pmr dt{font-size:13px;color:var(--muted);font-weight:700}
 .pmr dd{margin:0}
+.note{font-size:14px;color:var(--muted)}
 .callout{background:var(--anim-soft);border-radius:6px;padding:14px 16px;margin:0 0 18px}
 .callout p:last-child{margin:0}
 pre.mermaid{background:var(--sheet);text-align:center}
@@ -109,7 +110,8 @@ html{scroll-behavior:smooth}
   <h2>由淺入深</h2>
   <ol>
     <li><a href="#goals"><span class="n">—</span>學習目標</a></li>
-    <li><a href="#l0"><span class="n">L0</span>30 秒版本</a></li>
+    <li><a href="#goals"><span class="n">—</span>學習目標</a></li>
+    <li><a href="#l0"><span class="n">L0</span>概覽</a></li>
     <li><a href="#l1"><span class="n">L1</span>基本概念</a></li>
     <li><a href="#l2"><span class="n">L2</span>架構與責任</a></li>
     <li><a href="#l3"><span class="n">L3</span>每幀呼叫鏈</a></li>
@@ -122,36 +124,15 @@ html{scroll-behavior:smooth}
 </nav>
 
 <main>
-<p class="eyebrow">Foot IK · 樓梯與停步</p>
+<p class="eyebrow">Foot IK · 樓梯與停步技術導讀</p>
 <h1>腳與地面的接觸</h1>
-<p class="lede">Foot IK 樓梯與停步技術導讀</p>
+<p class="lede">透過 Unity 角色在樓梯移動、停步與起跑時遇到的腳部接觸問題，介紹 Foot IK 的基本原理、接觸狀態管理、骨盆補償，以及相關的診斷與驗證方法。</p>
 
 <dl class="audience">
-  <div><dt>文件定位</dt><dd>技術學習與實作導讀。透過 Unity 角色在樓梯移動、停步與起跑時遇到的腳部接觸問題，介紹 Foot IK 的基本原理、接觸狀態管理、骨盆補償，以及相關的診斷與驗證方法。</dd></div>
-  <div><dt>閱讀方式</dt><dd>由基礎概念開始，逐步理解系統架構、每幀執行流程與具體演算法，再透過實際開發案例觀察問題如何被定位、修正及驗證。</dd></div>
+  <div><dt>閱讀方式</dt><dd>由基礎概念開始，逐步理解系統架構、每帧執行流程與具體演算法，再透過實際開發案例觀察問題如何被定位、修正及驗證。</dd></div>
   <div><dt>閱讀前提</dt><dd>具備基本的 Unity、Transform 與角色動畫概念。尚未接觸 IK 的讀者，可從第 1 層開始閱讀。</dd></div>
-  <div><dt>文件範圍</dt><dd>本文以專案中的 T3 腳部接觸系統為實例，說明一種具體的工程實作方式，而非將專案中的設計視為所有角色控制器通用的最佳解。</dd></div>
-  <div><dt>相關文件</dt><dd><code>docs/29</code>、<code>docs/45</code>、<code>docs/46</code>、<code>docs/ADR/010</code>、<code>docs/ADR/011</code></dd></div>
-</dl>
-
-<section id="goals" style="padding-top:8px">
-<h2>學習目標</h2>
-<p>閱讀本文後，應能理解：</p>
-<ol class="qs">
-  <li>FK、IK 與腳部接觸修正之間的關係。</li>
-  <li>為什麼平地動畫在樓梯、斜坡與停步時容易出現穿透、懸空或滑步。</li>
-  <li>如何利用接觸相位、腳部鎖定與地面查詢建立 Foot IK 系統。</li>
-  <li>骨盆高度修正與雙腳可達性之間的關係。</li>
-  <li>如何區分動畫素材、角色位移與 IK 修正所造成的視覺問題。</li>
-  <li>如何使用量測、離線重播及 A/B 測試驗證修正效果。</li>
-</ol>
-<p>本文中的具體數值、演算法與測試結果皆對應到實際專案版本。讀者應理解其設計依據與適用限制，而非直接將參數視為通用設定。</p>
-</section>
-
-<dl class="audience">
-  <div><dt>HR</dt><dd>讓 3D 角色在樓梯上走、停、起跑時，腳自然地踩在台階上。</dd></div>
-  <div><dt>用人主管</dt><dd>解決「動畫假設平地」與「真實地形」的落差；每個修正都有量測與回歸測試。</dd></div>
-  <div><dt>技術面試官</dt><dd>接觸相位 β、鎖腳狀態機、參考面擺盪、可達性骨盆求解；先用與 runtime 99.95% 一致的離線重播篩候選，再做 A/B 與人工 Play；被否決的方案都留有證據。</dd></div>
+  <div><dt>文件範圍</dt><dd>以專案中的 T3 腳部接觸系統為實例，說明一種具體的工程實作方式，而非將它視為所有角色控制器通用的最佳解。</dd></div>
+  <div><dt>相關文件</dt><dd><code>docs/29</code>、<code>docs/45</code>、<code>docs/46</code>、<code>docs/ADR/010</code>、<code>docs/ADR/011</code>（規格正本；本頁是導讀）</dd></div>
 </dl>
 
 <figure>
@@ -174,12 +155,26 @@ html{scroll-behavior:smooth}
   <figcaption>樓梯剖面（示意）。角色的碰撞體走的是虛線的平滑移動面；腳要踩的是一階一階的踏面。舊做法讓擺盪腳追「腳正下方的踏面」，每跨過一個階緣就跳一階；T3 讓擺盪沿連續的移動面、保留動畫的抬腳高度，落地時才貼上目的踏面。</figcaption>
 </figure>
 
+<section id="goals">
+<h2>學習目標</h2>
+<p>閱讀本文後，應能理解：</p>
+<ol class="qs">
+  <li>FK、IK 與腳部接觸修正之間的關係。</li>
+  <li>為什麼平地動畫在樓梯、斜坡與停步時容易出現穿透、懸空或滑步。</li>
+  <li>如何利用接觸相位、腳部鎖定與地面查詢建立 Foot IK 系統。</li>
+  <li>骨盆高度修正與雙腳可達性之間的關係。</li>
+  <li>如何區分動畫素材、角色位移與 IK 修正所造成的視覺問題。</li>
+  <li>如何使用量測、離線重播及 A/B 測試驗證修正效果。</li>
+</ol>
+<p class="note">本文中的具體數值、演算法與測試結果皆對應到實際專案版本。讀者應理解其設計依據與適用限制，而非直接將參數視為通用設定。</p>
+</section>
+
 <section id="l0">
 <p class="layer">LAYER 0</p>
-<h2>30 秒版本</h2>
-<p><strong>問題</strong>：遊戲角色的腳是動畫決定的，而動畫假設地面是平的。走上樓梯時腳會穿進台階、懸在空中；停下來時，腳像被磁鐵吸到落腳點。</p>
-<p><strong>做法</strong>：在動畫之上加一層腳部接觸系統（內部代號 <strong>T3</strong>）。它每幀判斷每隻腳在擺盪還是踩住：擺盪時保留動畫的抬腳高度，落地時貼上真正的踏面，踩住後把腳鎖在原地。骨盆依兩腳搆得到的範圍決定身體高度。</p>
-<p><strong>證明</strong>：每個改動都先量測。自動化探針跑上百次停步，把「動畫原本的腳」「系統算出的目標」「玩家看到的腳」三條軌跡逐幀對齊比較。結論常和直覺相反——「停步時腳被吸過去」量出來不是動畫的問題，而是鎖腳機制造成的（<a href="#l55">5.5</a>）。</p>
+<h2>概覽</h2>
+<p><strong>問題</strong>：角色的腳由動畫決定，而動畫通常假設地面是平的。走上樓梯時，腳會穿進台階或懸在空中；停步時，腳可能看起來像被快速拉到落腳點。</p>
+<p><strong>做法</strong>：在動畫之上加一層腳部接觸系統（本專案稱為 <strong>T3</strong>）。它每帧判斷每隻腳在擺盪還是踩住：擺盪時保留動畫的抬腳高度，落地時貼上真正的踏面，踩住後把腳的水平位置鎖住。骨盆依兩腳搆得到的範圍決定身體高度。</p>
+<p><strong>驗證方式</strong>：每個改動都先量測。自動化探針跑上百次停步，把「動畫原本的腳」「系統算出的目標」「畫面上的腳」三條軌跡逐帧對齊比較。量測結果經常和第一印象不同——「停步時腳被吸過去」量出來不是動畫素材的問題，而是鎖腳機制造成的（<a href="#l55">5.5</a>）。</p>
 </section>
 
 <section id="l1">
@@ -422,6 +417,16 @@ stateDiagram-v2
 <h2>方法論</h2>
 <h3>先量再改，不預設答案</h3>
 <p>每一輪的開場：寫下互斥的假設，設計能區分它們的量測，量完才決定改哪一層。</p>
+<h3>區分問題來源：動畫素材、角色位移、IK 修正</h3>
+<p>「腳的動作不自然」可能來自三個不同的層，修法完全不同。做法是把它們拆成可以分別量測的軌跡：</p>
+<div class="tbl"><table>
+<thead><tr><th>來源</th><th>怎麼單獨看到它</th><th>本專案的例子</th></tr></thead>
+<tbody>
+<tr><td>動畫素材本身</td><td>離線對 clip 取樣（沒有混合、沒有 IK）</td><td>5.5：停步 clip 的收腳不快；5.6：loop 姿勢假設 root 已全速</td></tr>
+<tr><td>角色位移與動畫混合</td><td>runtime pose 加上 root 位移；把 IK 輸出歸零的反事實；root 是否與 Bake 位移一致</td><td>5.6：起跑時混合樹從錯的相位開始；5.7：root 相同、只有狀態計時不同</td></tr>
+<tr><td>IK 修正</td><td>畫面腳 − 動畫腳（同一座標空間、同一時間基準）</td><td>5.5：鎖住時差距累積、釋放時補回</td></tr>
+</tbody></table></div>
+<p>先確認動畫腳本身有沒有問題，再看畫面腳與動畫腳的差異是否由 IK 造成。只有前者正常、後者有差，才是 IK 層的問題。</p>
 <h3>時間基準與座標空間先驗證</h3>
 <p>量錯，後面所有比較都失去意義。這個專案踩過：在協程裡讀骨骼得到的是上一幀；root 在 IK 之後才移動；IK goal 與骨骼差 6 cm。做法是先跑一致性驗證（例如畫面腳 − 目標應為 0），通過才看數字。</p>
 <h3>離線重播 → runtime A/B → 人工 Play</h3>
@@ -478,7 +483,7 @@ stateDiagram-v2
 </section>
 
 <footer>
-<p>原始文件：<code>docs/49-foot-contact-learning-guide.md</code>（本頁的 Markdown 版）、<code>docs/45</code>（T3 §8–§28）、<code>docs/46</code>（骨盆）、<code>docs/ADR/010</code>、<code>docs/ADR/011</code>。數字皆為專案內實測。工作線於 2026-10-08 封存。</p>
+<p>原始文件：<code>docs/49-foot-contact-learning-guide.md</code>（本頁的 Markdown 版）、<code>docs/45</code>（T3 §8–§28）、<code>docs/46</code>（骨盆）、<code>docs/ADR/010</code>、<code>docs/ADR/011</code>。數字皆為專案內實測，對應 2026-10-08 的專案版本。</p>
 </footer>
 </main>
 </div>
