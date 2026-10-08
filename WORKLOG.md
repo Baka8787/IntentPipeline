@@ -7,6 +7,21 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🟦 2026-10-08（第二輪）：F2-J 量測完成、M1.2／M1.3 落地（`docs/48` §0.2、§7；`docs/46` §19.1 註記）
+>
+> **開場只需讀**：本段 ＋ `docs/48` §7（F2-J）＋ `docs/46` §19.1 的 2026-10-08 註記。
+>
+> - ✅ **F2-J 量測**（`2cd83e4`、更正 `60ca793`；資料 `docs/artifacts/jump-clock/`）：150 次起跳。clock-family 錯配**真的發生**，但只在 Walk↔Run 加減速暫態（鍵盤可達：Walk 切換後 ≤ 0.15 s 起跳、靜止起跑頭 10 帧）與假設的類比 0.6；穩態 Walk／Run、戰鬥側移／後退都沒有（戰鬥轉向最低速度 0.553–0.677，Run 時鐘仍主導）。可見性代理：只有「A loop 時鐘配 B loop Bake 而選錯腳」12 次出現不連續（比值 1.52／2.05、max 0.31 m／帧）；家族錯配本身不可見。⇒ 若要修，最小範圍是 phase pairing（§7.6 J2′），不是起跳家族 policy。⏳ 人工 Play 確認（§7.5）。
+> - 🔎 附帶事實：X Bot `MoveAction` **只綁鍵盤**、`SprintAction` **未綁定**（Shift＝Roll）⇒ 玩家意圖只有 0.3651／0.75。搖桿半推是假設情境。
+> - ✅ **M1.2**（`69d025a`）：ADR-010 **D6** `LocomotionStopPrediction.StopTier`（`CommittedStopTier`）；committed 即有效、只覆寫這一欄；行為不變。
+> - ✅ **M1.3**（`ff9a176`，行為變更）：規則⑦改讀 `StopTier == Walk`（`WalkGait`→`WalkStop`）；`A52` 禁止 IK 讀 `Gait`。下樓停步驗收 `PlantSettleProbe.Probe_RuleSevenStairs`（24 × 前後）：Walk 鍵／Run **逐位元相同**；半推（假設）rise→drop 15.89／5.65／0.52 → 0 cm；跑步中切 Walk 立刻放開（鍵盤可達、**沒有停步 clip**）1／6 次 0 → 4.81 cm。
+> - ✅ 文件（`1091530`）：`docs/47` F-02 改判（D2-f）；D3-c 詞彙表（`docs/45` §28 K6）；M3.1 結論定錨在 `docs/45` §14.4。
+> - 回歸：EditMode **868／867／0 failed／1 skipped**；PlayMode **96／95**（只有既有 `C0`）。
+> - ❓ 待使用者：①**D2-g** Jump 要不要修 clock-family ownership（J2′ 最小／J1）；②**D1-c** 「下樓、放開、但沒有停步 clip」要不要也用規則⑥的保守 fallback（M1.3 前是被 Gait 代理意外套上的）；③§7.5 人工 Play（Walk 切換後立刻跳）。
+> - ⚠️ Probe 坑：PlayMode 下同一帧對鍵盤送兩個事件（放開 D＋按下 S）不可靠——D 會卡住。已在兩支 probe 修正並註解。
+>
+> ---
+>
 > # 🟦 2026-10-08 概念收斂：**F1／F3 方向已裁決、F2 不提升 tier**（`docs/48`；審查來源 `docs/47`）
 >
 > **開場只需讀**：本段 ＋ `docs/48` §0.2（裁決）＋ §6（F2 結論）。
