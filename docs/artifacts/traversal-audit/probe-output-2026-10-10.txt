@@ -1,0 +1,44 @@
+# docs/52 Traversal audit — live Editor probe output (2026-10-10, Unity 6000.5.1f1, Edit Mode, not Play)
+# Script: trav_probe.eval.cs.txt (run via: unity cmd eval_file; split into parts — eval has a 5 s main-thread limit).
+# Rig = X Bot prefab CharacterController + TraversalProbe settings (reflection copy); assets = PlayerStateMachineConfig / TraversalStateParams / JumpStateParams (shipped).
+# Geometry = temporary HideAndDontSave boxes at (5000,1000,0); wall front face z=0; forward=+z; depths measured from LedgeFrame.EdgeOrigin along +z.
+# Throwaway: nothing in Assets/ was created or modified.
+
+isPlaying=False
+E1 player: JumpState v=5.6564 g=16.7770 apex=0.9535 | Policy ok=True v=5.6564 g=16.7770 apex=0.9535
+E1 enemy : JumpState v=7.5000 g=9.8100 apex=2.8670 | Policy ok=False v=0.0000 g=0.0000 apex=n/a
+tp: reach=2.1385 landing=1.1160 margin=0.15
+cc center=(0.00, 0.91, 0.00) h=1.826619 r=0.32 skin=0.03 step=0.3
+
+== Scenarios ==
+A  vault thin, long back      : H=1.00 D=0.30 back=8.00 root=1.40 | kind=Vault1m rej=None h=1.000 depth=0.600 landDepth=1.100 destDepth(fromEdge)=1.100 destBlocked? corridor=True | entry=True/None long=1.420 desired=1.402 | sel=ContextualVault pref=True | entered=True
+      plan=Piecewise valid=True rej=None exitT=0.460 planExitDepth=1.100 animNaturalDepthAtExit=1.098 | fit=Fitted rate=0.966 fitLanding committed=1.100 anim=1.116 avail=1.100
+B1 vault thin, back 0.5       : H=1.00 D=0.30 back=0.50 root=1.40 | kind=Vault1m rej=None h=1.000 depth=0.600 landDepth=0.700 destDepth(fromEdge)=0.700 destBlocked? corridor=True | entry=True/None long=1.420 desired=1.402 | sel=ContextualVault pref=True | entered=True
+      plan=Piecewise valid=True rej=None exitT=0.460 planExitDepth=0.700 animNaturalDepthAtExit=1.098 | fit=Fitted rate=0.966 fitLanding committed=0.700 anim=1.116 avail=0.700
+B2 vault thin, back 0.35      : H=1.00 D=0.30 back=0.35 root=1.40 | kind=Vault1m rej=None h=1.000 depth=0.600 landDepth=0.600 destDepth(fromEdge)=0.970 destBlocked? corridor=True | entry=True/None long=1.420 desired=1.402 | sel=ContextualVault pref=True | entered=True
+      plan=Piecewise valid=True rej=None exitT=0.460 planExitDepth=0.970 animNaturalDepthAtExit=1.098 | fit=Fitted rate=0.966 fitLanding committed=0.600 anim=1.116 avail=0.600
+B3 vault thin, no back ground : H=1.00 D=0.30 back=-1.00 root=1.40 | kind=Vault1m rej=None h=1.000 depth=0.600 landDepth=NaN destDepth(fromEdge)=-0.450 destBlocked? corridor=True | entry=True/None long=1.420 desired=1.402 | sel=ContextualVault pref=True | entered=True
+      plan=Endpoint(HorizontalCorrectionExceeded,reqH=2.289,reqV=0.000,we=0.460) valid=False rej=KnotRejected exitT=1.000 planExitDepth=NaN animNaturalDepthAtExit=1.839 | fit=Fitted rate=0.966 fitLanding committed=1.116 anim=1.116 avail=NaN
+C  climb2m deep               : H=1.80 D=3.00 back=-1.00 root=0.46 | kind=Climb2m rej=None h=1.800 depth=0.600 landDepth=1.100 destDepth(fromEdge)=1.100 destBlocked? corridor=True | entry=True/None long=0.480 desired=0.462 | sel=ClimbAboveJumpReach pref=True | entered=True
+      plan=Piecewise valid=True rej=None exitT=0.833 planExitDepth=0.213 animNaturalDepthAtExit=0.194 | fit=NotFitted rate=1.000 fitLanding committed=0.213 anim=0.213 avail=1.100
+D  climb1m deep               : H=1.10 D=3.00 back=-1.00 root=0.45 | kind=Climb1m rej=None h=1.100 depth=0.600 landDepth=1.100 destDepth(fromEdge)=1.100 destBlocked? corridor=True | entry=True/None long=0.470 desired=0.450 | sel=ClimbAboveJumpReach pref=True | entered=True
+      plan=Endpoint(None,reqH=0.202,reqV=0.087,we=0.569) valid=True rej=MissingTraversalBlock exitT=1.000 planExitDepth=1.100 animNaturalDepthAtExit=0.898 | fit=MissingBakeData rate=1.000 fitLanding committed=NaN anim=NaN avail=NaN
+D2 climb1m deep root .75      : H=1.10 D=3.00 back=-1.00 root=0.75 | kind=Climb1m rej=None h=1.100 depth=0.600 landDepth=1.100 destDepth(fromEdge)=1.100 destBlocked? corridor=True | entry=True/None long=0.770 desired=0.450 | sel=ClimbAboveJumpReach pref=True | entered=True
+      plan=Endpoint(None,reqH=0.502,reqV=0.087,we=0.569) valid=True rej=MissingTraversalBlock exitT=1.000 planExitDepth=1.100 animNaturalDepthAtExit=0.598 | fit=MissingBakeData rate=1.000 fitLanding committed=NaN anim=NaN avail=NaN
+E  climb1m platform 0.8       : H=1.10 D=0.80 back=-1.00 root=0.45 | kind=Climb1m rej=None h=1.100 depth=0.600 landDepth=0.700 destDepth(fromEdge)=0.700 destBlocked? corridor=True | entry=True/None long=0.470 desired=0.450 | sel=ClimbAboveJumpReach pref=True | entered=True
+      plan=Endpoint(None,reqH=0.198,reqV=0.087,we=0.569) valid=True rej=MissingTraversalBlock exitT=1.000 planExitDepth=0.700 animNaturalDepthAtExit=0.898 | fit=MissingBakeData rate=1.000 fitLanding committed=NaN anim=NaN avail=NaN
+
+
+== Height sweep (step 0.05 m, root 0.6 m from wall) ==
+  D=0.3 H[0.40..1.25] Vault1m/None -> ContextualVault[TRAV]
+  D=0.3 H[1.30..1.65] Climb2m/None -> OutsideAnimationCoverage[jump]
+  D=0.3 H[1.70..2.05] Climb2m/None -> ClimbAboveJumpReach[TRAV]
+  D=0.3 H[2.10..2.10] Climb2m/None -> OutsideAnimationCoverage[jump]
+  D=0.3 H[2.15..2.40] None/TooHigh -> InvalidCandidate[jump]
+  D=3 H[0.40..1.00] Climb1m/None -> OutsideAnimationCoverage[jump]
+  D=3 H[1.05..1.20] Climb1m/None -> ClimbAboveJumpReach[TRAV]
+  D=3 H[1.25..1.25] Climb1m/None -> OutsideAnimationCoverage[jump]
+  D=3 H[1.30..1.65] Climb2m/None -> OutsideAnimationCoverage[jump]
+  D=3 H[1.70..2.05] Climb2m/None -> ClimbAboveJumpReach[TRAV]
+  D=3 H[2.10..2.10] Climb2m/None -> OutsideAnimationCoverage[jump]
+  D=3 H[2.15..2.40] None/TooHigh -> InvalidCandidate[jump]
