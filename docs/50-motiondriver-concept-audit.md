@@ -583,7 +583,7 @@ Current   零呼叫者；文件仍當 Motion Warping seam（M-09）
 | **WP-B′** 整合驗證 | `docs/52` B3 場景（牆後無地面 ⇒ FL）在 `TraversalStatePlayModeTests` 的 rig 上跑一次：整段 0 個 edge event | 🟠 | — | 新增 1 個 PlayMode | UTR-Play；⚠️ 與 Traversal 會話檔案重疊 |
 | **WP-C** EP／FL 的 post-exit 貼地 | **先量測、不修**：Climb1m（EP）真實 prefab 的 `isGrounded` 時間線、Foot IK 啟用帧、離開後是否出現 `JustLanded` | 🟠（`docs/52` T-09） | 量測本身無 | 量測腳本可直接升格為 PlayMode 測試（若裁決要修） | UTR-Play；修正後需 **Human**（Climb1m 上平台觀感） |
 
-**驗收（M-02）**：WP-A 後 C0 綠，且對照組確實能紅（在 scratch 暫時拿掉抑制，C0 必須紅——驗一次、不 commit）；WP-B 後新測試全綠、PA／PS／EP 既有測試全綠、`HasActiveTraversalPlan` 外部 consumer 行為不變；FL 情境人工可聽（選做）。
+**驗收（M-02）**：WP-A 後 C0 綠，且對照組確實能紅（在 scratch 暫時拿掉抑制，C0 必須紅——驗一次、不 commit）；WP-B 後新測試全綠、PA／PS／EP 既有測試全綠、`HasActiveTraversalPlan` 外部 consumer 行為不變；FL 情境人工可聽（選做）。🔄 `8a124dd` 之後 WP-B 已縮小（L.1.6）：驗收只剩 invariant 測試綠、`TraversalExitValidityPlayModeTests` 綠。
 
 #### L.1.5 與 Traversal 會話的重疊
 
@@ -597,7 +597,11 @@ Current   零呼叫者；文件仍當 Motion Warping seam（M-09）
 | Unity Editor | WP-A／B／D／E 都要用 UTR | Traversal 會話是唯一用過 live Editor 的 | **同一時間只能有一個會話用 Editor** |
 | `TraversalExitValidityPlayModeTests.cs`（**新檔，未 commit，Traversal 會話進行中**） | 不碰 | test-first：J1／J2 與 `PlanValidity_NoBuildablePlan_DoesNotCommitTraversal`（「沒有有效 plan 時不得承諾 traversal」）；runtime 尚未改 | 見 L.1.6 |
 
-#### L.1.6 ⚠️ 進行中的相依：Traversal 會話可能讓 FL 不可達
+#### L.1.6 相依：Traversal 會話讓 FL 不可達——✅ **已落地（`8a124dd`，同日）**
+
+> ✅ **結論（2026-10-10，已讀碼確認）**：`8a124dd` 把 plan 的建立移到 `TraversalState.CanEnter`，`NoValidPlan` 或 committed exit 越出已驗證落腳面（`ExitBeyondVerifiedSurface`）⇒ **不承諾**、交回 Jump；牆後無地面在 Candidate 層就被拒（`NoLandingSurface`）。治理見 `docs/22` §22、ADR-008（Trial）D4／D5 修訂。MotionDriver 未被改動。
+> ⇒ 套用下表「若該工作落地」那一列：**FL 只剩防禦分支**（`ExecuteCommittedMotion` 的 `else`，`TraversalState.cs:520`）；`HasActiveTraversalPlan` 在整段承諾的 traversal 中都為 true（只有 MotionDriver 尚未注入的測試情境例外）；**D-0 已由該 commit 回答；D-1／D-2 撤回；WP-B 縮小為 invariant 測試；WP-B′ 取消**（被 `TraversalExitValidityPlayModeTests` 取代）。L.1.2 的 FL 欄保留作為防禦分支的紀錄。
+> 該會話也確認：warped 路徑的 `VerticalVelocity` 確實是「延遲一帧發布」，並以 `T7` 鎖定（與 L.1.2 一致）。
 
 撰寫本節時（2026-10-10），工作樹出現 Traversal 會話的未 commit 測試檔 `TraversalExitValidityPlayModeTests.cs`，其中 `PlanValidity_NoBuildablePlan_DoesNotCommitTraversal` 斷言「**建不出有效 plan 就不得進入 Traversal**」、`J2_Vault_NoGroundBehind_IsNotACandidate` 斷言 B3 場景不再是候選。對應的 runtime 尚未落地。
 
@@ -722,8 +726,8 @@ Current   零呼叫者；文件仍當 Motion Warping seam（M-09）
 | 3 | **WP-D** step-down 特性測試＋純函數抽取 | — | 無 | Offline＋UTR |
 | 4 | **WP-E′** 真實 prefab 量測 | WP-D | 無 | UTR-Play |
 | 5 | **WP-E** 計時器取樣域 | WP-D、D-3 | **D-3** | UTR-Play |
-| 6 | **WP-B** execution-active 表示（或縮小為 invariant 測試，見 L.1.6） | WP-A、**Traversal 會話 plan-validity 工作的結論**、D-1、D-2 | **D-1、D-2**（FL 不可達時撤回） | UTR-Play |
-| 7 | **WP-B′** FL 整合測試（FL 不可達時取消） | WP-B、Traversal 會話閒置 | — | UTR-Play |
+| 6 | **WP-B（縮小後）** invariant 測試：`TraversalState` 只以有效 plan 執行 committed motion；防禦分支 `ExecuteCommittedCurveMovement` 的去留併入 D-5 | WP-A、`8a124dd` ✅ | D-5 | Offline（架構字串測試）＋UTR-Play（既有 `TraversalExitValidityPlayModeTests` 已覆蓋行為面） |
+| 7 | ~~**WP-B′** FL 整合測試~~ **取消**（`TraversalExitValidityPlayModeTests` 已取代） | — | — | — |
 | 8 | **WP-C** EP／FL post-exit 量測 | WP-B | 修不修＝**D-6** | UTR-Play（修了要 Human） |
 | 9 | **WP-F／F′** step-down 收尾＋文件（Integrated） | WP-D、WP-E | — | Offline＋UTR-Edit |
 | 10 | **WP-G** Step-Up Diagnostics 整併 | WP-F、D-4 | **D-4** | Offline |
@@ -742,7 +746,7 @@ Current   零呼叫者；文件仍當 Motion Warping seam（M-09）
 |---|---|---|---|
 | WP-A、D、F、G、H、I | **無** | — | — |
 | WP-E（D-3 = a） | 樓梯上 Roll／有 bake 的攻擊／traversal 結束時若騰空，不再被吸到移動面，改為彈道落下 | 只在產生式樓梯上；可能出現原本沒有的短暫 Falling／落地聲 | revert 該 commit（計時器回到 assist 取樣域） |
-| WP-B（FL 結局） | 不再出假的離地／落地事件（音效）；（D-1）不再被方向鍵轉向；（D-2）膠囊不再前偏 | 只在 Failed traversal（例：牆後無地面的 Vault） | revert 該 commit；`HasActiveTraversalPlan` 語意不變，Hand IK 不受影響 |
+| ~~WP-B（FL 結局）~~ | **無**——FL 已由 `8a124dd` 變成不可達，縮小後的 WP-B 只加測試 | — | — |
 | WP-C（若 D-6 要修） | Climb1m（出貨路徑）結尾開始貼地 ⇒ Foot IK 提早接手、離開時不再有落地聲 | 所有 Climb1m | 需要人工 Play；revert 一處條件 |
 
 ---
@@ -751,11 +755,11 @@ Current   零呼叫者；文件仍當 Motion Warping seam（M-09）
 
 | # | 問題 | 建議 | 為什麼需要你 |
 |---|---|---|---|
-| **D-0** | Traversal 會話的「沒有有效 plan 就不承諾」（L.1.6）會落地嗎？ | 若落地，D-1／D-2 撤回、WP-B 縮小為 invariant 測試 | 決定 FL 是正式狀態還是不可達；這是 Traversal 的准入語意，不是 MotionDriver 能決定的 |
-| **D-1** | Failed traversal 期間，facing request 要不要丟棄（與 plan 有效時一致）？ | 丟棄（executor 層一致；不動 ADR-007 的 facing source） | 另一種做法是讓 `CharacterFacingSource` 在 traversal 期間不送 request——那會動到 ADR-007（Trial）的優先序 |
-| **D-2** | Failed traversal 期間，膠囊 pose offset 要歸零（與 plan 有效時一致）還是繼續求解？ | 歸零 | 攀爬姿勢是否在 V2 pose solver 的適用範圍內，沒有量測過 |
+| ~~D-0~~ | ✅ **已回答**：`8a124dd`（使用者裁決 J1／J2）——建不出有效 plan 就不承諾 | — | — |
+| ~~D-1~~ | **撤回**（FL 不可達） | — | — |
+| ~~D-2~~ | **撤回**（FL 不可達） | — | — |
 | **D-3** | 失地計時器採 (a) 實時、(b) 失效、(c) 維持？ | (a) | 會改變樓梯上「Roll／攻擊結束時騰空」的落地手感 |
 | **D-4** | 兩個診斷 log 合併成一個 Move trace，還是維持兩個開關？ | 合併 | 開發工具的使用習慣 |
-| **D-5** | 刪 `ApplyBakedCompensation` 時，4-arg `ExecuteBakedCurveMovement`（同樣零呼叫者）要刪，還是保留為「3-arg 的正確替代」並列入 allowlist？ | 保留＋allowlist（Roll／Action 未來需要 playback rate 時的現成入口） | API 保留策略 |
+| **D-5** | 刪 `ApplyBakedCompensation` 時，①4-arg `ExecuteBakedCurveMovement`（零呼叫者）與 ②`ExecuteCommittedCurveMovement`（`8a124dd` 後只剩防禦分支呼叫；另有 3 個 PlayMode 測試直接呼叫、A-test `:1381` 以字串鎖住）各要刪，還是保留並列入 allowlist？ | ①保留＋allowlist（Roll／Action 未來需要 playback rate 時的現成入口）；②保留為防禦分支＋allowlist（bake 有問題時仍不退回普通重力路徑，是 `TraversalState` 註解明載的語意） | API 保留策略 |
 | **D-6** | WP-C 量測若證實 Climb1m 結尾整段未觸地，要不要給 EP 加 post-exit 貼地？ | 量測後再決定 | 會改變出貨 Climb1m 的觀感；也是 `docs/52` T-04 的一個軸，與 Traversal 會話的 J3′ 相鄰 |
 | — | `docs/00-map.md` 目前沒有 `docs/50` 的索引列（也要更新 `docs/42`、`docs/43` 兩列）：由哪個會話收尾？ | 三個審查會話都閒置後，由一個會話一次補 | 三個會話都會改這個檔 |
