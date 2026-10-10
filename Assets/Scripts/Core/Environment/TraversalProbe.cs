@@ -32,6 +32,8 @@ namespace Project.Core.Environment
         /// <summary>落腳面從邊緣往內連續延伸的最遠深度（m）。見 <see cref="TraversalCandidate.LandingSurfaceDepth"/>。</summary>
         public readonly float LandingSurfaceDepth;
         public readonly TraversalDetectionDirectionSource DirectionSource;
+        /// <summary>🆕（docs/22 §22）落腳面的量測證據；只回報量到什麼，判斷屬 Classifier。</summary>
+        public readonly TraversalLandingEvidence LandingEvidence;
 
         public TraversalProbeMeasurement(
             bool isGrounded,
@@ -97,7 +99,8 @@ namespace Project.Core.Environment
             Vector3 facingForward,
             TraversalDetectionDirectionSource directionSource,
             float entryCapsuleWallClearance = 1f,
-            float landingSurfaceDepth = float.NaN)
+            float landingSurfaceDepth = float.NaN,
+            TraversalLandingEvidence landingEvidence = TraversalLandingEvidence.NotMeasured)
         {
             IsGrounded = isGrounded;
             HorizontalSpeed = horizontalSpeed;
@@ -121,6 +124,7 @@ namespace Project.Core.Environment
             EntryCapsuleWallClearance = entryCapsuleWallClearance;
             LandingSurfaceDepth = landingSurfaceDepth;
             DirectionSource = directionSource;
+            LandingEvidence = landingEvidence;
         }
     }
 
@@ -217,6 +221,9 @@ namespace Project.Core.Environment
         /// </summary>
         public TraversalAnimationFit AnimationFit { get; private set; } =
             TraversalAnimationFit.Unfitted(TraversalFitReason.NotFitted);
+
+        /// <summary>🆕（docs/22 §22）最近一次准入時的 Plan Validity 結果，**只供 debug 顯示**；Probe 不消費它。</summary>
+        public TraversalPlanValidity PlanValidity { get; private set; }
 
         // ─────────────────────────────────────────────────────────────────────
         // Authored Capsule Geometry（角色基準碰撞幾何）—— 2026-09-15
@@ -637,7 +644,13 @@ namespace Project.Core.Environment
                 facingForward,
                 directionSource,
                 entryCapsuleWallClearance,
-                landingSurfaceDepth);
+                landingSurfaceDepth,
+                // 🆕（docs/22 §22，J2）只回報量到／量不到；「沒有面就不是候選」由 Classifier 判斷。
+                !hasTop
+                    ? TraversalLandingEvidence.NotMeasured
+                    : depthProbeHasHit
+                        ? TraversalLandingEvidence.Found
+                        : TraversalLandingEvidence.Missing);
 
             CompleteTick(TraversalClassifier.Classify(in measurement, in settings, _previousKind));
         }
@@ -673,6 +686,16 @@ namespace Project.Core.Environment
         public void RecordAnimationFit(in TraversalAnimationFit fit)
         {
             AnimationFit = fit;
+        }
+
+        /// <summary>
+        /// 🆕（docs/22 §22）記錄 Plan Validity 的結論供除錯顯示——與 entry／selection／fit 同一條觀測通道。
+        /// **不做任何環境查詢、不影響 Candidate**；否決決策由 <c>TraversalState.CanEnter</c> 自己做。
+        /// 讓「候選不存在」「進場不合法」「計畫無效」在面板上是三個可分辨的答案。
+        /// </summary>
+        public void RecordPlanValidity(in TraversalPlanValidity validity)
+        {
+            PlanValidity = validity;
         }
 
         private void MeasureLedgeInterval(
@@ -1440,7 +1463,7 @@ namespace Project.Core.Environment
         /// <summary>
         /// 🆕（docs/23 §H-2）Compact panel：**不出現任何 <c>Vector3</c> 全值，也不重印容差常數**。
         /// 空間關係一律由世界空間的線／球／箭頭表示；面板只留「畫不出來的判定結果與純量」。
-        /// 三行涵蓋三個決策層：分類 → entry 合法性 → selection。
+        /// 四行涵蓋四個決策層：分類 → entry 合法性 → selection → plan validity（docs/22 §22）。
         /// </summary>
         private string BuildCompactTraversalPanel(in TraversalCandidate candidate)
         {
@@ -1479,7 +1502,15 @@ namespace Project.Core.Environment
                     ? $"Select: TRAVERSAL ({selection.Reason})" + DescribeReach(in selection)
                     : $"Select: NORMAL JUMP ({selection.Reason})" + DescribeReach(in selection);
 
-            return $"{kindLine}\n{entryLine}\n{selectionLine}";
+            // 🆕（docs/22 §22）第四層：候選存在、站位合法、也選了 traversal，但建不出有效／有支撐的計畫。
+            TraversalPlanValidity plan = PlanValidity;
+            string planLine = plan.Reason == TraversalPlanValidityReason.NotEvaluated
+                ? "Plan: (not evaluated)"
+                : plan.IsValid
+                    ? $"Plan: VALID ({(plan.UsesEndpoint ? "endpoint" : "piecewise")})   exit {plan.ExitDepth:F2} m"
+                    : $"Plan: REJECT — {plan.Reason}   exit {plan.ExitDepth:F2} m / verified {plan.VerifiedDepth:F2} m";
+
+            return $"{kindLine}\n{entryLine}\n{selectionLine}\n{planLine}";
         }
 
         private static string DescribeReach(in TraversalSelectionEvaluation selection)

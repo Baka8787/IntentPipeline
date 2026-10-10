@@ -62,6 +62,7 @@ namespace Project.Core.StateMachine
     /// </summary>
     public readonly struct TraversalCommittedExit
     {
+        /// <summary>越出驗證面的容差（m）。自 docs/22 §22 起也是 Plan Validity 否決的門檻。</summary>
         private const float DepthTolerance = 0.001f;
 
         public readonly bool IsValid;
@@ -70,7 +71,7 @@ namespace Project.Core.StateMachine
         /// <summary>自 ledge edge 起算的落點深度（m）。</summary>
         public readonly float Depth;
 
-        /// <summary>Probe 連續驗證到的落腳面深度（m）；<c>NaN</c> ＝ 沒有任何已驗證的面。</summary>
+        /// <summary>Probe 連續驗證到的落腳面深度，**投影到與 <see cref="Depth"/> 同一條軸上**（m）；<c>NaN</c> ＝ 沒有任何已驗證的面。</summary>
         public readonly float VerifiedDepth;
 
         /// <summary><c>true</c> ＝ 落點取自動畫自然落點；<c>false</c> ＝ 取 Probe 的 destination。</summary>
@@ -121,7 +122,6 @@ namespace Project.Core.StateMachine
                 return default;
             }
 
-            float verified = candidate.LandingSurfaceDepth;
             Vector3 edgeToDestination = Vector3.ProjectOnPlane(
                 destination - ledge.EdgeOrigin, ledge.TopNormal);
             float probeDepth = edgeToDestination.magnitude;
@@ -129,6 +129,15 @@ namespace Project.Core.StateMachine
             forward = Vector3.ProjectOnPlane(forward, ledge.TopNormal);
             bool hasForward = forward.sqrMagnitude > Epsilon;
             if (hasForward) forward.Normalize();
+
+            // 🔄（docs/22 §22，獨立審查 F1）**驗證面深度要投影到 exit 的同一條軸上再比較。**
+            //    Probe 沿自己的掃描方向（candidate.Forward＝移動方向或 facing）量 LandingSurfaceDepth；
+            //    piecewise 的 exit 卻沿牆法線量。斜向進場 θ 時，沿掃描方向驗證到的 v，在牆法線上只有 v·cosθ——
+            //    直接比較會把「越出驗證面」的判準放寬 1/cosθ 倍（Entry 允許到 35° ⇒ 1.22 倍）。
+            float verified = candidate.LandingSurfaceDepth;
+            Vector3 scanForward = Vector3.ProjectOnPlane(candidate.Forward, ledge.TopNormal);
+            if (IsFinite(verified) && hasForward && scanForward.sqrMagnitude > Epsilon)
+                verified *= Vector3.Dot(scanForward.normalized, forward);
             // ⚠️ 取近的比較沿用舊 piecewise 的無號距離（行為保持）；但**回報的深度**要有號——
             //    destination 落在邊緣後方（牆後沒有地面時 Probe 構造的點）必須顯示成負的，
             //    否則面板又多一個誤導值（獨立審查 F3）。
@@ -235,9 +244,31 @@ namespace Project.Core.StateMachine
             out TraversalWarpPlan plan,
             out TraversalWarpPlanRejection rejection,
             out float contactSupportPlaneClampDistance,
-            bool completeVerticalAdaptationByTransfer = false)
+            bool completeVerticalAdaptationByTransfer = false) =>
+            TryBuild(
+                bake, in candidate, in entry, ledgeSafetyMargin,
+                maxHorizontalCorrection, maxVerticalCorrection, completeVerticalAdaptationByTransfer,
+                out plan, out rejection, out contactSupportPlaneClampDistance, out _);
+
+        /// <summary>
+        /// 🆕（docs/22 §22）同上，另回傳本 plan 實際採用的 committed exit——
+        /// Plan Validity 要用**同一個**落點判斷它有沒有越出已驗證的落腳面，不得另算一次。
+        /// </summary>
+        public static bool TryBuild(
+            MotionBakeData bake,
+            in TraversalCandidate candidate,
+            in TraversalEntryEvaluation entry,
+            float ledgeSafetyMargin,
+            float maxHorizontalCorrection,
+            float maxVerticalCorrection,
+            bool completeVerticalAdaptationByTransfer,
+            out TraversalWarpPlan plan,
+            out TraversalWarpPlanRejection rejection,
+            out float contactSupportPlaneClampDistance,
+            out TraversalCommittedExit committedExit)
         {
             plan = default;
+            committedExit = default;
             rejection = TraversalWarpPlanRejection.None;
             contactSupportPlaneClampDistance = 0f;
             if (bake == null)
@@ -398,7 +429,7 @@ namespace Project.Core.StateMachine
             float naturalDepth = bake.TryGetNaturalExitDepth(out float bakedNaturalDepth)
                 ? bakedNaturalDepth
                 : float.NaN;
-            TraversalCommittedExit committedExit =
+            committedExit =
                 TraversalExitResolver.Resolve(in candidate, traversalForward, naturalDepth);
             Vector3 exitTarget = committedExit.IsValid
                 ? committedExit.Position
@@ -1030,6 +1061,69 @@ namespace Project.Core.StateMachine
                 default:
                     return default;
             }
+        }
+    }
+}
+
+// ⚠️ 命名空間分工與 TraversalAnimationFit.cs／TraversalSelectionPolicy.cs 相同：**結果型別**放
+//    Project.Core.Environment，讓 Probe 能持有它做觀測（LayerRule：Core/Environment 不得依賴 StateMachine）。
+namespace Project.Core.Environment
+{
+    /// <summary>
+    /// 🆕（docs/22 §22）**Plan Validity**——准入鏈上 Eligibility／Selection／Fitting 之後、Commit 之前的一個明確階段：
+    /// 「這支動畫在這裡建得出有效、而且終點有支撐的計畫嗎？」
+    /// 與 Candidate（那是什麼）、Eligibility（我站得對不對）分開，Debug 才分得出是哪一層說了不。
+    /// </summary>
+    public enum TraversalPlanValidityReason
+    {
+        /// <summary>沒有走到這一層（前面某一層已否決，或還沒按跳躍）。</summary>
+        NotEvaluated = 0,
+
+        /// <summary>建得出 plan，且終點在已驗證的落腳面內。</summary>
+        Valid,
+
+        /// <summary>piecewise 與 endpoint 都建不起來（修正量超限、資料退化……）。</summary>
+        NoValidPlan,
+
+        /// <summary>plan 建得起來，但 committed exit 比 Probe 已驗證的落腳面更遠（docs/52 B2，J1）。</summary>
+        ExitBeyondVerifiedSurface,
+    }
+
+    public readonly struct TraversalPlanValidity
+    {
+        public readonly TraversalPlanValidityReason Reason;
+
+        /// <summary>piecewise 被拒、改用 endpoint。</summary>
+        public readonly bool UsesEndpoint;
+
+        /// <summary><c>TraversalWarpPlanRejection</c> 的數值（該型別在 Presentation，Probe 不能引用；Debug 端轉回）。</summary>
+        public readonly int PiecewiseRejection;
+
+        /// <summary>同上，endpoint 的否決理由；piecewise 成功時為 0（None）。</summary>
+        public readonly int EndpointRejection;
+
+        /// <summary>plan 實際採用的落點深度（自 ledge edge，有號）；建不出 plan 時為 NaN。</summary>
+        public readonly float ExitDepth;
+
+        /// <summary>Probe 已驗證的落腳面深度，投影到與 <see cref="ExitDepth"/> 同一條軸上（plan 建不出時為原始 <c>LandingSurfaceDepth</c>）。</summary>
+        public readonly float VerifiedDepth;
+
+        public bool IsValid => Reason == TraversalPlanValidityReason.Valid;
+
+        public TraversalPlanValidity(
+            TraversalPlanValidityReason reason,
+            bool usesEndpoint,
+            int piecewiseRejection,
+            int endpointRejection,
+            float exitDepth,
+            float verifiedDepth)
+        {
+            Reason = reason;
+            UsesEndpoint = usesEndpoint;
+            PiecewiseRejection = piecewiseRejection;
+            EndpointRejection = endpointRejection;
+            ExitDepth = exitDepth;
+            VerifiedDepth = verifiedDepth;
         }
     }
 }

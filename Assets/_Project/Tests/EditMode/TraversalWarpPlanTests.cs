@@ -512,6 +512,41 @@ namespace Project.Tests.EditMode
         }
 
         [Test]
+        public void EXIT6_ObliqueApproach_ComparesVerifiedDepthOnTheExitAxis()
+        {
+            // 獨立審查 F1（docs/22 §22）：以 30° 斜向接近一條沿牆法線寬 1.0 m 的落腳面。
+            // Probe 沿掃描方向驗證到 1.155 m，但那在牆法線上只有 1.155·cos30° ≈ 1.000 m。
+            // 自然落點 1.098 m 沿牆法線量——實際越出地面約 10 cm，必須被判為越出驗證面。
+            Vector3 wallForward = Vector3.forward;
+            Vector3 scanForward = Quaternion.Euler(0f, 30f, 0f) * Vector3.forward;
+            Vector3 edge = new Vector3(0f, 1f, 0.5f);
+            Vector3 destination = edge + scanForward * 1.155f;
+            var ledge = new TraversalLedgeFrame(edge, Vector3.right, -wallForward, Vector3.up, -2f, 2f);
+            var candidate = new TraversalCandidate(
+                TraversalKind.Vault1m, TraversalRejectReason.None,
+                edge - Vector3.up * 0.5f, -wallForward, edge, Vector3.up,
+                1f, 0.3f, destination, scanForward, ledge,
+                TraversalCorridorEvidence.Clear(edge - wallForward * 0.4f, edge + Vector3.up, destination),
+                edge - wallForward * 1.4f - Vector3.up, wallForward,
+                TraversalDetectionDirectionSource.Move, 1f,
+                1.155f, TraversalLandingEvidence.Found);
+
+            TraversalCommittedExit exit = TraversalExitResolver.Resolve(in candidate, wallForward, 1.098f);
+
+            Assert.IsTrue(exit.UsesNaturalDepth, "1.098 < |destination − edge| 1.155 ⇒ 取自然落點");
+            Assert.AreEqual(1.098f, exit.Depth, 1e-4f);
+            Assert.AreEqual(1.155f * Mathf.Cos(30f * Mathf.Deg2Rad), exit.VerifiedDepth, 1e-4f,
+                "驗證面深度必須投影到 exit 的同一條軸（牆法線）上");
+            Assert.IsTrue(exit.BeyondVerifiedSurface,
+                "沿牆法線 1.098 > 1.000：越出驗證面（舊比較用未投影的 1.155，會誤判為有效）");
+
+            // 正面進場時投影係數為 1，行為與修正前完全相同。
+            TraversalCommittedExit endpointAxis = TraversalExitResolver.Resolve(in candidate, scanForward, 1.098f);
+            Assert.AreEqual(1.155f, endpointAxis.VerifiedDepth, 1e-4f, "endpoint 沿掃描方向量出口，係數為 1");
+            Assert.IsFalse(endpointAxis.BeyondVerifiedSurface);
+        }
+
+        [Test]
         public void EXIT4_EndpointNaturalDepth_IsClipEndTravelMinusIdealEntry()
         {
             // SetUp 的 bake：速度 1 m/s、長 1 s ⇒ 結尾水平位移 1.0 m。

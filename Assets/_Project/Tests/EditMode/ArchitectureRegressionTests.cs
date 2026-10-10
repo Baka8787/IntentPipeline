@@ -1914,5 +1914,31 @@ namespace Project.Tests.EditMode
                 "Presentation/IK 不得讀 PlayerRuntimeData.Gait／GaitTier——停步 clip 家族請讀 LocomotionStopPrediction.StopTier（ADR-010 D6）：\n" +
                 string.Join("\n", violations));
         }
+
+        /// <summary>
+        /// 🆕（docs/22 §22；ADR-008 D4 2026-10-10 修訂）**Traversal 的 plan 只在 CanEnter 決策邊界建立。**
+        ///
+        /// 承諾（CanEnter 回 true）必須以「建得出有效 plan」為前提；OnEnter／OnUpdateMotion 只能發布已鎖存的 plan，
+        /// 不得重建——否則又會回到「建不起來也已經承諾、只好走未 warp 曲線」的舊路徑（docs/52 B3），
+        /// 而且 Plan Validity 判斷的落點會與實際執行的落點不同源。
+        /// </summary>
+        [Test]
+        public void A53_TraversalState_BuildsPlanOnlyAtCanEnterDecisionBoundary()
+        {
+            string state = File.ReadAllText(FindSingleScript("TraversalState.cs"));
+            string canEnter = ExtractMethodBody(state, "CanEnter");
+            string onEnter = ExtractMethodBody(state, "OnEnter");
+            string onUpdateMotion = ExtractMethodBody(state, "OnUpdateMotion");
+
+            StringAssert.Contains("TryBuildPlan", canEnter,
+                "CanEnter 必須在承諾前建立並判斷 plan（Plan Validity）");
+            foreach (string token in new[] { "TryBuildPlan", "TraversalPlanBuilder.TryBuild", "TryCreateTraversalWarpPlan" })
+            {
+                StringAssert.DoesNotContain(token, onEnter,
+                    $"OnEnter 出現 '{token}'：plan 已在 CanEnter 鎖存，OnEnter 只能發布");
+                StringAssert.DoesNotContain(token, onUpdateMotion,
+                    $"OnUpdateMotion 出現 '{token}'：執行期不得重建 plan");
+            }
+        }
     }
 }

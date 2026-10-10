@@ -8,8 +8,8 @@ using UnityEngine;
 namespace Project.Core.StateMachine
 {
     /// <summary>
-    /// Traversal V2 的單一 committed state。Probe 擁有即時 candidate；本 state 在准入時鎖存 candidate，
-    /// OnEnter 建立固定 warp plan，執行期間不重新 query、分類或回讀 Probe。
+    /// Traversal V2 的單一 committed state。Probe 擁有即時 candidate；本 state 在准入（CanEnter）時建立固定 warp plan，
+    /// **建得出有效 plan 才**與 candidate 一起鎖存（docs/22 §22 Plan Validity）；OnEnter 只發布，執行期間不重新 query、分類或回讀 Probe。
     /// </summary>
     public sealed class TraversalState : BaseState
     {
@@ -33,7 +33,9 @@ namespace Project.Core.StateMachine
         private bool _isFinished;
         private bool _canRecover;
         private bool _hasStartedPlayback;
-        private bool _warpPlanCommitted;
+        private bool _warpPlanPublished;
+        // 🆕（docs/22 §22）與 _warpPlan 一起在 CanEnter 鎖存；OnEnter 只發布。
+        private TraversalWarpPlanDiagnostics _planDiagnostics;
         private MotionDriver _executionMotionDriver;
         private AnimationFacadeBase _executionAnimationFacade;
 
@@ -75,7 +77,7 @@ namespace Project.Core.StateMachine
             {
                 Debug.LogWarning(
                     "[TraversalState] StateMachineConfig 沒有綁定 TraversalStateParamsSO。" +
-                    "Traversal 仍會安全結束，但不會有動畫或烘焙位移。請在 Integration Gate 完成三種 binding。",
+                    "沒有 binding 就建不出有效 plan，Traversal 不會被承諾（Plan Validity：NoValidPlan，docs/22 §22）。請在 Integration Gate 完成三種 binding。",
                     config);
             }
 #endif
@@ -140,6 +142,7 @@ namespace Project.Core.StateMachine
             {
                 // Entry 先擋下就不會評估 selection；清掉上一次的結果，避免面板顯示過期的 Select 行。
                 _probe.RecordSelectionEvaluation(default);
+                _probe.RecordPlanValidity(default);
                 return false;
             }
 
@@ -161,18 +164,39 @@ namespace Project.Core.StateMachine
             TraversalSelectionEvaluation selection = TraversalSelectionPolicy.Evaluate(
                 in candidate, _jumpParams, safetyMargin, kindEnabled, coverageMin, coverageMax);
             _probe.RecordSelectionEvaluation(in selection);
-            if (!selection.PreferTraversal) return false;
+            if (!selection.PreferTraversal)
+            {
+                _probe.RecordPlanValidity(default);
+                return false;
+            }
+
+            // 🆕（docs/24 §8）Animation Fitting 與 candidate 在同一個決策邊界取值：
+            //    先算「這支動畫要怎麼播才貼近現場尺寸」，`TraversalPlanBuilder` 才去算「剩下的落差怎麼修」。
+            TraversalAnimationFitSettings fitSettings =
+                _params != null ? _params.AnimationFit : default;
+            TraversalAnimationFit fit = TraversalAnimationFitter.Fit(
+                candidateBinding.Bake, in candidate, in evaluation, in fitSettings);
+            _probe.RecordAnimationFit(in fit);
+
+            // 🆕（docs/22 §22，J1／J2）**Plan Validity：建得出有效、終點有支撐的計畫才承諾。**
+            //    建 plan 所需的一切此刻都齊了（candidate、entry、binding、bake；MotionDriver 在順序 6 才移動角色，
+            //    起點姿勢與 2.7 的量測同一帧）。舊版晚到 OnEnter 才建，建不起來（Failed）也已經承諾，
+            //    只能走未 warp 的曲線。現在建不起來、或終點越出 Probe 驗證過的落腳面 ⇒ 不承諾，
+            //    D3 照舊交回 Jump（不動仲裁）；理由留在 Probe 上，Debug 分得出是哪一層說了不。
+            bool planValid = TryBuildPlan(
+                in candidate, in evaluation, in candidateBinding, _entryMotionDriver,
+                out TraversalWarpPlan plan,
+                out TraversalWarpPlanDiagnostics planDiagnostics,
+                out TraversalPlanValidity planValidity);
+            _probe.RecordPlanValidity(in planValidity);
+            if (!planValid) return false;
 
             // 與 JumpState._enterAsFall 同型：CanEnter 是決策邊界，OnEnter 只消費已提交結果。
             _committedCandidate = candidate;
             _entryEvaluation = evaluation;
-            // 🆕（docs/24 §8）Animation Fitting 與 candidate 在同一個決策邊界鎖存：
-            //    先算「這支動畫要怎麼播才貼近現場尺寸」，`TraversalPlanBuilder` 才去算「剩下的落差怎麼修」。
-            TraversalAnimationFitSettings fitSettings =
-                _params != null ? _params.AnimationFit : default;
-            _animationFit = TraversalAnimationFitter.Fit(
-                candidateBinding.Bake, in candidate, in evaluation, in fitSettings);
-            _probe.RecordAnimationFit(in _animationFit);
+            _animationFit = fit;
+            _warpPlan = plan;
+            _planDiagnostics = planDiagnostics;
             return true;
         }
 
@@ -197,12 +221,12 @@ namespace Project.Core.StateMachine
             _isFinished = false;
             _canRecover = false;
             _hasStartedPlayback = false;
-            _warpPlan = default;
-            _warpPlanCommitted = false;
+            // 🔄（docs/22 §22）plan 已在 CanEnter 建好並鎖存——這裡**不得**清掉或重建，只負責發布。
+            _warpPlanPublished = false;
             _executionMotionDriver = null;
             _executionAnimationFacade = null;
             _playbackSpeedApplied = false;
-            CommitWarpPlan(_entryMotionDriver);
+            PublishWarpPlan(_entryMotionDriver);
 
 #if UNITY_EDITOR
             Debug.Log($"<color=cyan>[State] 進入 TRAVERSAL：{_committedCandidate.Kind}</color>");
@@ -234,6 +258,7 @@ namespace Project.Core.StateMachine
             _currentBake = null;
             _currentBinding = default;
             _warpPlan = default;
+            _planDiagnostics = default;
             _currentAnimationKey = null;
             _remainingDuration = 0f;
             _previousNormalizedTime = 0f;
@@ -241,7 +266,7 @@ namespace Project.Core.StateMachine
             _isFinished = false;
             _canRecover = false;
             _hasStartedPlayback = false;
-            _warpPlanCommitted = false;
+            _warpPlanPublished = false;
             _executionMotionDriver = null;
             _executionAnimationFacade = null;
             _playbackSpeedApplied = false;
@@ -253,7 +278,7 @@ namespace Project.Core.StateMachine
             AnimationFacadeBase animationFacade,
             PlayerRuntimeData data)
         {
-            CommitWarpPlan(motionDriver);
+            PublishWarpPlan(motionDriver);
             _executionMotionDriver = motionDriver;
             _executionAnimationFacade = animationFacade;
 
@@ -302,31 +327,77 @@ namespace Project.Core.StateMachine
                 _isFinished = true;
         }
 
-        private void CommitWarpPlan(MotionDriver motionDriver)
+        /// <summary>
+        /// 🆕（docs/22 §22）把 CanEnter 已鎖存的 plan **發布**給 MotionDriver（Hand IK／debug 讀它、collision profile 從這裡開始）。
+        /// 不再在這裡建 plan——建立與有效性判斷已移到 CanEnter 的 Plan Validity 階段。
+        /// MotionDriver 尚未注入時（只有測試會這樣）延到第一次 OnUpdateMotion。
+        /// </summary>
+        private void PublishWarpPlan(MotionDriver motionDriver)
         {
-            if (_warpPlanCommitted || motionDriver == null) return;
-            _warpPlanCommitted = true;
+            if (_warpPlanPublished || motionDriver == null) return;
+            _warpPlanPublished = true;
+            _executionMotionDriver = motionDriver;
+            // Kind is classifier output, not an execution-policy owner. The committed binding
+            // explicitly selects whether MotionDriver uses absolute or segmented execution.
+            bool useSegmentedExecution =
+                _currentBinding.ExecutionModel == TraversalExecutionModel.Segmented;
+            motionDriver.BeginTraversalPresentation(
+                in _warpPlan,
+                in _planDiagnostics,
+                useSegmentedExecution);
+            if (_warpPlan.IsValid)
+            {
+                TraversalCollisionProfile collisionProfile = _currentBinding.CollisionProfile;
+                motionDriver.BeginTraversalCollisionProfile(in collisionProfile);
+            }
+        }
+
+        /// <summary>
+        /// 🆕（docs/22 §22）**Plan Validity**：以 commit 前就齊備的資料建一次 plan，並判斷它能不能被承諾。
+        ///
+        /// 建法與舊的 OnEnter 版本相同：先 piecewise（需要 Traversal block），失敗退 endpoint。
+        /// endpoint 的起點取 MotionDriver 的 transform（runtime 一定有注入；與 Probe 2.7 的量測同一帧），
+        /// 沒有注入時（只有測試）取 candidate 的 sensed pose——兩者在 runtime 相同。
+        ///
+        /// 否決條件（只有這兩個，其餘照舊）：
+        /// <list type="bullet">
+        /// <item><b>NoValidPlan</b>：piecewise 與 endpoint 都建不起來。舊版會承諾後走未 warp 的曲線。</item>
+        /// <item><b>ExitBeyondVerifiedSurface</b>：plan 實際採用的落點比 Probe 已驗證的落腳面更遠
+        ///   （只在 <c>LandingEvidence == Found</c> 時判；docs/52 B2）。</item>
+        /// </list>
+        /// </summary>
+        private bool TryBuildPlan(
+            in TraversalCandidate candidate,
+            in TraversalEntryEvaluation entry,
+            in TraversalMotionBinding binding,
+            MotionDriver startPoseDriver,
+            out TraversalWarpPlan plan,
+            out TraversalWarpPlanDiagnostics diagnostics,
+            out TraversalPlanValidity validity)
+        {
             TraversalEntryPolicySettings entrySettings = _params != null
                 ? _params.EntryPolicy
                 : TraversalEntryPolicySettings.Default;
+            MotionBakeData bake = binding.Bake;
             bool builtPiecewise = TraversalPlanBuilder.TryBuild(
-                _currentBake,
-                in _committedCandidate,
-                in _entryEvaluation,
+                bake,
+                in candidate,
+                in entry,
                 entrySettings.LedgeEndMargin,
-                _currentBinding.MaxHorizontalCorrection,
-                _currentBinding.MaxVerticalCorrection,
-                out _warpPlan,
-                out TraversalWarpPlanRejection piecewiseRejection,
-                out float contactSupportPlaneClampDistance,
+                binding.MaxHorizontalCorrection,
+                binding.MaxVerticalCorrection,
                 // Segmented 的語意包含「垂直適應在 Transfer 之前補完」——兩者綁在同一個
                 // authored 開關，才能讓 revert 維持「改一個資產欄位」。Absolute（Vault1m／
                 // Climb1m）維持 held correction，行為不變。理由見 TraversalPlanBuilder 內註解。
-                _currentBinding.ExecutionModel == TraversalExecutionModel.Segmented);
+                binding.ExecutionModel == TraversalExecutionModel.Segmented,
+                out plan,
+                out TraversalWarpPlanRejection piecewiseRejection,
+                out float contactSupportPlaneClampDistance,
+                out TraversalCommittedExit exit);
 
-            float warpStart = _currentBinding.WarpStartNormalizedTime;
-            bool warpEndIsDataDerived = !_currentBinding.HasAuthoredWarpEnd;
-            float warpEnd = ResolveEndpointWarpEnd(_currentBake, in _currentBinding, warpStart);
+            float warpStart = binding.WarpStartNormalizedTime;
+            bool warpEndIsDataDerived = !binding.HasAuthoredWarpEnd;
+            float warpEnd = ResolveEndpointWarpEnd(bake, in binding, warpStart);
             var endpointRejection = TraversalWarpPlanRejection.None;
             float requiredHorizontal = float.NaN;
             float requiredVertical = float.NaN;
@@ -337,57 +408,64 @@ namespace Project.Core.StateMachine
                 //    （Vault 1.116 m）⇒ Climb1m 的終點被 Vault 的動畫決定，實測多拉 0.20–0.50 m。
                 //    方向沿用 endpoint 既有的 candidate.Forward（朝向軸不在本次範圍，docs/52 T-04）。
                 float endpointNaturalDepth = TraversalExitResolver.GetEndpointNaturalDepth(
-                    _currentBake, _entryEvaluation.IdealLongitudinalDistance);
-                TraversalCommittedExit endpointExit = TraversalExitResolver.Resolve(
-                    in _committedCandidate, _committedCandidate.Forward, endpointNaturalDepth);
-                motionDriver.TryCreateTraversalWarpPlan(
-                    _currentBake,
-                    endpointExit.IsValid ? endpointExit.Position : _committedCandidate.DestinationPoint,
-                    _committedCandidate.Forward,
-                    warpStart,
-                    warpEnd,
-                    _currentBinding.MaxHorizontalCorrection,
-                    _currentBinding.MaxVerticalCorrection,
-                    out _warpPlan,
-                    out endpointRejection,
-                    out requiredHorizontal,
-                    out requiredVertical);
+                    bake, entry.IdealLongitudinalDistance);
+                exit = TraversalExitResolver.Resolve(
+                    in candidate, candidate.Forward, endpointNaturalDepth);
+                Vector3 target = exit.IsValid ? exit.Position : candidate.DestinationPoint;
+                if (startPoseDriver != null)
+                {
+                    startPoseDriver.TryCreateTraversalWarpPlan(
+                        bake, target, candidate.Forward, warpStart, warpEnd,
+                        binding.MaxHorizontalCorrection, binding.MaxVerticalCorrection,
+                        out plan, out endpointRejection, out requiredHorizontal, out requiredVertical);
+                }
+                else
+                {
+                    TraversalWarpPlan.TryCreate(
+                        bake, candidate.SensedRootPosition, candidate.SensedFacingForward,
+                        target, candidate.Forward, warpStart, warpEnd,
+                        binding.MaxHorizontalCorrection, binding.MaxVerticalCorrection,
+                        out plan, out endpointRejection, out requiredHorizontal, out requiredVertical);
+                }
             }
 
-            // 🆕（docs/23 §R1）三種結局（Piecewise／EndpointFallback／Failed）與各自的理由一律發布，
-            //    讓「traversal 開始了但完全沒有 warp」不再只能從畫面上猜。
+            // 🆕（docs/23 §R1）結局與各自的理由一律發布。Failed 現在只會出現在 Plan Validity 的否決理由裡，
+            //    不會再被承諾。
             TraversalPlanMode mode = builtPiecewise
                 ? TraversalPlanMode.Piecewise
-                : _warpPlan.IsValid
+                : plan.IsValid
                     ? TraversalPlanMode.EndpointFallback
                     : TraversalPlanMode.Failed;
-            var diagnostics = new TraversalWarpPlanDiagnostics(
+            diagnostics = new TraversalWarpPlanDiagnostics(
                 mode,
                 piecewiseRejection,
                 endpointRejection,
                 requiredHorizontal,
-                _currentBinding.MaxHorizontalCorrection,
+                binding.MaxHorizontalCorrection,
                 requiredVertical,
-                _currentBinding.MaxVerticalCorrection,
+                binding.MaxVerticalCorrection,
                 contactSupportPlaneClampDistance,
                 warpStart,
                 warpEnd,
                 warpEndIsDataDerived);
 
-            _executionMotionDriver = motionDriver;
-            // Kind is classifier output, not an execution-policy owner. The committed binding
-            // explicitly selects whether MotionDriver uses absolute or segmented execution.
-            bool useSegmentedExecution =
-                _currentBinding.ExecutionModel == TraversalExecutionModel.Segmented;
-            motionDriver.BeginTraversalPresentation(
-                in _warpPlan,
-                in diagnostics,
-                useSegmentedExecution);
-            if (_warpPlan.IsValid)
-            {
-                TraversalCollisionProfile collisionProfile = _currentBinding.CollisionProfile;
-                motionDriver.BeginTraversalCollisionProfile(in collisionProfile);
-            }
+            TraversalPlanValidityReason reason;
+            if (!plan.IsValid)
+                reason = TraversalPlanValidityReason.NoValidPlan;
+            else if (candidate.LandingEvidence == TraversalLandingEvidence.Found && exit.BeyondVerifiedSurface)
+                reason = TraversalPlanValidityReason.ExitBeyondVerifiedSurface;
+            else
+                reason = TraversalPlanValidityReason.Valid;
+
+            validity = new TraversalPlanValidity(
+                reason,
+                !builtPiecewise,
+                (int)piecewiseRejection,
+                (int)endpointRejection,
+                plan.IsValid && exit.IsValid ? exit.Depth : float.NaN,
+                // 與 ExitDepth 同一條軸（獨立審查 F1）；plan 建不出時退回原始量測值。
+                exit.IsValid ? exit.VerifiedDepth : candidate.LandingSurfaceDepth);
+            return reason == TraversalPlanValidityReason.Valid;
         }
 
         /// <summary>

@@ -8,6 +8,22 @@ namespace Project.Core.Environment
         Move = 1,
     }
 
+    /// <summary>
+    /// 🆕（docs/22 §22，J2）Probe 對「越過邊緣之後有沒有落腳面」的**量測證據**——只回報量到什麼，不做判斷。
+    /// 判斷（沒有面 ⇒ 不是候選）屬於純函式 <see cref="TraversalClassifier"/>。
+    /// </summary>
+    public enum TraversalLandingEvidence
+    {
+        /// <summary>沒有量（沒有頂面可以往下量，或來自不帶此資訊的相容建構子）。不得當成「沒有面」。</summary>
+        NotMeasured = 0,
+
+        /// <summary>depth ray 命中落腳面；<c>LandingSurfaceDepth</c> 為已驗證的連續延伸深度。</summary>
+        Found,
+
+        /// <summary>depth ray 在搜尋範圍內完全沒有命中——越過邊緣之後沒有面可以落。</summary>
+        Missing,
+    }
+
     public enum TraversalCorridorRejectReason
     {
         None = 0,
@@ -134,9 +150,13 @@ namespace Project.Core.Environment
         /// 用分類常數 0.6 m 當終點會逼 warp 事後把角色往回拉（Playtest 的「抓牢後還在位移」）。
         ///
         /// 掃描上限由各支動畫推導的自然落點決定（<c>TraversalStateParamsSO.GetRequiredLandingDepth()</c>），
-        /// 不是另一個 magic number。薄牆（surface 不連續）時為 <c>NaN</c>，呼叫端退回既有行為。
+        /// 不是另一個 magic number。🔄（docs/22 §22）量不到任何落腳面時為 <c>NaN</c>，且 <see cref="LandingEvidence"/> 為 <c>Missing</c>；
+        /// 相容建構子（不帶此資訊）也是 <c>NaN</c>，但 evidence 為 <c>NotMeasured</c>——兩者必須用 evidence 分辨。
         /// </summary>
         public readonly float LandingSurfaceDepth;
+
+        /// <summary>🆕（docs/22 §22）落腳面的量測證據。見 <see cref="TraversalLandingEvidence"/>。</summary>
+        public readonly TraversalLandingEvidence LandingEvidence;
 
         public readonly TraversalDetectionDirectionSource DirectionSource;
 
@@ -193,7 +213,8 @@ namespace Project.Core.Environment
             Vector3 sensedFacingForward,
             TraversalDetectionDirectionSource directionSource,
             float entryCapsuleWallClearance = 1f,
-            float landingSurfaceDepth = float.NaN)
+            float landingSurfaceDepth = float.NaN,
+            TraversalLandingEvidence landingEvidence = TraversalLandingEvidence.NotMeasured)
         {
             Kind = kind;
             RejectReason = rejectReason;
@@ -211,6 +232,7 @@ namespace Project.Core.Environment
             SensedFacingForward = sensedFacingForward;
             EntryCapsuleWallClearance = entryCapsuleWallClearance;
             LandingSurfaceDepth = landingSurfaceDepth;
+            LandingEvidence = landingEvidence;
             DirectionSource = directionSource;
         }
 

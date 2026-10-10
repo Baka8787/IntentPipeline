@@ -119,7 +119,7 @@ namespace Project.Tests.PlayMode
         }
 
         [UnityTest]
-        public IEnumerator T7_TraversalConsumesCommittedVerticalCurveWithoutGravityAndSyncsGroundedState()
+        public IEnumerator T7_TraversalConsumesCommittedPlanWithoutGravityAndSyncsGroundedState()
         {
             TestRig rig = BuildRig();
             SetCandidate(rig.Probe, Candidate(TraversalKind.Vault1m));
@@ -138,12 +138,30 @@ namespace Project.Tests.PlayMode
             facade.NormalizedTime = 0.5f;
             yield return null;
 
+            // 🔄（docs/22 §22）承諾的 traversal 一定帶著有效 plan（Plan Validity）；舊版這裡驗的是
+            //    「plan 建不起來時退回未 warp 的 VerticalCurve」，那條路徑已不會被承諾。
+            //    不變的是本測試的意圖：committed motion 由 plan 給出、不得疊加普通 gravity。
+            var traversal = (TraversalState)rig.Machine.CurrentState;
+            Assert.IsTrue(traversal.WarpPlan.IsValid, "承諾的 traversal 必須帶著有效 plan");
+            Assert.IsTrue(traversal.WarpPlan.TryEvaluate(0f, out Vector3 planStart, out _));
+            Assert.IsTrue(traversal.WarpPlan.TryEvaluate(0.5f, out Vector3 planHalf, out _));
+            float expectedDeltaY = planHalf.y - planStart.y;
+            Assert.Greater(expectedDeltaY, 0.5f, "測試前提：0→0.5 之間 plan 有明顯的上升");
+
             float beforeY = motionHost.transform.position.y;
             rig.Machine.CurrentState.OnUpdateMotion(driver, facade, rig.Data);
 
-            Assert.AreEqual(1f, motionHost.transform.position.y - beforeY, 0.001f,
-                "TraversalState 必須實際消費 0→0.5 的 VerticalCurve delta，不得疊加普通 gravity");
-            Assert.AreEqual(1f / Time.deltaTime, rig.Data.VerticalVelocity, 0.1f);
+            Assert.AreEqual(expectedDeltaY, motionHost.transform.position.y - beforeY, 0.001f,
+                "TraversalState 必須實際消費 committed plan 0→0.5 的 delta，不得疊加普通 gravity");
+            // ⚠️ 舊版在這裡斷言「同一帧」VerticalVelocity ＝ delta／dt——那是**未 warp 曲線路徑**的性質
+            //    （它先算速度再 SyncGroundedState）。warped 路徑（Absolute 與 Segmented 都一樣）是
+            //    **先 SyncGroundedState、後賦值**（MotionDriver.ExecuteTraversalWarpedMovement），
+            //    所以速度**延遲一帧**才發布到黑板。這是既有的執行面行為、屬 docs/50；本輪不改，
+            //    這裡改以 characterization 鎖住它：下一次 OnUpdateMotion（同一帧、delta 為 0）發布的才是上一次的速度。
+            float frameDeltaTime = Time.deltaTime;
+            rig.Machine.CurrentState.OnUpdateMotion(driver, facade, rig.Data);
+            Assert.AreEqual(expectedDeltaY / frameDeltaTime, rig.Data.VerticalVelocity, 0.1f,
+                "warped traversal 的 VerticalVelocity 延遲一帧發布（上一次 committed delta／dt）");
             Assert.AreEqual(controller.isGrounded, rig.Data.IsGrounded,
                 "committed motion 仍須經 MotionDriver 的單一 grounded 同步路徑");
         }
@@ -429,9 +447,13 @@ namespace Project.Tests.PlayMode
             TraversalProbe probe = probeHost.AddComponent<TraversalProbe>();
             SetPrivateField(probe, "drawTraversalRuntimeLines", false);
 
-            MotionBakeData vaultBake = CreateBake("Vault Bake");
-            MotionBakeData climb1Bake = CreateBake("Climb 1m Bake");
-            MotionBakeData climb2Bake = CreateBake("Climb 2m Bake");
+            // 🔄（docs/22 §22，2026-10-10）准入現在要求**建得出有效 plan**（Plan Validity）。
+            //    舊 fixture 用水平速度恆為 0 的 bake——那種資料任何 plan 都建不起來，舊契約是「照樣承諾、走未 warp 的曲線」，
+            //    新契約是不承諾。這組測試驗的是 FSM 整合語意（priority、共用 state、鎖存、完成後交回），
+            //    不是 plan 建法，因此改用建得出 plan 的 warp bake；斷言一條都沒放寬。
+            MotionBakeData vaultBake = CreateWarpBake("Vault Bake");
+            MotionBakeData climb1Bake = CreateWarpBake("Climb 1m Bake");
+            MotionBakeData climb2Bake = CreateWarpBake("Climb 2m Bake");
             MotionBakeData rollBake = CreateBake("Roll Test Bake");
 
             TraversalStateParamsSO traversalParams = ScriptableObject.CreateInstance<TraversalStateParamsSO>();

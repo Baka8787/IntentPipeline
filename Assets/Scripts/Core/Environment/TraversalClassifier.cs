@@ -37,6 +37,13 @@ namespace Project.Core.Environment
                 maximumHeight += settings.HeightHysteresis;
             if (measurement.Height > maximumHeight)
                 return Reject(in measurement, TraversalRejectReason.TooHigh);
+            // 🆕（docs/22 §22，J2）越過邊緣之後量不到任何落腳面 ⇒ 不是可通過的候選。
+            //    以前「depth ray 沒打到」會被下面的深度分類當成「薄」而判成 Vault，再由 Probe 構造一個
+            //    不在任何面上的 destination；traversal 因此被承諾、plan 建不起來、走未 warp 的曲線。
+            //    排在 DestinationBlocked 之前：沒有面時 destination 是構造的點，淨空檢查沒有意義。
+            //    只看 Missing——NotMeasured（相容建構子、沒有頂面）不是「沒有面」。
+            if (measurement.LandingEvidence == TraversalLandingEvidence.Missing)
+                return Reject(in measurement, TraversalRejectReason.NoLandingSurface);
             if (measurement.DestinationBlocked)
                 return Reject(in measurement, TraversalRejectReason.DestinationBlocked);
             if (!measurement.Corridor.IsClear)
@@ -120,7 +127,8 @@ namespace Project.Core.Environment
                 measurement.FacingForward,
                 measurement.DirectionSource,
                 measurement.EntryCapsuleWallClearance,
-                measurement.LandingSurfaceDepth);
+                measurement.LandingSurfaceDepth,
+                measurement.LandingEvidence);
         }
 
         private static bool IsFinite(

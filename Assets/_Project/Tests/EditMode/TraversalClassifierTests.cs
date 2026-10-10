@@ -97,6 +97,56 @@ namespace Project.Tests.EditMode
             AssertRejected(measurement, TraversalRejectReason.CorridorBlocked);
         }
 
+        // ── 🆕（docs/22 §22，J2）落腳面證據 ─────────────────────────────────────────
+
+        [Test]
+        public void NoLandingSurface_ReturnsDedicatedRejectReason()
+            => AssertRejected(
+                WithLanding(Valid(), TraversalLandingEvidence.Missing),
+                TraversalRejectReason.NoLandingSurface);
+
+        [TestCase(TraversalLandingEvidence.Found)]
+        [TestCase(TraversalLandingEvidence.NotMeasured)]
+        public void FoundOrNotMeasuredLanding_ClassifiesExactlyAsBefore(TraversalLandingEvidence evidence)
+        {
+            // NotMeasured（相容建構子、沒有頂面）不得被當成「沒有面」——否則所有舊資料都會被否決。
+            TraversalProbeMeasurement measurement = WithLanding(Valid(), evidence);
+            TraversalCandidate result = TraversalClassifier.Classify(
+                in measurement, in Settings, TraversalKind.None);
+            Assert.AreEqual(TraversalKind.Vault1m, result.Kind);
+            Assert.AreEqual(evidence, result.LandingEvidence, "candidate 必須原樣帶著量測證據");
+        }
+
+        [Test]
+        public void RejectOrder_TooHighWinsBeforeNoLandingSurface()
+            => AssertRejected(
+                WithLanding(Valid(height: Settings.Climb2mMaxHeight + 0.01f), TraversalLandingEvidence.Missing),
+                TraversalRejectReason.TooHigh);
+
+        [Test]
+        public void RejectOrder_NoLandingSurfaceWinsBeforeDestinationBlocked()
+        {
+            // 沒有面時 destination 是構造出來的點，淨空檢查的結果沒有意義——最根本的理由是「沒有面」。
+            AssertRejected(
+                WithLanding(Valid(destinationBlocked: true), TraversalLandingEvidence.Missing),
+                TraversalRejectReason.NoLandingSurface);
+        }
+
+        private static TraversalProbeMeasurement WithLanding(
+            TraversalProbeMeasurement m, TraversalLandingEvidence evidence)
+        {
+            return new TraversalProbeMeasurement(
+                m.IsGrounded, m.HorizontalSpeed, m.HasForwardHit,
+                m.ForwardHitPoint, m.ForwardHitNormal, m.FirstClearHeight,
+                m.HasTop, m.TopPoint, m.TopNormal, m.Height,
+                m.Depth, m.DestinationPoint, m.DestinationBlocked,
+                m.SlopeLimit, m.Forward, m.LedgeFrame, m.Corridor,
+                m.RootPosition, m.FacingForward, m.DirectionSource,
+                m.EntryCapsuleWallClearance,
+                evidence == TraversalLandingEvidence.Found ? 0.6f : float.NaN,
+                evidence);
+        }
+
         [Test]
         public void RejectOrder_NoTopWinsBeforeSteepHighAndBlocked()
         {

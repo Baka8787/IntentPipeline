@@ -172,6 +172,27 @@ namespace Project.Editor.Tools
                        (fit.LandingBeyondVerifiedSurface ? "   ⚠ BEYOND VERIFIED SURFACE" : string.Empty));
             }
 
+            // ⑤ Plan Validity（docs/22 §22）——「候選存在、站位合法，但這支動畫在這裡建不出有效／有支撐的計畫」
+            //    必須是一個獨立、看得到的答案，不能混進 Classify 或 Entry。
+            TraversalPlanValidity validity = _probe.PlanValidity;
+            if (validity.Reason == TraversalPlanValidityReason.NotEvaluated)
+            {
+                Row("5 Plan", "not evaluated", true);
+            }
+            else
+            {
+                Row("5 Plan",
+                    validity.IsValid
+                        ? (validity.UsesEndpoint ? "VALID — endpoint" : "VALID — piecewise")
+                        : $"REJECT — {validity.Reason}",
+                    validity.IsValid);
+                Indent($"exit {Metres(validity.ExitDepth)}   verified {Metres(validity.VerifiedDepth)}   " +
+                       $"piecewise {(TraversalWarpPlanRejection)validity.PiecewiseRejection}" +
+                       (validity.UsesEndpoint
+                           ? $"   endpoint {(TraversalWarpPlanRejection)validity.EndpointRejection}"
+                           : string.Empty));
+            }
+
             Indent($"sensing reach {_probe.EffectiveForwardScanDistance:F2} m   " +
                    $"landing scan {_probe.EffectiveLandingScanDepth:F2} m   (derived from bakes)");
         }
