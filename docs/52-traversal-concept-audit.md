@@ -5,7 +5,8 @@
 > **邊界**：`MotionDriver.ExecuteTraversalWarpedMovement` 的**執行**屬 `docs/50`（MotionDriver 審查）。本報告只審到「選擇 → 計畫」與交給 MotionDriver 的契約；碰到執行面的現象只標記並轉交。
 > **方法**：每個概念追 producer → ≥2 consumer 的 call site；數值取出貨資產（`X Bot.prefab`、`TraversalStateParams.asset`、`JumpStateParams.asset`、`Bake_*.asset`）。⭐ **關鍵 finding 皆在 live Unity Editor 上以原碼實測**（Edit Mode、不進 Play）：用 X Bot 的 `CharacterController`＋`TraversalProbe` 設定建臨時 rig、在臨時碰撞體上呼叫真實的 `Probe.Tick` → `TraversalState.CanEnter` → `TraversalPlanBuilder.TryBuild`／`TraversalWarpPlan.TryCreate`。腳本與輸出：`docs/artifacts/traversal-audit/`。
 > **沒做的事**：沒有 Play、沒有人工觀察畫面；「執行後會怎樣」的敘述標為推導。
-> **文件編號**：交辦原訂 `docs/49`，但該號已被 `docs/49-foot-contact-learning-guide.md` 佔用，故改用 **52**（避開平行的 50／51）。`docs/00-map.md` 未改，指標由使用者另補。
+> **文件編號**：交辦原訂 `docs/49`，但該號已被 `docs/49-foot-contact-learning-guide.md` 佔用，故改用 **52**（避開平行的 50／51）。（`docs/00-map.md` 指標於 2026-10-10 第二輪補上。）
+> **🔄 處理狀態（2026-10-10 第二輪）**：S1–S3 已實作；驗證狀態逐項（Passed／Pending／Blocked／Deferred）見 **§K**——S2 仍待人工 Play 與使用者確認；Living Spec 在 `docs/22` §21。
 
 ---
 
@@ -437,7 +438,7 @@ Current   piecewise／endpoint 在終點、朝向、recovery、貼地上各一�
 |---|---|---|
 | J1 | committed exit 是否**一律不得超過已驗證的落腳面**？（B2 現況會越出 0.34 m） | G-1 的核心；會改 Vault 窄後地面的終點 |
 | J2 | 薄牆後**沒有落腳面**（懸崖邊矮牆）時，要不要允許 Vault？（現況：允許，plan Failed、走未 warp 的曲線） | 決定 B3 是 reject 還是新行為 |
-| J3 | Climb1m 的終點跟**自己 clip 的自然終點**，還是跟 Probe？ | G-2；Climb1m 尚無 Play 證據，可與首次 Play 驗收一起做 |
+| J3 | Climb1m 的終點跟**自己 clip 的自然終點**，還是跟 Probe？ | G-2；Climb1m 尚無 Play 證據，可與首次 Play 驗收一起做。🔄 2026-10-10：主決策**已由既有契約回答**、S2 已實作；子決策 **J3′**（Climb1m 終點跟全域 Entry 距離走）待確認（§K.2） |
 | J4 | 「Jump 搆得到」的 owner：**推導（選項 A）還是 authored coverage（選項 B）**？ | G-3；選 B 需修訂 ADR-008 D7（Trial 內可直接修） |
 | J5 | Recovery：是否在此輪一併裁決 `docs/23` F-b？ | G-5；否則維持現狀 |
 
@@ -461,3 +462,71 @@ Current   piecewise／endpoint 在終點、朝向、recovery、貼地上各一�
 | `docs/30` 附錄 B | `climb1mEnabled = 0` | **1**（2026-09-20 啟用） |
 | `docs/30` 附錄 B | Recovery「Bake……與 binding 取大」未提 Vault 實際恆為 0.85 | 見 T-05 |
 | `TraversalState.cs:89-90` 註解 | 「每次 CanEnter 都重推」 | 只在按下跳躍且著地時推（T-07 註記 1） |
+
+---
+
+## K. 改善輪處理對照（2026-10-10，同日第二輪；Living Spec 見 `docs/22` §21）
+
+> 狀態定義：**Passed** ＝ 已實作且有自動化／實測證據；**Pending** ＝ 已實作，只差人工 Play；**Blocked** ＝ 需使用者裁決；**Deferred** ＝ 刻意延後（附理由）。
+> 「Passed」只代表該項的**程式與自動驗證**通過；觀感仍以人工 Play 為準。
+
+### K.1 逐項對照
+
+| Finding | 處置 | 狀態 | 證據 |
+|---|---|---|---|
+| **T-01** 落點四個定義（面板 ≠ plan） | S1：`TraversalExitResolver` 成為唯一規則；PlanBuilder、Fitting、endpoint 共用；**Piecewise 模式下**面板報 plan 的 Exit；越出驗證面加 ⚠ 旗標；回報深度改為有號。**piecewise 行為不變** | ✅ **Passed**（Piecewise 模式的表示收斂） | parity：`F7` 具體值＋live A／B1／B2／C plan exit 前後逐值相同；live B2：面板 0.600 → **0.970＝plan**、`beyondVerified=True`；`EXIT5` 有號深度。⚠️ EndpointFallback 時面板仍是 piecewise 落點、endpoint 的越界旗標未發布（併入 J1） |
+| **T-01 B2** committed exit 越出驗證面 | 未改行為；現在看得見 | ⛔ **Blocked**（J1） | 修正必然是「否決該 Vault」或「終點夾回驗證面（膠囊會壓到牆）」之一，兩者都改變玩家能做什麼 |
+| **T-01 B3** 牆後無地面仍 Vault、plan Failed | 未改行為；旗標為 true | ⛔ **Blocked**（J2） | 同上；另見 `docs/50` M-02：此場景是 **Failed 結局的一個確定觸發條件**（回答其 J-T1「Failed 多常發生」的一部分） |
+| **T-02** Climb1m 終點跟 Vault 走 | S2：endpoint（任何 piecewise 被拒者）也走「兩者取近」，自然落點量在 clip 結尾 | 🟡 **Pending**（人工 Play ＋ 使用者確認 J3′） | live（腳本重組 endpoint 組合，見 `docs/22` §21.4 證據等級）D：+0.202 → **+0.020 m**；D2：+0.502 → +0.320 m（0.30 為站位誤差）；E 不變；真實接線：PlayMode `V2_EndpointExit_*` |
+| **T-03** Jump 初速 copy（`docs/47` F-05） | S3：`JumpStateParams.TryGetBakedLaunch` 單一推導；D7「無法推導 ⇒ 保留 traversal」不變 | ✅ **Passed** | `J6`（兩組倍率 apex 一致）、`J7`（負重力兩邊一致）；live E1 玩家 apex 0.9535 不變 |
+| **T-03** coverage 下限是手抄常數 | S3：`R4` 守「Climb 下限 ≥ apex」；tooltip 標明來源 | ✅ **Passed**（守衛）／⛔ **Blocked**（owner，J4） | `R4` 綠燈；推導 vs authored 的 owner 選擇需裁決 |
+| **T-04** piecewise／endpoint 六軸 | 終點軸已由 S2 收斂；其餘五軸未動 | ⏸ **Deferred** | 朝向軸改動會改 Climb1m 觀感、無 Play 證據；post-exit 貼地屬 `docs/50` K3 |
+| **T-05** Recovery 兩來源 | 未動 | ⏸ **Deferred** | `docs/22` §13.6、`docs/23` F-b 仍未裁決（J5） |
+| **T-06** 接觸手三種取法 | 未動 | ⏸ **Deferred** | 出貨資料零影響（Climb2m 左右同時接觸、grip z 差 0.34 mm）；等第一支錯開接觸的雙手 clip |
+| **T-07** `SetDerived*` 推送 | 判 Healthy；註解改為實際時序，並寫明「掃多遠 ≠ 停多遠」 | ✅ **Passed**（文件） | `TraversalState.cs` 註解 |
+| **T-08** 常數過載／dead 欄位 | 未動 | ⏸ **Deferred** | `probeMinSpeed` 移除會牽動建構子與序列化；無行為價值，併入下一個觸及 Probe 的 slice |
+| **T-09** grounded／貼地 | 未動 | ↪ **轉 `docs/50`** | 執行面（M-02／K3） |
+| 附錄 C 文件漂移 | `docs/30` 附錄 B `climb1mEnabled` 更正；`docs/30` §C Exit 列補註 | ✅ **Passed** | — |
+
+### K.2 J3 重新判定：主決策由既有契約回答；兩個子決策待確認（J3′）
+
+§J 原把 J3（Climb1m 終點跟誰）列為待裁決。重新取證後，**主決策已被既有契約回答**：`docs/22` §18.4 與 `docs/30` §C 的 Exit 規則是「Probe destination 與 bake 自然落點**兩者取近**」，`TraversalAnimationFitTests` 舊 F7 的理由也明寫「比動畫遠 ⇒ 放手後還要被往前推」。endpoint 路徑沒有套用，是因為 2026-09-20 啟用 Climb1m 時沿用了 V2 的 endpoint 分支，而不是一個相反的設計決定。
+
+但獨立審查（§K.5 F1）指出，把規則延伸到 endpoint 時**多做了兩個既有契約沒有涵蓋的子決策**，因此 S2 **不能**算純粹的「符合既有規則」：
+
+- **(a)** 自然落點量在 **clip 結尾**，而不是 exit marker——endpoint plan 的 target 本來就對應結尾的 root，這一點是幾何上的必然，風險低。
+- **(b)** 沒有 Traversal block 的 clip（Climb1m）以**全域** `EntryPolicySettings.DesiredWallDistance`（出貨 0.45）當作「理想站位」。結果是 **Climb1m 的上台終點會隨這個全域 Entry 調參 1:1 移動**；改前終點與 Entry 設定無關。這是一個新的 owner 耦合，會改變玩家上平台後停在哪裡。
+
+**J3′（待使用者確認）**：接受 (b) 這個耦合，或改為下列其一——(i) 自然落點以玩家實際起點計算（等於 endpoint 不做水平對位，只修高度）；(ii) 為 Climb1m 補一個 authored 的理想進場距離；(iii) revert，endpoint 終點改回 `DestinationPoint`（一行）。與人工 Play 一起確認後，T-02 才能從 Pending 結案。
+
+### K.3 仍需使用者裁決
+
+J1、J2、J4、J5 不變（見 §J），另加 **J3′**（§K.2）。J1／J2 的選項：
+- **J1 選項**：(a) 越出驗證面就否決（新 RejectReason，Vault 在窄落腳面上不可用、讓給 Jump）；(b) Probe 在前推點補一條支撐射線，有面才算驗證（量測改進，行為只在無面時改變，仍落到 a 或 c）；(c) 維持現狀，只保留 ⚠。
+- **J2 選項**：(a) 無落腳面不分類為 Vault（`NoLanding`）；(b) 允許「翻越後落下」為正式行為，但需要對應的 plan（目前是 Failed＋未 warp 曲線）；(c) 維持現狀。
+
+### K.4 本輪驗證摘要
+
+| | 基線（開工前） | 最終 |
+|---|---|---|
+| EditMode | 870／868／**1 failed**／1 skipped | **884／882／1 failed／1 skipped** |
+| PlayMode | 96／89／**7 failed** | **97／90／7 failed**（同一組 7 項） |
+
+- EditMode 唯一失敗 `StairAuthoringContractTests.Scene_InstanceMasks_MatchSemanticTable`：工作樹既有的場景改動（X Bot `GroundLayers` 503），開工前即失敗、與 Traversal 無關。
+- PlayMode 7 項＝`C0`（`docs/50` M-02 已記：陽性對照自 2026-09-23 失效）＋ 6 個 `StairTraversalPlayModeTests` 骨盆／腳可達性（Foot IK 範圍），皆為基線既有。
+- `TraversalClimbPlayModeTests.Climb2m_RealPrefab_*` **間歇性失敗，與本輪無關**（A/B）：本輪程式 3 次重跑失敗 3／6；暫時以 `git show HEAD:` 還原本輪 11 個檔、重編譯、同樣 3 次重跑失敗 3／6（真實鍵盤輸入＋帧時序相依）。最終全套那一次它通過。
+- 新增測試 16 項（EditMode 15、PlayMode 1），全部通過；在舊程式上會失敗的：`J7`、`F8`、`EXIT5`、`V2_EndpointExit_*`。
+- live probe 前後：`docs/artifacts/traversal-audit/probe-output-2026-10-10{,-after}.txt`。
+
+### K.5 獨立審查（未參與實作的 review agent，依 `docs/16`）
+
+- **獨立性限制**：審查者是同一 session 啟動的子代理——沒有看過實作推理，只拿到檔案清單與待驗證聲明，但與實作者是同一模型家族；它自行重跑了 EditMode（4 個 fixture 全綠、`A44／A45／A47／A50` 綠），**沒有跑 PlayMode**（依指示）。
+- **確認**：piecewise exit 數值上不變（逐項比對 Epsilon、無號比較、高度修正、fallback）；JumpState launch 逐位元不變、D7 仍成立；無新跨層依賴、不寫黑板；J7／F8／PlayMode 新測試在舊程式上會失敗。
+- **找到並已處理**：
+  - **F1（Medium）** S2 的子決策 (b) 是新耦合 ⇒ §K.2 改寫、列為 **J3′** 待確認（程式未改，revert 一行）。
+  - **F2（Medium）** 文件誇大「面板＝plan」與 endpoint 範圍 ⇒ `docs/22` §21.1、`docs/30` §C、本節 T-01／T-02 限縮為 Piecewise 模式、endpoint＝任何 piecewise 被拒者。
+  - **F3（Low）** 回報深度無號（B3 顯示 +0.450） ⇒ **已改程式**：有號深度（B3 現為 −0.450），比較仍用無號距離（行為保持），新增 `EXIT5`。
+  - **F4（Low）** endpoint live 數字是腳本重組 ⇒ `docs/22` §21.4 標明證據等級。
+  - **F5（Low）** `EXIT3` 是同義反覆 ⇒ 改標為接線檢查，parity 證據改指 `F7` 具體值＋live 前後。
+  - **F6（Low）** 本檔檔頭過期 ⇒ 已更正。
+- **未處理（併入裁決）**：endpoint 的 `BeyondVerifiedSurface` 未發布到 diagnostics——併入 J1。

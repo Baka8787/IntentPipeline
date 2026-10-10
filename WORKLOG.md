@@ -7,6 +7,21 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🟦 2026-10-10：Traversal 概念收斂輪（`docs/52` §K；Living Spec `docs/22` §21）
+>
+> **開場只需讀**：本段 ＋ `docs/52` §K（逐項狀態）＋ `docs/22` §21。
+>
+> - ✅ **S1 committed exit 單一規則**：`TraversalExitResolver`（`TraversalStateParamsSO.cs`）＝「traversal 停在哪」的唯一規則；PlanBuilder、Fitting、endpoint 共用。piecewise **行為不變**；**Piecewise 模式下**面板 `LandingCommittedDepth` 就是 plan 的 Exit knot（EndpointFallback 時仍是 piecewise 落點）；回報深度改為有號；越出 Probe 驗證面時 `LandingBeyondVerifiedSurface` ＋ 面板 `⚠ BEYOND VERIFIED SURFACE`。移除 `ResolveCommittedLandingDepth`。
+> - 🟡 **S2 endpoint 終點（Climb1m；任何 piecewise 被拒者）**：endpoint 也走「自然落點與 destination 兩者取近」，自然落點量在 clip 結尾。live：理想站位水平修正 +0.202 → **+0.020 m**；站 0.75 m +0.502 → +0.320 m。⏳ **人工 Play**：1.1 m 平台，理想站位／偏遠站位各爬一次，看上平台後有沒有被往前拖。❓ **J3′**：無 Traversal block 的 Climb1m 以全域 `DesiredWallDistance`（0.45）當理想站位 ⇒ 終點隨這個全域值 1:1 移動（新耦合，獨立審查 F1）；接受／改以實際起點／補 authored 距離／revert（一行），見 `docs/52` §K.2。
+> - ✅ **S3 Jump launch 單一推導**：`JumpStateParams.TryGetBakedLaunch`；JumpState 與 SelectionPolicy 共用（`docs/47` F-05 結案）。ADR-008 D7「無法推導 ⇒ 保留 traversal」不變。`R4` 守「Climb coverage 下限 ≥ Jump apex」。
+> - 回歸（最終）：EditMode **884／882／1 failed／1 skipped**（唯一失敗＝工作樹場景改動 `Scene_InstanceMasks_MatchSemanticTable`，開工前基線就失敗）；PlayMode **97／90／7 failed**＝基線同一組（`C0`＋6 個 Stair 骨盆）。`Climb2m_RealPrefab_*` 間歇性——**A/B 確認與本輪無關**（本輪 3／6、HEAD 3／6）。新增測試 16 項全綠。
+> - 🔍 **獨立審查**（未參與實作的 review agent，依 `docs/16`；限制見 `docs/52` §K.5）：確認 piecewise 數值不變、Jump launch 逐位元不變、無跨層依賴；找到 F1–F6，已全數處理（F3 改程式：有號深度＋`EXIT5`；其餘改文件；F1 轉為 J3′）。
+> - ❓ **待使用者裁決**：**J1**（committed exit 越出驗證面：否決／補支撐射線／維持）、**J2**（牆後無地面仍 Vault、plan Failed）、**J4**（coverage 下限 owner：runtime 推導或 authored）、**J5**（recovery，`docs/23` F-b）。選項寫在 `docs/52` §K.3。J3 主決策由既有契約回答，子決策 **J3′** 待確認（§K.2）。
+> - ⚠️ 給 `docs/50`：牆後無地面的 Vault（`docs/52` B3）是 **Failed plan 的確定觸發條件**，可作 M-02 的量測場景。
+> - ⚠️ 發現：`TraversalClimbPlayModeTests.Climb2m_RealPrefab_*` 本身不穩定（真實鍵盤輸入＋帧時序），之後回歸若只有它紅，先重跑再判斷。
+>
+> ---
+>
 > # 🗄️ 2026-10-08：樓梯／停步腳部接觸工作線**已封存**（`docs/45` §28）
 >
 > - ADR-011 ✅ **Accepted**（AC4 在 R1c 3 cm＋P8b 下重驗通過；AC2 修訂：起跑 ~12 cm 爬行＝動畫限制）。

@@ -5,7 +5,7 @@
 | 狀態 | 🟡 **V3 Correctness／Debug runtime 與自動驗證完成，停在 Editor Integration Gate**。安全貼牆 Entry、contact/vertical 分段 constraint、Exit→Recovery 高度鎖定、最小 Hand IK 與完整可觀測性已落地；三支正式 Bake 仍缺 marker／重烘與 IK timing，因此現有資產仍會明確顯示 endpoint fallback |
 | 日期 | 2026-09-13 |
 | 前置 | `docs/17` §4（八層問題域）、`docs/18` §2／§5／§6（假說重檢、ADR 觸發條件 T1–T6、scope 清單） |
-| 本檔角色 | §0–§8 保留實作前的診斷與推導；§9 記 Environment／Vertical slice；§10 是 V1 Integration；§11 是 V2；§12 是 V3 implementation 與剩餘人工 Gate 的正本 |
+| 本檔角色 | §0–§8 保留實作前的診斷與推導；§9 記 Environment／Vertical slice；§10 是 V1 Integration；§11 是 V2；§12 是 V3 implementation 與剩餘人工 Gate 的正本；§21 是 2026-10-10 committed exit／Jump launch 收斂（`docs/52`） |
 | 範圍 | Vault 1m ／ Climb 1m ／ Climb 2m ／ None（fallback 到既有 Jump）。⛔ 不含空中抓邊、Ledge Hang、Shimmy、Corner、連續攀爬鏈、Ladder、Wall Run、Moving Platform、Free Climbing |
 | **State reconciliation** | ✅ **2026-09-12 歷史基線**（見 §0.0）；其「程式面為 0」結論已被同日 §9／§10 的實作取代，不得再當成目前狀態 |
 
@@ -1444,3 +1444,62 @@ contact correction 漂移仍是 **0 mm**。窄 ledge 測試中 primary 落在安
 
 驗證：Unity 6000.5.1f1 recompile 0 errors；focused `TraversalWarpPlanTests` **24／24**；
 完整 EditMode **445 total／444 passed／0 failed／1 existing skipped**；PlayMode **41／41**。
+
+---
+
+## 21. 概念收斂輪 —— committed exit 單一規則、endpoint 終點、Jump launch 單一推導（2026-10-10）
+
+> 來源：`docs/52`（Traversal 概念碎裂審查）。本節是那一輪**已實作**部分的 Living Spec；需裁決的項目留在 `docs/52` §K。
+> 不觸及 ADR 判準（無黑板／FSM 拓撲／管線／核心介面變更），故不開 ADR；ADR-008 D7 文字不變。
+
+### 21.1 Committed exit：一條規則、三個使用者
+
+`TraversalExitResolver.Resolve(candidate, forward, naturalDepth)`（`TraversalStateParamsSO.cs`）是「traversal 停在哪」的**唯一**規則：
+動畫自然落點比 Probe destination 近就用自然落點（沿 `forward` 自 ledge edge 量，高度取 destination），否則用 destination——即 §18.4／`docs/30` §C 的「兩者取近」。
+
+| 使用者 | forward | naturalDepth |
+|---|---|---|
+| `TraversalPlanBuilder`（piecewise Exit／Recovery knot） | `−wallNormal`（投影到頂面） | `MotionBakeData.TryGetNaturalExitDepth`（量在 exit marker） |
+| `TraversalAnimationFitter`（`LandingCommittedDepth` 報表） | 同上 | 同上 ⇒ **Piecewise 模式下**面板上的 committed ＝ plan 的 Exit knot |
+| `TraversalState` endpoint 分支（**任何 piecewise 被拒者**；出貨上主要是無 Traversal block 的 Climb1m） | `candidate.Forward`（endpoint 既有方向，未改） | `GetEndpointNaturalDepth` ＝ clip **結尾**水平位移 − Entry 實際採用的理想進場距離 |
+
+- endpoint 量在結尾，因為 endpoint plan 的 target 對應 clip 結尾的 root（`TraversalWarpPlan.TryCreate`）。
+- ⚠️ **面板＝plan 只在 Piecewise 模式成立。** Fitting 在 `CanEnter` 就以 piecewise 規則算出報表；plan 若退回 EndpointFallback，執行的是 endpoint 落點，面板仍是 piecewise 落點（無 block 的 clip 則 Fitting 報 `MissingBakeData`、沒有落點值）。endpoint 自己的 `BeyondVerifiedSurface` 目前**未發布**，併入 `docs/52` J1 處理。
+- ⚠️ **endpoint 的「理想進場距離」來源**：有 Traversal block 時是 bake 推導值；**沒有 block 時（Climb1m）是全域 `EntryPolicySettings.DesiredWallDistance`（出貨 0.45）**。因此 Climb1m 的上台終點現在會隨這個全域值 1:1 移動——這是 S2 新增的耦合（改前終點與 Entry 設定無關），**待使用者確認**（`docs/52` §K.2 J3′）。revert：`TraversalState.CommitWarpPlan` endpoint 分支的 target 改回 `_committedCandidate.DestinationPoint`（一行）。
+- piecewise 被拒而退回 endpoint 的 Vault1m／Climb2m 也套同一規則：Vault 結尾自然落點 1.857 m 恆比 Probe 驗證面（≤1.1 m）遠 ⇒ 仍用 destination（不變）；Climb2m 結尾自然落點 0.213 m ⇒ 改停在自然落點（舊版停在 destination）。後者只在 Climb2m piecewise 失敗時發生。
+- `TraversalCommittedExit.Depth` 是**有號**深度（沿 forward）：destination 落在邊緣前方（牆後沒有地面時 Probe 構造的點）時為負。取近的比較仍沿用舊 piecewise 的無號距離（行為保持）。
+- `TraversalAnimationFit.LandingBeyondVerifiedSurface`：committed exit 比 `LandingSurfaceDepth` 遠、或沒有已驗證的面時為 true，`TraversalDebugWindow` 顯示 `⚠ BEYOND VERIFIED SURFACE`。**只負責看得見；不否決**——否決與否是 `docs/52` J1／J2 的 gameplay 裁決。
+- 舊的 `TraversalAnimationFitter.ResolveCommittedLandingDepth`（另一條「取小」規則、只供面板）已移除。
+
+### 21.2 Probe 掃描上限 ≠ 停多遠
+
+`GetRequiredLandingDepth` 仍是**所有啟用 kind 自然落點的最大值**（Probe「掃多遠」，§19 R2 守）。它**不得**被當成任何一支 clip「停多遠」——那一律由 §21.1 決定。這條在 2026-10-10 之前只對 piecewise 成立；endpoint 路徑直接用 destination，使 Climb1m 的終點跟著 Vault 的動畫（1.116 m）走。
+
+### 21.3 Jump launch：單一推導
+
+`JumpStateParams.TryGetBakedLaunch`（v = √(2gh)×倍率；bake 缺失或 g≤0 ⇒ false）是唯一實作。`JumpState.BuildStages` 失敗時照舊合成 fallback 段；`TraversalSelectionPolicy` 失敗時照舊判 `JumpReachUnknown` 並保守保留 traversal（ADR-008 D7 不變）。唯一行為差異只在無效資料：bake 重力 ≤0 時 policy 不再自取 |g|（與 JumpState 一致）。
+
+Coverage 下限與 jump apex 的關係（2026-09-20 裁決：下限以 apex 為基準）改由 `TraversalAnimationFitTests.R4` 守；欄位 tooltip 註明 Climb1m 1.00 ← apex 0.9535、Climb2m 1.65 ← Hand IK guard 0.35 m。是否改成 runtime 推導見 `docs/52` J4。
+
+### 21.4 量測（live Editor，Edit Mode；`docs/artifacts/traversal-audit/probe-output-2026-10-10{,-after}.txt`）
+
+| 場景 | 前 | 後 |
+|---|---|---|
+| Vault 長地面／後方 0.5 m、Climb2m | plan exit 1.100／0.700／0.213 | **相同**；面板 committed 與 plan 一致 |
+| Vault 後方地面 0.35 m（B2） | 面板 0.600、plan 0.970 | plan 0.970（未改）、面板 0.970 ＋ ⚠ |
+| Climb1m 理想站位 0.45 m | endpoint 水平修正 +0.202 m | **+0.020 m** |
+| Climb1m 站 0.75 m | +0.502 m | +0.320 m（其中 0.30 是站位誤差，本來就該由 warp 吸收） |
+| Climb1m 0.8 m 平台 | −0.198 m | 相同（驗證面比自然落點近） |
+
+⚠️ 證據等級：piecewise 列（Vault／Climb2m）來自真實 `TraversalState.CanEnter` ＋ `TraversalPlanBuilder`；**endpoint 列（Climb1m）是 probe 腳本以相同公開函式、相同順序重組 `CommitWarpPlan` 的 endpoint 組合**（`trav_probe.v2.eval.cs.txt`），沒有呼叫 `TraversalState` 本身。真實接線由 PlayMode `V2_EndpointExit_*` 守（合成 bake）。
+
+### 21.5 守衛
+
+- **與舊程式行為相同（parity）的證據**：`F7` 的具體期望值（1.116／0.9）與 §21.4 piecewise 列前後逐值相同。
+- **resolver 規則**：`EXIT1`／`EXIT2`／`EXIT5`（有號深度）、`EXIT4`（endpoint 自然落點）；`EXIT3` 只是接線檢查（PlanBuilder 由 resolver 決定），結構上不可能失敗，**不是** parity 證據。
+- **可見性**：`F8`／`F9`（越出驗證面、沒有驗證面要被標出）。
+- **Jump**：`J6`／`J7`（policy apex＝JumpState launch；負重力兩邊一致）、`R4`（coverage 下限 ≥ apex）。
+- **endpoint 接線**：PlayMode `V2_EndpointExit_StopsAtClipsNaturalDepthWhenProbeLandingIsFarther`。
+- 在舊程式上會失敗的：`J7`、`F8`、`EXIT5`、`V2_EndpointExit_*`。
+
+⏳ **人工 Play ＋ 使用者確認**：Climb1m 1.1 m 平台從理想站位與偏遠站位各爬一次，確認上平台後沒有「被往前拖」；並確認接受「Climb1m 終點跟全域 `DesiredWallDistance` 走」這個耦合（§21.1）。這兩項自動測試都無法判定。

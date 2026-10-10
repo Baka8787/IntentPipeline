@@ -168,7 +168,7 @@ flowchart LR
 | **Entry**（進場） | traversal 開始的那一刻與位置 | 固定 `t = 0` | **角色當下真正站的地方**（`candidate.SensedRootPosition`） | 🔵 **Probe**——entry knot 的 correction 恆為 0，因為起點就是角色自己 |
 | **L / R Hand Contact**（左右手接觸） | 手抓住邊緣的時刻與世界位置 | 🟢 **Bake**（`leftHandContactNormalizedTime` 等） | 🔵 **Probe 的 `LedgeFrame`**——`ledge.PointAt(clamp(centerCoordinate + lateral, min, max))`，⭐ 2026-09-21 起再沿 **up** 夾在 entry 支撐面之上 | **混合**：時間屬動畫，位置屬世界，橫向偏移（哪隻手在左邊多少）屬動畫 |
 | **Transfer / Clearance**（重心轉移／越過） | 「最後一隻手放開」的時刻 | 🟢 **Bake**（`transferNormalizedTime`） | ⭐ **刻意沿用 Right Contact 的 correction**——見下方 | 🟢 **動畫**（這一段 root 不額外修正） |
-| **Exit**（脫離） | 動畫「爬完了／落地了」的時刻與落點 | 🟢 **Bake**（`exitNormalizedTime`；未 author 時由 `VerticalCurve` 平台起點推導） | 🔵 **Probe 的 `DestinationPoint`**，但若 🟢 bake 的自然落點**更近**則用 bake 的 | **兩者取近**——「再遠不保證還在已驗證的落腳面上」 |
+| **Exit**（脫離） | 動畫「爬完了／落地了」的時刻與落點 | 🟢 **Bake**（`exitNormalizedTime`；未 author 時由 `VerticalCurve` 平台起點推導） | 🔵 **Probe 的 `DestinationPoint`**，但若 🟢 bake 的自然落點**更近**則用 bake 的 | **兩者取近**——「再遠不保證還在已驗證的落腳面上」。🔄 2026-10-10：規則唯一實作 `TraversalExitResolver`，piecewise、endpoint（任何 piecewise 被拒者，出貨主要是 Climb1m）、Fitting 面板共用（`docs/22` §21）；面板＝plan 只在 Piecewise 模式成立；Probe 為淨空把薄牆 destination 前推時可能越出驗證面，面板以 ⚠ 標示，否決與否待裁決（`docs/52` J1） |
 | **Recovery**（恢復控制） | 交還玩家控制的時刻 | 🟢 **Bake**（`recoveryNormalizedTime`），與 binding 的 `RecoverNormalizedTime` 取大 | 同 Exit | 🟢 動畫 |
 
 ### 🔴 Transfer 為什麼**刻意不指向** corridor 的 clearance 點
@@ -726,7 +726,7 @@ Traversal 的可視化通道（`X Bot.prefab` 上的實際設定）：
 | `entryPolicy.maximumLateralError` / `maximumFacingAngle` | 0.20 / 35° |
 | `entryPolicy.ledgeEndMargin` | 0.08 |
 | `normalJumpReachSafetyMargin` | 0.15 ⇒ `safeReach = 0.8035 m` |
-| `vault1mEnabled` / `climb1mEnabled` / `climb2mEnabled` | 1 / **0** / 1 |
+| `vault1mEnabled` / `climb1mEnabled` / `climb2mEnabled` | 1 / **1** / 1（🔄 Climb1m 2026-09-20 啟用，走 endpoint；本表原寫 0，2026-10-10 更正） |
 | 三個 binding 的 `maxHorizontal/VerticalCorrection` | 1.5 / 0.75 |
 | `animationFit` | Enabled，rate ∈ [0.6, 1.6] |
 
