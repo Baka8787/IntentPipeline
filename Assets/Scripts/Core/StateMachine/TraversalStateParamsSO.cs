@@ -56,6 +56,136 @@ namespace Project.Core.StateMachine
     }
 
     /// <summary>
+    /// 🆕（docs/52 T-01／G-1）一次 traversal 的 committed exit：plan 實際要停的位置，以及它與
+    /// Probe 已驗證落腳面的關係。由 <see cref="TraversalExitResolver"/> 產生，是 piecewise plan、
+    /// endpoint plan 與 Animation Fitting 報表**共用的唯一答案**。
+    /// </summary>
+    public readonly struct TraversalCommittedExit
+    {
+        private const float DepthTolerance = 0.001f;
+
+        public readonly bool IsValid;
+        public readonly Vector3 Position;
+
+        /// <summary>自 ledge edge 起算的落點深度（m）。</summary>
+        public readonly float Depth;
+
+        /// <summary>Probe 連續驗證到的落腳面深度（m）；<c>NaN</c> ＝ 沒有任何已驗證的面。</summary>
+        public readonly float VerifiedDepth;
+
+        /// <summary><c>true</c> ＝ 落點取自動畫自然落點；<c>false</c> ＝ 取 Probe 的 destination。</summary>
+        public readonly bool UsesNaturalDepth;
+
+        public TraversalCommittedExit(
+            Vector3 position, float depth, float verifiedDepth, bool usesNaturalDepth)
+        {
+            IsValid = true;
+            Position = position;
+            Depth = depth;
+            VerifiedDepth = verifiedDepth;
+            UsesNaturalDepth = usesNaturalDepth;
+        }
+
+        /// <summary>
+        /// ⚠️ committed exit 比 Probe 驗證過的面更遠（或根本沒有已驗證的面）。
+        /// 既有規則是「比驗證過的面遠 ⇒ 踩空」（`docs/22` §18／`docs/30` §C）；
+        /// 目前 Probe 會為了淨空查詢把薄牆的 destination 往前推一個膠囊半徑，因而可能違反它。
+        /// 是否改為否決屬 gameplay 裁決（`docs/52` J1／J2），此處只讓違反**看得見**。
+        /// </summary>
+        public bool BeyondVerifiedSurface =>
+            IsValid && !(VerifiedDepth >= Depth - DepthTolerance);
+    }
+
+    /// <summary>
+    /// 🆕（docs/52 T-01／T-02）committed exit 的**唯一規則**：
+    /// 動畫自然落點比 Probe destination 近就用自然落點，否則用 destination（`docs/22` §18.4、`docs/30` §C「兩者取近」）。
+    ///
+    /// 過去這條規則只寫在 <see cref="TraversalPlanBuilder"/> 裡；Fitting 另用一條規則報「committed」，
+    /// endpoint 路徑則完全沒有套用——於是 Climb1m 的終點被 Probe 的跨 kind 掃描上限（Vault 的自然落點）決定。
+    /// 純函式：不查 Physics、不讀時間，只讀已 commit 的 candidate。
+    /// </summary>
+    public static class TraversalExitResolver
+    {
+        private const float Epsilon = 0.0001f;
+
+        /// <param name="forward">落點沿這個水平方向自 ledge edge 量起（piecewise 用牆法線、endpoint 用 candidate 方向）。</param>
+        /// <param name="naturalDepth">動畫自然落點深度；非有限或 ≤0 ⇒ 直接用 Probe destination。</param>
+        public static TraversalCommittedExit Resolve(
+            in TraversalCandidate candidate, Vector3 forward, float naturalDepth)
+        {
+            TraversalLedgeFrame ledge = candidate.LedgeFrame;
+            Vector3 destination = candidate.DestinationPoint;
+            if (!candidate.IsValid || !IsFinite(destination) || !IsFinite(ledge.EdgeOrigin) ||
+                !IsFinite(ledge.TopNormal))
+            {
+                return default;
+            }
+
+            float verified = candidate.LandingSurfaceDepth;
+            Vector3 edgeToDestination = Vector3.ProjectOnPlane(
+                destination - ledge.EdgeOrigin, ledge.TopNormal);
+            float probeDepth = edgeToDestination.magnitude;
+
+            forward = Vector3.ProjectOnPlane(forward, ledge.TopNormal);
+            bool hasForward = forward.sqrMagnitude > Epsilon;
+            if (hasForward) forward.Normalize();
+            // ⚠️ 取近的比較沿用舊 piecewise 的無號距離（行為保持）；但**回報的深度**要有號——
+            //    destination 落在邊緣後方（牆後沒有地面時 Probe 構造的點）必須顯示成負的，
+            //    否則面板又多一個誤導值（獨立審查 F3）。
+            bool useNatural = IsFinite(naturalDepth) && naturalDepth > Epsilon &&
+                              naturalDepth < probeDepth && hasForward;
+            if (!useNatural)
+            {
+                float reportedDepth = hasForward
+                    ? Vector3.Dot(edgeToDestination, forward)
+                    : probeDepth;
+                return new TraversalCommittedExit(destination, reportedDepth, verified, false);
+            }
+
+            Vector3 exit = ledge.EdgeOrigin + forward * naturalDepth;
+            // 高度仍沿用 Probe 驗證過的落腳面。
+            exit += ledge.TopNormal * Vector3.Dot(destination - exit, ledge.TopNormal);
+            return new TraversalCommittedExit(exit, naturalDepth, verified, true);
+        }
+
+        /// <summary>piecewise plan 的 traversal forward：牆法線反向，投影到頂面上。</summary>
+        public static bool TryGetLedgeForward(in TraversalLedgeFrame ledge, out Vector3 forward)
+        {
+            forward = -Vector3.ProjectOnPlane(ledge.WallNormal, ledge.TopNormal);
+            if (!IsFinite(forward) || forward.sqrMagnitude <= Epsilon)
+            {
+                forward = Vector3.zero;
+                return false;
+            }
+            forward.Normalize();
+            return true;
+        }
+
+        /// <summary>
+        /// endpoint plan 的自然落點深度。endpoint 的 target 對應的是 **clip 結尾**的 root，
+        /// 因此量在結尾（piecewise 的 Exit knot 則量在 exit marker，見
+        /// <see cref="MotionBakeData.TryGetNaturalExitDepth"/>）。進場距離用 Entry 實際採用的理想距離，
+        /// 與 piecewise 一樣以「站在理想位置時動畫會停在哪」為準；站偏的差由 warp 吸收。
+        /// </summary>
+        public static float GetEndpointNaturalDepth(MotionBakeData bake, float idealEntryDistance)
+        {
+            if (bake == null || !IsFinite(idealEntryDistance) || idealEntryDistance <= 0f)
+                return float.NaN;
+            float duration = bake.Duration;
+            if (!IsFinite(duration) || duration <= 0f) return float.NaN;
+            float travelled = bake.GetHorizontalDisplacementAt(duration);
+            if (!IsFinite(travelled)) return float.NaN;
+            return travelled - idealEntryDistance;
+        }
+
+        private static bool IsFinite(Vector3 value) =>
+            IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
+
+        private static bool IsFinite(float value) =>
+            !float.IsNaN(value) && !float.IsInfinity(value);
+    }
+
+    /// <summary>
     /// V3 fixed-shape plan builder. It selects hand targets on the committed ledge interval,
     /// solves root contact constraints once, and emits six allocation-free piecewise knots.
     /// </summary>
@@ -264,20 +394,15 @@ namespace Project.Core.StateMachine
             //    多 0.39 m），那段位移動畫裡沒有 ⇒ 放手後腳在滑。
             //    動畫自然落點比探測點近時就用它；更遠時（Vault 的長跑出）仍用探測點，
             //    因為再遠不保證還在已驗證的落腳面上。
-            Vector3 exitTarget = candidate.DestinationPoint;
-            if (bake.TryGetNaturalExitDepth(out float naturalDepth) && naturalDepth > Epsilon)
-            {
-                Vector3 edgeToDestination = Vector3.ProjectOnPlane(
-                    candidate.DestinationPoint - ledge.EdgeOrigin, ledge.TopNormal);
-                float probeDepth = edgeToDestination.magnitude;
-                if (naturalDepth < probeDepth)
-                {
-                    exitTarget = ledge.EdgeOrigin + traversalForward * naturalDepth;
-                    // 高度仍沿用 Probe 驗證過的落腳面。
-                    exitTarget += ledge.TopNormal *
-                                  Vector3.Dot(candidate.DestinationPoint - exitTarget, ledge.TopNormal);
-                }
-            }
+            //    🔄（docs/52 T-01）規則本體移到 TraversalExitResolver，Fitting 報表與 endpoint 路徑共用。
+            float naturalDepth = bake.TryGetNaturalExitDepth(out float bakedNaturalDepth)
+                ? bakedNaturalDepth
+                : float.NaN;
+            TraversalCommittedExit committedExit =
+                TraversalExitResolver.Resolve(in candidate, traversalForward, naturalDepth);
+            Vector3 exitTarget = committedExit.IsValid
+                ? committedExit.Position
+                : candidate.DestinationPoint;
 
             if (!TryCreateKnot(
                     bake, candidate.SensedRootPosition, candidate.SensedFacingForward,

@@ -86,8 +86,13 @@ namespace Project.Core.StateMachine
         ///
         /// ⚠️ 方向是 **StateMachine → Environment 的單向推送**：Probe 只收兩個 float，
         /// 不反向認識 bake／binding（LayerRule：`Core/Environment` 禁止依賴 StateMachine／Presentation）。
-        /// 每次 <see cref="CanEnter"/> 都重推一次，讓 Inspector 上臨時勾掉某個 kind 之後
-        /// 感測範圍會自己跟上——避免又出現「推導值從來沒生效」那類靜默失效（`docs/22` §13.8）。
+        /// <see cref="Initialize"/> 推一次，之後每次**通過按鍵／著地閘門**的 <see cref="CanEnter"/> 再推一次，
+        /// 讓 Inspector 上臨時勾掉某個 kind 之後感測範圍會自己跟上——避免又出現「推導值從來沒生效」
+        /// 那類靜默失效（`docs/22` §13.8）。⚠️ Probe 在順序 2.7 先 tick，所以新範圍從**下一帧**的量測起生效
+        /// （`docs/52` T-07）。
+        ///
+        /// ⚠️ 推過去的落腳掃描上限是**所有啟用 kind 的最大值**：它只決定 Probe「掃多遠」，
+        /// 不代表任何一支 clip「停多遠」——停多遠一律由 <see cref="TraversalExitResolver"/> 決定（`docs/52` T-02）。
         /// </summary>
         private void PushDerivedSensingRequirements()
         {
@@ -327,9 +332,17 @@ namespace Project.Core.StateMachine
             float requiredVertical = float.NaN;
             if (!builtPiecewise)
             {
+                // 🔄（docs/52 T-02）endpoint 的終點也走「動畫自然落點與 Probe destination 兩者取近」。
+                //    舊版直接用 destination，而 Probe 的落腳掃描上限是**所有 kind** 自然落點的最大值
+                //    （Vault 1.116 m）⇒ Climb1m 的終點被 Vault 的動畫決定，實測多拉 0.20–0.50 m。
+                //    方向沿用 endpoint 既有的 candidate.Forward（朝向軸不在本次範圍，docs/52 T-04）。
+                float endpointNaturalDepth = TraversalExitResolver.GetEndpointNaturalDepth(
+                    _currentBake, _entryEvaluation.IdealLongitudinalDistance);
+                TraversalCommittedExit endpointExit = TraversalExitResolver.Resolve(
+                    in _committedCandidate, _committedCandidate.Forward, endpointNaturalDepth);
                 motionDriver.TryCreateTraversalWarpPlan(
                     _currentBake,
-                    _committedCandidate.DestinationPoint,
+                    endpointExit.IsValid ? endpointExit.Position : _committedCandidate.DestinationPoint,
                     _committedCandidate.Forward,
                     warpStart,
                     warpEnd,

@@ -448,6 +448,78 @@ namespace Project.Tests.EditMode
             }
         }
 
+        // ── docs/52 T-01／T-02：committed exit 的唯一規則 ───────────────────────────
+
+        [Test]
+        public void EXIT1_NaturalNearerThanDestination_StopsAtNaturalDepthOnVerifiedHeight()
+        {
+            TraversalCandidate candidate = V3Candidate(2.1f, 0.8f); // edge z=0.5、destination z=0.8（深 0.3）、高 1
+            TraversalCommittedExit exit = TraversalExitResolver.Resolve(in candidate, Vector3.forward, 0.2f);
+
+            Assert.IsTrue(exit.IsValid);
+            Assert.IsTrue(exit.UsesNaturalDepth);
+            Assert.AreEqual(0.2f, exit.Depth, 1e-5f);
+            Assert.Less(Vector3.Distance(new Vector3(0f, 1f, 0.7f), exit.Position), 1e-4f,
+                "沿 forward 停在自然落點，高度沿用 Probe 驗證過的落腳面");
+        }
+
+        [TestCase(0.5f)]
+        [TestCase(float.NaN)]
+        [TestCase(0f)]
+        public void EXIT2_NaturalFartherOrUnknown_StopsAtDestination(float naturalDepth)
+        {
+            TraversalCandidate candidate = V3Candidate(2.1f, 0.8f);
+            TraversalCommittedExit exit = TraversalExitResolver.Resolve(in candidate, Vector3.forward, naturalDepth);
+
+            Assert.IsTrue(exit.IsValid);
+            Assert.IsFalse(exit.UsesNaturalDepth);
+            Assert.AreEqual(0.3f, exit.Depth, 1e-5f);
+            Assert.Less(Vector3.Distance(candidate.DestinationPoint, exit.Position), 1e-5f);
+        }
+
+        [Test]
+        public void EXIT3_PiecewiseExitKnot_IsTheResolversAnswer()
+        {
+            // 接線檢查：PlanBuilder 的 Exit knot 由 resolver 決定（不得再長出 inline 的第二份規則）。
+            // ⚠️ 這**不是**「與舊程式行為相同」的證據——那由 TraversalAnimationFitTests.F7 的具體期望值
+            //    與 docs/52 的 live 前後對照（A／B1／B2／C plan exit 逐值相同）負責（獨立審查 F5）。
+            ConfigureTraversalBlock();
+            TraversalCandidate candidate = V3Candidate(2.1f, 0.8f);
+            TraversalEntryEvaluation entry = ExecutableEntry(candidate);
+            Assert.IsTrue(TraversalPlanBuilder.TryBuild(
+                _bake, in candidate, in entry, 0.05f, 5f, 5f, out TraversalWarpPlan plan));
+            Assert.IsTrue(_bake.TryGetNaturalExitDepth(out float natural));
+            Assert.IsTrue(TraversalExitResolver.TryGetLedgeForward(in candidate.LedgeFrame, out Vector3 forward));
+            TraversalCommittedExit expected = TraversalExitResolver.Resolve(in candidate, forward, natural);
+
+            Assert.IsTrue(plan.TryEvaluate(plan.ExitKnot.NormalizedTime, out Vector3 exit, out _));
+            Assert.Less(Vector3.Distance(expected.Position, exit), 1e-4f);
+        }
+
+        [Test]
+        public void EXIT5_DestinationBehindEdge_ReportsNegativeDepthAndIsFlagged()
+        {
+            // 獨立審查 F3：牆後沒有地面時 Probe 構造的 destination 落在邊緣「前方」（玩家這一側）。
+            // 取近比較維持舊的無號距離（行為保持），但回報的深度必須是負的，不能再顯示成 +0.45。
+            TraversalCandidate candidate = V3Candidate(
+                2.1f, 0.8f, destinationOverride: Vector3.forward * 0.05f + Vector3.up); // edge z=0.5
+            TraversalCommittedExit exit = TraversalExitResolver.Resolve(in candidate, Vector3.forward, 1.0f);
+
+            Assert.IsTrue(exit.IsValid);
+            Assert.IsFalse(exit.UsesNaturalDepth, "|−0.45| < 1.0 ⇒ 依舊規則用 destination");
+            Assert.AreEqual(-0.45f, exit.Depth, 1e-4f);
+            Assert.IsTrue(exit.BeyondVerifiedSurface, "沒有已驗證的面（NaN）一律標出");
+        }
+
+        [Test]
+        public void EXIT4_EndpointNaturalDepth_IsClipEndTravelMinusIdealEntry()
+        {
+            // SetUp 的 bake：速度 1 m/s、長 1 s ⇒ 結尾水平位移 1.0 m。
+            Assert.AreEqual(0.55f, TraversalExitResolver.GetEndpointNaturalDepth(_bake, 0.45f), 1e-4f);
+            Assert.IsTrue(float.IsNaN(TraversalExitResolver.GetEndpointNaturalDepth(_bake, float.NaN)));
+            Assert.IsTrue(float.IsNaN(TraversalExitResolver.GetEndpointNaturalDepth(null, 0.45f)));
+        }
+
         [Test]
         public void IK_Window_FadesInHoldsAndReleasesBeforeExit()
         {
@@ -526,13 +598,14 @@ namespace Project.Tests.EditMode
             float ledgeHeight,
             float halfWidth,
             float yaw = 0f,
-            float capsuleWallClearance = 1f)
+            float capsuleWallClearance = 1f,
+            Vector3? destinationOverride = null)
         {
             Vector3 forward = Quaternion.Euler(0f, yaw, 0f) * Vector3.forward;
             Vector3 wallNormal = -forward;
             Vector3 tangent = Quaternion.Euler(0f, yaw, 0f) * Vector3.right;
             Vector3 edge = forward * 0.5f + Vector3.up * ledgeHeight;
-            Vector3 destination = forward * 0.8f + Vector3.up;
+            Vector3 destination = destinationOverride ?? forward * 0.8f + Vector3.up;
             var ledge = new TraversalLedgeFrame(
                 edge, tangent, wallNormal, Vector3.up, -halfWidth, halfWidth);
             var corridor = TraversalCorridorEvidence.Clear(

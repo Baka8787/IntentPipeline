@@ -167,7 +167,9 @@ namespace Project.Editor.Tools
                            : string.Empty));
                 Indent($"landing animated {Metres(fit.LandingAnimatedDepth)}   " +
                        $"probe verified {Metres(fit.LandingAvailableDepth)}   " +
-                       $"committed {Metres(fit.LandingCommittedDepth)}");
+                       $"committed {Metres(fit.LandingCommittedDepth)}" +
+                       // docs/52 T-01：committed 是 plan 實際的 Exit；比驗證面遠就明說，不再顯示一個不會被執行的數字。
+                       (fit.LandingBeyondVerifiedSurface ? "   ⚠ BEYOND VERIFIED SURFACE" : string.Empty));
             }
 
             Indent($"sensing reach {_probe.EffectiveForwardScanDistance:F2} m   " +

@@ -289,6 +289,38 @@ namespace Project.Tests.PlayMode
                 "OnEnter committed target A 後，Probe 變成 B 不得改寫 warp plan");
         }
 
+        /// <summary>
+        /// 🆕（docs/52 T-02）endpoint 路徑（出貨的 Climb1m）的終點也走「動畫自然落點與 Probe destination 兩者取近」。
+        /// 舊版直接用 destination，而 Probe 的落腳掃描上限是所有 kind 自然落點的最大值（Vault 1.116 m），
+        /// 於是 Climb1m 被 Vault 的動畫決定終點（live 實測多拉 0.20–0.50 m）。
+        /// destination 比自然落點近的情況由 <see cref="V2_CommittedWarpEndsAtCandidateAndIgnoresLaterProbeTarget"/> 守。
+        /// </summary>
+        [Test]
+        public void V2_EndpointExit_StopsAtClipsNaturalDepthWhenProbeLandingIsFarther()
+        {
+            V2TestRig rig = BuildV2Rig(0.5f);
+            const float height = 1.2f;
+            // edge（topPoint）在 z=1；destination 再往內 1.5 m，比這支 clip 的自然終點遠。
+            SetCandidate(rig.Probe, Candidate(
+                TraversalKind.Climb1m, height, new Vector3(0f, height, 2.5f)));
+            RequestGroundedJump(rig.Data);
+            rig.Machine.Tick(rig.Data, 0.016f);
+
+            Assert.AreEqual(StateType.Traversal, rig.Machine.CurrentState.Type);
+            var traversal = (TraversalState)rig.Machine.CurrentState;
+            Assert.IsTrue(traversal.WarpPlan.IsValid);
+            Assert.IsFalse(traversal.WarpPlan.IsPiecewise, "測試 bake 沒有 Traversal block ⇒ endpoint 路徑");
+
+            // CreateWarpBake：1 m/s × 1 s ⇒ clip 結尾水平位移 1.0 m。
+            float ideal = traversal.EntryEvaluation.IdealLongitudinalDistance;
+            float natural = 1f - ideal;
+            Assert.Greater(natural, 0f);
+            Assert.Less(natural, 1.5f);
+            Vector3 expected = new Vector3(0f, height, 1f + natural);
+            Assert.Less(Vector3.Distance(traversal.WarpPlan.TargetPosition, expected), 1e-4f,
+                $"endpoint 終點應停在 clip 自然落點（深 {natural:F3} m），而不是 1.5 m 外的 Probe destination");
+        }
+
         [TestCase(TraversalKind.Vault1m, 0.72f)]
         [TestCase(TraversalKind.Climb1m, 0.8f)]
         [TestCase(TraversalKind.Climb2m, 0.9f)]

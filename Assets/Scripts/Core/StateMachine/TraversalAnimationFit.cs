@@ -44,7 +44,7 @@ namespace Project.Core.Environment
     ///
     /// ⚠️ **rate 不會改變動畫的位移量**（那是 warp 的事），它改變的是走完那段位移所花的時間。
     /// 因此 rate 不能取代 correction，只能讓殘餘 correction 的**速度**合理、滑步不明顯。
-    /// 真正把 correction 量降下來的是 <see cref="LandingCommittedDepth"/> 那條路徑——
+    /// 真正把 correction 量降下來的是落點那條路徑（<see cref="LandingCommittedDepth"/>）——
     /// 讓 Probe 量到動畫真正需要的落地深度，而不是停在一個探測常數上。
     /// </summary>
     public readonly struct TraversalAnimationFit
@@ -67,8 +67,18 @@ namespace Project.Core.Environment
         /// <summary>Probe 實際驗證過、可以落腳的最遠深度（m）。</summary>
         public readonly float LandingAvailableDepth;
 
-        /// <summary>兩者取小＝這次真的敢 commit 的落點深度（m）。</summary>
+        /// <summary>
+        /// 🔄（docs/52 T-01）**plan 實際會停的落點深度**（m），與 piecewise plan 的 Exit knot 同一個
+        /// <c>TraversalExitResolver</c> 算出。舊版另用「自然落點與驗證面取小」報這個值，
+        /// 與 plan 實際用的 destination 不同源——面板顯示的 committed 不是被執行的那一個。
+        /// </summary>
         public readonly float LandingCommittedDepth;
+
+        /// <summary>
+        /// 🆕（docs/52 T-01）committed 落點比 <see cref="LandingAvailableDepth"/> 更遠，或根本沒有已驗證的面。
+        /// 違反「比驗證過的面遠 ⇒ 踩空」；要不要因此否決屬 gameplay 裁決（docs/52 J1／J2），這裡只負責讓它看得見。
+        /// </summary>
+        public readonly bool LandingBeyondVerifiedSurface;
 
         public readonly TraversalFitReason Reason;
 
@@ -87,7 +97,8 @@ namespace Project.Core.Environment
             float landingAnimatedDepth,
             float landingAvailableDepth,
             float landingCommittedDepth,
-            TraversalFitReason reason)
+            TraversalFitReason reason,
+            bool landingBeyondVerifiedSurface = false)
         {
             PlaybackRate = playbackRate;
             RawPlaybackRate = rawPlaybackRate;
@@ -96,6 +107,7 @@ namespace Project.Core.Environment
             LandingAnimatedDepth = landingAnimatedDepth;
             LandingAvailableDepth = landingAvailableDepth;
             LandingCommittedDepth = landingCommittedDepth;
+            LandingBeyondVerifiedSurface = landingBeyondVerifiedSurface;
             Reason = reason;
         }
 
@@ -189,7 +201,14 @@ namespace Project.Core.StateMachine
                 ? naturalDepth
                 : float.NaN;
             float landingAvailable = candidate.LandingSurfaceDepth;
-            float landingCommitted = ResolveCommittedLandingDepth(landingAnimated, landingAvailable);
+            // 🔄（docs/52 T-01）與 TraversalPlanBuilder 的 Exit knot 用同一個 resolver、同一組輸入，
+            //    面板上的 committed 才會等於實際被執行的落點。
+            TraversalCommittedExit exit =
+                TraversalExitResolver.TryGetLedgeForward(in candidate.LedgeFrame, out Vector3 ledgeForward)
+                    ? TraversalExitResolver.Resolve(in candidate, ledgeForward, landingAnimated)
+                    : default;
+            float landingCommitted = exit.IsValid ? exit.Depth : float.NaN;
+            bool landingBeyondVerified = exit.BeyondVerifiedSurface;
 
             // ── 接觸前的助跑：動畫自己走多遠 vs 這次實際需要走多遠 ──────────────────
             //    desiredEntryDistance ＝ 接觸瞬間手的前伸距離 ＋ 接觸前 root 已走的水平位移，
@@ -203,7 +222,7 @@ namespace Project.Core.StateMachine
                 return Unfittable(
                     TraversalFitReason.DegenerateRequirement,
                     approachAnimated, float.NaN,
-                    landingAnimated, landingAvailable, landingCommitted);
+                    landingAnimated, landingAvailable, landingCommitted, landingBeyondVerified);
             }
 
             float approachRequired = approachAnimated + longitudinalError;
@@ -215,14 +234,14 @@ namespace Project.Core.StateMachine
                 return Unfittable(
                     TraversalFitReason.NotFitted,
                     approachAnimated, approachRequired,
-                    landingAnimated, landingAvailable, landingCommitted);
+                    landingAnimated, landingAvailable, landingCommitted, landingBeyondVerified);
             }
             if (approachRequired <= Epsilon)
             {
                 return Unfittable(
                     TraversalFitReason.DegenerateRequirement,
                     approachAnimated, approachRequired,
-                    landingAnimated, landingAvailable, landingCommitted);
+                    landingAnimated, landingAvailable, landingCommitted, landingBeyondVerified);
             }
 
             // rate = 動畫位移 / 需求位移。需求較短 ⇒ rate > 1（播快，時間同比例縮短 ⇒ 世界速度不變）。
@@ -232,7 +251,7 @@ namespace Project.Core.StateMachine
                 return Unfittable(
                     TraversalFitReason.DegenerateRequirement,
                     approachAnimated, approachRequired,
-                    landingAnimated, landingAvailable, landingCommitted);
+                    landingAnimated, landingAvailable, landingCommitted, landingBeyondVerified);
             }
 
             float minimum = settings.MinimumPlaybackRate;
@@ -246,24 +265,7 @@ namespace Project.Core.StateMachine
                 rate, rawRate,
                 approachAnimated, approachRequired,
                 landingAnimated, landingAvailable, landingCommitted,
-                reason);
-        }
-
-        /// <summary>
-        /// 這次要 commit 的落點深度：動畫的自然落點與 Probe 驗證過的落腳面**取小**。
-        ///
-        /// 為什麼取小：比動畫遠 ⇒ 放手後還要被往前推（就是 Playtest 的「抓牢後還在位移」）；
-        /// 比驗證過的面遠 ⇒ 踩空。兩個都不能要。
-        /// 任一端未知時退回另一端；都未知時回 <c>NaN</c>，呼叫端維持既有行為。
-        /// </summary>
-        public static float ResolveCommittedLandingDepth(float animatedDepth, float availableDepth)
-        {
-            bool hasAnimated = IsFinite(animatedDepth) && animatedDepth > Epsilon;
-            bool hasAvailable = IsFinite(availableDepth) && availableDepth > Epsilon;
-            if (hasAnimated && hasAvailable) return Mathf.Min(animatedDepth, availableDepth);
-            if (hasAnimated) return animatedDepth;
-            if (hasAvailable) return availableDepth;
-            return float.NaN;
+                reason, landingBeyondVerified);
         }
 
         /// <summary>動畫自己在「起點 → 第一次接觸」之間的水平位移。</summary>
@@ -298,12 +300,13 @@ namespace Project.Core.StateMachine
             float approachRequired,
             float landingAnimated,
             float landingAvailable,
-            float landingCommitted) =>
+            float landingCommitted,
+            bool landingBeyondVerified) =>
             new TraversalAnimationFit(
                 1f, 1f,
                 approachAnimated, approachRequired,
                 landingAnimated, landingAvailable, landingCommitted,
-                reason);
+                reason, landingBeyondVerified);
 
         private static bool IsFinite(float value) =>
             !float.IsNaN(value) && !float.IsInfinity(value);

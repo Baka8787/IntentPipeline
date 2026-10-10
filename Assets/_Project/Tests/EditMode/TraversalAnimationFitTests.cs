@@ -144,20 +144,62 @@ namespace Project.Tests.EditMode
             Assert.AreEqual(1f, fit.PlaybackRate, 1e-5f);
         }
 
-        [Test]
-        public void F7_CommittedLandingDepth_TakesTheSmallerOfAnimatedAndVerified()
+        /// <summary>
+        /// 🔄（docs/52 T-01）取代舊 F7。舊版 Fitting 用「自然落點與驗證面取小」自己算一個 committed，
+        /// plan 卻用另一條規則（自然落點與 destination 取近）——面板顯示的不是被執行的那個落點。
+        /// 現在兩者走同一個 <see cref="TraversalExitResolver"/>，**報的就是 plan 的 Exit knot**。
+        /// </summary>
+        [TestCase(1.6f, 1.116f)]  // 落腳面比動畫遠：停在動畫自然落點
+        [TestCase(0.9f, 0.9f)]    // 落腳面比動畫近：停在驗證過的面
+        public void F7_CommittedLandingDepth_IsThePlansExitKnot(float landingDepth, float expected)
         {
-            // 比動畫遠 ⇒ 放手後還要被往前推；比驗證過的面遠 ⇒ 踩空。兩個都不能要。
-            Assert.AreEqual(0.5f,
-                TraversalAnimationFitter.ResolveCommittedLandingDepth(0.5f, 1.2f), 1e-5f);
-            Assert.AreEqual(0.8f,
-                TraversalAnimationFitter.ResolveCommittedLandingDepth(1.5f, 0.8f), 1e-5f);
-            Assert.AreEqual(0.7f,
-                TraversalAnimationFitter.ResolveCommittedLandingDepth(0.7f, float.NaN), 1e-5f);
-            Assert.AreEqual(0.9f,
-                TraversalAnimationFitter.ResolveCommittedLandingDepth(float.NaN, 0.9f), 1e-5f);
-            Assert.IsTrue(float.IsNaN(
-                TraversalAnimationFitter.ResolveCommittedLandingDepth(float.NaN, float.NaN)));
+            MotionBakeData vault = Load(VaultPath);
+            Assert.IsTrue(vault.TryGetDesiredEntryDistance(out float ideal));
+            TraversalCandidate candidate = VaultCandidate(ideal, landingDepth);
+
+            TraversalAnimationFit fit = FitAt(vault, in candidate, ideal, TraversalAnimationFitSettings.Default);
+            float planExitDepth = PlanExitDepth(vault, in candidate, ideal);
+
+            Assert.AreEqual(expected, fit.LandingCommittedDepth, 0.002f);
+            Assert.AreEqual(planExitDepth, fit.LandingCommittedDepth, 1e-4f,
+                "Fitting 報的 committed 必須就是 plan 的 Exit knot");
+            Assert.IsFalse(fit.LandingBeyondVerifiedSurface);
+        }
+
+        /// <summary>
+        /// 🆕（docs/52 T-01 B2）Probe 為了淨空查詢把薄牆 destination 往前推一個膠囊半徑時，
+        /// plan 的落點會超出已驗證的面（live 實測：驗證 0.600、exit 0.970）。
+        /// **本測試鎖的是「看得見」，不是「這樣是對的」**——是否改為否決待使用者裁決（docs/52 J1）。
+        /// 裁決後應改寫此測試，而不是刪掉它。
+        /// </summary>
+        [Test]
+        public void F8_ExitBeyondVerifiedSurface_IsReportedNotHidden()
+        {
+            MotionBakeData vault = Load(VaultPath);
+            Assert.IsTrue(vault.TryGetDesiredEntryDistance(out float ideal));
+            TraversalCandidate candidate = VaultCandidate(ideal, 0.97f, verifiedDepth: 0.6f);
+
+            TraversalAnimationFit fit = FitAt(vault, in candidate, ideal, TraversalAnimationFitSettings.Default);
+
+            Assert.AreEqual(0.97f, fit.LandingCommittedDepth, 0.002f);
+            Assert.AreEqual(PlanExitDepth(vault, in candidate, ideal), fit.LandingCommittedDepth, 1e-4f);
+            Assert.AreEqual(0.6f, fit.LandingAvailableDepth, 1e-5f);
+            Assert.IsTrue(fit.LandingBeyondVerifiedSurface,
+                "committed 比驗證面遠必須被標出，不得再顯示一個較小、不會被執行的 committed");
+        }
+
+        /// <summary>🆕（docs/52 T-01 B3）完全沒有已驗證的落腳面也必須被標出。</summary>
+        [Test]
+        public void F9_NoVerifiedSurface_IsReported()
+        {
+            MotionBakeData vault = Load(VaultPath);
+            Assert.IsTrue(vault.TryGetDesiredEntryDistance(out float ideal));
+            TraversalCandidate candidate = VaultCandidate(ideal, 0.97f, verifiedDepth: float.NaN);
+
+            TraversalAnimationFit fit = FitAt(vault, in candidate, ideal, TraversalAnimationFitSettings.Default);
+
+            Assert.IsTrue(float.IsNaN(fit.LandingAvailableDepth));
+            Assert.IsTrue(fit.LandingBeyondVerifiedSurface);
         }
 
         // =====================================================================
@@ -257,8 +299,24 @@ namespace Project.Tests.EditMode
             return TraversalAnimationFitter.Fit(bake, in candidate, in entry, in settings);
         }
 
+        private static float PlanExitDepth(
+            MotionBakeData bake, in TraversalCandidate candidate, float ideal)
+        {
+            var entrySettings = TraversalEntryPolicySettings.Default;
+            TraversalEntryEvaluation entry = TraversalEntryPolicy.Evaluate(
+                in candidate, in entrySettings, ideal);
+            Assert.IsTrue(TraversalPlanBuilder.TryBuild(
+                    bake, in candidate, in entry, 0.08f, 5f, 5f, out TraversalWarpPlan plan,
+                    out TraversalWarpPlanRejection rejection),
+                $"piecewise plan 應建得起來：{rejection}");
+            Assert.IsTrue(plan.TryEvaluate(plan.ExitKnot.NormalizedTime, out Vector3 exit, out _));
+            return Vector3.Dot(exit - candidate.LedgeFrame.EdgeOrigin, Vector3.forward);
+        }
+
         /// <summary>薄牆 vault：落點在牆的另一側地面。</summary>
-        private static TraversalCandidate VaultCandidate(float wallDistance, float landingDepth)
+        /// <param name="verifiedDepth">Probe 驗證到的落腳面深度；預設＝destination 深度（一般情況）。</param>
+        private static TraversalCandidate VaultCandidate(
+            float wallDistance, float landingDepth, float? verifiedDepth = null)
         {
             Vector3 forward = Vector3.forward;
             Vector3 edge = new Vector3(0f, 1f, 0f);
@@ -273,7 +331,7 @@ namespace Project.Tests.EditMode
                 new Vector3(0f, 0f, -wallDistance), forward,
                 TraversalDetectionDirectionSource.Facing,
                 wallDistance - 0.12f + 0.03f,
-                landingDepth);
+                verifiedDepth ?? landingDepth);
         }
 
         /// <summary>2 m 平台 climb：落點在平台頂面。</summary>
