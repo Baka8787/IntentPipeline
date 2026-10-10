@@ -151,5 +151,46 @@ namespace Project.Core.StateMachine
         public float HardLandingSpeed => hardLandingSpeed;
         public float FallEntryGrace => fallEntryGrace;
         public float LandFallbackDuration => landFallbackDuration;
+
+        /// <summary>
+        /// 🆕（docs/52 T-03／docs/47 F-05）**由烘焙資料推導起跳 launch 的唯一實作**：
+        /// g = AutoCalculatedGravity × 重力倍率、h = AutoApexHeight × 高度倍率、v = √(2gh) × 初速倍率。
+        /// 三個倍率皆為 1 時 apex 精準命中 AutoApexHeight（ADR-002 §2.3 自洽性）。
+        ///
+        /// 回 <c>false</c> ＝ 這份 bake 沒有可信的跳躍資料。**退化由呼叫端各自決定**：
+        /// <c>JumpState</c> 合成 fallback 段讓跳躍仍可運作；<c>TraversalSelectionPolicy</c> 依 ADR-008 D7
+        /// 判「跳躍能力無法推導」並保守保留 traversal。過去兩邊各寫一份公式，入口條件已漂移
+        /// （一邊要求 g&gt;0、一邊取 |g|）。
+        /// </summary>
+        public static bool TryGetBakedLaunch(
+            MotionBakeData bake,
+            float heightMultiplier,
+            float gravityMultiplier,
+            float launchVelocityMultiplier,
+            out JumpLaunchData launch)
+        {
+            launch = default;
+            if (bake == null || !(bake.AutoApexHeight > 0f) || !(bake.AutoCalculatedGravity > 0f))
+                return false;
+
+            float gravity = bake.AutoCalculatedGravity * gravityMultiplier;
+            float height = bake.AutoApexHeight * heightMultiplier;
+            launch = new JumpLaunchData(
+                Mathf.Sqrt(2f * gravity * height) * launchVelocityMultiplier, gravity);
+            return true;
+        }
+
+        /// <summary>第 <paramref name="stageIndex"/> 段套用本資產倍率後的烘焙 launch；見 <see cref="TryGetBakedLaunch"/>。</summary>
+        public bool TryGetStageBakedLaunch(int stageIndex, out JumpLaunchData launch)
+        {
+            launch = default;
+            if (Stages == null || stageIndex < 0 || stageIndex >= Stages.Count) return false;
+            return TryGetBakedLaunch(
+                Stages[stageIndex].Bake,
+                HeightMultiplier,
+                GravityMultiplier,
+                LaunchVelocityMultiplier,
+                out launch);
+        }
     }
 }

@@ -26,6 +26,8 @@ namespace Project.Tests.EditMode
         private const string Climb2mPath = "Assets/ScriptableObjects/Motion/Bake_Climb2m.asset";
         private const string ParamsPath =
             "Assets/ScriptableObjects/StateMachine/TraversalStateParams.asset";
+        private const string JumpParamsPath =
+            "Assets/ScriptableObjects/StateMachine/JumpStateParams.asset";
 
         private static MotionBakeData Load(string path)
         {
@@ -246,6 +248,36 @@ namespace Project.Tests.EditMode
                 Assert.GreaterOrEqual(landing, depth - 1e-4f,
                     $"{kind}：動畫自然落點 {depth:F3} m 超出落腳面掃描上限 {landing:F3} m ⇒ " +
                     "終點會停在探測常數上，落差只能靠 correction 往回拉");
+            }
+        }
+
+        /// <summary>
+        /// 🆕（docs/52 T-03）**出貨的 Climb coverage 下限不得低於普通 Jump 的 apex。**
+        ///
+        /// 2026-09-20 的裁決（WORKLOG「`climb1m` 下限 0.90 → 1.00」）：下限以 apex 為基準，
+        /// 否則 safeReach–apex 之間出現「有時跳有時爬」的模糊帶。這個關係原本只存在於人的記憶裡——
+        /// coverage 是手填常數，apex 由 Jump bake ＋ 倍率推導；改 Jump 倍率不會帶動 coverage。
+        /// 本測試把它變成會紅的契約。⚠️ 若使用者對 docs/52 J4 選擇「下限改由 runtime 推導」，此測試隨之改寫。
+        /// </summary>
+        [Test]
+        public void R4_ClimbCoverageFloor_IsNotBelowNormalJumpApex()
+        {
+            TraversalStateParamsSO prms = LoadParams();
+            var jump = AssetDatabase.LoadAssetAtPath<JumpStateParams>(JumpParamsPath);
+            Assert.IsNotNull(jump, $"找不到 JumpStateParams：{JumpParamsPath}");
+            Assert.IsTrue(jump.TryGetStageBakedLaunch(0, out JumpLaunchData launch),
+                "出貨的地面跳必須有可信的烘焙 launch");
+            float apex = launch.InitialVerticalVelocity * launch.InitialVerticalVelocity /
+                         (2f * launch.Gravity);
+
+            foreach (TraversalKind kind in new[] { TraversalKind.Climb1m, TraversalKind.Climb2m })
+            {
+                if (!prms.IsKindEnabled(kind)) continue;
+                float floor = prms.GetBinding(kind).CoverageMinHeight;
+                if (floor <= 0f) continue;
+                Assert.GreaterOrEqual(floor, apex,
+                    $"{kind}：coverage 下限 {floor:F3} m 低於普通 Jump apex {apex:F3} m ⇒ " +
+                    "重新出現 safeReach–apex 的模糊帶（同一面牆、站位差一點就換行為）");
             }
         }
 

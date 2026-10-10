@@ -183,29 +183,20 @@ namespace Project.Core.StateMachine
             initialVelocity = 0f;
             gravity = 0f;
 
-            if (jumpParams == null || jumpParams.Stages == null || jumpParams.Stages.Count == 0)
+            // 🔄（docs/52 T-03／docs/47 F-05）不再自己寫一份 v = √(2gh)：讀 JumpState 實際使用的同一個推導。
+            //    推導不出來（缺 bake、bake 重力 ≤0）仍回 false ⇒ 由上層依 ADR-008 D7 保守保留 traversal。
+            if (jumpParams == null || !jumpParams.TryGetStageBakedLaunch(0, out JumpLaunchData launch))
                 return false;
 
-            MotionBakeData bake = jumpParams.Stages[0].Bake;
-            if (bake == null) return false;
-
-            float heightMultiplier = jumpParams.HeightMultiplier;
-            float gravityMultiplier = jumpParams.GravityMultiplier;
-            float velocityMultiplier = jumpParams.LaunchVelocityMultiplier;
-            float height = bake.AutoApexHeight * heightMultiplier;
-            gravity = Mathf.Abs(bake.AutoCalculatedGravity) * gravityMultiplier;
-
-            if (!IsFinite(height) || height <= 0f ||
-                !IsFinite(gravity) || gravity <= 0f ||
-                !IsFinite(velocityMultiplier) || velocityMultiplier <= 0f)
+            if (!IsFinite(launch.InitialVerticalVelocity) || launch.InitialVerticalVelocity <= 0f ||
+                !IsFinite(launch.Gravity) || launch.Gravity <= 0f)
             {
-                initialVelocity = 0f;
-                gravity = 0f;
                 return false;
             }
 
-            initialVelocity = Mathf.Sqrt(2f * gravity * height) * velocityMultiplier;
-            return IsFinite(initialVelocity) && initialVelocity > 0f;
+            initialVelocity = launch.InitialVerticalVelocity;
+            gravity = launch.Gravity;
+            return true;
         }
 
         private static bool IsFinite(float value) =>

@@ -141,14 +141,15 @@ namespace Project.Core.StateMachine
                 float launchVelocity;
                 float gravity;
 
-                if (bake != null && bake.AutoApexHeight > 0f && bake.AutoCalculatedGravity > 0f)
+                // v = √(2gh)：以套用倍率後的 g、h 逆推，再乘上初速倍率。
+                // 🔄（docs/52 T-03）公式唯一實作在 JumpStateParams.TryGetBakedLaunch，Traversal 的
+                //    「跳得過嗎」也讀同一份，兩邊不會再各自漂移。
+                if (JumpStateParams.TryGetBakedLaunch(
+                        bake, heightMul, gravityMul, velMul, out JumpLaunchData baked))
                 {
                     delay = Mathf.Max(0f, bake.AutoTakeoffDelay);
-                    gravity = bake.AutoCalculatedGravity * gravityMul;
-                    float height = bake.AutoApexHeight * heightMul;
-                    // v = √(2gh)：以套用倍率後的 g、h 逆推，再乘上初速倍率。
-                    // 三個倍率皆為 1 時，apex 精準命中 AutoApexHeight（ADR-002 §2.3 自洽性）。
-                    launchVelocity = Mathf.Sqrt(2f * gravity * height) * velMul;
+                    gravity = baked.Gravity;
+                    launchVelocity = baked.InitialVerticalVelocity;
                 }
                 else
                 {

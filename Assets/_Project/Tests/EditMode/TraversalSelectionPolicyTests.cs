@@ -1,6 +1,7 @@
 using NUnit.Framework;
 using Project.Core.Environment;
 using Project.Core.StateMachine;
+using Project.Presentation.Motion;
 using UnityEngine;
 
 namespace Project.Tests.EditMode
@@ -177,6 +178,86 @@ namespace Project.Tests.EditMode
                 expectedInside,
                 evaluation.Reason != TraversalSelectionReason.OutsideAnimationCoverage,
                 $"高度 {height} 的覆蓋判定不符預期");
+        }
+
+        /// <summary>
+        /// 🆕（docs/52 T-03／docs/47 F-05）**「跳得過嗎」必須用 JumpState 實際會用的 launch。**
+        /// 過去 policy 自己寫一份 v = √(2gh)，入口條件已與 JumpState 漂移（一邊取 |g|、一邊要求 g&gt;0）。
+        /// 這裡以 JumpState 自己建出的 stage launch 為正本對拍。
+        /// </summary>
+        [TestCase(1f, 1f, 1f)]
+        [TestCase(1.3f, 0.8f, 1.1f)]
+        public void J6_PolicyApex_EqualsJumpStatesOwnLaunch(
+            float heightMultiplier, float gravityMultiplier, float velocityMultiplier)
+        {
+            MotionBakeData bake = ScriptableObject.CreateInstance<MotionBakeData>();
+            JumpStateParams jumpParams = ScriptableObject.CreateInstance<JumpStateParams>();
+            try
+            {
+                bake.AutoApexHeight = 0.9535f;
+                bake.AutoCalculatedGravity = 16.777f;
+                jumpParams.Stages.Add(new JumpStage { Bake = bake });
+                jumpParams.HeightMultiplier = heightMultiplier;
+                jumpParams.GravityMultiplier = gravityMultiplier;
+                jumpParams.LaunchVelocityMultiplier = velocityMultiplier;
+
+                JumpLaunchData jumpLaunch = BuildJumpStateStageZero(jumpParams);
+                float jumpApex = jumpLaunch.InitialVerticalVelocity * jumpLaunch.InitialVerticalVelocity /
+                                 (2f * jumpLaunch.Gravity);
+
+                TraversalCandidate candidate = CoverageCandidate(TraversalKind.Climb2m, 1.9f);
+                TraversalSelectionEvaluation evaluation =
+                    TraversalSelectionPolicy.Evaluate(in candidate, jumpParams, 0.15f);
+
+                Assert.IsTrue(evaluation.HasReachEvidence, $"應有 reach 證據，實際 {evaluation.Reason}");
+                Assert.AreEqual(jumpApex, evaluation.TheoreticalApex, 1e-4f,
+                    "policy 的 apex 必須等於 JumpState 實際起跳的 apex");
+            }
+            finally
+            {
+                Object.DestroyImmediate(jumpParams);
+                Object.DestroyImmediate(bake);
+            }
+        }
+
+        /// <summary>
+        /// bake 重力 ≤0 時 JumpState 不採用烘焙值（改用 fallback）；policy 必須同樣不採用，
+        /// 並依 ADR-008 D7 判「跳躍能力無法推導」而保守保留 traversal——不得自己取 |g| 算出一個 JumpState 不會用的 apex。
+        /// </summary>
+        [Test]
+        public void J7_NonPositiveBakedGravity_IsUnknownForPolicyAsForJumpState()
+        {
+            MotionBakeData bake = ScriptableObject.CreateInstance<MotionBakeData>();
+            JumpStateParams jumpParams = ScriptableObject.CreateInstance<JumpStateParams>();
+            try
+            {
+                bake.AutoApexHeight = 0.9535f;
+                bake.AutoCalculatedGravity = -16.777f;
+                jumpParams.Stages.Add(new JumpStage { Bake = bake });
+
+                Assert.IsFalse(jumpParams.TryGetStageBakedLaunch(0, out _),
+                    "負重力 bake 不是可信的跳躍資料");
+                TraversalCandidate candidate = CoverageCandidate(TraversalKind.Climb1m, 0.5f);
+                TraversalSelectionEvaluation evaluation =
+                    TraversalSelectionPolicy.Evaluate(in candidate, jumpParams, 0.15f);
+                Assert.IsTrue(evaluation.PreferTraversal);
+                Assert.AreEqual(TraversalSelectionReason.JumpReachUnknown, evaluation.Reason);
+            }
+            finally
+            {
+                Object.DestroyImmediate(jumpParams);
+                Object.DestroyImmediate(bake);
+            }
+        }
+
+        private static JumpLaunchData BuildJumpStateStageZero(JumpStateParams jumpParams)
+        {
+            var jump = new JumpState();
+            const System.Reflection.BindingFlags flags =
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+            typeof(JumpState).GetMethod("BuildStages", flags).Invoke(jump, new object[] { jumpParams });
+            var stages = (JumpLaunchData[])typeof(JumpState).GetField("_stageLaunch", flags).GetValue(jump);
+            return stages[0];
         }
 
         private static TraversalCandidate CoverageCandidate(TraversalKind kind, float height) =>

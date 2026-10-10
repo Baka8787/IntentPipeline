@@ -753,8 +753,17 @@ namespace Project.Core.StateMachine
         //
         // 0 ＝ 不限制（維持舊行為）。下限與 jump safeReach 的關係由 selection policy 疊加：
         // 兩者都要過，所以 authored 下限低於 jump 搆得到的高度時不會有害，只是不生效。
+        //
+        // ⚠️（docs/52 T-03）反方向也要知道：下限**高於** jump apex 時，jump-reach 判斷整段被遮蔽，
+        //    真正的 Jump／Climb 分界就是這個 authored 值。出貨值是人對照別人的事實選的——
+        //    Climb1m 1.00 ← 普通 Jump apex 0.9535；Climb2m 1.65 ← Hand IK residual guard 0.35 m（docs/40 §13）。
+        //    改 Jump 倍率或 guard 時要回來重看；Climb1m 那一條由
+        //    TraversalAnimationFitTests.R4 守住（下限不得低於 apex，否則重新出現「有時跳有時爬」的模糊帶）。
         [Header("Animation coverage — 這支 clip 實際撐得住的高度帶（0 ＝ 不限制）")]
+        [Tooltip("下限（m）。高於普通 Jump apex 時，它就是實際的 Jump／Climb 分界（jump-reach 判斷被遮蔽）。" +
+                 "出貨值對照 Jump apex（Climb1m）或 Hand IK residual guard（Climb2m）選定——改那兩者時要回來重看。docs/52 T-03")]
         [SerializeField, Min(0f)] private float coverageMinHeight;
+        [Tooltip("上限（m）。超出讓給普通 Jump（OutsideAnimationCoverage）。")]
         [SerializeField, Min(0f)] private float coverageMaxHeight;
 
         public string AnimationKey => animationKey;
