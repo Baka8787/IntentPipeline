@@ -501,3 +501,261 @@ Current   零呼叫者；文件仍當 Motion Warping seam（M-09）
 ## 附錄：本次讀過的關鍵 call site
 
 `MotionDriver.cs:140-460（欄位）,460-500,504-590,600-690,700-800,804-886,888-905,943-1050,1140-1170,1250-1300,1323-1438,1494-1935,2516-2812` ｜ `CapsuleOffsetPolicy.cs`（全）｜ `CapsulePoseSolver.cs`／`CapsulePoseProfileSO.cs`（公開面）｜ `MotionBakeData.cs:720-775,930-1043,1070-1106` ｜ `LocomotionModel.cs:95-170,300-340` ｜ `TraversalState.cs:215-440` ｜ `RollState.cs:85-116` ｜ `ActionState.cs:285-305` ｜ `CharacterFacingSource.cs:40-100` ｜ `FullBodyStateMachine.cs:47-50` ｜ `ArchitectureRegressionTests.cs:515-530,1074-1084,1556-1590` ｜ `MotionDriverCommittedMovementPlayModeTests.cs:105-175` ｜ `LocomotionMixerWiringTests.cs:395-415` ｜ `SpellLayeringWiringTests.cs:200-210` ｜ `StairAuthoringContractTests.cs:160-215` ｜ `X Bot.prefab:4352-4373`／`Y Bot.prefab:426-447`（MotionDriver 序列化值）｜ `ScriptableObjects/Animation/*.asset`（`_Speed`）｜ `ScriptableObjects/Motion/Bake_{SprintFwdLoop,RunFwdLoop,WalkFwdLoop,*Stop_*,Stand To Roll,slash1_Baked,Climb1m,Climb2m,Vault1m}.asset`（`AutoAverageSpeed`／`SpeedCurve`）｜ `Gait_ActionRPG.asset` ｜ `docs/02` §4.4.4、§MotionDriver ｜ `docs/07` §3.4 ｜ `docs/33` 附錄 A／B ｜ `docs/42` 檔頭、§8 ｜ `docs/43` 檔頭 ｜ `docs/44` §9.4 ｜ ADR-001
+
+---
+
+## L. 技術債收斂規劃（2026-10-10，同日第二輪；⛔ 只規劃，runtime 未改）
+
+> **輸入**：使用者對 §K 的裁決（本節 L.0）。**本輪優先 M-02、M-05**，其餘建立工作清單。
+> **證據分級**（每一項都標）：🔴 **已證實缺陷**（讀碼即可完整證明，且有可觀測後果）｜🟠 **推導風險**（讀碼證明條件成立，行為後果未量測）｜📄 **文件不一致**｜🧹 **純清理**（無行為後果）。
+> **執行環境分級**：**Offline**＝`dotnet build`＋.NET 反射跑純函數／純字串 fixture（不碰 `GameObject`／`ScriptableObject`／`AnimationCurve.Evaluate`；做法見 memory `commit-from-mixed-worktree`）｜**UTR-Edit**＝Unity Test Runner EditMode（Editor 進程：live `unity cmd run_tests`，或 Editor 關閉時 batch）｜**UTR-Play**＝Unity Test Runner PlayMode｜**Human**＝人工 Play。⚠️ 本計畫**沒有任何一步需要改資產**。
+
+### L.0 使用者裁決（2026-10-10）
+
+| # | 裁決 |
+|---|---|
+| M-02 | 區分 **Traversal 執行狀態** 與 **WarpPlan 有效性**；先建真值表（含 Failed fallback）；⛔ 不以單一旗標全面取代既有條件；先查 C0 長期失敗的原因、確認契約，再決定改測試還是 runtime |
+| M-05 | 狀態定為 **Integrated（已正式接線），尚未 Stable**；先分析失地計時器在 Normal／Stop／Roll／Action／Traversal 的生命週期，特別是模式切換時的過期狀態與向下吸附；補齊自動化＋PlayMode 驗證**之後**才清 Prototype 標記與過期文件 |
+| Step-Up Diagnostics | 保留可重複使用的診斷能力；盤點一次性探針與依賴、提出建議，⛔ 不立即全刪 |
+| M-09 | 確認沒有程式／測試／其他實際依賴後，規劃刪除並同步規格文件 |
+| M-01／M-03 | 先建立入口政策矩陣與 SpeedCurve 共用語意規格；保留合理的入口差異；⛔ 沒有證據不重構已正確運作的數值邏輯 |
+| 限制 | 先分析與規劃、不改 runtime；每項修改附回歸測試；不破壞 Jump／Traversal／Locomotion 契約；標出與 Traversal 會話的檔案重疊；標出哪些需要 Editor |
+
+---
+
+### L.1 M-02：Traversal 執行狀態 vs WarpPlan 有效性
+
+#### L.1.1 四個相關概念（不合併）
+
+| 概念 | 定義 | 生命週期 | 目前表示 | 正確的 consumer |
+|---|---|---|---|---|
+| **Traversal 執行中**（execution active） | `TraversalState` 已 commit，MotionDriver 本帧在執行 committed traversal motion（不論 plan 結局） | `BeginTraversalPresentation`（`CommitWarpPlan` 內**無條件**呼叫，`TraversalState.cs:382`）→ `EndTraversalPresentation`（`OnExit`，`:231`） | **不存在**（目前以 `HasActiveTraversalPlan` 代理） | 接觸事件抑制、facing 消費、capsule pose offset 暫停 |
+| **WarpPlan 有效**（plan valid） | commit 時建出可用的 `TraversalWarpPlan` | 同上，但只在 `plan.IsValid` 時為 true | `HasActiveTraversalPlan`（`MotionDriver.cs:1519/1572`） | warp 位移來源、Hand IK（`TraversalHandIKController.cs:208/577`）、Traversal Debug Window |
+| **Collision profile 作用中** | binding 的膠囊 profile 正持有 `center` | Begin（plan 有效時）→ recovery 時刻或 OnExit | `_traversalCollisionProfileActive` | `UpdateCapsuleOffset` Guard ①、`ApplyTraversalCollisionProfile` |
+| **Segmented 執行** | binding 選 Segmented ∧ plan 是 piecewise | Begin → End | `_segmentedExecutionEnabled` | `TryExecuteSegmentedTraversal`、Hand IK（`:484`） |
+
+⇒ 建議**新增**一個 execution-active 表示（MotionDriver 私有狀態＋唯讀屬性），**保留**另外三個不動。`HasActiveTraversalPlan` 的語意**正是**「plan 有效」，它的兩個外部 consumer 依賴這個語意——改它會破壞 Hand IK（`ArchitectureRegressionTests:1626` 也以字串鎖住 Hand IK 讀它）。
+
+#### L.1.2 真值表：每個關注點在每種結局下的現況與建議判斷條件
+
+結局：**PA**＝Piecewise／Absolute（Vault1m）｜**PS**＝Piecewise／Segmented（Climb2m）｜**EP**＝Endpoint（Climb1m 出貨路徑，以及任何 piecewise 被拒者，`docs/52` T-04）｜**FL**＝Failed（plan 無效，走 `ExecuteCommittedCurveMovement`；`docs/52` T-01 B3「牆後無地面仍 Vault」是確定的觸發條件）。
+
+| 關注點 | PA | PS | EP | FL（現況） | 建議判斷條件 | FL 建議 | 分級 |
+|---|---|---|---|---|---|---|---|
+| Warp 位移來源 | plan | plan（分段） | plan（endpoint） | bake 曲線 | **plan valid**（不變） | 不變 | — |
+| Segmented 執行 | ✗ | ✓ | ✗ | ✗ | binding ∧ piecewise（不變） | 不變 | — |
+| 接觸事件抑制（`JustLanded`／`JustLeftGround`） | ✓ | ✓ | ✓ | **✗** | **execution active**（新） | ✓ | 🟠 |
+| `IsGrounded` 原值 | 原值 | 原值 | 原值 | 原值 | 不變（`docs/38` §13） | 不變 | — |
+| Facing request 消費 | 丟棄 | 丟棄 | 丟棄 | **套用** | execution active（**待裁決 D-1**） | 丟棄 | 🟠 |
+| Capsule pose offset | Begin 歸零→profile | 同 | 同 | **凍結在進場前** | execution active ⇒ 暫停並歸零（**待裁決 D-2**） | 歸零 | 🟠 |
+| Collision profile | binding profile 至 recovery | 同 | 同 | 無 | plan valid（不變） | 不變 | — |
+| Post-exit rebound 貼地 | exit knot 後 | 同 | **無** | **無** | 現為 `plan.IsPiecewise`；EP／FL **先量測**（WP-C） | 先量測 | 🟠（`docs/52` T-09） |
+| Hand IK | plan contacts | ＋segmented | `RootMappingUnavailable` | 無 | plan valid（不變） | 不變 | — |
+| `VerticalVelocity` 發布時機 | 上一帧 | 上一帧 | 上一帧 | **本帧** | 不改；寫進規格（traversal 期間目前沒有 consumer） | 不變 | 📄 |
+
+**相位補充**（同一結局內也會變）：
+- **播放前**（`isActuallyPlaying == false`，`TraversalState.cs:265-272`）：Absolute／EP／FL 會發出 `Move(Vector3.zero)` ⇒ 依 `IsTimeFrozen` 註解的實測，`isGrounded` 下一帧變 false ⇒ 產生一次分歧（PS 不發 Move，不受影響）。plan 有效時被抑制；**FL 不被抑制 ⇒ 0.1 s 後 `JustLeftGround` ⇒ `JumpTakeoff` 音效**（🟠 推導）。
+- **recovery 之後**（`_canRecover`）：profile 已還原、plan 仍有效、FSM 可能下一帧就離開；抑制與 plan valid 同生命週期，不受影響。
+- **EP 的 warp 結束後**：plan 位置凍結 ⇒ 每帧 `Move(0)` ⇒ `isGrounded` 恆 false、Foot IK 關閉直到離開狀態（`docs/52` T-09 推導）。
+
+**對 Jump／Locomotion／Traversal 契約的影響**：PA／PS／EP 下，「execution active」與「plan valid」的生命週期**逐帧相同**（都在 Begin 設、End 清）⇒ 事件抑制**逐位元不變**；只有 FL 改變。Jump 的 fall entry 讀 `IsGrounded`（不變）；`T9_FinishedWhileAirborne_TransitionsToExistingJumpFallEntry` 守 traversal→Jump 交接。
+
+#### L.1.3 C0 長期失敗：原因與契約
+
+**原因（🔴 已證實，讀碼完整證明）**：`C0_TraversalDoesNotReportGroundEdgesFromIncidentalContact`（`MotionDriverCommittedMovementPlayModeTests.cs:121`）的陽性對照是「設 `_wasGrounded=false` 後呼叫**一次** `SyncGroundedState`，期待 `JustLanded`」。2026-09-23 加入 `groundEdgeEventGrace`（測試宿主吃 C# 預設 0.1）之後：
+`TrackGroundStateDivergence` 第一次分歧回傳 **0** → `ShouldConfirmGroundStateChange(0, 0.1)` → **false** ⇒ 對照組永遠拿不到 `JustLanded` ⇒ 測試在對照組就失敗。
+更糟的是：就算拿掉對照組，受測段（同一帧第二次呼叫）**也一定拿不到 `JustLanded`**（grace 未滿）⇒ 斷言 `IsFalse(JustLanded)` 會**空洞地通過**。這正是該測試註解警告的情況。
+
+**契約本身沒有被推翻**（`SyncGroundedState:2734-2765` 的語意與 2026-09-21 的裁決一致）。寫成明確條文：
+- **C-E1**：確認時刻落在 traversal 執行期間的接觸變化**不回報**（落地與離地皆然）；`_wasGrounded` **照常前進**（不回報≠沒發生）。
+- **C-E2**：traversal 結束後，相對於已前進的 `_wasGrounded` 的下一次分歧**照常回報**——不補發、不吞掉。⇒ EP／FL 若以「未觸地」離開 traversal，離開後落地會正常報 `JustLanded`（那是 rebound 軸的問題，見 WP-C，不是抑制軸）。
+- **C-E3**：`IsGrounded` 永不抑制（`docs/38` §13）。
+- **C-E4**：grace 只延遲確認，不改變 C-E1／C-E2 的判斷時刻＝**確認時刻**。
+
+**結論：先修測試，不修 runtime**（WP-A）。修法：陽性對照與受測段都**逐帧**呼叫 `SyncGroundedState`（`yield return null` 推進 `frameCount`／`deltaTime`），直到超過 production 的 `groundEdgeEventGrace`（上限 1 s 防無窮迴圈）；對照組必須真的拿到 `JustLanded`，受測段在同樣的帧數內必須拿不到。
+
+#### L.1.4 M-02 工作包
+
+| WP | 內容 | 分級 | 行為變更 | 回歸測試 | 環境 |
+|---|---|---|---|---|---|
+| **WP-A** C0 修復（test-only） | 依 L.1.3 改寫 C0；新增 `C0b_GroundEdgeSuppressedAcrossGraceWindow`（分歧在 traversal 中開始、grace 滿時仍在 traversal ⇒ 不報）、`C0c_EdgesResumeAfterEndTraversalPresentation`（C-E2） | 🔴 測試缺陷 | 無 | 本身即測試；PlayMode 基線 7 → 6 failed（剩 6 個 Stair 骨盆，屬 Foot IK 範圍） | UTR-Play |
+| **WP-B** execution-active 表示 | 新增私有旗標（Begin 設、End 清；`Teleport` 不碰——死亡時 `OnExit` 會呼叫 End）；`SyncGroundedState` 的抑制改讀它；**D-1／D-2 裁決後**，`ExecuteCommittedCurveMovement` 依裁決不消費 facing、`BeginTraversalPresentation` 無條件 `ResetCapsuleOffsetImmediate` | 🟠 | **只有 FL**：不再出假的離地／落地事件；（D-1）不再被 facing 轉；（D-2）膠囊不再前偏 | 新增（皆放 `MotionDriverCommittedMovementPlayModeTests`，合成宿主）：`M02_Failed_SuppressesGroundEdges`（舊碼紅）、`M02_Failed_IgnoresFacingRequest`（D-1）、`M02_Failed_CapsuleCenterAtBase`（D-2，舊碼紅）、`M02_PlanValidity_UnchangedForFailed`（`HasActiveTraversalPlan==false`，守 Hand IK 語意）；架構測試：`SyncGroundedState` 的抑制條件不得引用 `HasActiveTraversalPlan`（字串，Offline）；既有 `C0*`、`T7`、`T9`、`V2_*`、`Climb2m_RealPrefab_*` 必須維持 | UTR-Play ＋ Offline |
+| **WP-B′** 整合驗證 | `docs/52` B3 場景（牆後無地面 ⇒ FL）在 `TraversalStatePlayModeTests` 的 rig 上跑一次：整段 0 個 edge event | 🟠 | — | 新增 1 個 PlayMode | UTR-Play；⚠️ 與 Traversal 會話檔案重疊 |
+| **WP-C** EP／FL 的 post-exit 貼地 | **先量測、不修**：Climb1m（EP）真實 prefab 的 `isGrounded` 時間線、Foot IK 啟用帧、離開後是否出現 `JustLanded` | 🟠（`docs/52` T-09） | 量測本身無 | 量測腳本可直接升格為 PlayMode 測試（若裁決要修） | UTR-Play；修正後需 **Human**（Climb1m 上平台觀感） |
+
+**驗收（M-02）**：WP-A 後 C0 綠，且對照組確實能紅（在 scratch 暫時拿掉抑制，C0 必須紅——驗一次、不 commit）；WP-B 後新測試全綠、PA／PS／EP 既有測試全綠、`HasActiveTraversalPlan` 外部 consumer 行為不變；FL 情境人工可聽（選做）。
+
+#### L.1.5 與 Traversal 會話的重疊
+
+| 檔案 | 本計畫的動作 | Traversal 會話（`docs/52`） | 處置 |
+|---|---|---|---|
+| `MotionDriver.cs` traversal 區段（`Begin`／`EndTraversalPresentation`、`SyncGroundedState`、`ExecuteCommittedCurveMovement`、`:1617` rebound） | WP-B 改；WP-C 可能改 rebound | 尚未改過；T-04 已把 rebound 軸**轉給本文件**（`docs/52` K.1） | 本計畫擁有；開工前確認 Traversal 會話沒有在改 |
+| `TraversalState.cs` | **不改**（WP-B 只在 MotionDriver 內加旗標；Begin／End 本來就無條件呼叫） | `a330bb8` 已改；J1／J2／J3′ 若裁決會再改 | 無寫入重疊 |
+| `TraversalStatePlayModeTests.cs` | WP-B′ 新增 1 個測試 | `a330bb8` 已改；J1／J2 若修會再改 | ⚠️ **重疊**：WP-B′ 排在 Traversal 會話閒置時做，或交給它做 |
+| `docs/22-traversal-v1.md` | M-09 只牽涉歷史表格（可不改） | `6dc24c9` 剛改 §21 | 建議**不改** |
+| `docs/00-map.md`／`WORKLOG.md` | 要補 `docs/50`（目前**沒有**索引列）、更新 `docs/42`／`docs/43` 兩列 | 兩者都改過 | 由使用者或最後收尾的會話一次改 |
+| Unity Editor | WP-A／B／D／E 都要用 UTR | Traversal 會話是唯一用過 live Editor 的 | **同一時間只能有一個會話用 Editor** |
+| `TraversalExitValidityPlayModeTests.cs`（**新檔，未 commit，Traversal 會話進行中**） | 不碰 | test-first：J1／J2 與 `PlanValidity_NoBuildablePlan_DoesNotCommitTraversal`（「沒有有效 plan 時不得承諾 traversal」）；runtime 尚未改 | 見 L.1.6 |
+
+#### L.1.6 ⚠️ 進行中的相依：Traversal 會話可能讓 FL 不可達
+
+撰寫本節時（2026-10-10），工作樹出現 Traversal 會話的未 commit 測試檔 `TraversalExitValidityPlayModeTests.cs`，其中 `PlanValidity_NoBuildablePlan_DoesNotCommitTraversal` 斷言「**建不出有效 plan 就不得進入 Traversal**」、`J2_Vault_NoGroundBehind_IsNotACandidate` 斷言 B3 場景不再是候選。對應的 runtime 尚未落地。
+
+| 若該工作落地 | 對本計畫的影響 |
+|---|---|
+| FL 透過正常 gameplay **不可達** | L.1.2 的 FL 欄改標「設計上不可達」；**WP-B 縮小**：不新增 execution-active 旗標（所有可達結局下它與 plan valid 逐帧相同），改為加一條 invariant 測試「`TraversalState` 只在 plan 有效時執行 committed motion」；**WP-B′ 取消**（被該會話的測試取代）；D-1／D-2 **撤回** |
+| `ExecuteCommittedCurveMovement` 失去 gameplay 呼叫者（只剩 FL 使用） | 變成第二個零呼叫者入口 ⇒ 併入 D-5 的 allowlist／刪除討論（它目前還被 3 個 PlayMode 測試直接呼叫，A-test `:1381` 也以字串鎖住 TraversalState 引用它） |
+| WP-A（C0）、WP-C（EP 貼地） | **不受影響**：C0 守的是 PA／PS／EP 都會用到的抑制契約；EP 仍是 Climb1m 出貨路徑 |
+
+⇒ **WP-B 在 Traversal 會話的 plan-validity 工作有結論之前不開工**；WP-A 可以先做。
+
+---
+
+### L.2 M-05：Step-down assist（Integrated，尚未 Stable）
+
+#### L.2.1 失地計時器 `_stepDownTimeSinceGrounded` 的生命週期
+
+計時器只在 `ApplyStepDownAssist:612-613` 推進（grounded ⇒ 0，否則 `+= deltaTime`）；`ApplyStepDownAssist` 只被 Base 與 Stop 兩個入口在 `enableStepDownAssist` 時呼叫（兩個出貨 prefab 都開）。
+
+| 模式 | 實際入口 | 計時器 | 貼地介入 | 備註 |
+|---|---|---|---|---|
+| Normal（LocomotionModel／BaseState） | `ExecuteBaseMovement` | ✓ 推進 | ✓ | 基準 |
+| Stop（停步曲線播放中） | `ExecuteLocomotionStopMovement` | ✓ | ✓ | `docs/44` §9.4 |
+| Pending Stop／`HoldsEntryMotion` | `ExecuteBaseMovement` | ✓ | ✓ | |
+| Jump（前搖、空中、Normal Land／Land2Move） | `ExecuteBaseMovement` | ✓ | gate ③ 擋上升段；下降時已超出 0.08 s | R6 由 `Player_JumpFromGeneratedStair_*` 守 |
+| Jump HardRecovery | `ExecuteVerticalOnlyMovement` | **凍結** | ✗ | 落地後才進入 ⇒ 凍結值為 0，無害 |
+| Roll（播放中） | `ExecuteBakedCurveMovement`（3-arg） | **凍結** | ✗（已裁決） | 🟠 **過期風險** |
+| Roll（clip 未播的防呆） | `ExecuteBaseMovement` | ✓ | ✓ | 只有 1–2 帧 |
+| Action 有 bake（Melee_Slash1、Throw×4、Enemy_Punch_R） | `ExecuteBakedCurveMovement`（3-arg） | **凍結** | ✗（已裁決） | 🟠 **過期風險** |
+| Action 無 bake（Fireball×3、Ice） | `ExecuteBaseMovement` | ✓ | **✓** | 📄 `docs/44` §9.4 寫「Action 不貼地」——無 bake 的施法其實是 locomotion 延續，**會**貼地（合理，但文件沒寫） |
+| Hurt／Death | `ExecuteVerticalOnlyMovement` | **凍結** | ✗ | 水平為 0 ⇒ 之後 gate ② 也擋；低風險 |
+| Traversal（全部結局） | Warped／Committed | **凍結** | ✗ | 🟠 **過期風險**（EP／FL 以未觸地離開時） |
+| `Teleport`（重生） | — | **不重設** | — | 重生後意圖為 0 ⇒ gate ② 擋；低風險 |
+| 暫停（`IsTimeFrozen`） | 入口提早 return | 不推進 | — | dt=0，無害 |
+
+#### L.2.2 模式切換的過期狀態與向下吸附（🟠 推導）
+
+**機制**：進入「凍結」模式時，計時器停在最後一個 Base／Stop 帧的值——通常是 **0**（多半從著地的 locomotion 進入）。若該模式在**騰空**時結束、回到 Base：
+1. 第一個 Base 帧：`lostSupportAge = 0 + dt ≤ 0.08` ⇒ gate ① 判「剛失地」，雖然實際已騰空了整段 Roll／攻擊／traversal 的時間。
+2. gate ② 有水平速度（玩家按著方向）、gate ③ 下降中（騰空期間重力已積分成負值）⇒ 成立。
+3. 本帧水平落點下方 0.25 m 內若有 `CharacterMovementSurface` 且坡度合格 ⇒ 本帧垂直速度被設成 `−distance/dt` ⇒ **一帧內往下吸最多 0.25 m**。
+4. 第一帧若沒查到，計時器從過期值繼續累加 ⇒ 接下來最多 0.08 s 每帧都會查 ⇒ 等於「結束後 0.08 s 的磁吸窗」。
+
+**範圍**：遮罩只看移動面（產生式樓梯）⇒ 只在「樓梯上做 Roll／有 bake 的攻擊／traversal 結束在樓梯上空」時可能出現。Roll 平均 1.94 m/s（4.60 m／2.37 s），在 35° 移動面上需要約 1.36 m/s 的貼地速度，峰值段會超過 `reboundForce` 的 2 m/s ⇒ Roll 下樓**有可能**騰空；Roll 結束時是否仍騰空需要量測（WP-E′）。
+
+**正面對照**：`_groundDivergingElapsed` 經 `SyncGroundedState` 在**每一個**入口推進，並以 `_groundDivergingTickFrame` 防同帧重複累加——同一份程式裡已經有正確的取樣域樣板。
+
+#### L.2.3 修正選項（待裁決 D-3）
+
+| 選項 | 內容 | Normal／Stop／Jump | 凍結模式結束時騰空 |
+|---|---|---|---|
+| **(a)（建議）** 實時語意 | 計時器移到 `SyncGroundedState` 的取樣域（每個入口推進，帧守衛） | **逐位元不變**（那些帧本來就每帧呼叫 assist，`data.IsGrounded` 是同一個值） | 不再吸附：騰空超過 0.08 s 就照彈道落下 |
+| (b) 失效語意 | 進入任何不呼叫 assist 的入口時，把計時器設為「已過期」 | 不變 | 不吸附；但語意變成「committed motion 會花掉重試預算」，而不是「失地多久」 |
+| (c) 維持現狀 | 只把現象寫進規格 | 不變 | 維持磁吸窗 |
+
+`docs/42` R7 的原文是「失地後的重試資格必須用**連續失地時間**判斷」——字面語意是 (a)。⛔ 三個選項都**不合併**時間窗（2026-10-07 裁決）。
+
+#### L.2.4 M-05 工作包
+
+| WP | 內容 | 分級 | 行為變更 | 回歸測試 | 環境 |
+|---|---|---|---|---|---|
+| **WP-D** 特性測試（先寫，舊碼全綠） | ①把三個 gate 與計時推進抽成 `internal static` 純函數（**不改行為**；比照 `TrackGroundStateDivergence`）②`docs/42` §8.4 的 EditMode 測試：`Gate_RejectsWhenAscending`、`Gate_RejectsWhenNoHorizontalMotion`、`RetryWindow_Accepts／RejectsAtBoundary`、`RetryWindow_ResetsWhenGrounded`、`WalkableGate_*`③PlayMode 合成宿主（`CharacterController`＋MotionDriver＋layer 3 合成斜面，反射設 `enableStepDownAssist`／`stepDownQueryLayers`）：`SD2_WithinWindow_SnapsToMovementSurface`（陽性對照）、`SD3_JumpLaunch_NotClobbered`（R6）、`SD4_StationaryAtEdge_NoIntervention`（`docs/38`）、`SD5_FlatGround_NoOp`（R8）、`SD6_NonMovementLayer_NoOp`（遮罩） | 🧹＋測試缺口 | 無（抽出的純函數必須逐位元等價） | 本身即測試；`StairTraversalPlayModeTests` 的 step-down 案例（`Player_TraversesGeneratedStair` 各組合、`RunDown_StopMidStair`、`JumpFromGeneratedStair`、`WalkOffOpenTopEdge`、`Enemy_TraversesGeneratedStair`）必須維持綠 | 純函數：**Offline**＋UTR-Edit；合成 PlayMode：UTR-Play |
+| **WP-E** 計時器取樣域（D-3 裁決後） | 依 D-3 修改；與 `SD1` 放同一包 | 🟠 | 依 D-3：(a) 只有「凍結模式結束時騰空且下方 0.25 m 內有移動面」會改變 | 新增 `SD1_AfterCommittedMotionAirborne_DoesNotSnap`（舊碼紅）；Normal／Stop 逐帧 parity：在合成斜面上錄 Base／Stop 各 120 帧的 `actualDY`，改前改後逐位元相同；WP-D 全部 | UTR-Play |
+| **WP-E′** 真實 prefab 量測 | 從產生式樓梯中段 Roll 下樓、在樓梯上做 Melee_Slash1：記錄 `lostSupportAge`、實際騰空時間、`AssistApplied`、`actualDY` | 🟠 → 證實或否證 | 無 | 若證實，升格為 `StairTraversalPlayModeTests` 的案例 | UTR-Play（InputTestFixture；⚠️ memory：同帧送兩個鍵會卡鍵） |
+| **WP-F** 收尾清理（WP-D／E 綠之後） | 摘 6 處過期 PROTOTYPE 標記（D.1）；`LogStepDownAssistTrace` 註解改為「正式診斷」並**移除** FootIK 欄位；`stepDownRetryWindow` tooltip 改為「機制已定、數值未經 tuning pass」；新增架構測試「MotionDriver 不得持有 `Presentation.IK` 型別的**欄位**」（`docs/42` §8.3 的建議；debug 區塊內的區域讀取見 L.3） | 🧹＋📄 | 無 | 架構測試（Offline）；`StairAuthoringContractTests:182-185`（不變） | Offline（編譯＋字串測試）＋UTR-Edit |
+| **WP-F′** 文件 | `docs/42` 檔頭：Integrated（`docs/44` §9.4），尚非 Stable；`docs/44` §9.4 補「無 bake 的 Action 走 locomotion、會貼地」；`docs/00-map.md` 第 47 列改述（⚠️ 與其他會話重疊） | 📄 | 無 | — | — |
+
+**Stable 條件**（建議寫進 `docs/42` 檔頭；全部成立才標 Stable）：①WP-D／E 綠；②`docs/42` §8.2 的 tuning pass 完成或明確豁免（`maxStepDownDistance` 只驗過 0.195 m 級高；`stepDownRetryWindow` 沒有掃過 Walk／Run）；③人工 Play：樓梯上的 Roll、攻擊、停步、跳躍；④沒有未結的過期狀態項。
+
+---
+
+### L.3 Step-Up Diagnostics：盤點與建議（⛔ 本輪不刪）
+
+| 元件 | 位置 | 依賴 | 可重用？ | 建議 |
+|---|---|---|---|---|
+| `enableStepUpDiagnosticsPrototype`（序列化，兩個 prefab 都是 0） | `MotionDriver.cs:205-212` | — | 開關本身 | **保留但改名**為通用的 Move trace 開關（`FormerlySerializedAs` 保住值；兩個 prefab 都是 0，無資產風險） |
+| 接住 `Move()` 回傳的 `CollisionFlags`、`posBeforeMove`、`requestedMovementThisFrame` | `:563-583`（`#if`） | — | **是**：「要求位移 vs 實際位移 vs 碰撞旗標」對任何 Move 相關問題都有用（`docs/43` 的 `stepOffset` 推擠就是這樣量到的） | **保留**為核心診斷 |
+| `LogStepUpDiagnosticsTrace` 的 root 欄位（`requestedDY`／`actualDY`／`stepOffsetDelta`／`isGrounded`／`collisionFlags`） | `:751-800` | — | 是 | **保留** |
+| 同一個 log 的 IK 欄位（`pelvisY`、左右腳權重、`HasGround`） | `:760-774` | **`FootIKController`**（`_debugFootIKController`） | 否：為 `docs/43` 一次性的相關性分析而加；IK 有自己的 runtime debug 線，PlayMode 探針（`PlantSettleProbe` 等）直接讀 FootIK | **刪除**（與 WP-F 一起） |
+| `_debugFootIKController`／`_debugFootIKControllerResolved` | `:333-337` | `Presentation.IK` | 否 | **刪除**（`docs/42` §8.3 本來就要求） |
+| `[StepDownAssist]` log 的 `pelvisY` 欄位 | `:711-717` | 同上 | 否 | **刪除**；其餘欄位保留（`docs/44` 刻意保留的 `logStepDownAssist`） |
+| `TraversalHandIKController` 讀值 | `:1998-2005`（traversal debug 面板） | `Presentation.IK`（`GetComponent`，不是欄位） | 是（面板要顯示 Hand IK 狀態） | **保留**；WP-F 的架構測試只禁**欄位**，不禁 debug 區塊內的區域讀取 |
+| 消費端 | 無：全 repo 沒有任何腳本或測試解析這兩種 log，只靠人讀 Console | — | — | 刪欄位不會弄壞任何工具 |
+| 文件 | `docs/43`（:43、:269、:856、:907）、`docs/00-map.md:48` | — | — | 改名時加一行註記；研究內容不改 |
+
+**待裁決 D-4**：兩個 log 要**合併**成一個 Move trace（assist 開啟時附加 gate 欄位），還是維持兩個開關？建議合併——兩者回答的都是「這一帧的 Move 發生了什麼」。
+
+---
+
+### L.4 M-09：`ApplyBakedCompensation` 刪除規劃
+
+**依賴確認**（全 repo grep，排除 `Library`／`Temp`／`.claude/worktrees` 等過期副本）：
+- 程式：**零呼叫者**，只有定義本身（`MotionDriver.cs:2630`）。
+- 測試：**零引用**（含反射字串）。
+- 資料：`docs/03` 說它要消費 `WarpedMotionExtractor` 的輸出——該 extractor **只有規格、沒有實作**（`Assets/Scripts` 裡沒有這個類別）⇒ 刪除不會讓任何 bake 欄位變成孤兒。
+- 文件：`docs/02` §MotionDriver（過期偽代碼）、`docs/03:74` roadmap、`docs/14:232` A28 允許清單、`docs/17:452`、`docs/18:260`、`docs/22:133/574`（歷史表格）、`WORKLOG.md:7956`、`_MentorQuiz`（學習紀錄）。
+
+| WP | 內容 | 分級 | 行為變更 | 回歸測試 | 環境 |
+|---|---|---|---|---|---|
+| **WP-H** | 刪除方法；`docs/02` MotionDriver 節的偽代碼與 🛑 `OnAnimatorMove` 風險說明改為指向 WP-I1 的入口矩陣；`docs/03` roadmap 的 Motion Warping 改以 `TraversalWarpPlan`（commit 時建 plan、執行期只消費）為先例；`docs/14` A28 移除這個名稱；`docs/17`／`docs/18`／`docs/22` 是研究紀錄，**只加一行「已刪除」註記，或不改** | 🧹＋📄 | 無 | 新增架構測試「MotionDriver 的公開位移入口都必須有 runtime 呼叫者，例外需列入 allowlist 並附理由」（Offline 字串掃描）——⚠️ 4-arg `ExecuteBakedCurveMovement` 也是零呼叫者 ⇒ 必須同時裁決 D-5 | Offline（`dotnet build`＋字串測試） |
+
+---
+
+### L.5 M-01／M-03：入口政策矩陣與 SpeedCurve 共用語意規格
+
+**原則**：先讓規則**存在並被測試守住**，⛔ 不改數值邏輯。§C M-03 的離線算術已顯示積分差 ≤ 6 mm——**沒有數值上的修正理由**。
+
+| WP | 內容 | 分級 | 行為變更 | 回歸測試 | 環境 |
+|---|---|---|---|---|---|
+| **WP-I1** 規格（**最先做**，作為 WP-B／E 的共同詞彙） | 新的子系統規格檔（依 CLAUDE.md 分卷規則，取代 `docs/02` MotionDriver 節的過期偽代碼；檔號待定，⚠️ 平行會話可能搶號）：①入口政策矩陣（§C M-01 的表，**每一格附理由與出處**；刻意的差異標「保留」）②接觸事件契約 C-E1～C-E4（L.1.3）③SpeedCurve 語意：key 0 是後向差分的邊界佔位值 (0,0)；「clip 時鐘」＝播放頭差（含 transition `_Speed`）；各 consumer 用哪一種積分與容差（預測 vs 執行 ≤ 1 cm）；3-arg 入口的前提（playback rate = 1） | 📄 | 無 | — | — |
+| **WP-I2** 守門測試（WP-B／E／H 之後） | ①架構測試（字串）：每個 `Execute*` 都經 `SyncGroundedState`（直接或經 `GetGravityThisFrame`）；traversal 入口不呼叫 `UpdateCapsuleOffset`；只有 Base／Stop 呼叫 `ApplyStepDownAssist`；修正 `WriterRules` 過期的 `Owner` 字串（`:521-530` → `SyncGroundedState`）②資產測試：走 3-arg 路徑的 transition（`Roll`、`Melee_Slash1`、`Throw_*`、`Enemy_Punch_R`）`_Speed == 1`（把隱含前提變成會紅的測試）③資產測試：所有出貨 bake 的 `SpeedCurve[0] == (0,0)`（Stop 兩端無條件略過 key 0 所依賴的前提）④PlayMode：每支出貨 Stop bake 在合成平地上實際執行 `ExecuteLocomotionStopMovement` 到結束，root 位移與 `GetLocomotionStopHorizontalDisplacementAt(Duration)` 差 ≤ 1 cm（**引擎內**驗證離線估計，取代待量測 T6） | 📄＋🟠（隱含前提） | 無 | 本身即測試 | ①Offline；②③UTR-Edit；④UTR-Play |
+| **（不做）** 積分收斂（§G G-4） | 等「3-arg 路徑真的需要 playback rate ≠ 1」或「烘焙格式改變」時再做；WP-I2 ②③ 會在那一刻變紅提醒 | — | — | — | — |
+
+---
+
+### L.6 修正順序
+
+| 順序 | WP | 依賴 | 需要裁決 | 需要 Editor？ |
+|---|---|---|---|---|
+| 1 | **WP-A** C0 修復（test-only） | — | 無 | UTR-Play |
+| 2 | **WP-I1** 規格（入口矩陣／C-E1～4／SpeedCurve 語意） | — | 無（純文件） | 否 |
+| 3 | **WP-D** step-down 特性測試＋純函數抽取 | — | 無 | Offline＋UTR |
+| 4 | **WP-E′** 真實 prefab 量測 | WP-D | 無 | UTR-Play |
+| 5 | **WP-E** 計時器取樣域 | WP-D、D-3 | **D-3** | UTR-Play |
+| 6 | **WP-B** execution-active 表示（或縮小為 invariant 測試，見 L.1.6） | WP-A、**Traversal 會話 plan-validity 工作的結論**、D-1、D-2 | **D-1、D-2**（FL 不可達時撤回） | UTR-Play |
+| 7 | **WP-B′** FL 整合測試（FL 不可達時取消） | WP-B、Traversal 會話閒置 | — | UTR-Play |
+| 8 | **WP-C** EP／FL post-exit 量測 | WP-B | 修不修＝**D-6** | UTR-Play（修了要 Human） |
+| 9 | **WP-F／F′** step-down 收尾＋文件（Integrated） | WP-D、WP-E | — | Offline＋UTR-Edit |
+| 10 | **WP-G** Step-Up Diagnostics 整併 | WP-F、D-4 | **D-4** | Offline |
+| 11 | **WP-H** 刪 `ApplyBakedCompensation`＋文件 | D-5 | **D-5** | Offline |
+| 12 | **WP-I2** 守門測試 | WP-B、E、H | — | Offline＋UTR |
+
+**為什麼這個順序**：WP-A 先恢復唯一守 M-02 契約的測試，之後所有 M-02 修正才有回歸保護；WP-D 在 WP-E 之前，確保修計時器時 Normal／Stop 的 parity 有基準；WP-B 排在 WP-E 之後，因為兩者都改 `SyncGroundedState` 附近——分開 commit、分開驗證，出錯時可以單獨 revert。
+
+**commit 粒度**：每個 WP 一顆 commit；WP-E 與 WP-B 的行為變更**不得**與清理（WP-F／G／H）混在同一顆。
+
+---
+
+### L.7 可能的行為變更總表
+
+| WP | 變更 | 誰會注意到 | 回退 |
+|---|---|---|---|
+| WP-A、D、F、G、H、I | **無** | — | — |
+| WP-E（D-3 = a） | 樓梯上 Roll／有 bake 的攻擊／traversal 結束時若騰空，不再被吸到移動面，改為彈道落下 | 只在產生式樓梯上；可能出現原本沒有的短暫 Falling／落地聲 | revert 該 commit（計時器回到 assist 取樣域） |
+| WP-B（FL 結局） | 不再出假的離地／落地事件（音效）；（D-1）不再被方向鍵轉向；（D-2）膠囊不再前偏 | 只在 Failed traversal（例：牆後無地面的 Vault） | revert 該 commit；`HasActiveTraversalPlan` 語意不變，Hand IK 不受影響 |
+| WP-C（若 D-6 要修） | Climb1m（出貨路徑）結尾開始貼地 ⇒ Foot IK 提早接手、離開時不再有落地聲 | 所有 Climb1m | 需要人工 Play；revert 一處條件 |
+
+---
+
+### L.8 需要使用者裁決
+
+| # | 問題 | 建議 | 為什麼需要你 |
+|---|---|---|---|
+| **D-0** | Traversal 會話的「沒有有效 plan 就不承諾」（L.1.6）會落地嗎？ | 若落地，D-1／D-2 撤回、WP-B 縮小為 invariant 測試 | 決定 FL 是正式狀態還是不可達；這是 Traversal 的准入語意，不是 MotionDriver 能決定的 |
+| **D-1** | Failed traversal 期間，facing request 要不要丟棄（與 plan 有效時一致）？ | 丟棄（executor 層一致；不動 ADR-007 的 facing source） | 另一種做法是讓 `CharacterFacingSource` 在 traversal 期間不送 request——那會動到 ADR-007（Trial）的優先序 |
+| **D-2** | Failed traversal 期間，膠囊 pose offset 要歸零（與 plan 有效時一致）還是繼續求解？ | 歸零 | 攀爬姿勢是否在 V2 pose solver 的適用範圍內，沒有量測過 |
+| **D-3** | 失地計時器採 (a) 實時、(b) 失效、(c) 維持？ | (a) | 會改變樓梯上「Roll／攻擊結束時騰空」的落地手感 |
+| **D-4** | 兩個診斷 log 合併成一個 Move trace，還是維持兩個開關？ | 合併 | 開發工具的使用習慣 |
+| **D-5** | 刪 `ApplyBakedCompensation` 時，4-arg `ExecuteBakedCurveMovement`（同樣零呼叫者）要刪，還是保留為「3-arg 的正確替代」並列入 allowlist？ | 保留＋allowlist（Roll／Action 未來需要 playback rate 時的現成入口） | API 保留策略 |
+| **D-6** | WP-C 量測若證實 Climb1m 結尾整段未觸地，要不要給 EP 加 post-exit 貼地？ | 量測後再決定 | 會改變出貨 Climb1m 的觀感；也是 `docs/52` T-04 的一個軸，與 Traversal 會話的 J3′ 相鄰 |
+| — | `docs/00-map.md` 目前沒有 `docs/50` 的索引列（也要更新 `docs/42`、`docs/43` 兩列）：由哪個會話收尾？ | 三個審查會話都閒置後，由一個會話一次補 | 三個會話都會改這個檔 |
