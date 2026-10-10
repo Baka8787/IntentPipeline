@@ -7,6 +7,16 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🟥 2026-10-10（第四輪，優先於 Traversal 後續）：Unity Editor 記憶體／日誌暴增調查（`docs/53`，診斷輪，⛔ 未修正）
+>
+> - **日誌**：23.6 GB 的 99.82% 是 `Access version should be odd when acquiring lock`——**Unity 6000.5.1f1 原生音訊模組**（`Unity.dll` `Modules/Audio/Public/Utilities/CriticalSection.h`）的斷言，不在任何 C# 中。10/08 ≈05:06Z PlayMode run 後首次出現；同一套測試多次不觸發（非決定性）。穩態 12–14k 行/s ≈ 2.4 GB/h。
+> - **記憶體**：69.9 GB ＝ `ALLOC_DEFAULT` used（OS commit 98.6 GB）。每行洪水留 **321 B** 在 Console 原生儲存，Domain Reload（Console 旗標含 Clear on Recompile）才歸零；探針在 live Editor 證實 ≈350 B／行、Clear 釋放。崩潰＝4.4 h 沒有 reload × 14k 行/s。
+> - 已排除：專案程式碼、`com.unity.pipeline`／CLI、多 session 干擾（觸發早於並行期）。
+> - ⏳ 未做（需你同意）：C2 A/B——PlayMode 在「Disable Unity Audio」vs 正常各跑 K 次、`editor_watch.ps1` 監看；查 6000.5 後續 patch。
+> - 🔧 操作：跑長時間自動化時背景開 `docs/artifacts/editor-memory/editor_watch.ps1`，`marker_in_delta > 0` 就讓 Editor reload／重開（Clear Console 不回收 OS commit）。
+> - 📦 證據：`Logs/Editor-prev.log` 已硬連結到 `Logs/evidence-2026-10-10/`（gitignored，23.6 GB；要釋放空間需兩個名字都刪——由你決定）。
+> - ⚠️ 本輪對 live Editor 的副作用：Console 被清空一次、`Logs/Editor.log` 多約 5.4 MB `Diag53` 探針行。
+
 > # 🟦 2026-10-10（第三輪）：Traversal 出口有效性——Plan Validity、NoLandingSurface、J3′ 研究（`docs/22` §22；狀態 `docs/52` §L）
 >
 > **開場只需讀**：本段 ＋ `docs/22` §22（設計、驗證、J3′ 選項）＋ `docs/52` §L。

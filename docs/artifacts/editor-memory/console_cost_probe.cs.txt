@@ -1,0 +1,52 @@
+// docs/53 — Console entry cost probe (throwaway; Spike/Probe Exception). Run with:
+//   unity cmd eval_file --file <copy of this file>     (method body; edit N / MODE below per run)
+// MODE "measure": report memory + console count only.
+// MODE "log":     emit N identical 49-char lines with LogOption.NoStacktrace (same shape as the flood), then measure.
+// MODE "clear":   UnityEditor.LogEntries.Clear() (what "Clear on Recompile" does), then measure.
+// Safety: N is capped at 50 000 per call; refuses to run in Play Mode or when private bytes > 12 GB.
+string MODE = "measure";
+int N = 0;
+
+var proc = System.Diagnostics.Process.GetCurrentProcess();
+proc.Refresh();
+if (UnityEditor.EditorApplication.isPlaying) return "REFUSED: editor is in Play Mode";
+if (proc.PrivateMemorySize64 > 12L * 1024 * 1024 * 1024) return "REFUSED: private bytes > 12 GB";
+if (N > 50000) N = 50000;
+
+var logEntries = System.Type.GetType("UnityEditor.LogEntries, UnityEditor");
+var getCount = logEntries.GetMethod("GetCount", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+var clear = logEntries.GetMethod("Clear", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+
+var sw = System.Diagnostics.Stopwatch.StartNew();
+if (MODE == "log")
+{
+    for (int i = 0; i < N; i++)
+        UnityEngine.Debug.LogFormat(UnityEngine.LogType.Log, UnityEngine.LogOption.NoStacktrace, null, "{0}", "Diag53 console entry cost probe 0123456789abcdef");
+}
+else if (MODE == "thread")
+{
+    // Same lines, but emitted from a worker thread -- the flood originates on the audio thread, not the main thread.
+    int n = N;
+    var t = new System.Threading.Thread(() =>
+    {
+        for (int i = 0; i < n; i++)
+            UnityEngine.Debug.LogFormat(UnityEngine.LogType.Log, UnityEngine.LogOption.NoStacktrace, null, "{0}", "Diag53 console entry cost probe 0123456789abcdef");
+    });
+    t.Start();
+    t.Join();
+}
+else if (MODE == "clear")
+{
+    clear.Invoke(null, null);
+}
+sw.Stop();
+
+System.GC.Collect();
+proc.Refresh();
+return string.Format(
+    "mode={0} n={1} ms={2} consoleCount={3} privateBytes={4} nativeAllocated={5} nativeReserved={6} monoUsed={7} monoHeap={8}",
+    MODE, N, sw.ElapsedMilliseconds, getCount.Invoke(null, null), proc.PrivateMemorySize64,
+    UnityEngine.Profiling.Profiler.GetTotalAllocatedMemoryLong(),
+    UnityEngine.Profiling.Profiler.GetTotalReservedMemoryLong(),
+    UnityEngine.Profiling.Profiler.GetMonoUsedSizeLong(),
+    UnityEngine.Profiling.Profiler.GetMonoHeapSizeLong());
