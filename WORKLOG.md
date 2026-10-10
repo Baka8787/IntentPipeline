@@ -7,6 +7,23 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🟦 2026-10-10（第三輪）：Traversal 出口有效性——Plan Validity、NoLandingSurface、J3′ 研究（`docs/22` §22；狀態 `docs/52` §L）
+>
+> **開場只需讀**：本段 ＋ `docs/22` §22（設計、驗證、J3′ 選項）＋ `docs/52` §L。
+>
+> - ✅ **J1／建不出 plan**：新的 **Plan Validity** 階段——plan 在 `TraversalState.CanEnter` 建立一次，**有效且 exit 不越出 Probe 已驗證的落腳面才承諾**；否則 D3 照舊交回 Jump（仲裁、MotionDriver 移動權限皆未動）。ADR-008（Trial）D4／D5 依 Trial 規則修訂並記入修訂紀錄。`A53` 守「plan 只在 CanEnter 建」。
+> - ✅ **J2**：Probe 回報 `TraversalLandingEvidence`（只量、不判），Classifier 判 `NoLandingSurface`（排在 DestinationBlocked 前）。
+> - ✅ Debug：候選不存在／進場不合法／計畫無效＝三個可分辨的答案（`Probe.PlanValidity`、Debug Window「5 Plan」、Game-view 面板第四行）。
+> - 證據：重現 fixture `TraversalExitValidityPlayModeTests` **改動前 3 紅、改動後全綠**；正常路徑出口與 live probe A／B1／C／D／D2／E 逐值不變；live B2 不承諾、B3 不是候選。EditMode **891／889／1 failed／1 skipped**、PlayMode **107／100／7 failed**——失敗清單與基線**逐名相同**（場景 GroundLayers；`C0`＋6 個 Stair 骨盆）。
+> - ⚠️ 測試契約變更：`TraversalStatePlayModeTests` 9 個 `BuildRig` 測試改用建得出 plan 的 bake（斷言未放寬）；T7 改述為「消費 committed plan 的 delta」。
+> - ⛔ **J3′ 需裁決**：耦合已以 characterization 測試證明（全域值 0.45→0.55 ⇒ Climb1m 出口 1:1 移 0.10 m；Climb2m 不動）。clip 研究：Climb1m 的邊緣在 clip 內約 **1.00–1.22 m**（≠ 0.45）；出貨站位執行時助跑**撞牆 0.448 m**、落點比 plan 少 0.41 m；理想值改為 clip 推導時撞牆僅 0.036 m、落點＝plan。選項 A（author 接觸 marker、走 piecewise＋Hand IK）／A′（marker 只供推導）／B／C 見 `docs/22` §22.4；都會讓玩家站位帶外移約 0.6 m ⇒ **玩家可見，需你決定**。S2 未撤銷。
+> - 🔍 獨立審查（`docs/52` §L.1）找到 F1–F7 並全部處理：J1 改為同軸比較（`EXIT6`）、VerticalVelocity 敘述更正、ADR revert 路徑更正。
+> - 🔎 交給 `docs/50`：warped traversal 的 `VerticalVelocity` **延遲一帧**發布（先 Sync 後賦值；初稿誤寫「從不發布」）；endpoint 結束時 root 高出頂面 3.6 cm；M-02 的 Failed 已不會被承諾。
+> - ⏳ 人工 Play（Pending）：窄落腳面／懸崖邊矮牆現在會變成普通 Jump——確認觀感；Climb1m 正常平台觀感不變。
+> - ⚠️ 環境：本輪中 Unity Editor 因記憶體洩漏 OOM 崩潰一次（`ALLOC_DEFAULT` 69.9 GB；`Editor.log` 23.6 GB 的「Access version should be odd」洗版，早於本輪），已以 `unity open` 重開。
+>
+> ---
+>
 > # 🟦 2026-10-10：Traversal 概念收斂輪（`docs/52` §K；Living Spec `docs/22` §21）
 >
 > **開場只需讀**：本段 ＋ `docs/52` §K（逐項狀態）＋ `docs/22` §21。

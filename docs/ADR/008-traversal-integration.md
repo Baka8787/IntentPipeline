@@ -49,11 +49,14 @@ animation-side contact 與 runtime hand target mapping 缺失。V3 解的是同�
 `warpedCurrentPosition - warpedPreviousPosition`，仍由 `MotionDriver` 經 `CharacterController.Move` 執行，且不回讀 Probe。
 退化資料回退既有 committed curve motion，不直接寫 `transform.position`，也不建立第二套 movement authority。
 
+> 🔄 **2026-10-10 修訂（Trial，使用者裁決 J1／J2）**：plan 改在 **`CanEnter` 決策邊界**建立一次，**建得出有效 plan 且終點落在 Probe 已驗證的落腳面內，才**與 candidate 一起 commit（新的 Plan Validity 階段，`docs/22` §22）。建不出（原 Failed）或終點越出驗證面 ⇒ 不 commit，D3 照舊交回 Jump。上段「退化資料回退 committed curve motion」因此**不再是准入後會走到的路徑**，只剩防禦性分支。其餘不變：plan 仍來自 committed candidate 與 entry pose、仍只建一次、執行仍只由 MotionDriver 以 delta 進行。
+
 ### D5 — Gameplay recovery 與 animation completion 分離
 
 每格 binding author `recoverNormalizedTime`。有效 warp 已完成且 animation time 到 recovery 門檻後，
 `CanTransitionAway` 即可成立，不必等待 normalized time 1.0；visual tail 交由既有 transition/blend 淡出。
 無效 warp 不 early recover，而以 V1 completion fallback 安全結束。V2 仍不定義 cancel 或 hit interruption。
+（🔄 2026-10-10：無效 warp 不再被承諾〔D4 修訂〕，此句只剩防禦意義。）
 
 ### D6 — Completion 交回現有 FSM
 
@@ -104,6 +107,7 @@ height／radius 是 disabled、evidence-gated seam：不得在沒有 Play 證據
 | 契約 | 實作／守衛 |
 |---|---|
 | 單一 state／三種 mapping | `TraversalState` ＋ `TraversalStateParamsSO` 三格 binding |
+| 🆕 承諾前必有有效 plan（Plan Validity，2026-10-10）／無落腳面不是候選 | `TraversalExitValidityPlayModeTests`（J1／J2／NoBuildablePlan／邊界）、`TraversalClassifierTests` NoLandingSurface 系列、Architecture `A53` |
 | CanEnter commit、Probe 後續變化不改寫 | `TraversalStatePlayModeTests` T2–T5 |
 | None → Jump／空中不得進 | 同檔 T1／T6；`ArchitectureRegressionTests.A42` 守 Jump 無 Environment 引用 |
 | Jump-vs-Climb capability／Vault 不被誤傷 | `TraversalSelectionPolicyTests` J1–J5 ＋ `TraversalStatePlayModeTests` selection cases |
@@ -133,6 +137,7 @@ height／radius 是 disabled、evidence-gated seam：不得在沒有 Play 證據
 
 | 日期 | 修改 | 原因 |
 |---|---|---|
+| 2026-10-10 | **D4／D5 修訂：Plan Validity。** plan 移到 `CanEnter` 決策邊界建立並與 candidate 一起 commit；建不出有效 plan（原 Failed）或 committed exit 越出 Probe 已驗證的落腳面 ⇒ 不 commit（D3 交回 Jump）。Candidate 層新增 `TraversalLandingEvidence` 與 reject `NoLandingSurface`（判斷在 Classifier，Probe 只回報量到／量不到）。測試：`TraversalExitValidityPlayModeTests`（改動前 J1／J2／NoBuildablePlan 三案皆紅、改動後綠）、Classifier NoLandingSurface 系列、Architecture `A53`；EditMode 891／889／1 failed（基線既有）／1 skipped、PlayMode 107／100／7 failed（與基線同一組 7 項）。<br>**不凍結的部分**：Plan Validity 的否決理由清單與容差、`TraversalLandingEvidence` 的欄位形狀、debug 顯示——下放 `docs/22` §22。<br>**失敗處置／revert**：只移除 `TraversalState.CanEnter` 裡的 `if (!planValid) return false;`（plan **照樣**在 CanEnter 建立並鎖存——⛔ 不要移除 `TryBuildPlan` 呼叫，否則 `_warpPlan` 恆為 default、每次都走未 warp 曲線），以及 Classifier 的 `NoLandingSurface` 分支；`A53` 保留；`TraversalExitValidityPlayModeTests` 的 J1／J2／NoBuildablePlan 同包改回描述舊行為。若要把 plan 建立搬回 OnEnter，需同時改寫 `A53`。 | 使用者 2026-10-10 裁決 J1／J2：已知出口無效、落腳面不足、或建不出有效 plan 時不得承諾 traversal（`docs/52` B2／B3 live 實測重現） |
 | 2026-09-21 | 🆕 **D10 — 第二種 execution model `Segmented`，由 binding author 決定。** committed 的語意改述為「**landmarks／timing／contact targets 固定**」，而**不是**「絕對軌跡固定」：執行可在 authored phase boundary 以角色**自己的** `transform.position` 重取基準，段內開迴路收斂到下一個 committed landmark。`docs/30` §F 的 **I6 改述、I7 拆成 I7a／I7b、新增 I11／I12**，新增 §M。⚠️ 這推翻了既有 invariant，命中 CLAUDE.md ADR 觸發條件④；因本 ADR 仍是 🟡 **Trial**（未凍結），依 Lifecycle 規則**直接修訂，不開新 ADR**。<br>**不凍結的部分**：compensation 的曲線形狀、段的切分數量、budget 的具體數值、debug 欄位組成、coverage 的實際數字——全部下放 `docs/30` §M ／ `docs/40` ／ binding 資產。ADR 只保留「**landmarks 固定、execution 可在 boundary rebase**」這個決策本身。<br>**Acceptance Criteria**：EditMode 全綠 ＋ PlayMode 全綠（含新增的 `TraversalClimbPlayModeTests` 真實 rig climb）＋ coverage 內實測 IK 滿權重 arm ratio ≤ authored `maximumReachRatio`、手部殘差 ≤ 2×單幀 committed 位移、Exit 前零腳步聲 ⇒ **2026-09-21 全部達成**（EditMode 620／619 passed／1 skipped；PlayMode 67／67）。⛔ **人工 Play 的視覺驗收（手臂觀感、segment boundary 頓挫）尚未進行**，因此本條維持 Trial。<br>**失敗處置／revert 路徑**：把 `TraversalStateParams.asset` 的 `climb2m.executionModel` 改回 `Absolute`。**一個資產欄位，不動任何程式**——這是要求刪掉 `Kind == Climb2m` 硬編（`docs/39` F9）最主要的理由。 | `docs/39` 判定 execution model 成立但六個 prototype exception 只有一個可原樣保留；`docs/40` 以離線動畫採樣＋真實 Play 量測逐一結案（刪 #1／#2／#3／#5，保留 #4，#6 本就不存在），並找出一個與 model 無關的一幀管線延遲 |
 | 2026-09-14 | D9 改為單一 primary contact 解 root；secondary hand 查詢 committed ledge surface、只做 residual/IK；窄 ledge 無 surface 時不壓縮 authored hand separation。移除 `SolveDual`，更新 M6 並新增 HC6；架構圖新增圖 19 | Climb2m 離線量測確認提前 release 已消除 reach>1，但舊雙手平均仍把兩手各留 9.64 mm residual；研究顯示成熟實作不以雙手同時硬約束 root，且每手 surface/contact 分工獨立 |
 | 2026-09-13 | V3 新增 stationary sensing、pure EntryPolicy、ledge frame／interval、authored-marker+bake sampling、contact root solver、固定六 knot piecewise mapping、fixed-capsule corridor、C1 collision profile／restore／execution debug；完整 EditMode 394（393 pass／1 skip）、PlayMode 41／41 | Play 證據確認 speed gate、entry legality、endpoint-only warp、body-envelope mismatch 與 contact mapping 五個缺口；保留 Trial 至動畫 marker／collision quality Play 完成 |

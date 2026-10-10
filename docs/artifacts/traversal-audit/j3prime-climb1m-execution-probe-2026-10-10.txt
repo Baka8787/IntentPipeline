@@ -1,0 +1,8 @@
+# docs/22 §22.4（J3′ 研究）— THROWAWAY PlayMode 探針輸出（2026-10-10，真實 MotionDriver＋CharacterController 執行 endpoint traversal；Probe_Climb1mEndpointExecution_FromGlobalEntryDistance，[Explicit]）
+# 1.1 m × 3 m 平台；牆面 z=0；scenario 2–4 以 clip landmark 估計的邊緣同時當理想進場距離與站位（模擬「由 clip 推導」）
+
+[J3′ probe] Climb1m stance=0.45 ideal=global0.45 : totalBlocked=0.448 m maxBlockedPerFrame=0.034 m | rise starts n=0.211 at rootZ=-0.350 (wall face z=0.000, root–wall 0.350 m) | end root depth past edge=0.506 (plan target depth 0.918) | end y=1.136 | maxRootDivergence=0.000
+[J3′ probe] Climb1m stance=0.78 ideal=global0.45 : totalBlocked=0.258 m maxBlockedPerFrame=0.035 m | rise starts n=0.211 at rootZ=-0.350 (wall face z=0.000, root–wall 0.350 m) | end root depth past edge=0.696 (plan target depth 0.918) | end y=1.136 | maxRootDivergence=0.000
+[J3′ probe] Climb1m stance=1.00 ideal=1.00 : totalBlocked=0.036 m maxBlockedPerFrame=0.011 m | rise starts n=0.211 at rootZ=-0.516 (wall face z=0.000, root–wall 0.516 m) | end root depth past edge=0.368 (plan target depth 0.368) | end y=1.136 | maxRootDivergence=0.000
+[J3′ probe] Climb1m stance=1.13 ideal=1.13 : totalBlocked=0.036 m maxBlockedPerFrame=0.011 m | rise starts n=0.211 at rootZ=-0.646 (wall face z=0.000, root–wall 0.646 m) | end root depth past edge=0.238 (plan target depth 0.238) | end y=1.136 | maxRootDivergence=0.000
+[J3′ probe] Climb1m stance=1.22 ideal=1.22 : totalBlocked=0.036 m maxBlockedPerFrame=0.011 m | rise starts n=0.211 at rootZ=-0.736 (wall face z=0.000, root–wall 0.736 m) | end root depth past edge=0.148 (plan target depth 0.148) | end y=1.136 | maxRootDivergence=0.000

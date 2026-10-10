@@ -1503,3 +1503,112 @@ Coverage 下限與 jump apex 的關係（2026-09-20 裁決：下限以 apex 為�
 - 在舊程式上會失敗的：`J7`、`F8`、`EXIT5`、`V2_EndpointExit_*`。
 
 ⏳ **人工 Play ＋ 使用者確認**：Climb1m 1.1 m 平台從理想站位與偏遠站位各爬一次，確認上平台後沒有「被往前拖」；並確認接受「Climb1m 終點跟全域 `DesiredWallDistance` 走」這個耦合（§21.1）。這兩項自動測試都無法判定。
+
+---
+
+## 22. 出口有效性輪 —— Candidate／Eligibility／Plan Validity 的邊界（2026-10-10，第三輪；J1／J2／J3′）
+
+> 裁決來源：使用者 2026-10-10——J1、J2 批准進入修正；J3′ 批准研究與提出方案（不得直接指定新常數）；J4 維持人工設定；J5 獨立延期。
+> 目標：**系統在已知出口無效、落腳面不足、或建不出有效 plan 時，不得承諾執行 traversal**；Debug 必須能分辨「候選不存在／進場不合法／計畫無效」。
+
+### 22.1 現況：plan 在哪裡建立、各階段拿得到什麼（分析，改動前）
+
+FSM 仲裁（`FullBodyStateMachine.EvaluateInterrupts`）每個 tick 對**所有**狀態呼叫 `CanEnter`，取 priority 最高者 `TransitionTo`（同一個 tick 內 `OnExit → OnEnter`）。出貨 config：Traversal 30 > Jump 10；Traversal `CanEnter` 為 false 時，同一帧 Jump 照常接手（ADR-008 D3）。
+
+| 時序 | 階段 | 誰 | 能取得的資料 | 現況產物 |
+|---|---|---|---|---|
+| 2.7 | Observation／Candidate | `TraversalProbe` → `TraversalClassifier` | 場景碰撞、authored 膠囊、黑板方向；**不認識 bake／binding** | `Candidate`（含 `LandingSurfaceDepth`、`DestinationPoint`） |
+| 4 `CanEnter` | Eligibility | `TraversalEntryPolicy` | candidate ＋ authored 容差 ＋ bake 理想進場距離 | `EntryEvaluation` |
+| 4 `CanEnter` | Selection | `TraversalSelectionPolicy` | candidate ＋ Jump 能力 ＋ coverage | `SelectionEvaluation` |
+| 4 `CanEnter` | Fitting | `TraversalAnimationFitter` | bake ＋ candidate ＋ entry | `AnimationFit` |
+| 4 `CanEnter` 末三行 | **Commit** | `TraversalState` | 以上全部 | 鎖存 candidate／entry／fit |
+| 4 `OnEnter` | Motion Map | `TraversalPlanBuilder` → 失敗則 `MotionDriver.TryCreateTraversalWarpPlan` | 鎖存的資料 ＋ MotionDriver 的 transform（**與 2.7 同一帧，數值相同**） | `TraversalWarpPlan`：Piecewise／EndpointFallback／**Failed** |
+| 6 | Execution | `MotionDriver` | plan | Failed ⇒ 未 warp 的 baked curve（ADR-008 D4「退化資料回退 committed curve motion」） |
+
+**結論**：
+1. **建 plan 所需的一切在 `CanEnter` 就齊了**——candidate、entry、binding、bake、起點姿勢（MotionDriver 在順序 6 才移動角色，2.7／4 的 transform 相同）。plan 晚到 `OnEnter` 才建，只是歷史位置；`TraversalState` 自己的註解也寫「CanEnter 是決策邊界，OnEnter 只消費已提交結果」。
+2. **J1（B2）不是 Candidate 的錯，也不是 Eligibility 的錯**：牆與牆後地面都量得到（候選存在）、站位合法；錯在「依這支動畫算出的 committed exit 落在已驗證的面之外」——那是 **plan 的性質**，要有 bake 自然落點才算得出來，Probe 不應知道。
+3. **J2（B3）是 Candidate 的錯**：牆後**量不到任何落腳面**時，Classifier 把「depth ray 沒打到」當成「薄」而分類成 Vault，Probe 再憑空構造一個 destination。「有沒有面可以落」是與動畫無關的幾何事實——與既有的 `DestinationBlocked`（出口淨空）同一層。Probe 只負責**量到／量不到**，判斷放在純函式 Classifier。
+4. **「建不出有效 plan」目前在 commit 之後才發生**，於是 Failed 也被承諾、執行未 warp 的曲線。這正是要消除的情況。
+
+### 22.2 設計（本輪實作）
+
+| 邊界 | 問的問題 | 判斷者 | 新增 |
+|---|---|---|---|
+| **Candidate** | 「那是什麼？能落在哪？」 | Classifier（純函式）；Probe 只回報量測證據 | `TraversalLandingEvidence`（NotMeasured／Found／Missing）；新 reject `NoLandingSurface`（排在 `TooHigh` 之後、`DestinationBlocked` 之前——沒有面時 destination 是構造的，淨空檢查沒有意義） |
+| **Eligibility** | 「我站得對不對？」 | `TraversalEntryPolicy` | 不變 |
+| **Selection** | 「該不該用 traversal？」 | `TraversalSelectionPolicy` | 不變 |
+| **Plan Validity**（新的明確階段） | 「這支動畫在這裡建得出有效且終點有支撐的計畫嗎？」 | `TraversalState.CanEnter`（呼叫既有的純 builder） | plan 在 `CanEnter` **建一次**並與 candidate 一起鎖存；結果 `TraversalPlanValidity`（Valid／NoValidPlan／ExitBeyondVerifiedSurface）。無效 ⇒ `CanEnter` 回 false，D3 交回 Jump |
+| **Commit** | 鎖存 | `TraversalState` | 多鎖存 plan 與 diagnostics；`OnEnter` 只**發布**已建好的 plan |
+
+- **ExitBeyondVerifiedSurface** 只在 `LandingEvidence == Found` 時判定：committed exit 深度 > 已驗證深度 ＋ **1 mm**（容差沿用 `TraversalCommittedExit.DepthTolerance`）。⚠️ 已驗證深度先**投影到 exit 的同一條軸**再比較——Probe 沿自己的掃描方向（移動方向或 facing）量 `LandingSurfaceDepth`，piecewise 的 exit 沿牆法線量；斜向 θ 進場時直接比較會把判準放寬 1/cosθ 倍（獨立審查 F1，`EXIT6` 守）。`NotMeasured` 只會來自測試用的相容建構子，不判。
+- **`NoLandingSurface` 的精確判準**：Probe 在 `Vault1mMaxDepth`（0.6 m）處往下打的那一根 depth ray 在搜尋範圍內沒有命中。牆後只有一條比 0.6 m 更窄的地面也會落在這裡——結論一樣是不能承諾，但 Debug 讀到的「沒有面」實際上可能是「面太窄」（獨立審查 F2）。
+- **不動**：FSM 仲裁與 priority（D3）、MotionDriver 的移動權限（plan 仍只由 MotionDriver 執行）、Probe 的量測方式、Jump／Locomotion。
+- **ADR-008（🟡 Trial）修訂**：D4「在 OnEnter 建立……退化資料回退 committed curve motion」與 D5「無效 warp 以 V1 completion fallback 安全結束」——依使用者 2026-10-10 裁決改為「plan 在 CanEnter 決策邊界建立並一同 commit；建不出有效 plan ⇒ 不 commit」。記入 ADR 修訂紀錄，不開新 ADR（Trial 可修訂）。
+
+### 22.3 驗收條件（先寫，後實作）
+
+1. **先紅後綠**：`TraversalExitValidityPlayModeTests` 的 J1／J2／PlanValidity 三案在**改動前**必須失敗（已重現 docs/52 B2／B3 與 Failed 承諾）；改動後通過。
+2. **正常路徑零終點變化**：Vault 長地面 1.100、Climb2m 0.213、Climb1m 0.918（同一 fixture，改動前後相同）＋ live probe A／B1／C／D／D2／E 前後逐值相同。
+3. **邊界可觀測**：J1 案 candidate＝Vault1m、entry 合法、`PlanValidity`＝ExitBeyondVerifiedSurface；J2 案 candidate＝None／`NoLandingSurface`、plan 未評估；no-plan 案 candidate 與 entry 合法、`PlanValidity`＝NoValidPlan；站太遠的案例 entry＝TooFar、plan 未評估。
+4. **不退步**：EditMode／PlayMode 與基線（EditMode 884／882／**1 failed**／1 skipped；PlayMode 97／90／**7 failed**，`6dc24c9`）相比**沒有新的失敗**；既有 7＋1 項只記錄、不修。架構測試（A39／A44／A45／A46／A47／A50）全綠。
+5. **J3′**：先建立證明「Climb1m 出口隨全域 `DesiredWallDistance` 移動」的測試，再比較候選推導方案；不指定新常數。
+6. 獨立 review 子代理驗收，標明限制。人工 Play 一律保留 Pending。
+
+### 22.4 J3′ 研究：Climb1m 的理想出口應如何推導（⛔ 未實作，待裁決）
+
+**先證明耦合**（`TraversalExitValidityPlayModeTests`，真實 Probe＋出貨 config，只改測試副本）：
+- `J3Prime_Climb1mEndpointExit_MovesOneToOneWithGlobalDesiredWallDistance`：同一面牆、同一站位（0.50 m），只把全域 `DesiredWallDistance` 0.45 → 0.55，Climb1m 出口 **0.918 → 0.818（1:1 移動 0.10 m）**。
+- 對照 `J3Prime_Contrast_Climb2mExitIgnoresGlobalDesiredWallDistance`：Climb2m 理想站位由 bake 推導，出口**不動**（< 0.5 mm）⇒ 耦合只在「沒有 Traversal block、退回全域值」的路徑。
+
+**再看 clip 本身**（X Bot rig、preview scene 取樣；`docs/artifacts/traversal-audit/j3prime-clip-trajectories-2026-10-10.txt`）：
+
+| 證據 | Climb1m clip 內的位置（自起點 root，m） |
+|---|---|
+| root 先走 0.475 m 才開始上升（n≈0.20） | — |
+| 左腳趾踩在**牆前地面** z≈0.62–0.65（n 0.11–0.25） | 牆面 > 0.65 |
+| 左手中指遠節首次到達頂面高度 | z≈1.00（n 0.12） |
+| 左手中指遠節壓到頂面以下 3.4 cm（像 Climb2m 抓邊的姿勢） | z≈1.12–1.14（n 0.15–0.17） |
+| 右腳趾踩上頂面（y≈1.01） | z≈1.22（n 0.31） |
+
+**landmark 一致性對照（⚠️ 不是獨立驗證）**：對已有 Traversal block 的兩支 clip，「手中指遠節在手停住的那一刻」與 bake 的 grip edge 一致（Climb2m 0.457 vs 0.461；Vault1m 1.431 vs root 0.548 ＋ grip 0.883）。但 grip edge 本身就是在**同一個 X Bot rig、同一種取樣**下於 authored 接觸帧算出的（`TraversalContactDerivation`），所以這只證明「手停住」這條啟發式選到的帧接近 authored 接觸帧。Climb1m 的手**從未停住**（這正是自動接觸偵測失敗的原因）；文中用來估 Climb1m 邊緣的三個 landmark（首次到達頂面高度、手指下壓、右腳趾踩上）**都沒有在另兩支 clip 上交叉驗證**，只能給出 **1.00–1.22 m** 的範圍——能確定的是**沒有任何一個接近全域的 0.45 m**。另外，探針 2–4 把站位設成等於理想值，「落點＝plan」大部分是構造使然；它真正證明的是**撞牆幾乎消失**。
+
+**實際執行的後果**（THROWAWAY PlayMode 探針 `Probe_Climb1mEndpointExecution_FromGlobalEntryDistance`，真實 MotionDriver＋CharacterController；`j3prime-climb1m-execution-probe-2026-10-10.txt`）：
+
+| 站位／理想 | 被牆擋掉的位移（累計） | 開始上升時 root 離牆 | 最終 root 越過邊緣的深度 vs plan target |
+|---|---|---|---|
+| 0.45／全域 0.45（出貨） | **0.448 m** | 0.350（膠囊貼牆） | **0.506 vs 0.918**（差 0.41 m，I7b：被擋的不回授） |
+| 0.78／全域 0.45（合法帶最遠） | 0.258 m | 0.350 | 0.696 vs 0.918 |
+| 1.00／1.00（模擬由 clip 推導） | 0.036 m | 0.516 | 0.368 = 0.368 |
+| 1.13／1.13 | 0.036 m | 0.646 | 0.238 = 0.238 |
+| 1.22／1.22 | 0.036 m | 0.736 | 0.148 = 0.148 |
+
+**結論**：J3′ 不只是「隱含依賴全域值」。全域 0.45 m 讓 Climb1m 的 0.475 m 助跑**撞牆**（近 0.45 m 被擋），落點也比 plan 少 0.2–0.4 m。只要理想進場距離與 clip 自身的邊緣一致，撞牆幾乎消失、落點與 plan 一致；剩下的不確定只在「邊緣到底在 1.00 還是 1.22」——落點因此差 0.22 m（0.148–0.368）。
+
+**候選方案**（皆不新增程式常數）：
+
+| 方案 | 內容 | 解掉耦合？ | 解掉撞牆？ | 代價／風險 |
+|---|---|---|---|---|
+| **A**（建議） | 依 ADR-008 **D9** 的既有流程，在 Editor 為 Climb1m **author 左手接觸 marker**（人選定「手勾住邊緣」那一帧），bake pipeline 自動採樣 grip edge ⇒ `TryGetDesiredEntryDistance`／`TryGetNaturalExitDepth` 與另兩支同源 | ✅ | ✅ | `HasValidBakedData` 成立後 Climb1m 改走 **piecewise ＋ Hand IK**（執行模型改變、手會被 IK 釘住——Climb1m 的手本來在滑動，視覺需 Play 判斷）；玩家的合法站位帶會從 [0.05, 0.80] 移到約 [0.6, 1.5]——**玩家可見的 gameplay 改變** |
+| **A′** | 同 A，但只讓 marker 參與「理想進場／自然落點」推導，維持 endpoint 執行（不開 piecewise／Hand IK） | ✅ | ✅ | 需要 `MotionBakeData` 多一個「只供進場推導」的有效性概念（schema 小增，Living Spec 即可）；站位帶同樣移動 |
+| **B** | endpoint 的自然落點改用玩家**實際**起點（不做水平對位） | ✅ | ❌（站位帶仍以 0.45 為中心，照樣撞牆） | 出口隨站位 1:1 移動 |
+| **C** | 維持現狀（S2，耦合已有 characterization 測試鎖住） | ❌ | ❌ | — |
+
+⇒ **需要使用者裁決**：(1) 是否接受 Climb1m 的合法站位帶移到 clip 推導的位置（玩家要站得比現在遠約 0.6 m）；(2) A（piecewise＋Hand IK）或 A′（只用於推導）；(3) marker 的帧由誰定（人工在 Editor 選定，或接受某個 landmark 規則）。這三點都會改變玩家看到的動作，自動測試無法判定。**S2 不撤銷**（它讓 endpoint 與 piecewise 共用「兩者取近」）；characterization 測試在裁決後改寫為「出口與全域值無關」。
+
+### 22.5 驗證與交接
+
+| 項目 | 改動前 | 改動後 |
+|---|---|---|
+| 重現 fixture（J1／J2／NoBuildablePlan） | **3 紅**（`docs/artifacts/traversal-audit/exit-validity-red-green-2026-10-10.txt`） | 3 綠 |
+| 正常路徑出口（fixture） | Vault 1.100／Climb2m 0.213／Climb1m 0.918 | **相同** |
+| live probe A／B1／C／D／D2／E 出口 | 1.100／0.700／0.213／0.918／0.918／0.700 | **相同** |
+| live probe B2 | 承諾，exit 0.970 越出 0.600 | **不承諾**，Plan＝ExitBeyondVerifiedSurface |
+| live probe B3 | Vault1m、承諾、plan Failed | **None／NoLandingSurface**，Plan 未評估 |
+| EditMode | 884／882／**1 failed**／1 skipped | **891／889／1 failed／1 skipped**（同一項：場景 GroundLayers） |
+| PlayMode | 97／90／**7 failed** | **107／100／7 failed**（同一組 7 項，逐名比對相同） |
+
+- ⚠️ fixture 修正紀錄：NoBuildablePlan 案最初以 0 作修正上限，但 binding getter 把 ≤0 視為「未設定」而退回預設 1.5 m——改為 1 mm。舊程式不論 plan 有效與否都承諾，因此該案在舊程式上必然紅。
+- ⚠️ `TraversalStatePlayModeTests` 的 9 個 `BuildRig` 測試（T2–T5、T7–T9、E1、playback guard）原本用水平速度恆為 0 的 bake——那種資料建不出任何 plan，舊契約是「照樣承諾」，新契約是不承諾。改用建得出 plan 的 warp bake，**斷言未放寬**；T7 從「消費未 warp 曲線」改述為「消費 committed plan 的 delta、不疊加 gravity」，`VerticalVelocity` 斷言改為「延遲一帧發布」的 characterization（見下）。
+- 🔎 **交給 `docs/50`（MotionDriver）**：①warped 路徑（Absolute 與 Segmented 都一樣）在 `MotionDriver.ExecuteTraversalWarpedMovement` 裡**先 `SyncGroundedState`、後賦值 `_verticalVelocity`** ⇒ `VerticalVelocity` **延遲一帧**才發布到黑板（未 warp 曲線路徑則是同帧）。🔄 更正：本節初稿寫成「Absolute 從不發布」，那是錯的（獨立審查 F3）——舊 T7 只呼叫一次 `OnUpdateMotion`，剛好只看到初值 0。現在 T7 以 characterization 鎖住延遲一帧的行為。②`docs/50` M-02 的「Failed 結局」現在**不會被承諾**（本節），M-02 在 runtime 只剩防禦性分支。③endpoint 執行結束時 root 比頂面高 3.6 cm（全部場景一致，endpoint 沒有 post-exit rebound）。
+- ⏳ **人工 Play（Pending）**：①窄落腳面的 Vault（B2 型）現在會變成普通 Jump——確認不會「卡在牆前跳一下」的觀感問題；②懸崖邊矮牆（B3 型）同上；③Climb1m 正常平台的觀感不變。

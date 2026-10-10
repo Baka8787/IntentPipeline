@@ -1,0 +1,159 @@
+var sb = new System.Text.StringBuilder();
+sb.Append("isPlaying=" + UnityEditor.EditorApplication.isPlaying + "\n");
+if (UnityEditor.EditorApplication.isPlaying) return sb.ToString();
+var BF = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+var BFS = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static;
+
+// ── shipped assets ────────────────────────────────────────────
+var cfg = UnityEditor.AssetDatabase.LoadAssetAtPath<Project.Core.StateMachine.StateMachineConfigSO>(
+    "Assets/ScriptableObjects/StateMachine/PlayerStateMachineConfig.asset");
+cfg.Initialize();
+var tp = cfg.GetStateParams<Project.Core.StateMachine.TraversalStateParamsSO>(Project.Core.StateMachine.StateType.Traversal);
+var jp = cfg.GetStateParams<Project.Core.StateMachine.JumpStateParams>(Project.Core.StateMachine.StateType.Jump);
+var ejp = UnityEditor.AssetDatabase.LoadAssetAtPath<Project.Core.StateMachine.JumpStateParams>(
+    "Assets/ScriptableObjects/StateMachine/EnemyJumpStateParams.asset");
+
+// ── E1: JumpState real launch vs SelectionPolicy copy ────────
+System.Func<Project.Core.StateMachine.JumpStateParams, string> jumpReport = (p) => {
+    var js = new Project.Core.StateMachine.JumpState();
+    typeof(Project.Core.StateMachine.JumpState).GetMethod("BuildStages", BF).Invoke(js, new object[] { p });
+    var arr = (Project.Presentation.Motion.JumpLaunchData[])typeof(Project.Core.StateMachine.JumpState)
+        .GetField("_stageLaunch", BF).GetValue(js);
+    float v = arr[0].InitialVerticalVelocity, g = arr[0].Gravity;
+    object[] a = new object[] { p, 0f, 0f };
+    bool ok = (bool)typeof(Project.Core.StateMachine.TraversalSelectionPolicy).GetMethod("TryGetGroundJumpLaunch", BFS).Invoke(null, a);
+    float pv = (float)a[1], pg = (float)a[2];
+    return string.Format("JumpState v={0:F4} g={1:F4} apex={2:F4} | Policy ok={3} v={4:F4} g={5:F4} apex={6}",
+        v, g, v * v / (2f * g), ok, pv, pg, ok ? (pv * pv / (2f * pg)).ToString("F4") : "n/a");
+};
+sb.Append("E1 player: " + jumpReport(jp) + "\n");
+sb.Append("E1 enemy : " + jumpReport(ejp) + "\n");
+sb.Append(string.Format("tp: reach={0:F4} landing={1:F4} margin={2}\n",
+    tp.GetRequiredSensingReach(), tp.GetRequiredLandingDepth(), tp.NormalJumpReachSafetyMargin));
+
+// ── rig from X Bot prefab ─────────────────────────────────────
+var prefab = UnityEditor.AssetDatabase.LoadAssetAtPath<UnityEngine.GameObject>("Assets/Prefabs/X Bot.prefab");
+var srcProbe = prefab.GetComponentInChildren<Project.Core.Environment.TraversalProbe>(true);
+var srcCC = srcProbe.GetComponent<UnityEngine.CharacterController>();
+var made = new System.Collections.Generic.List<UnityEngine.GameObject>();
+UnityEngine.Vector3 O = new UnityEngine.Vector3(5000f, 1000f, 0f);
+var rig = new UnityEngine.GameObject("__trav_rig");
+rig.hideFlags = UnityEngine.HideFlags.HideAndDontSave; made.Add(rig);
+rig.layer = 2; // IgnoreRaycast so rig never hits itself
+var cc = rig.AddComponent<UnityEngine.CharacterController>();
+cc.center = srcCC.center; cc.height = srcCC.height; cc.radius = srcCC.radius;
+cc.skinWidth = srcCC.skinWidth; cc.stepOffset = srcCC.stepOffset; cc.slopeLimit = srcCC.slopeLimit;
+var probe = rig.AddComponent<Project.Core.Environment.TraversalProbe>();
+var tProbe = typeof(Project.Core.Environment.TraversalProbe);
+tProbe.GetField("settings", BF).SetValue(probe, tProbe.GetField("settings", BF).GetValue(srcProbe));
+foreach (var n in new[] { "drawTraversalRuntimeLines", "drawTraversalPanelText", "drawTraversalSceneGizmos" })
+{ var f = tProbe.GetField(n, BF); if (f != null) f.SetValue(probe, false); }
+tProbe.GetMethod("Awake", BF).Invoke(probe, null);
+sb.Append(string.Format("cc center={0} h={1} r={2} skin={3} step={4}\n", cc.center, cc.height, cc.radius, cc.skinWidth, cc.stepOffset));
+
+System.Func<UnityEngine.Vector3, UnityEngine.Vector3, UnityEngine.GameObject> box = (centre, size) => {
+    var b = UnityEngine.GameObject.CreatePrimitive(UnityEngine.PrimitiveType.Cube);
+    b.hideFlags = UnityEngine.HideFlags.HideAndDontSave; made.Add(b);
+    b.transform.position = O + centre; b.transform.localScale = size; return b;
+};
+
+var state = new Project.Core.StateMachine.TraversalState(probe, null);
+state.Initialize(cfg, null);
+
+// scenario: wall front face z=0, wall depth D, height H, back ground [D, D+backLen] (backLen<0 ⇒ none)
+System.Func<float, float, float, float, float, string> run = (H, D, backLen, rootDist, unused) => {
+    var temp = new System.Collections.Generic.List<UnityEngine.GameObject>();
+    temp.Add(box(new UnityEngine.Vector3(0, -0.5f, -5f), new UnityEngine.Vector3(10, 1, 10)));    // front ground z∈[-10,0]
+    temp.Add(box(new UnityEngine.Vector3(0, H * 0.5f, D * 0.5f), new UnityEngine.Vector3(10, H, D))); // obstacle
+    if (backLen > 0f) temp.Add(box(new UnityEngine.Vector3(0, -0.5f, D + backLen * 0.5f), new UnityEngine.Vector3(10, 1, backLen)));
+    rig.transform.SetPositionAndRotation(O + new UnityEngine.Vector3(0, 0, -rootDist), UnityEngine.Quaternion.identity);
+    UnityEngine.Physics.SyncTransforms();
+    tProbe.GetField("_previousKind", BF).SetValue(probe, Project.Core.Environment.TraversalKind.None);
+    var data = new Project.Core.Blackboard.PlayerRuntimeData();
+    data.IsGrounded = true; data.MoveDirection = UnityEngine.Vector3.forward; data.MoveSpeed = 0f;
+    data.Intent.JumpRequested = true;
+    probe.Tick(data);
+    var c = probe.Candidate;
+    bool entered = state.CanEnter(data);
+    var sel = probe.SelectionEvaluation;
+    var ent = probe.EntryEvaluation;
+    var edge = c.LedgeFrame.EdgeOrigin;
+    float destDepth = UnityEngine.Vector3.Dot(c.DestinationPoint - edge, UnityEngine.Vector3.forward);
+    string s = string.Format("H={0:F2} D={1:F2} back={2:F2} root={3:F2} | kind={4} rej={5} h={6:F3} depth={7:F3} landDepth={8:F3} destDepth(fromEdge)={9:F3} destBlocked? corridor={10} | entry={11}/{12} long={13:F3} desired={14:F3} | sel={15} pref={16} | entered={17}",
+        H, D, backLen, rootDist, c.Kind, c.RejectReason, c.Height, c.Depth, c.LandingSurfaceDepth, destDepth, c.Corridor.IsClear,
+        ent.Executable, ent.RejectReason, ent.LongitudinalDistance, ent.IdealLongitudinalDistance, sel.Reason, sel.PreferTraversal, entered);
+    // v3（docs/22 §22）：plan 由 TraversalState.CanEnter 自己建（Plan Validity）——直接讀，不再在腳本裡重組。
+    var pv = probe.PlanValidity;
+    s += string.Format("\n      landingEvidence={0} | planValidity={1} usesEndpoint={2} exit={3:F3} verified={4:F3} piecewiseRej={5} endpointRej={6}",
+        c.LandingEvidence, pv.Reason, pv.UsesEndpoint, pv.ExitDepth, pv.VerifiedDepth,
+        (Project.Presentation.Motion.TraversalWarpPlanRejection)pv.PiecewiseRejection,
+        (Project.Presentation.Motion.TraversalWarpPlanRejection)pv.EndpointRejection);
+    if (entered)
+    {
+        var fit = state.AnimationFit;
+        var plan = state.WarpPlan;
+        var cand = state.CommittedCandidate;
+        UnityEngine.Vector3 p = default; float yaw = 0f;
+        bool okE;
+        if (plan.IsPiecewise) okE = plan.TryEvaluate(plan.ExitKnot.NormalizedTime, out p, out yaw);
+        else { p = plan.TargetPosition; okE = plan.IsValid; }
+        float planExitDepth = okE ? UnityEngine.Vector3.Dot(p - edge, UnityEngine.Vector3.forward) : float.NaN;
+        s += string.Format("\n      plan={0} valid={1} planExitDepth={2:F3} | fit={3} rate={4:F3} fitLanding committed={5:F3} anim={6:F3} avail={7:F3} beyondVerified={8}",
+            plan.IsPiecewise ? "Piecewise" : "Endpoint", plan.IsValid, planExitDepth,
+            fit.Reason, fit.PlaybackRate, fit.LandingCommittedDepth, fit.LandingAnimatedDepth, fit.LandingAvailableDepth, fit.LandingBeyondVerifiedSurface);
+    }
+    foreach (var t in temp) { made.Remove(t); UnityEngine.Object.DestroyImmediate(t); }
+    return s;
+};
+
+try
+{
+    sb.Append("\n== Scenarios ==\n");
+    sb.Append("A  vault thin, long back      : " + run(1.0f, 0.3f, 8f, 1.40f, 0) + "\n");
+    sb.Append("B1 vault thin, back 0.5       : " + run(1.0f, 0.3f, 0.5f, 1.40f, 0) + "\n");
+    sb.Append("B2 vault thin, back 0.35      : " + run(1.0f, 0.3f, 0.35f, 1.40f, 0) + "\n");
+    sb.Append("B3 vault thin, no back ground : " + run(1.0f, 0.3f, -1f, 1.40f, 0) + "\n");
+    sb.Append("C  climb2m deep               : " + run(1.8f, 3.0f, -1f, 0.46f, 0) + "\n");
+    sb.Append("D  climb1m deep               : " + run(1.1f, 3.0f, -1f, 0.45f, 0) + "\n");
+    sb.Append("D2 climb1m deep root .75      : " + run(1.1f, 3.0f, -1f, 0.75f, 0) + "\n");
+    sb.Append("E  climb1m platform 0.8       : " + run(1.1f, 0.8f, -1f, 0.45f, 0) + "\n");
+    sb.Append("F  climb2m stand 2.0 (far)   : " + run(1.8f, 3.0f, -1f, 2.0f, 0) + "\n");
+
+    sb.Append("\n== Height sweep (selection on real probe candidate) ==\n");
+    foreach (float D in new[] { 0.3f, 3.0f })
+    {
+        string last = null; float start = 0f;
+        for (float H = 0.40f; H <= 2.401f; H += 0.01f)
+        {
+            var temp = new System.Collections.Generic.List<UnityEngine.GameObject>();
+            temp.Add(box(new UnityEngine.Vector3(0, -0.5f, -5f), new UnityEngine.Vector3(10, 1, 10)));
+            temp.Add(box(new UnityEngine.Vector3(0, H * 0.5f, D * 0.5f), new UnityEngine.Vector3(10, H, D)));
+            temp.Add(box(new UnityEngine.Vector3(0, -0.5f, D + 4f), new UnityEngine.Vector3(10, 1, 8f)));
+            rig.transform.SetPositionAndRotation(O + new UnityEngine.Vector3(0, 0, -0.6f), UnityEngine.Quaternion.identity);
+            UnityEngine.Physics.SyncTransforms();
+            tProbe.GetField("_previousKind", BF).SetValue(probe, Project.Core.Environment.TraversalKind.None);
+            var data = new Project.Core.Blackboard.PlayerRuntimeData();
+            data.IsGrounded = true; data.MoveDirection = UnityEngine.Vector3.forward;
+            probe.Tick(data);
+            var c = probe.Candidate;
+            var b = tp.GetBinding(c.Kind);
+            var sel = Project.Core.StateMachine.TraversalSelectionPolicy.Evaluate(in c, jp, tp.NormalJumpReachSafetyMargin,
+                tp.IsKindEnabled(c.Kind), b.CoverageMinHeight, b.CoverageMaxHeight);
+            string key = c.Kind + "/" + c.RejectReason + " -> " + sel.Reason + (sel.PreferTraversal ? "[TRAV]" : "[jump]");
+            if (key != last)
+            {
+                if (last != null) sb.Append(string.Format("  D={0} H[{1:F2}..{2:F2}] {3}\n", D, start, H - 0.01f, last));
+                last = key; start = H;
+            }
+            foreach (var t in temp) { made.Remove(t); UnityEngine.Object.DestroyImmediate(t); }
+        }
+        sb.Append(string.Format("  D={0} H[{1:F2}..2.40] {2}\n", D, start, last));
+    }
+}
+catch (System.Exception ex) { sb.Append("EXC " + ex + "\n"); }
+finally
+{
+    foreach (var g in made) if (g != null) UnityEngine.Object.DestroyImmediate(g);
+    UnityEngine.Physics.SyncTransforms();
+}
+return sb.ToString();

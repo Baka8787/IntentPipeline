@@ -42,8 +42,9 @@
 | 3 | **Entry Eligibility**（進場合法性） | 「我**現在站的位置與朝向**，做得了這個動作嗎？」 | `TraversalEntryPolicy`（**純函式**） | **只在按下跳躍那一幀**（`CanEnter`） | `TraversalEntryEvaluation`（含 `RejectReason` 與距離帶） |
 | 3b | **Selection**（玩法取捨） | 「這個高度，該用 traversal 還是讓普通跳躍去？」 | `TraversalSelectionPolicy`（**純函式**） | 同上，Entry 通過之後 | `TraversalSelectionEvaluation`（含理由） |
 | 3c | **Animation Fitting**（動畫配合） | 「這支動畫要**用多快的速率**播，才貼近現場尺寸？」 | `TraversalAnimationFitter`（**純函式**） | 同上，Selection 通過之後 | `TraversalAnimationFit`（`PlaybackRate` ＋ 落地深度預算） |
-| 4 | **Commit**（承諾） | 「把上面全部**鎖存**。從現在起環境不再有發言權。」 | `TraversalState.CanEnter` 的最後三行 | 同上 | `_committedCandidate` / `_entryEvaluation` / `_animationFit` |
-| 5 | **Motion Map / Warp Targets**（運動映射） | 「動畫的 root 軌跡要怎麼搬，才會落在現場真正的邊緣上？」 | `TraversalPlanBuilder`（piecewise）／`MotionDriver.TryCreateTraversalWarpPlan`（endpoint） | `OnEnter`／第一次 `OnUpdateMotion`，**只做一次** | `TraversalWarpPlan`（6 個 knot 或 1 組 endpoint correction） |
+| 3d | 🆕 **Plan Validity**（計畫有效性，2026-10-10） | 「這支動畫在這裡**建得出有效、終點有支撐**的計畫嗎？」 | `TraversalState.TryBuildPlan`（呼叫下面第 5 層的 builder） | 同上，Fitting 之後 | `TraversalPlanValidity`（Valid／NoValidPlan／ExitBeyondVerifiedSurface）；無效 ⇒ 不 commit、D3 交回 Jump |
+| 4 | **Commit**（承諾） | 「把上面全部**鎖存**。從現在起環境不再有發言權。」 | `TraversalState.CanEnter` 的最後幾行 | 同上（**只在 3d 通過時**） | `_committedCandidate` / `_entryEvaluation` / `_animationFit` / 🔄 `_warpPlan` |
+| 5 | **Motion Map / Warp Targets**（運動映射） | 「動畫的 root 軌跡要怎麼搬，才會落在現場真正的邊緣上？」 | `TraversalPlanBuilder`（piecewise）／`TraversalWarpPlan.TryCreate` 經 `MotionDriver.TryCreateTraversalWarpPlan`（endpoint） | 🔄 2026-10-10 起在 **`CanEnter`（3d）建立、只做一次**；`OnEnter` 只把它**發布**給 MotionDriver（舊版在 `OnEnter` 才建，建不起來也已承諾） | `TraversalWarpPlan`（6 個 knot 或 1 組 endpoint correction） |
 | 6 | **Execution**（執行） | 「這一幀角色該在哪裡？」 | `MotionDriver.ExecuteTraversalWarpedMovement` | 每幀，管線順序 **6** | `CharacterController.Move(delta)` |
 | 7 | **Collision / Clearance**（碰撞與淨空） | 「真的過得去嗎？被擋掉多少？」 | `Physics`（查詢在階段 1 就做完了）＋ `CharacterController` | 查詢：階段 1；實際阻擋：階段 6 | `TraversalCorridorEvidence`（事前）／`BlockedDisplacement`（事後） |
 | 8 | **Recovery**（恢復） | 「什麼時候可以放人回去正常控制？」 | `TraversalState.OnUpdateMotion` 的 `_canRecover` | 每幀，達到 recovery 時刻 | `CanTransitionAway = true`、還原碰撞 profile |
@@ -97,6 +98,8 @@ flowchart TD
 
     PLAN -->|"ContactTargets<br/>（手部目標，唯讀）"| HIK["TraversalHandIKController<br/>順序 6.5"]
 ```
+
+> 🔄 **2026-10-10（`docs/22` §22）**：上圖的 `PlanBuilder`（含 endpoint fallback）現在在 **COMMIT 之前**、`CanEnter` 內執行（Plan Validity）；建不出有效 plan 或終點越出驗證面就不會走到 COMMIT。`OnEnter` 只把已鎖存的 plan 發布給 MotionDriver。
 
 ### 每一條主要箭頭在傳什麼
 
@@ -275,6 +278,7 @@ flowchart TD
 | **I8** | **每一個否決都必須留下理由**（`RejectReason` / `SelectionReason` / `FitReason` / `PlanRejection`） | 就是 `docs/23` §A10 記過的除錯黑洞：畫面顯示 `Climb1m` ＋ `Entry: Accept` 卻什麼都沒發生 |
 | **I9** | **感測範圍由動畫需求推導，不是獨立常數**（`SetDerivedRangeRequirements` 單向推送） | 見 §I 第一例 |
 | **I10** | **Core/Environment 不得依賴 StateMachine／Presentation** | 這就是為什麼推送的是兩個 `float` 而不是 bake 引用 |
+| **I13** | 🆕（2026-10-10）**承諾 ⇒ 帶著有效 plan。** plan 只在 `CanEnter` 建立；建不出、或 committed exit 越出 Probe 已驗證的落腳面 ⇒ 不承諾。「量不到任何落腳面」在 Candidate 層就否決（`NoLandingSurface`，判斷在 Classifier，Probe 只回報證據） | 回到「已承諾卻建不出 plan ⇒ 走未 warp 的曲線」（`docs/52` B3）或「終點懸空」（B2）。`ArchitectureRegressionTests.A53` 守建立時機 |
 
 ---
 

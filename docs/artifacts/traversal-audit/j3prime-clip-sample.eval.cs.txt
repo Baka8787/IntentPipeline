@@ -1,0 +1,62 @@
+// J3′ research（docs/22 §22.4）：在 X Bot rig 上取樣三支 traversal clip 的 root／手／腳軌跡（clip 自身座標，起點 root 為原點、yaw 對齊）。
+// 唯讀：preview scene，不碰使用者場景、不改任何資產。
+var sb = new System.Text.StringBuilder();
+var BF = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+var cfg = UnityEditor.AssetDatabase.LoadAssetAtPath<Project.Core.StateMachine.StateMachineConfigSO>(
+    "Assets/ScriptableObjects/StateMachine/PlayerStateMachineConfig.asset");
+cfg.Initialize();
+var tp = cfg.GetStateParams<Project.Core.StateMachine.TraversalStateParamsSO>(Project.Core.StateMachine.StateType.Traversal);
+var prefab = UnityEditor.AssetDatabase.LoadAssetAtPath<UnityEngine.GameObject>("Assets/Prefabs/X Bot.prefab");
+string only = "CLIPNAME";
+var kinds = new[] { Project.Core.Environment.TraversalKind.Vault1m, Project.Core.Environment.TraversalKind.Climb1m, Project.Core.Environment.TraversalKind.Climb2m };
+var preview = UnityEditor.SceneManagement.EditorSceneManager.NewPreviewScene();
+UnityEngine.GameObject inst = null;
+try
+{
+    inst = (UnityEngine.GameObject)UnityEditor.PrefabUtility.InstantiatePrefab(prefab, preview);
+    var animator = inst.GetComponentInChildren<UnityEngine.Animator>();
+    animator.applyRootMotion = true;
+    var root = animator.transform;
+    var bones = new[] { UnityEngine.HumanBodyBones.LeftHand, UnityEngine.HumanBodyBones.RightHand,
+                        UnityEngine.HumanBodyBones.LeftToes, UnityEngine.HumanBodyBones.RightToes,
+                        UnityEngine.HumanBodyBones.LeftMiddleDistal, UnityEngine.HumanBodyBones.RightMiddleDistal };
+    var tr = new UnityEngine.Transform[bones.Length];
+    for (int b = 0; b < bones.Length; b++) tr[b] = animator.GetBoneTransform(bones[b]);
+    foreach (var kind in kinds)
+    {
+        if (kind.ToString() != only) continue;
+        var bake = tp.GetBinding(kind).Bake;
+        var clip = bake.SourceClip;
+        float dur = bake.Duration;
+        int frames = UnityEngine.Mathf.RoundToInt(dur * (bake.SampleRate > 0 ? bake.SampleRate : 30f));
+        root.SetPositionAndRotation(UnityEngine.Vector3.zero, UnityEngine.Quaternion.identity);
+        clip.SampleAnimation(animator.gameObject, 0f);
+        var origin = root.position;
+        var inv = UnityEngine.Quaternion.Inverse(UnityEngine.Quaternion.Euler(0f, root.rotation.eulerAngles.y, 0f));
+        sb.AppendFormat("# {0} clip={1} dur={2:F3} frames={3} block={4} endH={5:F3} endV={6:F3}\n",
+            kind, clip.name, dur, frames, bake.Traversal.HasValidBakedData,
+            bake.GetHorizontalDisplacementAt(dur), bake.GetVerticalAt(dur));
+        sb.Append("# n | root z y | LH z y | RH z y | LToe z y | RToe z y | LMid z y | RMid z y\n");
+        for (int i = 0; i <= frames; i++)
+        {
+            float n = i / (float)frames;
+            root.SetPositionAndRotation(UnityEngine.Vector3.zero, UnityEngine.Quaternion.identity);
+            clip.SampleAnimation(animator.gameObject, n * clip.length);
+            var r = inv * (root.position - origin);
+            sb.AppendFormat("{0:F3}|{1:F3} {2:F3}", n, r.z, r.y);
+            for (int b = 0; b < tr.Length; b++)
+            {
+                var p = inv * (tr[b].position - origin);
+                sb.AppendFormat("|{0:F3} {1:F3}", p.z, p.y);
+            }
+            sb.Append("\n");
+        }
+    }
+}
+catch (System.Exception ex) { sb.Append("EXC " + ex + "\n"); }
+finally
+{
+    if (inst != null) UnityEngine.Object.DestroyImmediate(inst);
+    UnityEditor.SceneManagement.EditorSceneManager.ClosePreviewScene(preview);
+}
+return sb.ToString();

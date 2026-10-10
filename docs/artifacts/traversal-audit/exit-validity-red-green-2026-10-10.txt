@@ -1,0 +1,22 @@
+# docs/22 §22 紅階段：TraversalExitValidityPlayModeTests 在**改動前**的程式上執行（2026-10-10 13:2x，HEAD 6dc24c9 ＋ 僅新增測試檔）
+# 預期：三個正常路徑綠；J1／J2／PlanValidity 紅（重現 docs/52 B2／B3 與 Failed 承諾）
+# 註：PlanValidity 案當時以 0 作修正上限（getter 退回預設 1.5 m），後改 1 mm；舊程式不建 plan、一律承諾，故兩種寫法在舊程式上都紅。
+
+Failed  J1_Vault_NarrowGroundBehind_DoesNotCommitTraversal    committed exit 會越出已驗證的落腳面，不得承諾 traversal\r\n  Expected: not equal to Traversal\r\n  But was:  Traversal\r\n
+Failed  J2_Vault_NoGroundBehind_IsNotACandidate    量不到任何落腳面時，候選不存在\r\n  Expected: None\r\n  But was:  Vault1m\r\n
+Passed  Normal_Climb1m_DeepPlatform_CommitsEndpointExit  
+Passed  Normal_Climb2m_DeepPlatform_CommitsPiecewiseExitAtNaturalDepth  
+Passed  Normal_Vault_LongGroundBehind_CommitsPiecewiseExitOnVerifiedSurface  
+Failed  PlanValidity_NoBuildablePlan_DoesNotCommitTraversal    沒有有效 plan 時不得承諾 traversal（舊行為：承諾後走未 warp 的曲線）\r\n  Expected: not equal to Traversal\r\n  But was:  Traversal\r\n
+
+# 綠階段（改動後，含新增的邊界與 J3′ 案例）
+Passed  Boundary_NormalPath_ReportsValidPlanWithExitInsideVerifiedSurface
+Passed  Boundary_StandingTooFar_IsAnEligibilityRejection_NotAPlanRejection
+Passed  J1_Vault_NarrowGroundBehind_DoesNotCommitTraversal
+Passed  J2_Vault_NoGroundBehind_IsNotACandidate
+Passed  J3Prime_Climb1mEndpointExit_MovesOneToOneWithGlobalDesiredWallDistance
+Passed  J3Prime_Contrast_Climb2mExitIgnoresGlobalDesiredWallDistance
+Passed  Normal_Climb1m_DeepPlatform_CommitsEndpointExit
+Passed  Normal_Climb2m_DeepPlatform_CommitsPiecewiseExitAtNaturalDepth
+Passed  Normal_Vault_LongGroundBehind_CommitsPiecewiseExitOnVerifiedSurface
+Passed  PlanValidity_NoBuildablePlan_DoesNotCommitTraversal

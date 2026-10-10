@@ -530,3 +530,37 @@ J1、J2、J4、J5 不變（見 §J），另加 **J3′**（§K.2）。J1／J2 �
   - **F5（Low）** `EXIT3` 是同義反覆 ⇒ 改標為接線檢查，parity 證據改指 `F7` 具體值＋live 前後。
   - **F6（Low）** 本檔檔頭過期 ⇒ 已更正。
 - **未處理（併入裁決）**：endpoint 的 `BeyondVerifiedSurface` 未發布到 diagnostics——併入 J1。
+
+---
+
+## L. 第三輪：出口有效性（2026-10-10；Living Spec 見 `docs/22` §22）
+
+> 使用者裁決：J1、J2 進入修正；J3′ 研究並提方案、不得直接指定新常數；J4 維持人工設定；J5 獨立延期。
+
+| 項目 | 處置 | 狀態 | 證據 |
+|---|---|---|---|
+| **J1**（B2：committed exit 越出驗證面） | 新的 **Plan Validity** 階段：plan 在 `CanEnter` 建立，exit 越出已驗證深度（evidence＝Found；先投影到 exit 的同一條軸，容差 1 mm）⇒ 不承諾，D3 交回 Jump | ✅ **Passed**（自動驗證）／⏳ 觀感 Pending | 紅→綠（`exit-validity-red-green-2026-10-10.txt`）；live B2：不承諾、Plan＝ExitBeyondVerifiedSurface（0.970 > 0.600） |
+| **J2**（B3：牆後無地面） | Candidate 層：Probe 回報 `TraversalLandingEvidence`，Classifier 判 `NoLandingSurface`（排在 DestinationBlocked 前） | ✅ **Passed**／⏳ 觀感 Pending | 紅→綠；live B3：None／NoLandingSurface、Plan 未評估；Classifier 單元測試 5 項 |
+| 建不出有效 plan（原 Failed 會被承諾） | 同 Plan Validity：NoValidPlan ⇒ 不承諾；ADR-008 D4／D5 依 Trial 規則修訂 | ✅ **Passed** | 紅→綠（1 mm 修正預算的測試副本）；Architecture `A53` 守建立時機 |
+| 邊界不混淆 | 候選不存在／進場不合法／計畫無效＝三個可分辨的答案（Probe、Debug Window、Game-view 面板第四行） | ✅ **Passed** | `Boundary_*` 兩案；live F（站太遠）：entry TooFar、Plan 未評估 |
+| 正常路徑零終點變化 | — | ✅ **Passed** | fixture 1.100／0.213／0.918；live A／B1／C／D／D2／E 與第二輪逐值相同 |
+| **J3′**（Climb1m 出口依賴全域 Entry 距離） | 證明耦合（characterization）＋ clip 軌跡研究 ＋ 執行探針；**未改行為**，S2 保留 | ⛔ **Blocked**（需裁決，選項見 `docs/22` §22.4） | 耦合 1:1（0.10 m）、Climb2m 對照不動；clip 推導邊緣 1.00–1.22 m（≠ 0.45）；出貨站位助跑撞牆 0.448 m、落點差 0.41 m |
+| J4 | 維持人工設定 | ⏸ 保留 | — |
+| J5 | 獨立延期 | ⏸ Deferred | — |
+
+**基線差異**（不擴大修復）：最終 EditMode **891／889／1 failed／1 skipped**、PlayMode **107／100／7 failed**。EditMode 基線 1 項失敗（場景 `GroundLayers`）與 PlayMode 基線 7 項失敗（`C0`＋6 個 Stair 骨盆）在本輪前後**逐名相同**；本輪沒有新增失敗。
+
+**新發現（交 `docs/50`）**：warped traversal（Absolute 與 Segmented）的 `VerticalVelocity` **延遲一帧**發布（先 Sync 後賦值；🔄 初稿誤寫為「Absolute 從不發布」，已由獨立審查更正）；endpoint 結束時 root 高出頂面 3.6 cm（無 post-exit rebound）；M-02 的 Failed 結局已不會被承諾。
+
+### L.1 獨立審查（未參與實作的 review 子代理，依 `docs/16`）
+
+- **獨立性限制**：審查者是本 session 啟動的子代理，沒有看過實作推理，但與實作者同一模型家族；它自行重編譯並重跑了 EditMode（890／888／1 failed）與完整 PlayMode（107／100／7 failed，失敗集合與基線相同）。它無法重現紅階段當時的測試檔版本（之後加了 reason 斷言，在 `6dc24c9` 上無法編譯），紅→綠以「三案的第一個失敗斷言都是行為斷言、與舊程式邏輯一致」的推理確認。
+- **確認**：邊界放置（J2 在 Classifier、J1／無 plan 在 Plan Validity）、仲裁與 MotionDriver 權限未動、plan 只在 CanEnter 建一次且與舊 OnEnter 版本等價、正常路徑出口逐值不變、無新增跨層依賴、J3′ 未改行為且無新常數。
+- **找到並已處理**：
+  - **F1（Medium）** J1 閘門在斜向進場時拿兩條不同軸的深度比較（放寬至 1/cosθ）⇒ **已改程式**：已驗證深度投影到 exit 軸；新增 `EXIT6`；live probe 與修正前逐位元相同（正面進場係數為 1）。出貨資料下原本也觸發不到（Vault 自然落點 1.116 恆大於掃描上限 1.1；Climb2m 0.213 遠在驗證面內），屬潛在缺口。
+  - **F2（Low）** `NoLandingSurface` 實為「0.6 m 取樣柱無命中」⇒ 註解與 `docs/22` §22.2 寫明。
+  - **F3（Medium）** 我宣稱「Absolute warped 路徑從不發布 VerticalVelocity」是錯的——實際是兩條 warped 路徑都**延遲一帧**發布 ⇒ T7 改以 characterization 鎖住延遲一帧；四處文件更正。
+  - **F4（Low）** ADR-008 revert 路徑寫錯（照做會讓每次 traversal 都走未 warp 曲線）⇒ 已更正為「只移除 `if (!planValid) return false;`」。
+  - **F5（Low）** 文件 PlayMode 數字過期（105 → 107）⇒ 已更新。
+  - **F6（Low）** 容差未寫入 Living Spec ⇒ `docs/22` §22.2 寫明 1 mm。
+  - **F7（Low）** J3′「landmark 驗證」說法過強 ⇒ 改為「同一取樣法的一致性對照（非獨立驗證）」，並註明 1.00–1.22 的 landmark 未交叉驗證。
