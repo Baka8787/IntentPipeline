@@ -209,6 +209,121 @@ namespace Project.Tests.PlayMode
             Assert.AreEqual(TraversalLandingEvidence.Found, rig.Probe.Candidate.LandingEvidence);
         }
 
+        // ── J3′：Climb1m 出口與全域 Entry 距離的耦合（characterization，證明問題存在） ──────────
+
+        /// <summary>
+        /// 🆕（docs/22 §22.4，J3′）**證明耦合存在。**同一面 1.1 m 平台、同一個站位（0.50 m，兩組設定下都合法），
+        /// 只改全域 <c>EntryPolicySettings.DesiredWallDistance</c>（0.45 → 0.55）：
+        /// 出貨 Climb1m 沒有 Traversal block，理想站位退回這個全域值，endpoint 出口因此 **1:1** 移動 0.10 m。
+        ///
+        /// ⚠️ 這是 characterization——它鎖的是「目前的耦合」，不是「這樣是對的」。
+        /// J3′ 定案後必須改寫成「出口與全域值無關」，而不是刪掉。
+        /// </summary>
+        [UnityTest]
+        public IEnumerator J3Prime_Climb1mEndpointExit_MovesOneToOneWithGlobalDesiredWallDistance()
+        {
+            BuildWall(height: 1.1f, depth: 3f, backGroundLength: 0f);
+            Rig nearIdeal = BuildRig(rootDistanceFromWall: 0.50f, globalDesiredWallDistance: 0.45f);
+            Rig farIdeal = BuildRig(rootDistanceFromWall: 0.50f, globalDesiredWallDistance: 0.55f);
+            yield return null;
+
+            Attempt(nearIdeal);
+            Attempt(farIdeal);
+
+            float exitNear = PlanExitDepth(AssertEnteredTraversal(nearIdeal, TraversalKind.Climb1m));
+            float exitFar = PlanExitDepth(AssertEnteredTraversal(farIdeal, TraversalKind.Climb1m));
+            Assert.AreEqual(0.10f, exitNear - exitFar, 0.002f,
+                "J3′ 耦合：Climb1m 出口隨全域 DesiredWallDistance 1:1 移動（站位、牆、動畫都相同）");
+        }
+
+        /// <summary>
+        /// 對照組：Climb2m 有 Traversal block，理想站位由 bake 推導——全域值改變時出口**不動**。
+        /// 證明 J3′ 的耦合只存在於「沒有 block、退回全域值」的那條路徑，不是 exit 規則本身的問題。
+        /// </summary>
+        [UnityTest]
+        public IEnumerator J3Prime_Contrast_Climb2mExitIgnoresGlobalDesiredWallDistance()
+        {
+            BuildWall(height: 1.8f, depth: 3f, backGroundLength: 0f);
+            Rig nearIdeal = BuildRig(rootDistanceFromWall: 0.46f, globalDesiredWallDistance: 0.45f);
+            Rig farIdeal = BuildRig(rootDistanceFromWall: 0.46f, globalDesiredWallDistance: 0.55f);
+            yield return null;
+
+            Attempt(nearIdeal);
+            Attempt(farIdeal);
+
+            float exitNear = PlanExitDepth(AssertEnteredTraversal(nearIdeal, TraversalKind.Climb2m));
+            float exitFar = PlanExitDepth(AssertEnteredTraversal(farIdeal, TraversalKind.Climb2m));
+            Assert.AreEqual(exitNear, exitFar, 0.0005f);
+        }
+
+        // ── J3′ 研究探針（THROWAWAY，[Explicit]：不進回歸套件） ─────────────────────────
+
+        /// <summary>
+        /// 🔬 THROWAWAY 量測探針（docs/22 §22.4，J3′ 研究；CLAUDE.md Spike／Probe 例外）。
+        /// 從出貨的 Climb1m 進場站位（全域 0.45 m）實際執行一次 endpoint traversal（真實 MotionDriver＋CharacterController），
+        /// 量測：approach 段被牆擋掉多少、root 開始上升時離牆多遠、最終 root 停在邊緣內多深。
+        /// 只輸出數字、不斷言行為；J3′ 定案後刪除。
+        /// </summary>
+        [UnityTest, Explicit("J3′ research probe — measurement only"), Category("Probe")]
+        public IEnumerator Probe_Climb1mEndpointExecution_FromGlobalEntryDistance(
+            [Values(0, 1, 2, 3, 4)] int scenario)
+        {
+            // 0＝出貨（理想 0.45、站 0.45）；1＝出貨理想、站在合法帶最遠處（0.78；0.80 量起來是 0.82，超出合法帶）；
+            // 2–4＝模擬「理想進場距離由 clip 推導」：以三個候選 landmark 估計的邊緣（1.00／1.13／1.22）同時當理想與站位。
+            float[] stances = { 0.45f, 0.78f, 1.00f, 1.13f, 1.22f };
+            float[] ideals = { float.NaN, float.NaN, 1.00f, 1.13f, 1.22f };
+            float stance = stances[scenario];
+            float ideal = ideals[scenario];
+            BuildWall(height: 1.1f, depth: 3f, backGroundLength: 0f);
+            Rig rig = BuildRig(rootDistanceFromWall: stance, globalDesiredWallDistance: ideal);
+            SteppingFacade facade = rig.Host.AddComponent<SteppingFacade>();
+            yield return null;
+
+            Attempt(rig);
+            TraversalState traversal = AssertEnteredTraversal(rig, TraversalKind.Climb1m);
+            float edgeZ = traversal.CommittedCandidate.LedgeFrame.EdgeOrigin.z;
+            Vector3 target = traversal.WarpPlan.TargetPosition;
+            rig.Data.Intent.JumpRequested = false;
+
+            float maxBlocked = 0f;
+            float totalBlocked = 0f;
+            float rootZAtRise = float.NaN;
+            float nAtRise = float.NaN;
+            float wallFaceZ = 0f;
+            const int Steps = 90;
+            for (int i = 1; i <= Steps; i++)
+            {
+                yield return null;
+                facade.NormalizedTime = i / (float)Steps;
+                traversal.OnUpdateMotion(rig.Driver, facade, rig.Data);
+                maxBlocked = Mathf.Max(maxBlocked, rig.Driver.LastTraversalExecutionResult.BlockedDisplacement.magnitude);
+                totalBlocked += rig.Driver.LastTraversalExecutionResult.BlockedDisplacement.magnitude;
+                Vector3 p = rig.Host.transform.position;
+                if (float.IsNaN(rootZAtRise) && p.y > 0.05f) { rootZAtRise = p.z; nAtRise = facade.NormalizedTime; }
+            }
+
+            Vector3 end = rig.Host.transform.position;
+            Debug.Log(string.Format(
+                "[J3′ probe] Climb1m stance={9:F2} ideal={10} : totalBlocked={11:F3} m maxBlockedPerFrame={0:F3} m | rise starts n={1:F3} at rootZ={2:F3} (wall face z={3:F3}, root–wall {4:F3} m) | " +
+                "end root depth past edge={5:F3} (plan target depth {6:F3}) | end y={7:F3} | maxRootDivergence={8:F3}",
+                maxBlocked, nAtRise, rootZAtRise, wallFaceZ, wallFaceZ - rootZAtRise,
+                end.z - edgeZ, target.z - edgeZ, end.y, rig.Driver.LastTraversalMaxRootDivergence,
+                stance, float.IsNaN(ideal) ? "global0.45" : ideal.ToString("F2"), totalBlocked));
+            Assert.Pass("measurement only");
+        }
+
+        private sealed class SteppingFacade : AnimationFacadeBase
+        {
+            public float NormalizedTime;
+            public override void Play(string stateKey) { }
+            public override void PlayWithCallback(string stateKey, Action onComplete) { }
+            public override void SetLayerWeight(int layerIndex, float weight, float transitionDuration = 0.1f) { }
+            public override void SetFloat(string key, float value) { }
+            public override void SetBool(string key, bool value) { }
+            public override bool IsPlaying(string stateKey) => true;
+            public override float GetNormalizedTime() => NormalizedTime;
+        }
+
         // ── 共用 ───────────────────────────────────────────────────────────────
 
         private static TraversalState AssertEnteredTraversal(Rig rig, TraversalKind kind)
@@ -270,7 +385,8 @@ namespace Project.Tests.PlayMode
 
         private Rig BuildRig(
             float rootDistanceFromWall,
-            bool tinyCorrectionBudget = false)
+            bool tinyCorrectionBudget = false,
+            float globalDesiredWallDistance = float.NaN)
         {
             GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PlayerPrefabPath);
             Assert.IsNotNull(prefab, $"找不到 {PlayerPrefabPath}");
@@ -306,6 +422,8 @@ namespace Project.Tests.PlayMode
             StateMachineConfigSO config = UnityEngine.Object.Instantiate(shipped);
             _created.Add(config);
             if (tinyCorrectionBudget) InstallTraversalParamsCopy(config, SetTinyCorrectionBudget);
+            if (!float.IsNaN(globalDesiredWallDistance))
+                InstallTraversalParamsCopy(config, p => SetGlobalDesiredWallDistance(p, globalDesiredWallDistance));
 
             var data = new PlayerRuntimeData();
             var machine = new FullBodyStateMachine();
@@ -328,6 +446,16 @@ namespace Project.Tests.PlayMode
                 SetPrivateField(binding, "maxVerticalCorrection", 0.001f);
                 field.SetValue(clone, binding);
             }
+        }
+
+        /// <summary>只改測試副本：全域 Entry 理想距離（沒有 Traversal block 的 clip 會退回它）。</summary>
+        private static void SetGlobalDesiredWallDistance(TraversalStateParamsSO clone, float distance)
+        {
+            FieldInfo field = typeof(TraversalStateParamsSO).GetField(
+                "entryPolicy", BindingFlags.NonPublic | BindingFlags.Instance);
+            object entryPolicy = field.GetValue(clone);
+            SetPrivateField(entryPolicy, "desiredWallDistance", distance);
+            field.SetValue(clone, entryPolicy);
         }
 
         /// <summary>把 config 的 TraversalStateParams 換成一份經 <paramref name="tweak"/> 修改過的**副本**（不改資產）。</summary>
