@@ -1,0 +1,20 @@
+// docs/53 §13 — behavioural audio-state check (throwaway; Spike/Probe Exception). `unity cmd eval_file` method body.
+// Does NOT change any setting: plays a generated silent clip on a hidden temporary AudioSource in Edit Mode and
+// reports whether the engine actually started it. Expected: isPlaying=True with audio on, False with -disableaudio.
+// Also reports the Editor's command line so the experimental condition is recorded from the process itself.
+if (UnityEditor.EditorApplication.isPlaying) return "REFUSED: editor is in Play Mode";
+var go = new UnityEngine.GameObject("__diag53_audio_probe");
+go.hideFlags = UnityEngine.HideFlags.HideAndDontSave;
+var clip = UnityEngine.AudioClip.Create("__diag53_silence", 48000, 1, 48000, false);
+var src = go.AddComponent<UnityEngine.AudioSource>();
+src.clip = clip;
+src.volume = 0f;
+src.Play();
+bool playing = src.isPlaying;
+src.Stop();
+UnityEngine.Object.DestroyImmediate(go);
+UnityEngine.Object.DestroyImmediate(clip);
+var cfg = UnityEngine.AudioSettings.GetConfiguration();
+bool flag = System.Array.Exists(System.Environment.GetCommandLineArgs(), a => a.ToLowerInvariant() == "-disableaudio");
+return string.Format("isPlaying={0} cmdline_disableaudio={1} outputSampleRate={2} cfgRate={3} speaker={4} dspBuffer={5}",
+    playing, flag, UnityEngine.AudioSettings.outputSampleRate, cfg.sampleRate, cfg.speakerMode, cfg.dspBufferSize);

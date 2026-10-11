@@ -57,7 +57,8 @@ while ($true) {
     $elapsed = [int]($now - $start).TotalSeconds
     $len = Get-TrueLength $Log
     $delta = if ($prevLen -ge 0 -and $len -ge $prevLen) { $len - $prevLen } else { 0 }
-    $marker = Count-MarkerSince $Log $prevLen $len $Marker
+    # ⚠️ PowerShell variable names are case-insensitive: never name this $marker (it would overwrite -Marker).
+    $markerHits = Count-MarkerSince $Log $prevLen $len $Marker
     $os = Get-CimInstance Win32_OperatingSystem
     $commitGB = [Math]::Round(($os.TotalVirtualMemorySize - $os.FreeVirtualMemory) / 1MB, 2)
     $limitGB = [Math]::Round($os.TotalVirtualMemorySize / 1MB, 2)
@@ -67,14 +68,15 @@ while ($true) {
     foreach ($p in $procs) {
         $gp = Get-Process -Id $p.ProcessId -ErrorAction SilentlyContinue
         if (-not $gp) { continue }
-        $role = if ($p.CommandLine -match 'AssetImportWorker') { 'import-worker' } elseif ($p.CommandLine -match '-batchMode') { 'batch' } else { 'editor' }
+        # The `unity` CLI (~\AppData\Local\Unity\bin\unity.exe) is also named Unity.exe -- label it, don't count it as the Editor.
+        $role = if ($p.ExecutablePath -match '\\Unity\\bin\\') { 'cli' } elseif ($p.CommandLine -match 'AssetImportWorker') { 'import-worker' } elseif ($p.CommandLine -match '-batchMode') { 'batch' } else { 'editor' }
         $priv = [Math]::Round($gp.PrivateMemorySize64 / 1GB, 3)
         if ($role -eq 'editor' -and $priv -gt $StopPrivateGB) { $stop = "private>$StopPrivateGB" }
         "{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15}" -f `
             $now.ToUniversalTime().ToString('o'), $elapsed, $p.ProcessId, $role, $priv,
             [Math]::Round($gp.WorkingSet64 / 1GB, 3), [Math]::Round($gp.PagedMemorySize64 / 1GB, 3),
             $gp.HandleCount, $gp.Threads.Count, [Math]::Round($gp.CPU, 1),
-            $len, $delta, $marker, $commitGB, $limitGB, $stop | Add-Content -Path $Out -Encoding utf8
+            $len, $delta, $markerHits, $commitGB, $limitGB, $stop | Add-Content -Path $Out -Encoding utf8
     }
     if ($len -gt $StopLogGB * 1GB) { $stop = "log>$StopLogGB" }
     if (($now - $start).TotalMinutes -ge $MaxMinutes) { $stop = 'max-minutes' }

@@ -12,7 +12,10 @@
 > - **日誌**：23.6 GB 的 99.82% 是 `Access version should be odd when acquiring lock`——**Unity 6000.5.1f1 原生音訊模組**（`Unity.dll` `Modules/Audio/Public/Utilities/CriticalSection.h`）的斷言，不在任何 C# 中。10/08 ≈05:06Z PlayMode run 後首次出現；同一套測試多次不觸發（非決定性）。穩態 12–14k 行/s ≈ 2.4 GB/h。
 > - **記憶體**：69.9 GB ＝ `ALLOC_DEFAULT` used（OS commit 98.6 GB）。每行洪水留 **321 B** 在 Console 原生儲存，Domain Reload（Console 旗標含 Clear on Recompile）才歸零；探針在 live Editor 證實 ≈350 B／行、Clear 釋放。崩潰＝4.4 h 沒有 reload × 14k 行/s。
 > - 已排除：專案程式碼、`com.unity.pipeline`／CLI、多 session 干擾（觸發早於並行期）。
-> - ⏳ 未做（需你同意）：C2 A/B——PlayMode 在「Disable Unity Audio」vs 正常各跑 K 次、`editor_watch.ps1` 監看；查 6000.5 後續 patch。
+> - 🧪 **C2 A/B（`docs/53` §13）**：音訊開啟組 8 次有效 PlayMode **未重現**（0／8，95% 上界 31%／run ⇒ ≠ 已排除）；**音訊停用組中止**——`m_DisableAudio` 僅作用於 standalone，`-disableaudio` 啟動後行為驗證與正常無法區分。C2 維持未證明。恢復後 Editor 一般啟動、工作樹與實驗前逐行相同、`AudioManager.asset` 無 diff。
+> - 💥 **獨立事件（`docs/53` §14）**：18:40 Editor 崩潰（`0xc0000005`，`AudioManager::ShutdownReinitializeAndReload → FMOD releaseOutput`）由本輪在執行中 Editor 切換 `m_DisableAudio`＋`AudioSettings.Reset` 誘發；⛔ 不要再這樣做。證據 `Logs/evidence-ab/crash-1840/`。
+> - 🐞 `editor_watch.ps1` 修正：變數碰撞使洪水計數恆 0（smoke test 抓到）；CLI 行程改標 `cli`。
+> - ⏳ 下一步（需你決定）：找可驗證的音訊停用手段，或升級 6000.5 patch 後重跑；p≈5% 時正常組約需 32 次 run 才有 80% 機會觸發一次。
 > - 🔧 操作：跑長時間自動化時背景開 `docs/artifacts/editor-memory/editor_watch.ps1`，`marker_in_delta > 0` 就讓 Editor reload／重開（Clear Console 不回收 OS commit）。
 > - 📦 證據：`Logs/Editor-prev.log` 已硬連結到 `Logs/evidence-2026-10-10/`（gitignored，23.6 GB；要釋放空間需兩個名字都刪——由你決定）。
 > - ⚠️ 本輪對 live Editor 的副作用：Console 被清空一次、`Logs/Editor.log` 多約 5.4 MB `Diag53` 探針行。

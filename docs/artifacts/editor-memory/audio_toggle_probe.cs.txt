@@ -1,0 +1,22 @@
+// docs/53 §13 — C2 A/B helper (throwaway; Spike/Probe Exception). `unity cmd eval_file` method body.
+// MODE "read": report m_DisableAudio + whether the audio DSP clock is advancing.
+// MODE "set":  write m_DisableAudio = VALUE through SerializedObject (Editor API, no YAML editing, no SaveAssets),
+//              then report. Undo: run again with the original value (printed by "read").
+string MODE = "read";
+bool VALUE = false;
+
+if (UnityEditor.EditorApplication.isPlaying) return "REFUSED: editor is in Play Mode";
+var am = UnityEditor.AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/AudioManager.asset")[0];
+var so = new UnityEditor.SerializedObject(am);
+var p = so.FindProperty("m_DisableAudio");
+bool before = p.boolValue;
+if (MODE == "set")
+{
+    p.boolValue = VALUE;
+    so.ApplyModifiedPropertiesWithoutUndo();
+}
+so.Update();
+// dspTime only refreshes between Editor frames: compare it across two separate calls, not within one.
+return string.Format("mode={0} disableAudio before={1} after={2} dspTime={3:F3} sampleRate={4} utc={5:HH:mm:ss}",
+    MODE, before, so.FindProperty("m_DisableAudio").boolValue, UnityEngine.AudioSettings.dspTime,
+    UnityEngine.AudioSettings.outputSampleRate, System.DateTime.UtcNow);

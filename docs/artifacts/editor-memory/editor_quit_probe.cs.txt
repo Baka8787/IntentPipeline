@@ -1,0 +1,10 @@
+// docs/53 §13 — clean Editor exit for the A/B restarts (throwaway). `unity cmd eval_file` method body.
+// Refuses when in Play Mode or when any open scene has unsaved changes (so no user work can be lost).
+if (UnityEditor.EditorApplication.isPlaying) return "REFUSED: play mode";
+for (int i = 0; i < UnityEngine.SceneManagement.SceneManager.sceneCount; i++)
+{
+    var s = UnityEngine.SceneManagement.SceneManager.GetSceneAt(i);
+    if (s.isDirty) return "REFUSED: unsaved scene " + s.path + " (" + s.name + ")";
+}
+UnityEditor.EditorApplication.delayCall += () => UnityEditor.EditorApplication.Exit(0);
+return "exit scheduled";

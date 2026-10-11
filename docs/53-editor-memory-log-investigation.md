@@ -1,6 +1,7 @@
 # 53 — Unity Editor 記憶體／日誌暴增調查（2026-10-10，診斷輪）
 
 > **狀態：只診斷，⛔ 未修正。** 沒有改 Gameplay／Traversal／MotionDriver／任何 runtime 程式或資產。
+> **2026-10-10／11 追加**：§13＝C2 A/B 實驗（Group A 8 次未重現；**Group B 因無法驗證音訊已停用而中止**）；§14＝18:40 Editor 崩潰（**獨立事件**，由本輪探針觸發）。
 > 對 live Editor 唯一的寫入是 §8 的 console 成本探針（寫 11 萬行 log ＋ 清一次 Console），已在 §8 記錄。
 > 工具：`docs/artifacts/editor-memory/`（§11）。證據原檔在 `Logs/evidence-2026-10-10/`（gitignored，見 §1）。
 
@@ -139,7 +140,7 @@ token 約每 2 小時換一次、有效期約 2 小時 ⇒ **換發時刻 ≈ T 
 | OS commit（行程） | 98.6 GB | Event #2004 |
 | 未歸屬差額 | ≈28.6 GB **Unknown** | §2 |
 
-**目前 Editor（PID 68464，13:22 重開）基線**：private 4.32–4.35 GB、working set 0.42–1.10 GB、native allocated 1.18 GB、Mono used 0.94 GB／heap 1.33 GB，30 分鐘取樣中 log 只因 §8 探針成長，**洪水 0 行**。
+**目前 Editor（PID 68464，13:22 重開）基線**：private 4.32–4.35 GB、working set 0.42–1.10 GB、native allocated 1.18 GB、Mono used 0.94 GB／heap 1.33 GB，30 分鐘取樣中 log 只因 §8 探針成長，**洪水 0 行**（⚠️ 更正：此「0 行」的依據是對 `Editor.log` 直接 `grep -c`；當時的 `editor_watch.ps1` 有變數碰撞 bug、`marker_in_delta` 恆為 0，**不能**當證據——見 §11）。
 
 ---
 
@@ -188,8 +189,8 @@ token 約每 2 小時換一次、有效期約 2 小時 ⇒ **換發時刻 ≈ T 
 | # | 候選 | 涉及 | 可重現條件 | 日誌速率 | 記憶體速率 | 因果 | 建議最小修正 | 修正後驗收 |
 |---|---|---|---|---|---|---|---|---|
 | **C1** | **Console 原生儲存無上限地保留洪水行** ⇒ 69.9 GB | Unity Editor Console（`LogEntries`），`ALLOC_DEFAULT` | 任何高頻 log ＋ 長時間沒有 Domain Reload／Clear | — | **321 B × 行速**；洪水 14k 行/s 時 ≈4.5 MB/s ≈**16 GB/h** | **機制已證實**（§8 探針：+346/349 B/行、Clear −39 MB）；**對崩潰的歸因為定量吻合**（24 區間斜率 320–322 B/行；三次 reload 歸零；2.17 億行 × 321 B ≈ 70 GB）。未直接重現原生洪水本身 | 不改 Unity：①**偵測到洪水就 Domain Reload／重開 Editor**（Clear Console 只能降 used，不降 commit）；②長時間自動化 session 定期重開 Editor | `editor_watch.ps1` 期間 `marker_in_delta` 一出現 > 0 即處置；處置後探針 `measure` 的 native allocated 回到 ≈1.2 GB 級 |
-| **C2** | **Unity 6000.5.1f1 原生音訊 critical section 斷言洪水**（23.6 GB 的來源） | `Unity.dll` `Modules/Audio/Public/Utilities/CriticalSection.h`（ScriptableProcessor／SampleProvider 區） | 在 PlayMode run 之後**非決定性**進入；同一套測試多次不觸發；Domain Reload 降為 ≈8 行/s 但不歸零，下一次 PlayMode 後回升 | **穩態 12–14k 行/s ≈ 0.6–0.7 MB/s ≈ 2.4 GB/h**；初期 1.5–1.8k 行/s | 透過 C1 | **未證明**：只有時間相關＋字串歸屬。觸發機制在 Unity 原生碼內，無符號無法再深入 | ①查 6000.5 後續 patch 的 release notes（audio／CriticalSection）並評估升級；②**A/B 實驗**（尚未做）：同一套 PlayMode 在「Project Settings → Audio → Disable Unity Audio」vs 正常下各跑 K 次，`editor_watch.ps1` 監看 marker | A/B：停用音訊的 K 次 marker 皆 0、正常組出現 ≥1 次 ⇒ 支持 C2；升級後跑同樣 K 次 PlayMode，marker 皆 0 |
-| C3 | 專案測試的音訊使用情境放大觸發機率（PlayMode 場景沒有 AudioListener、`AudioSourcePool` 在 teardown 時仍在播） | `Presentation/Audio/AudioSourcePool`／`AudioController`；PlayMode 測試（`There are no audio listeners` 6,104 次） | 推測 | — | — | **純推測**，無直接證據；本專案只用一般 `AudioClip`＋`AudioSource`，不直接用 ScriptableGenerator API | 不先改；若 C2 的 A/B 成立，再做「測試 fixture 停用音訊」的最小改動 | 同 C2 A/B |
+| **C2** | **Unity 6000.5.1f1 原生音訊 critical section 斷言洪水**（23.6 GB 的來源） | `Unity.dll` `Modules/Audio/Public/Utilities/CriticalSection.h`（ScriptableProcessor／SampleProvider 區） | 在 PlayMode run 之後**非決定性**進入；同一套測試多次不觸發；Domain Reload 降為 ≈8 行/s 但不歸零，下一次 PlayMode 後回升 | **穩態 12–14k 行/s ≈ 0.6–0.7 MB/s ≈ 2.4 GB/h**；初期 1.5–1.8k 行/s | 透過 C1 | **未證明**：只有時間相關＋字串歸屬。觸發機制在 Unity 原生碼內，無符號無法再深入。**§13 A/B：音訊開啟 8 次未重現（≠ 已排除）；音訊停用組無法建立可驗證的條件而中止** | ①查 6000.5 後續 patch 的 release notes（audio／CriticalSection）並評估升級；②A/B 需要**可驗證的音訊停用手段**（`m_DisableAudio` 只作用於 standalone；`-disableaudio` 啟動參數驗證不通過，§13.3） | 升級或新的停用手段確立後，各跑足夠次數（§13.4 的檢定力）並以 `editor_watch.ps1`（修正版）監看 |
+| C3 | 專案測試的音訊使用情境放大觸發機率（PlayMode 場景沒有 AudioListener、`AudioSourcePool` 在 teardown 時仍在播） | `Presentation/Audio/AudioSourcePool`／`AudioController`；PlayMode 測試（`There are no audio listeners` 6,104 次） | 推測 | — | — | **純推測**，無直接證據；本專案只用一般 `AudioClip`＋`AudioSource`，不直接用 ScriptableGenerator API。§13 的 8 次 PlayMode（同樣有 `no audio listeners` 警告）皆未觸發 | 不先改 | 同 C2 |
 | C4 | `com.unity.pipeline`／CLI（`unity cmd`）造成 | `BasePipelineServer.cs:2071` | — | 3 行 | — | **已排除為觸發者**：首次 timeout 在洪水開始 38 h 後；洪水字串不在其中 | — | — |
 | C5 | 專案程式碼（無限 log、update callback、事件未解除、匯入循環） | `Assets/Scripts/**` | — | 非洪水全部 ≈42 MB／4 天 | — | **已排除**（§5） | — | — |
 | C6 | 多 Claude session 互相干擾 | — | — | — | — | **無證據**；觸發早於並行期（§7） | 維持「同一時間只有一個 session 碰 Editor」的既有做法 | — |
@@ -203,6 +204,7 @@ token 約每 2 小時換一次、有效期約 2 小時 ⇒ **換發時刻 ≈ T 
    `marker_in_delta > 0` ＝ 洪水已開始 ⇒ 結束當前工作、讓 Editor 做一次 Domain Reload 或重開。
 2. **Clear Console 不等於回收 OS 記憶體**（§8）——洪水之後要的是重開 Editor。
 3. **崩潰後先保全 `Logs/Editor-prev.log`**（硬連結或複製），再重開 Unity；否則第二次啟動就覆蓋。
+3a. ⛔ **不要在執行中的 Editor 切換 Project Settings → Audio（`m_DisableAudio`），也不要呼叫 `AudioSettings.Reset`**——§14 的崩潰就是這條路徑。
 4. 讀大 log 一律用 `log_census.py`（常數記憶體）→ 再對 `reduced.log` grep。
 
 ---
@@ -215,6 +217,12 @@ token 約每 2 小時換一次、有效期約 2 小時 ⇒ **換發時刻 ≈ T 
 | `log_timeline.py` | 從 `reduced.log` 還原每行的原始 byte offset，抽出 token／memory／tests／reload／refresh／pipeline／oom／crash 事件，用 token 時鐘插值估計 UTC | 唯讀 |
 | `editor_watch.ps1` | 每 N 秒記錄每個 Unity.exe 的 private／working set／handles／threads／CPU、`Editor.log` 真實大小與新增段落中的洪水字串數、系統 commit；**超過時間／private／log 大小上限自動停止取樣**（只觀察，不動 Unity） | 唯讀 |
 | `console_cost_probe.cs.txt` | `eval_file` 方法體：量 Console 每行成本與 Clear 的效果（§8） | **會寫 log、會清 Console**；一次 ≤5 萬行；Play Mode 中拒跑。Spike／Probe 例外：用完即棄、不進 production path |
+| `audio_state_probe.cs.txt` | `eval_file`：在 Edit Mode 以隱藏的暫時 `AudioSource` 播一段生成的靜音 clip，回報 `isPlaying`、命令列是否含 `-disableaudio`、取樣率（§13.3） | 不改任何設定；建立後立即 `DestroyImmediate` |
+| `audio_toggle_probe.cs.txt` | `eval_file`：讀／寫 `m_DisableAudio`（SerializedObject） | ⛔ **危險：在執行中的 Editor 切換這個值會走 `AudioManager::ShutdownReinitializeAndReload`，§14 的崩潰就是它觸發的。保留只為存證，不要再用** |
+| `playmode_ab_loop.sh` | 串行跑 PlayMode 直到 N 次有效（最多 N+3 次）；每次前後檢查 Editor ready／洪水（直接 grep `Editor.log`）／log >500 MB／private >12 GB／recompile idle，任一成立即停、不重試；60 s 未開始記 INVALID；`DRYRUN=1` 只跑檢查（§13.2 smoke test） | 只排測試，不改任何檔案或設定 |
+| `editor_quit_probe.cs.txt` | `eval_file`：有未存場景就拒絕，否則排程 `EditorApplication.Exit(0)` | ⚠️ 實測 `delayCall` 中的 `Exit` **沒有執行**；實際關閉改用 `Process.CloseMainWindow()`（等同按視窗關閉鈕，正常關閉流程） |
+
+> 🐞 **`editor_watch.ps1` 修正紀錄（2026-10-10，smoke test 抓到）**：①PowerShell 變數不分大小寫，`$marker = Count-MarkerSince … $Marker` 在第一次取樣後把搜尋字串覆寫成 `0` ⇒ **修正前 `marker_in_delta` 恆為 0、偵測失效**（§6 的 30 分鐘取樣、§13 前 3 次 run 期間的 v1 取樣都受影響）；改名 `$markerHits`。②`unity` CLI（`…\Unity\bin\unity.exe`）也叫 `Unity.exe`，原本被當成 `editor`；改標 `cli`。修正後以合成 log 注入 100／400 行驗證：計數精確、log 大小上限會停。
 
 ---
 
@@ -224,4 +232,88 @@ token 約每 2 小時換一次、有效期約 2 小時 ⇒ **換發時刻 ≈ T 
 - 崩潰當下的 Working Set、managed heap、GPU 顯存、§2 的 28.6 GB 差額。
 - `Memory consumption went from A to B` 的精確定義未查證（與 native used 同量級、斜率與探針一致）。
 - token 時鐘誤差約 ±30 分；休眠期間無時鐘。
-- 未做 C2 的 A/B 重現（需要跑多次 PlayMode，使用者明確要求本輪不要重跑測試重現峰值）。
+- C2 的 A/B 只完成音訊開啟組（§13）；音訊停用組沒有可驗證的手段。
+- `-disableaudio` 到底有沒有作用、`isPlaying` 是否足以反映 FMOD 輸出狀態——兩者無法區分（§13.3）。
+- §14 崩潰的根因（為何 `Reset` 失敗後重新啟用會在 `releaseOutput` 存取違規）在 Unity 原生碼內。
+
+---
+
+## 13. C2 A/B 實驗：音訊停用 vs 正常（2026-10-10 10:48Z → 10-11 01:55Z）
+
+### 13.1 設計與使用者追加條件
+
+使用者裁決：Restart-based、每組 K＝8；⛔ 不得在執行中的 Editor 切換音訊；B 組須完整退出後以停用狀態重啟、結束後恢復並重啟；每次重啟後**以行為驗證實際音訊狀態**；兩組測試內容、操作條件、停止門檻相同；先做 smoke test；出現原生崩潰／洪水／資源異常即停、不自動重試；無法可靠驗證音訊已停用就**中止 B 組並回報**。
+
+| 項目 | 內容 |
+|---|---|
+| 測試內容 | 整套 PlayMode（107 項），`unity cmd run_tests --mode PlayMode --async_tests true`，逐次串行 |
+| 停止門檻（每次 run 前後都檢查） | Editor 非 `ready`、`Editor.log` 出現洪水字串（直接 `grep -c`）、log > 500 MB、Editor private bytes > 12 GB、recompile 非 idle；任一成立即停，不重試、不重啟 |
+| 背景取樣 | `editor_watch.ps1`（修正版 v2），15 s，private > 12 GB／log > 1 GB／240 分鐘自動停 |
+| 無效 run | 60 s 內沒有開始或沒有 summary ⇒ 記 INVALID、不計入 K |
+
+### 13.2 Smoke test（低風險、不碰 Unity）
+
+| 對象 | 方法 | 結果 |
+|---|---|---|
+| `editor_watch.ps1` | 指向合成 log，執行中注入 100、400 行洪水字串，log 上限設 20 KB | **第一次抓到 bug**：`marker_in_delta` 恆 0（變數碰撞，§11）。修正後計數 100／400 精確、`# stopped: log>…` 正確觸發 |
+| 停止迴圈 | `DRYRUN=1`，對含洪水的合成 log 與乾淨 log 各跑 | 洪水 ⇒ `STOP flood-onset`（exit 11）；乾淨 ⇒ 全部通過 |
+| 未驗證的停止路徑 | 「Editor 非 ready」 | 無法在不殺 Editor 的前提下演練，**標為未驗證** |
+
+> ⚠️ 程序偏離（如實記錄）：使用者的 smoke-test 要求送達時 Group A 已在跑；A2、A3 在 smoke test 完成前執行。A1–A3 期間的背景取樣是有 bug 的 v1，**洪水判定只依迴圈對 `Editor.log` 的直接 grep**（不受該 bug 影響）。
+
+### 13.3 結果
+
+**Group A（音訊開啟；PID 100044，18:40 崩潰後全新啟動、場景 Untitled）**
+
+| run | 開始（UTC） | 時長 | 結果 | 洪水 |
+|---|---|---|---|---|
+| A1 | 10:48:04 | 136 s | 102 pass／5 fail | 0 |
+| A2 | 10:50:56 | 163 s | 101／6 | 0 |
+| A3 | 10:53:51 | 159 s | 102／5 | 0 |
+| A4 | 10:56:53 | — | **INVALID**：請求在 A3 結束後的 domain reload 期間送出而被丟棄（手動交接時跳過了冷卻） | — |
+| A5 | 11:13:17 | 144 s | 101／6 | 0 |
+| A6 | 11:15:58 | 146 s | 101／6 | 0 |
+| A7 | 11:18:41 | 150 s | 102／5 | 0 |
+| A8 | 11:21:28 | 147 s | 102／5 | 0 |
+| A9 | 11:24:44 | 144 s | 101／6 | 0 |
+
+- **有效 8 次、洪水 0 次。** `Editor.log` 每次約 +1.42 MB（正常測試輸出）；Editor private 3.72 → 3.98 GB（A4–A9，約 +40 MB／run，無洪水成分）；v2 取樣（A5–A9）`marker_in_delta` 合計 0。
+- 5–6 個 PlayMode 失敗是既有測試狀態（Untitled 場景、GroundLayers／Stair 骨盆類），與本實驗無關，未處理。
+
+**Group B（音訊停用）——中止**
+
+| 步驟 | 結果 |
+|---|---|
+| 原核准手段 `m_DisableAudio=1` ＋ 重啟 | `Unity.dll` 內該欄位的說明字串為 **「Completely disable audio (in standalone builds only)」** ⇒ 在 Editor 內不保證生效；改用前已回報並取得同意 |
+| 替代手段 `-disableaudio` 啟動參數 | `Unity.dll` 在 `AudioManager` FMOD 初始化區有 `disableaudio` 字串（與 `nographics`／`batchmode` 同型），經使用者同意後採用；Editor 以 `Unity.exe -projectpath … -disableaudio` 啟動（PID 10964） |
+| 行為驗證（`audio_state_probe`） | 正常 Editor：`isPlaying=True cmdline_disableaudio=False`；**`-disableaudio` Editor：`isPlaying=True cmdline_disableaudio=True`** ⇒ 與正常狀態**無法區分** |
+| 判定 | **無法可靠驗證音訊已停用 ⇒ 依使用者條件中止 Group B，0 次 run** |
+| 恢復 | 確認場景無未存變更 → `CloseMainWindow()` 正常關閉 → `unity open` 一般啟動（PID 99620，無旗標）→ 驗證 `isPlaying=True cmdline_disableaudio=False`；`git status` 與 B 組前快照**逐行相同**；`AudioManager.asset` 無 diff（`m_DisableAudio: 0`，從未寫入） |
+
+附帶觀察：`-disableaudio` Editor 閒置約 3.4 h（取樣涵蓋）＋其後約 11 h，洪水 0、private 持平 3.20–3.23 GB。閒置時本來就不預期觸發，**不構成證據**。
+
+### 13.4 解讀：未重現 ≠ 已排除
+
+| 結論 | 強度 |
+|---|---|
+| 音訊開啟、全新 Editor、8 次 PlayMode：**未重現** | 事實 |
+| 0／8 的 95% 上界：每次 run 觸發機率 ≤ 31% | 統計 |
+| 以崩潰 session 的歷史（約 20 次 PlayMode 才首次觸發，p≈5%），8 次全不觸發的機率 ≈ 66% | ⇒ **本結果與「C2 成立」完全相容，也與「C2 不成立」相容**；C2 **既未支持也未排除** |
+| C2（音訊為觸發條件） | **維持未證明**；本輪沒有建立可驗證的音訊停用條件 |
+| 若要有統計意義 | 在 p≈5% 下，要讓「正常組至少觸發一次」的機率達 80% 需約 32 次 run（約 80 分鐘）；而且仍需先找到**可驗證**的音訊停用手段 |
+
+---
+
+## 14. 獨立事件：18:40 Editor 崩潰（由本輪探針觸發，⛔ 不與洪水視為同根因）
+
+| 項目 | 內容 |
+|---|---|
+| 時間 | 2026-10-10 18:40:11（UTC 10:40），PID 0x10B70 |
+| 觸發序列（皆在 Edit Mode、經 `unity cmd eval_file`） | ① `m_DisableAudio=true`（`SerializedObject.ApplyModifiedPropertiesWithoutUndo`）——未崩潰，取樣率仍 48000 ② `AudioSettings.Reset(GetConfiguration())` 回傳 **False** ③ `m_DisableAudio=false`（同 API）⇒ **崩潰** |
+| 堆疊 | `FMOD::System::releaseOutput` ← `AudioManager::CloseFMOD` ← `AudioManager::ShutdownReinitializeAndReload` ← `AudioManager::AwakeFromLoad` ← `AwakeFromLoadQueue::AwakeFromLoadAllQueues` ← `SerializedObject::ApplyModifiedPropertiesWithoutUndo` ← `com.unity.pipeline` eval |
+| Windows 事件 | Application #1000，`0xc0000005`（存取違規）於 `Unity.dll+0x40607a0` |
+| 與 12:50 崩潰的差異 | 12:50＝`0x80000003`（OOM 後主動中斷，§2）；18:40＝存取違規、記憶體正常（private ≈4.7 GB）⇒ **不同類型** |
+| 與洪水的關係 | 同屬音訊模組，但**沒有任何證據顯示共用根因**；這是非常規操作序列（停用後 Reset 失敗、再重新初始化）誘發的 |
+| 證據 | `Logs/evidence-ab/crash-1840/`（`crash.dmp` 3.2 MB、`Editor.log`）；硬連結 `Logs/evidence-ab/Editor-crash-1840.log` |
+| 影響 | Editor 重開後為 Untitled 場景；專案檔案無變動（`AudioManager.asset` 未寫入、`Temp/__Backupscenes` 不存在 ⇒ 無場景復原資料可失）；Console 內容遺失（log 仍在） |
+| 教訓 | ⛔ 不在執行中的 Editor 切換音訊設定或呼叫 `AudioSettings.Reset`（已寫入 §10、§11 與工具註解） |
