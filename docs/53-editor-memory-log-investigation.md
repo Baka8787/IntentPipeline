@@ -453,3 +453,53 @@ bash docs/artifacts/editor-memory/selftest_loop.sh                              
 | T1 | Low | 多個停止路徑沒有測試 | 補了 `run-timeout`、`cli-timeout:run_tests`、變大輪替；其餘列在 §15.6 |
 | ④ | — | 洪水字串兩處定義；未說明誰是權威閘門 | 已在兩處加註、§15.1 契約寫明 |
 | 文件 | — | §15 前言、G9、G11、W2 註解過度宣稱 | 已更正 |
+
+### 15.8 收尾與 Follow-up（2026-10-11 使用者裁決：接受 `df666a6`，本輪結束，不擴大）
+
+| # | Follow-up（不在本輪處理） |
+|---|---|
+| FU-1 | 已開始的測試不會被即時取消（停止條件只阻止下一輪） |
+| FU-2 | 部分監控異常路徑尚無測試（§15.6 列舉） |
+| FU-3 | 真實 Editor 崩潰情境只以模擬驗證 |
+| FU-4 | 強制終止後的鎖目錄需人工清理 |
+
+C2 維持 Inconclusive／Deferred，不再執行 A/B。
+
+---
+
+## 16. 研究：Claude 自動化工作流程是否真的經過這套防護（2026-10-11，🟠 提案、⛔ 未實作）
+
+> 範圍：只研究與提出最小整合方案；不改任何測試入口。Traversal／MotionDriver 不在範圍內。
+
+### 16.1 現況：**目前不會經過**
+
+| # | 入口 | 現在教的做法 | 是否經過防護 |
+|---|---|---|---|
+| B1 | 專案 skill `unity-live-control`（`.claude/skills/` 與 `.agents/skills/` 兩份，差異只在 CLAUDE.md／AGENTS.md 字樣） | 「測試」一節直接教 `unity cmd run_tests --mode EditMode/PlayMode` | ❌ **主要繞過路徑**——Claude 跑測試時載入的就是它 |
+| B2 | auto-memory `unity-live-editor-control.md` | 同上，直接 `run_tests` | ❌ |
+| B3 | 探針工作流（`docs/49`、`docs/artifacts/{stop-snap,jump-clock,pelvis-analysis}/README.md`；transcript 中至少 4 個 session 沿用） | `run_tests --mode PlayMode --async_tests true --include_explicit true --filter …` | ❌ 而且**迴圈不支援 `--filter`／`--include_explicit`**，就算想用也用不了 |
+| B4 | `CLAUDE.md`／`AGENTS.md` | 只有 `unity cmd` 通用入口；**沒有任何測試執行安全規則、沒有指向 `docs/53`** | ❌ |
+| B5 | Unity 官方 plugin skill `unity:unity-cli` | 通用 `unity test`／`run_tests` 說明 | ❌（第三方，不改） |
+| B6 | Hook／`.claude/settings.json` | **不存在**；沒有任何強制 | ❌ |
+| B7 | 歷史文件（`docs/22`、`docs/40` 等、WORKLOG） | 記錄當時怎麼跑 | 紀錄性質，低風險 |
+| B8 | EditMode 回歸 | 迴圈只支援 PlayMode | ❌（風險較低：洪水是在 PlayMode 後出現，但長 session 累積仍相關） |
+
+另發現一個**整合阻斷**（不是 fail-open，是誤停）：`recompile_status` 的狀態有 `idle`／`compiling`／`completed`／`up_to_date`／`failed`，**任何一次 recompile 之後會持續回 `completed`**；迴圈只接受 `idle` ⇒ 在改過程式的 session 裡**每次都會 `STOP recompile-not-idle`**。這會直接把使用者推回繞過路徑。
+
+### 16.2 最小整合方案（建議依序，P0 是 P1 有意義的前提）
+
+| 階段 | 內容 | 規模 | 理由 |
+|---|---|---|---|
+| **P0-a** | 迴圈的 recompile 判定改為「`idle`／`completed`／`up_to_date` 且無編譯錯誤」；`compiling`／`failed`／有錯誤才停；補 1–2 個自測 | 數行＋測試 | 不修就沒人能用；仍維持 fail-closed（編譯中或有錯仍停） |
+| **P0-b** | 迴圈支援 `MODE=EditMode` 與 `TEST_ARGS`（原樣轉給 `run_tests`，例如 `--filter … --include_explicit true`）；補自測確認參數被轉送 | 數行＋測試 | 讓回歸與探針兩種常用工作流都能走同一個受保護入口 |
+| **P0-c** | 單一入口 `safe_unity_test.sh <EditMode\|PlayMode> [run_tests 參數…]`：若沒有新鮮取樣器就在背景啟動一個（寫 `Logs/watch-<時間>.csv`）→ `CHECK_ONLY` → 跑 1 次 → 印出結果與取樣器 CSV 路徑 | 約 40 行 | 現在要手動管理取樣器生命週期，摩擦太大會被繞過；一條命令才會成為預設 |
+| **P1** | 文件指向：`unity-live-control` 兩份 skill 的「測試」一節改成先用 `safe_unity_test.sh`，直接 `run_tests` 降為「⛔ 只在入口本身壞掉時，且須先人工確認 Editor 健康」；`CLAUDE.md`／`AGENTS.md` 加 3–5 行規則並指向 `docs/53` §15；更新 auto-memory `unity-live-editor-control` | 純文件 | 這就是 Claude 實際讀到的地方；不改歷史文件（B7） |
+| **P2（選配，需你另外同意）** | Claude Code `PreToolUse` hook：Bash 指令含 `unity cmd run_tests` 但不是經由安全入口時擋下並提示 | `.claude/settings.json`＋小腳本 | 真正的強制；但屬持久設定變更、只對 Claude Code 有效（Codex 不受影響）、正則可被繞過。建議先觀察 P1 是否足夠 |
+
+**不建議**：修改第三方 `unity:unity-cli` skill（B5，升級會被覆蓋）；回頭改寫歷史文件裡的命令（B7）；把所有探針 README 一次改完（等 P0-b 上線後，下次碰到哪支再改哪支）。
+
+### 16.3 驗收（若採用）
+
+- P0：`selftest_loop.sh` 新增案例（`completed`＋無錯通過、`completed`＋有錯停止、`TEST_ARGS` 原樣轉送、EditMode 模式）全綠；live `CHECK_ONLY` 在 recompile 之後仍通過。
+- P1：新 session 載入 `unity-live-control` 後，被要求「跑 PlayMode 回歸／跑某個探針」時，第一個測試命令是 `safe_unity_test.sh`（可用一次真實 session 觀察）。
+- P2（若做）：直接 `unity cmd run_tests` 被 hook 擋下且訊息指向安全入口；經入口執行不受影響。

@@ -16,6 +16,8 @@
 > - 💥 **獨立事件（`docs/53` §14）**：18:40 Editor 崩潰（`0xc0000005`，`AudioManager::ShutdownReinitializeAndReload → FMOD releaseOutput`）由本輪在執行中 Editor 切換 `m_DisableAudio`＋`AudioSettings.Reset` 誘發；⛔ 不要再這樣做。證據 `Logs/evidence-ab/crash-1840/`。
 > - 🐞 `editor_watch.ps1` 修正：變數碰撞使洪水計數恆 0（smoke test 抓到）；CLI 行程改標 `cli`。
 > - 🛡️ **2026-10-11 自動化測試安全性（`docs/53` §15）**：取樣器每列 `status`（讀不到＝ERROR、不寫假 0；輪替以大小或檔頭判定；首筆掃整份 log）；`playmode_ab_loop.sh` 全面 fail-closed（讀數取不到、CLI 逾時、主執行緒無回應、取樣器過期／停止／上次檢查後任一列非 OK、門檻設定非數字、另一迴圈持鎖 ⇒ 停止且不再提交）。自測 **W1–W12 12／12、L1–L32 32／32**＋變異測試；獨立審查 F1–F6 已處理（§15.7）；live `CHECK_ONLY` 通過。未測路徑列在 §15.6。Editor 已開回 `SampleScene`（無未存變更）。
+> - ✅ 2026-10-11 使用者接受 `df666a6`、本輪收尾；限制記為 FU-1–FU-4（`docs/53` §15.8）。
+> - 🔎 **研究（`docs/53` §16，🟠 提案未實作）**：目前 Claude 跑測試**不會**經過這套防護——`unity-live-control` skill／memory 直接教 `run_tests`、`CLAUDE.md`／`AGENTS.md` 無規則、無 hook、探針的 `--filter` 迴圈不支援；另有整合阻斷：recompile 後狀態為 `completed`，迴圈只收 `idle` ⇒ 必誤停。最小方案 P0（修 recompile 判定、支援 EditMode／`TEST_ARGS`、單一入口 `safe_unity_test.sh`）→ P1（skill／CLAUDE.md／AGENTS.md／memory 指向）→ P2 hook（選配、需另外同意）。⏳ 等你裁決。
 > - ⏳ 下一步（需你決定）：找可驗證的音訊停用手段，或升級 6000.5 patch 後重跑；p≈5% 時正常組約需 32 次 run 才有 80% 機會觸發一次。
 > - 🔧 操作：跑長時間自動化時背景開 `docs/artifacts/editor-memory/editor_watch.ps1`，`marker_in_delta > 0` 就讓 Editor reload／重開（Clear Console 不回收 OS commit）。
 > - 📦 證據：`Logs/Editor-prev.log` 已硬連結到 `Logs/evidence-2026-10-10/`（gitignored，23.6 GB；要釋放空間需兩個名字都刪——由你決定）。
