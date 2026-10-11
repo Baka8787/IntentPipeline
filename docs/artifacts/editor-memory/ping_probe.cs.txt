@@ -1,0 +1,3 @@
+// docs/53 §15 — main-thread liveness probe for playmode_ab_loop.sh (`unity cmd eval_file` method body).
+// `unity status` = "ready" only proves the HTTP thread is alive; this proves the Editor MAIN thread answers.
+return "pong isPlaying=" + UnityEditor.EditorApplication.isPlaying;
