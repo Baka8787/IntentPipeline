@@ -234,6 +234,22 @@ gameplay readability、control feel，以及**確實需要 Player build ＋ Prof
 
 ---
 
+# Unity 測試執行：一律走安全入口（decided 2026-10-11，使用者明確裁決）
+
+**EditMode／PlayMode 回歸與 Probe 測試，預設全部用 `docs/artifacts/editor-memory/safe_unity_test.sh`。**
+
+```bash
+bash docs/artifacts/editor-memory/safe_unity_test.sh --mode EditMode|PlayMode [--filter NAME] [--include-explicit] [--timeout SEC] [--label TEXT] [--check-only]
+```
+
+- 入口負責：確認 Editor 是本專案且主執行緒有回應、**先 recompile 讓測試跑在目前的原始碼上**、編譯乾淨（狀態**與**錯誤證據）、上一輪沒有仍在跑、未在 Play Mode、場景未 dirty、啟動並監看取樣器（log 洪水／記憶體）、執行受保護的單次測試、判讀結果（PASS 0／TESTS_FAILED 1／NO_TESTS_MATCHED 3／NOTHING_EXECUTED 5／其餘＝停止）、清理自己建立的資源、在 `Logs/safe-test/` 留紀錄。
+- ⛔ **直接 `unity cmd run_tests` 不再是一般路徑。**
+- 從 Bash 工具跑 PlayMode 時用 `run_in_background` 或 timeout ≥ 600000 ms（入口被中斷是安全的，但該次 run 作廢）。
+- ⛔ **入口失效時不得自行繞過防護直接執行測試**：先診斷、回報；需要例外執行時，交由使用者批准。也不得為了讓入口通過而存使用者的場景、關掉監控或調高門檻。
+- 為什麼：2026-10-10 Editor 因原生 log 洪水在 4.4 小時內累積到 69.9 GB 後 OOM（`docs/53`）。用法、契約、自測：`docs/53` §15／§17；skill `unity-live-control`「測試」一節。
+
+---
+
 # Git Policy & Permissions (Solo Developer Mode)
 
 Codex is NOT allowed to execute any Git mutation commands. The human developer owns 100% of the Git lifecycle.

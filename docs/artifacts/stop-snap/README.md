@@ -26,8 +26,8 @@ Remove-Item -LiteralPath Temp/StopSnap/sample_clips.eval.cs
 所有方法都是 `[Explicit]`。平地方法展開 Walk/Run × o0–o5 × on/zero/p8b；依 PLAN，Walk+p8b 會明確 `Ignore`，有效資料為 30 組。`zero` 仍正常跑 T3 與 pose 擷取，只在每列記錄後把下一幀會套用的腳 IK 權重與骨盆偏移清零。
 
 ```powershell
-unity cmd run_tests --mode PlayMode --async_tests true --include_explicit true --filter "Project.Tests.PlayMode.PlantSettleProbe.Probe_StopSnapFlat"
-unity cmd run_tests --mode PlayMode --async_tests true --include_explicit true --filter "Project.Tests.PlayMode.PlantSettleProbe.Probe_StopSnapStairs"
+bash docs/artifacts/editor-memory/safe_unity_test.sh --mode PlayMode --filter "Project.Tests.PlayMode.PlantSettleProbe.Probe_StopSnapFlat" --include-explicit --timeout 1800   # 經安全入口（docs/53 §17）
+bash docs/artifacts/editor-memory/safe_unity_test.sh --mode PlayMode --filter "Project.Tests.PlayMode.PlantSettleProbe.Probe_StopSnapStairs" --include-explicit --timeout 1800   # 經安全入口（docs/53 §17）
 ```
 
 輸出位於 `Temp/PlantSettle/snap_*.csv`：

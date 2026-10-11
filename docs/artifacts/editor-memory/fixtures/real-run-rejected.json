@@ -1,0 +1,35 @@
+{
+  "success": true,
+  "command": "command run_tests",
+  "data": {
+    "command": "run_tests",
+    "parameters": {
+      "mode": "bogusmode",
+      "async_tests": "true"
+    },
+    "result": {
+      "Summary": {
+        "Total": 0,
+        "Passed": 0,
+        "Failed": 0,
+        "Skipped": 0,
+        "Inconclusive": 0
+      },
+      "Results": [],
+      "Duration": 0,
+      "StatusPath": null,
+      "Mode": null,
+      "FilterApplied": null,
+      "success": false,
+      "error": "Invalid mode 'bogusmode'. Use 'editor', 'playmode', or 'all'"
+    },
+    "target": {
+      "host": "127.0.0.1",
+      "port": 7800,
+      "projectPath": "D:\\Unity Project\\CharacterController"
+    },
+    "success": true
+  },
+  "errors": [],
+  "warnings": []
+}

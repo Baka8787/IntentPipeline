@@ -1,3 +1,13 @@
-// docs/53 §15 — main-thread liveness probe for playmode_ab_loop.sh (`unity cmd eval_file` method body).
-// `unity status` = "ready" only proves the HTTP thread is alive; this proves the Editor MAIN thread answers.
-return "pong isPlaying=" + UnityEditor.EditorApplication.isPlaying;
+// docs/53 §15/§17 — main-thread liveness + compile/scene-state probe for the guarded test loop (`unity cmd eval_file` body).
+// `unity status` = "ready" only proves the HTTP thread is alive; this proves the Editor MAIN thread answers, reads Unity's
+// own native compile-failure flag on the main thread (fresher than recompile_status's sampled copy), and reports unsaved
+// scenes: the test runner's SaveModifiedSceneTask opens a MODAL save dialog for a dirty scene and blocks the main thread
+// indefinitely (memory: unity-live-editor-control, 2026-09-14).
+bool sceneDirty = false;
+for (int i = 0; i < UnityEngine.SceneManagement.SceneManager.sceneCount; i++)
+    sceneDirty |= UnityEngine.SceneManagement.SceneManager.GetSceneAt(i).isDirty;
+return "pong isPlaying=" + UnityEditor.EditorApplication.isPlaying
+    + " isCompiling=" + UnityEditor.EditorApplication.isCompiling
+    + " compileFailed=" + UnityEditor.EditorUtility.scriptCompilationFailed
+    + " isUpdating=" + UnityEditor.EditorApplication.isUpdating
+    + " sceneDirty=" + sceneDirty;

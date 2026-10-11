@@ -1,0 +1,17 @@
+{
+  "success": true,
+  "command": "command test_status",
+  "data": {
+    "command": "test_status",
+    "parameters": {},
+    "result": "{\r\n  \"status\": \"completed\",\r\n  \"duration\": 0.19,\r\n  \"summary\": {\r\n    \"total\": 1,\r\n    \"passed\": 0,\r\n    \"failed\": 1,\r\n    \"skipped\": 0,\r\n    \"inconclusive\": 0\r\n  },\r\n  \"results\": [\r\n    {\r\n      \"FullName\": \"Project.Tests.PlayMode.MotionDriverCommittedMovementPlayModeTests.C0_TraversalDoesNotReportGroundEdgesFromIncidentalContact\",\r\n      \"Status\": \"Failed\",\r\n      \"Duration\": 0.0710013,\r\n      \"Message\": \"  陽性對照失敗：非 traversal 的 false→true 邊沿本來就該回報落地\\r\\n  Expected: True\\r\\n  But was:  False\\r\\n\",\r\n      \"StackTrace\": \"at Project.Tests.PlayMode.MotionDriverCommittedMovementPlayModeTests+<C0_TraversalDoesNotReportGroundEdgesFromIncidentalContact>d__5.MoveNext () [0x00211] in D:\\\\Unity Project\\\\CharacterController\\\\Assets\\\\_Project\\\\Tests\\\\PlayMode\\\\MotionDriverCommittedMovementPlayModeTests.cs:163\\r\\nat UnityEngine.TestTools.TestEnumerator+<Execute>d__7.MoveNext () [0x0003a] in .\\\\Library\\\\PackageCache\\\\com.unity.test-framework@f3e6c9a02477\\\\UnityEngine.TestRunner\\\\NUnitExtensions\\\\Attributes\\\\TestEnumerator.cs:44\\r\\n\"\r\n    }\r\n  ]\r\n}",
+    "target": {
+      "host": "127.0.0.1",
+      "port": 7800,
+      "projectPath": "D:\\Unity Project\\CharacterController"
+    },
+    "success": true
+  },
+  "errors": [],
+  "warnings": []
+}

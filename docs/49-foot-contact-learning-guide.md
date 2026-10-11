@@ -351,7 +351,7 @@ stateDiagram-v2
 ### 7.2 自己跑一次
 ```bash
 # PlayMode 探針（Unity Editor 開著；全部是 [Explicit]）
-unity cmd run_tests --mode PlayMode --async_tests true --include_explicit true --filter "Project.Tests.PlayMode.PlantSettleProbe.Probe_StopSnapFlat"
+bash docs/artifacts/editor-memory/safe_unity_test.sh --mode PlayMode --filter "Project.Tests.PlayMode.PlantSettleProbe.Probe_StopSnapFlat" --include-explicit --timeout 1800   # 經安全入口（docs/53 §17）
 ```
 - 輸出在 `Temp/PlantSettle/`（Unity 重啟會清空，跑完立刻複製出來）。
 - 分析腳本：`docs/artifacts/stop-snap/`（`tl.py.txt` 單腳逐幀、`replay.py.txt` 離線重播、`ab.py.txt` A/B）、`docs/artifacts/plant-settle/`。

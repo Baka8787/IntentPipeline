@@ -34,6 +34,7 @@
   Usage:
     powershell -File editor_watch.ps1 -Out C:\path\watch.csv [-IntervalSec 30] [-MaxMinutes 60]
   Test hooks: -Log <synthetic log>, -ProcessName <image name treated as the Editor>, -ScanCapBytes <n>.
+  -PidFile <path>: this sampler's own process id is written there at start (for the caller's cleanup).
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Out,
@@ -44,7 +45,8 @@ param(
     [double]$StopLogGB = 2,
     [string]$Marker = 'Access version should be odd',
     [string]$ProcessName = 'Unity.exe',
-    [long]$ScanCapBytes = 64MB
+    [long]$ScanCapBytes = 64MB,
+    [string]$PidFile = ''          # written at start so a caller (safe_unity_test.sh) can stop exactly this sampler
 )
 
 function Get-TrueLength([string]$path) {
@@ -109,6 +111,7 @@ if (-not $Log) { $Log = Join-Path (Split-Path -Parent (Split-Path -Parent (Split
 
 # Every failure inside a sample must reach the catch below (CIM errors are non-terminating by default in PS 5.1).
 $ErrorActionPreference = 'Stop'
+if ($PidFile) { Set-Content -Path $PidFile -Value $PID -Encoding ascii }
 $start = Get-Date
 $prevLen = -1; $prevHead = $null; $hadReading = $false; $sawUnreadable = $false
 "utc,elapsed_s,pid,role,private_gb,working_set_gb,paged_gb,handles,threads,cpu_s,log_bytes,log_delta_bytes,marker_in_delta,sys_commit_gb,sys_commit_limit_gb,stop_reason,status" |

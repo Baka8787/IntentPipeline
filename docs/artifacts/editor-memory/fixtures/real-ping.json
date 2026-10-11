@@ -1,0 +1,24 @@
+{
+  "success": true,
+  "command": "command eval_file",
+  "data": {
+    "command": "eval_file",
+    "parameters": {
+      "file": "C:/Users/USER/AppData/Local/Temp/claude/D--Unity-Project-CharacterController/af8de834-28c0-487f-a03c-cd16ef93642c/scratchpad/p.cs"
+    },
+    "result": {
+      "output": null,
+      "diagnostics": [],
+      "success": true,
+      "result": "pong isPlaying=False isCompiling=False compileFailed=False isUpdating=False sceneDirty=False"
+    },
+    "target": {
+      "host": "127.0.0.1",
+      "port": 7800,
+      "projectPath": "D:\\Unity Project\\CharacterController"
+    },
+    "success": true
+  },
+  "errors": [],
+  "warnings": []
+}

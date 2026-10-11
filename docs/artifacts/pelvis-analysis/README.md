@@ -6,7 +6,7 @@
 ## 產生資料
 
 ```bash
-unity cmd run_tests --mode PlayMode --async_tests true --include_explicit true --filter "Project.Tests.PlayMode.LandingSurfaceProbe.<方法>"
+bash docs/artifacts/editor-memory/safe_unity_test.sh --mode PlayMode --filter "Project.Tests.PlayMode.LandingSurfaceProbe.<方法>" --include-explicit --timeout 1800   # 經安全入口（docs/53 §17）
 ```
 
 | 方法 | 輸出（`Temp/LandingSurface/`） | 用於 |

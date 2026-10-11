@@ -5,7 +5,7 @@
 ## 重現
 
 ```bash
-unity cmd run_tests --mode PlayMode --async_tests true --include_explicit true --filter "Project.Tests.PlayMode.JumpClockFamilyProbe.Probe_JumpClockFamily"
+bash docs/artifacts/editor-memory/safe_unity_test.sh --mode PlayMode --filter "Project.Tests.PlayMode.JumpClockFamilyProbe.Probe_JumpClockFamily" --include-explicit --timeout 1800   # 經安全入口（docs/53 §17）
 ```
 
 - Probe：`Assets/_Project/Tests/PlayMode/JumpClockFamilyProbe.cs`（🔬 throwaway、`[Explicit]`、不改 runtime）。10 個情境 × 15 個 offset ＝ 150 次，約 12 分鐘。

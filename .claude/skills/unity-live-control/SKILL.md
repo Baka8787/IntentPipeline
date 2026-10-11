@@ -1,6 +1,6 @@
 ---
 name: unity-live-control
-description: 驅動使用者開著的那個 Unity Editor——跑測試、重編譯、讀寫資產、在真實場景上量測，全部不需要進 Play Mode。動到 Unity 資產、想跑測試、或要驗證「遊戲裡實際會發生什麼」時使用。內含五個踩過的坑與不進 Play 也能重建整條 gameplay 鏈路的手法。
+description: 驅動使用者開著的那個 Unity Editor——跑測試（一律經 safe_unity_test.sh）、重編譯、讀寫資產、在真實場景上量測，全部不需要進 Play Mode。動到 Unity 資產、想跑測試、或要驗證「遊戲裡實際會發生什麼」時使用。內含五個踩過的坑與不進 Play 也能重建整條 gameplay 鏈路的手法。
 ---
 
 # 驅動 live Unity Editor
@@ -20,29 +20,48 @@ unity cmd <command> [--args]       # 在 live Editor 執行
 unity job status <id> --json       # --detach 提交後取結果
 ```
 
-常用：`recompile` / `recompile_status` / `console` / `run_tests` / `test_status` / `eval_file`。
+常用：`recompile` / `recompile_status` / `console` / `test_status` / `eval_file`。（**測試不要直接 `run_tests`**——見下方「測試」：一律 `safe_unity_test.sh`）
 
-## 測試
+## 測試（🔒 一律走安全入口 —— 2026-10-11 使用者裁決，正本 `docs/53` §17）
+
+**EditMode／PlayMode 回歸與 Probe 測試，預設全部用 `safe_unity_test.sh`。** 直接 `unity cmd run_tests` 不是一般路徑。
 
 ```bash
-unity cmd run_tests --mode EditMode --timeout 900 --detach   # 再 unity job status <id> --json
-unity cmd run_tests --mode PlayMode --async_tests true       # 再輪詢 unity cmd test_status
+E=docs/artifacts/editor-memory/safe_unity_test.sh
+bash $E --mode PlayMode --check-only                       # 先確認全部安全檢查通過（不提交測試）
+bash $E --mode EditMode                                    # EditMode 回歸
+bash $E --mode PlayMode                                    # PlayMode 回歸
+bash $E --mode PlayMode --filter <測試名稱片段>             # 單一類別／方法
+bash $E --mode PlayMode --filter <Probe 方法> --include-explicit --label <名稱>   # [Explicit] Probe
 ```
 
-**五個踩過的坑**
+| exit | 意義 | 你要做的事 |
+|---|---|---|
+| 0 | PASS／CHECK_OK | — |
+| 1 | TESTS_FAILED（跑完、有失敗；名稱列在輸出與 `summary.txt`） | 照一般失敗處理，對照基線 |
+| 3 | NO_TESTS_MATCHED（filter 沒選到；`[Explicit]` 需要 `--include-explicit`） | 檢查 filter |
+| 5 | NOTHING_EXECUTED（選到的測試全部 skipped／ignored——什麼都沒驗證到） | 不要當成通過 |
+| 2 | 參數／設定錯誤（沒有執行任何東西） | 修參數 |
+| 4 | 結果缺失或格式錯誤 | **停**，回報 |
+| 10–27 | SAFETY_STOP（原因在 `reason:`：Editor 無回應、編譯未乾淨（14）、場景未存、洪水、取樣器異常、逾時（18）、上一輪仍在跑（25）、recompile 逾時（26）、鎖被占用或殘留（27）…） | **停**，診斷並回報 |
+| 130 | ABORTED（入口被中斷；迴圈與取樣器已停，不會再提交） | — |
+| 30／31／32 | 取樣器啟動失敗／執行中告警／Editor 不是本專案或 CLI 無回應 | **停**，診斷並回報 |
 
-1. ⛔ **`unity test` 沒用** —— 它會另生一個 batchmode Editor，照樣撞 project lock
-   （`專案已在執行中的編輯器（PID …）中開啟`）。一定要用 `unity cmd run_tests`。
-2. ⛔ **PlayMode 一定要 `--async_tests true`**。同步跑會回 `Total: 0` ＋
-   「entering play mode triggers a domain reload that drops the request」。
-3. ⛔ **`recompile` 還沒 `completed` 就排測試 ⇒ 鎖死主執行緒**（`console`／`test_status`／
-   `cancel_tests` 全部 timeout，實測卡 20 分鐘）。順序必須是
-   `recompile` → 輪詢 `recompile_status` 到 `completed`／`up_to_date` → 才 `run_tests`。
-4. ⛔ **使用者在 Play Mode 時也不要排 EditMode 測試**（同樣鎖死，踩過兩次）。
-   排之前先用 `eval_file` 確認 `EditorApplication.isPlaying == false`。
-5. `test_status` 在 async run 真正開始前會回 `no_tests`，**不要據此判定「跑完了」**。
+每次執行的紀錄在 `Logs/safe-test/<UTC>-<label>.XXXX/`（`summary.txt`、`loop.txt`、`watch.csv`、run_tests／test_status JSON）。
+⏱️ 從 Bash 工具跑 PlayMode 回歸（約 2–3 分鐘＋入口開銷）時用 `run_in_background`，或把 timeout 設 ≥ 600000 ms——工具逾時會中斷入口（安全：迴圈會被停掉，但這次 run 白跑）。
 
-照這個順序，整套 EditMode 約 25 秒。
+⛔ **入口失效時不得自行繞過防護直接 `unity cmd run_tests`。** 先診斷、回報；需要例外執行時交由使用者批准。
+⛔ 也不要為了「讓入口通過」去存使用者的場景、關掉取樣器或調高門檻——停下來問。
+
+**入口已經替你處理的坑**（仍要知道為什麼）：
+
+1. ⛔ `unity test` 會另生 batchmode Editor、撞 project lock——入口只用 `unity cmd`。
+2. PlayMode 必須 async（同步會被 domain reload 丟掉）——入口一律 async，EditMode 亦同。
+3. ⛔ 編譯中排測試會鎖死主執行緒；改了 `.cs` 沒重編就跑會測到**舊組件**——入口實跑前先 `recompile` 並等到嚴格乾淨的 completed／up_to_date（且主執行緒回應），之後仍要求 `recompile_status` 乾淨**且**主執行緒回報 `compileFailed=False`、`isCompiling=False`。（`--check-only` 不觸發 recompile。）
+4. ⛔ Play Mode 中、或場景 dirty（test runner 會跳強制存檔對話框、無限期卡住）時不排測試——入口在提交前擋下（`sceneDirty=True` 時請使用者存檔，⛔ 不要自己存）。
+5. `test_status` 在 run 開始前回 `no_tests`、domain reload 期間可能暫時失敗——入口有界等待，且只接受「看過 running」或「狀態檔在提交後寫入」的 completed。
+
+整套 EditMode 約 25 秒；PlayMode 約 2–2.5 分鐘。
 
 ## `eval_file` 的腳本形狀
 

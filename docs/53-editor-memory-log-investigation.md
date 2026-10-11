@@ -2,7 +2,7 @@
 
 > **狀態：只診斷，⛔ 未修正。** 沒有改 Gameplay／Traversal／MotionDriver／任何 runtime 程式或資產。
 > **2026-10-10／11 追加**：§13＝C2 A/B 實驗（Group A 8 次未重現；**Group B 因無法驗證音訊已停用而中止**）；§14＝18:40 Editor 崩潰（**獨立事件**，由本輪探針觸發）。
-> **2026-10-11**：§13.5＝使用者裁決（C2 Inconclusive／Deferred）；§15＝自動化測試安全性（監控 fail-closed、自測 W1–W12／L1–L32、獨立審查）。
+> **2026-10-11**：§13.5＝使用者裁決（C2 Inconclusive／Deferred）；§15＝自動化測試安全性（監控 fail-closed、自測 W1–W12／L1–L32、獨立審查）；§16＝工作流程整合研究；**§17＝已實作的統一安全入口 `safe_unity_test.sh`（P0＋P1；P2 hook 暫緩）**。
 > 對 live Editor 唯一的寫入是 §8 的 console 成本探針（寫 11 萬行 log ＋ 清一次 Console），已在 §8 記錄。
 > 工具：`docs/artifacts/editor-memory/`（§11）。證據原檔在 `Logs/evidence-2026-10-10/`（gitignored，見 §1）。
 
@@ -467,7 +467,7 @@ C2 維持 Inconclusive／Deferred，不再執行 A/B。
 
 ---
 
-## 16. 研究：Claude 自動化工作流程是否真的經過這套防護（2026-10-11，🟠 提案、⛔ 未實作）
+## 16. 研究：Claude 自動化工作流程是否真的經過這套防護（2026-10-11；P0＋P1 已於 §17 實作，P2 暫緩）
 
 > 範圍：只研究與提出最小整合方案；不改任何測試入口。Traversal／MotionDriver 不在範圍內。
 
@@ -503,3 +503,129 @@ C2 維持 Inconclusive／Deferred，不再執行 A/B。
 - P0：`selftest_loop.sh` 新增案例（`completed`＋無錯通過、`completed`＋有錯停止、`TEST_ARGS` 原樣轉送、EditMode 模式）全綠；live `CHECK_ONLY` 在 recompile 之後仍通過。
 - P1：新 session 載入 `unity-live-control` 後，被要求「跑 PlayMode 回歸／跑某個探針」時，第一個測試命令是 `safe_unity_test.sh`（可用一次真實 session 觀察）。
 - P2（若做）：直接 `unity cmd run_tests` 被 hook 擋下且訊息指向安全入口；經入口執行不受影響。
+
+---
+
+## 17. 工作流程整合 P0＋P1：統一安全入口 `safe_unity_test.sh`（2026-10-11，✅ 已實作）
+
+> 使用者裁決：批准 §16 的 P0＋P1；**P2（Claude Code hook）暫緩、不實作**，保留為後續選項。
+> 不改 Gameplay／Traversal／MotionDriver／Gameplay Audio；不動無關 WIP。用法與檔案說明：`docs/artifacts/editor-memory/README.md`。
+
+### 17.1 先查證 CLI 契約（原始碼＋live 輸出，`fixtures/real-*.json`）
+
+| 項目 | 查證結果 | 來源 |
+|---|---|---|
+| `run_tests` 參數 | `mode`（`editor`/`editmode`/`playmode`/`play`/`all`）、`filter`（**完整測試名稱的子字串、不分大小寫**）、`filter_type`、`include_explicit`、`async_tests`、`timeout` | `com.unity.pipeline` `TestCommands.cs:22–29` |
+| `timeout` | **只作用於同步模式**；async 沒有內建上限 ⇒ 上限只能由我們的 `RUN_TIMEOUT` 提供 | `PipelineTestRunner.cs:174–188` |
+| EditMode async | 支援 ⇒ 兩種 mode 用同一套輪詢 | 同上 `:76` |
+| 被受理的 run | `data.result`＝`{success:true, result:"running", StatusPath:…}` | `fixtures/real-run-accepted.json`（live） |
+| 被拒的 run | **外層 `success:true`**，內層 `success:false`＋`error` | `fixtures/real-run-rejected.json`（live） |
+| `test_status` | 有 request 檔＝`running`；`completed`（`summary`＋`results[]`：`FullName`/`Status`/`Message`…）；`error`；`cancelled`；無 run＝`no_tests` | 原始碼＋live fixtures |
+| 零命中 filter | 立刻 `completed`、`total=0`——**可能從未出現 `running`** | 原始碼＋live |
+| 舊結果殘留 | 被 domain reload 丟掉的請求不會刪舊狀態檔 ⇒ 可能讀到上一輪的 `completed` | `:282`；§13 A4 |
+| `recompile` | 回 `up_to_date`／`compiling`／`failed`；compile 會觸發 domain reload；`completed` **在 reload 之前**就寫入 | `RecompileCommand.cs`；`fixtures/real-recompile-trigger.json` |
+| `recompile_status` | `idle`/`triggered`/`compiling`/`completed`/`up_to_date`＋`failed`、`errors[]`、`compilationFailed`；recompile 後**持續** `completed`；`compilationFailed` 只在主執行緒取樣 ≤2 s 時有效（否則回 false，不能當證據） | 同上 |
+| 輸出格式 | `unity … --json` 固定 envelope；每個命令都帶 `data.target.projectPath` ⇒ 驗證**回應來自本專案** | live |
+
+### 17.2 P0-a：編譯狀態——狀態**與**錯誤證據，從不只看名稱
+
+- 檢查時：狀態 ∈ `idle`／`completed`／`up_to_date`，**且** `failed=false`、`errors=[]`、`compilationFailed=false`（欄位必須存在、型別正確），**且**主執行緒探針即時回報 `EditorUtility.scriptCompilationFailed=False`、`isCompiling=False`。其他狀態、未知狀態、解析失敗、欄位缺漏 ⇒ `STOP compile-not-clean`（14）。
+- **實跑前先編譯目前的原始碼**（審查 F2）：入口觸發 `recompile`；`up_to_date` 直接繼續；`compiling` 則輪詢到嚴格乾淨的 `completed`／`up_to_date`（此時 `idle` **不算**完成），再等主執行緒重新回應（domain reload 之後）；錯誤 ⇒ 14，逾時（`RECOMPILE_TIMEOUT` 預設 300 s）⇒ 26。`--check-only` 不觸發 recompile（保持唯讀）。
+
+### 17.3 P0-b：參數、模式、逾時、在途 run
+
+- `--mode EditMode|PlayMode`（其他一律拒絕，含 `All`）；一律 async。
+- `--filter`：白名單字元、1–400 字、不得以 `-` 開頭；**以陣列參數傳給 CLI，從不經過 shell 重新解析**；自測斷言 CLI 收到的 argv 逐字一致（含引號、括號、空白）。注意它是**子字串比對**：`--include-explicit` 必須搭配 `--filter`，且應給完整 `類別.方法`。
+- 逾時：預設 EditMode 600 s／PlayMode 1200 s（單一來源：迴圈；入口一律明確傳入），`--timeout 10..7200`；run 逾時、任何 CLI 逾時、run 沒開始都**阻止下一輪**。
+- **跨次呼叫**（審查 F3）：提交前要求 `test_status` 為 `no_tests`／`completed`／`error`／`cancelled`；仍是 `running`（例如前一次逾時後 Editor 還在跑）⇒ `STOP previous-run-in-flight`（25）。
+- run 受理必須是內層 `success:true`＋`result:"running"`；`completed` 只有在「看過 running」或「狀態檔在提交後寫入」時才採信；`error`／`cancelled`／summary 不自洽 ⇒ 停。
+
+### 17.4 P0-c：`safe_unity_test.sh`
+
+依序：參數驗證（2）→ preflight：python、CLI、**唯一一個本專案的 ready Editor**（32）→ 啟動自己的取樣器、等第一筆健康樣本（含 Editor pid；第一筆掃整份 log，現有洪水在此被擋；30）→ recompile（14／26）→ 受保護迴圈跑 1 次（提交前另要求：不在 Play Mode、**場景不 dirty**——test runner 會跳強制存檔對話框無限期卡住主執行緒、無在途 run）→ 判讀 test_status JSON → 稽核取樣器列（31）→ 清理。
+
+| exit | verdict |
+|---|---|
+| 0 | PASS／CHECK_OK |
+| 1 | TESTS_FAILED（名稱與訊息列出） |
+| 2 | 參數／設定錯誤（什麼都沒跑） |
+| 3 | NO_TESTS_MATCHED |
+| 4 | RESULT_MISSING_OR_MALFORMED（含「逐項有失敗但 summary 說 0」的自相矛盾報告，審查 F4） |
+| 5 | NOTHING_EXECUTED（選到的全部 skipped／ignored，審查 F4） |
+| 10–27 | SAFETY_STOP（14 編譯、15 主執行緒／Play／場景 dirty、18 run 逾時、22 run 被拒、23 run error、24 結果格式、25 在途 run、26 recompile 逾時、27 迴圈鎖被占用或殘留…） |
+| 30／31／32 | 取樣器不健康／執行中告警／preflight 失敗 |
+| 130 | ABORTED（入口被中斷） |
+
+清理與韌性（含審查修正）：
+- **入口被中斷（Ctrl-C／SIGTERM／SIGHUP、Bash 工具逾時）時先停迴圈、再停取樣器**（F1）——修正前被殺的入口會留下仍會提交 run 的孤兒迴圈；迴圈本身也 trap TERM/INT/HUP 並釋放鎖。
+- 真實取樣器只在命令列確認是本次紀錄目錄的 `editor_watch.ps1` 才 `taskkill`（避免 PID 重號誤殺）。
+- 每次執行一個**唯一**紀錄目錄（`mktemp`，F6）；安全停止發生在 run 完成之後時，**仍列出測試結果**（F5）。
+- 取樣 CSV 一律**快照（重試）後再讀**：PowerShell 追加時會鎖檔（live 實測「Device or resource busy」），直接讀失敗會讓最終稽核變成空的「全部 OK」——修正為讀不到就停。
+- 迴圈從入口已稽核的行數之後開始逐列判讀（F8）。
+
+### 17.5 P1：工作流程整合
+
+| 檔案 | 變更 |
+|---|---|
+| `CLAUDE.md`、`AGENTS.md` | 新增「Unity 測試執行：一律走安全入口」：預設入口、先 recompile、⛔ 直接 `run_tests` 不再是一般路徑、⛔ 入口失效不得繞過（先診斷回報，例外由使用者批准）、⛔ 不得為了通過而存場景／關監控／調門檻、Bash 工具跑 PlayMode 用 `run_in_background` 或 timeout ≥ 600000 ms |
+| `.claude/skills/unity-live-control/SKILL.md`、`.agents/…` | 「測試」一節改為入口用法＋exit code 表＋禁止繞過；原本的坑改為「入口已處理、仍要知道為什麼」 |
+| auto-memory `unity-live-editor-control`、`editor-log-flood-oom`、`compile-without-unity`、`unity-temp-wiped-on-restart`、`MEMORY.md` | 指向入口；舊手動做法標為歷史紀錄 |
+| `docs/49`、`docs/artifacts/{jump-clock,pelvis-analysis,stop-snap}/README.md` | 可直接複製的 Probe 命令改為入口（審查 F9） |
+| `docs/artifacts/editor-memory/README.md` | 新增：用法、exit code、檔案角色、改工具後必跑的自測 |
+
+未改：第三方 `unity:unity-cli` skill；歷史紀錄（WORKLOG、changelog、舊研究輪）中的舊命令。
+
+### 17.6 自動化驗證（不碰 Unity）
+
+| 套件 | 案例 | 結果 |
+|---|---|---|
+| `selftest_parser.sh` | 解析器 × **真實 CLI 輸出**（12 個 fixture）＋人工構造的 skipped-only／自相矛盾／inconclusive／在途 run：28 案 | **28／28 PASS** |
+| `selftest_loop.sh` | 迴圈 × 假 CLI：安全 L1–L36（含在途 run、取樣器稽核起點、SIGTERM 中途停止）＋編譯 C1–C15＋參數 R1–R10＋結果／逾時 T1–T8：66 案 | **66／66 PASS** |
+| `selftest_safe_entry.sh` | 入口 × 假 CLI＋假取樣器：E1–E30＋參數錯誤 A1–A9：39 案；每案另斷言取樣器已停、鎖已釋放（以命令列判斷存活，避免 PID 重號誤判） | **39／39 PASS** |
+| `selftest_watch.ps1` | 取樣器 W1–W12 | **12／12 PASS** |
+
+**變異測試**（副本上注入退化 ⇒ 對應測試變紅）：m1 編譯只看狀態名稱 → C3／C4／C5 紅且有錯也提交；m2 忽略內層 success → T1 紅；m3 不檢查新鮮度 → T5 紅；m4 失敗被當成通過 → E5 紅。審查者另做：拿掉專案目標檢查、`sceneDirty` 閘門、`state != ready` → 皆被抓到。
+
+### 17.7 真實 Editor 驗證（先 CHECK_ONLY，再最小範圍實跑；紀錄在 `Logs/safe-test/`）
+
+| 命令 | 結果 | 對照 |
+|---|---|---|
+| `--mode PlayMode --check-only`（初版、最終版、審查後版共 3 次） | **CHECK_OK**，13 s 左右；取樣器已停、鎖已釋放 | 沒有提交任何測試 |
+| `--mode EditMode --filter ArchitectureRegressionTests`（初版／審查者／審查後版） | **PASS** 48／48；審查後版紀錄 `recompile_trigger=up_to_date` | — |
+| `--mode EditMode --filter Zz.NoSuchTestAnywhere` | **NO_TESTS_MATCHED**（3） | 真實環境走到「未見 running、狀態檔新鮮」的路徑 |
+| `--mode PlayMode --filter C0_TraversalDoesNotReportGroundEdgesFromIncidentalContact`（初版／審查後版） | **TESTS_FAILED**（1）＋完整名稱與中文訊息 | 既有基線的已知失敗 ⇒ **沒有被誤判或吞掉** |
+| `--mode PlayMode --filter CapsuleOffsetPlayModeTests` | **PASS** 7／7 | — |
+| `--filter Probe_Climb1mEndpointExecution_FromGlobalEntryDistance`（無／有 `--include-explicit`） | 無旗標 **NO_TESTS_MATCHED**；有旗標 **PASS** 5／5 | 證明旗標真的送到 test runner |
+| 最終版 `--mode PlayMode --filter CapsuleOffsetPlayModeTests` | **PASS** 7／7；`recompile_trigger=up_to_date`；取樣器已停、鎖已釋放、無殘留 `editor_watch` 行程 | 審查後全部修正的最終程式 |
+
+每次執行後確認沒有殘留取樣器、`Logs/.playmode_ab_loop.lock` 不存在。
+
+### 17.8 已知限制
+
+- P2 hook 未做：入口是**預設**而非**強制**（靠 `CLAUDE.md`／`AGENTS.md`／skill／memory 指向）。
+- §15.8 的 FU-1–FU-4 仍成立（進行中的 run 不取消、部分異常路徑只有程式路徑、真實崩潰只模擬、強制終止〔SIGKILL〕後鎖需人工清——一般中斷已由 trap 處理）。
+- recompile 的「真的編譯」分支（`compiling` → reload → 主執行緒回來）只用假 CLI 驗證；live 環境沒有原始碼變更，只走到 `up_to_date`。
+- 入口最終稽核與迴圈 post-check 互為重疊；拿掉其中之一，另一個仍會擋（審查者的變異測試因此「存活」）——屬縱深，非缺口。
+- 取樣 CSV 快照失敗的停止路徑沒有自動測試（無法可靠模擬 Windows 檔案鎖）。
+- 入口每次只跑 1 次；連跑 N 次仍直接用 `playmode_ab_loop.sh`（需自行啟動取樣器並設定 `WATCH_CSV`）。
+- 長 Probe（約 12 分鐘級）沒有實跑；需 `--timeout` 拉高（README 範例用 1800）。
+
+### 17.9 獨立審查（未參與實作的子代理，依 `docs/16`）
+
+審查者跑了四套自測、live `--check-only` 與一次實跑（EditMode Architecture 48／48），在暫存副本上做變異測試，並對照 `com.unity.pipeline` 原始碼核對假 CLI。
+
+| 編號 | 嚴重度 | 內容 | 處置 |
+|---|---|---|---|
+| F1 | High | 入口被殺時，迴圈子行程繼續跑、照樣提交 | **已修**：迴圈以子行程追蹤、清理時先停迴圈；迴圈 trap 訊號；E30／L36 |
+| F2 | High | 不重新編譯 ⇒ 測到舊組件仍回 PASS；舊的「先 recompile」指引被移除 | **已修**：入口實跑前 recompile＋嚴格等待；文件恢復並改寫；E22–E25 |
+| F3 | Medium | 逾時後下一次呼叫可能在前一個 run 仍在跑時提交 | **已修**：提交前 `idle-for-submit`（25）；L33／E26 |
+| F4 | Medium | 全部 skipped、自相矛盾報告回 PASS | **已修**：5／4；P26／P27／E27 |
+| F5 | Low | run 完成後的安全停止不顯示測試結果 | **已修**：E28 |
+| F6 | Low | 同秒同 label 共用紀錄目錄 | **已修**（mktemp） |
+| F7 | Low | 鎖被占用被報成參數錯誤 | **已修**：27；L30／E29 |
+| F8 | Low | 迴圈第一次檢查只看最後一列 | **已修**：`WATCH_LINE_START`；L34／L35 |
+| F9 | Medium | Probe README／memory 仍有可直接複製的 `run_tests` | **已修**（§17.5） |
+| F10 | Low | 預設逾時兩處定義 | **已修**：入口一律明確傳入 |
+| F11 | Low | 「避免一次跑完所有 Probe」說法高估了 filter | **已改寫**（子字串語意寫明） |
+| 測試 | — | 缺：被殺、在途 run、skipped-only、accepted run 真實 fixture | **已補**（E30、L36、L33、E26、E27、P26–P28、`real-run-accepted.json`） |
+| 新增（本輪實跑發現） | — | 取樣 CSV 追加時鎖檔，直接讀失敗會讓稽核變空 | **已修**：快照讀取，讀不到就停 |

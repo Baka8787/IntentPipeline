@@ -1,0 +1,12 @@
+{
+  "success": false,
+  "command": "unity command eval_file",
+  "data": null,
+  "errors": [
+    {
+      "code": "COMMAND_FAILED",
+      "message": "Bad Request\n  File must have a .cs extension"
+    }
+  ],
+  "warnings": []
+}
