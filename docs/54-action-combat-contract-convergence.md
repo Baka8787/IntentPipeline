@@ -1,4 +1,4 @@
-# 54 — Action／Combat 契約收斂：設計與影響範圍（2026-10-12，第二版）
+# 54 — Action／Combat 契約收斂：設計與影響範圍（2026-10-12，第三版）
 
 | | |
 |---|---|
@@ -11,20 +11,22 @@
 
 ---
 
-## 0.1 裁決紀錄
+## 0.1 裁決紀錄與實作狀態（第三版，2026-10-12）
 
 | # | 狀態 | 內容 |
 |---|---|---|
-| **Q1a** | ✅ 已批准 | 更新 ADR-007 的 commitment 契約（facing 段落承諾、effect release 定案）；**舊驗收 B 撤回並重驗** |
-| **Q2a** | 🔬 **待量測**（不固定數值） | 承諾時點不直接定為 release 0.32 s；比較「release 鎖定」與「release 前 Δ 鎖定」——候選與驗證方法見 §3.2.1 |
-| **Q2b** | ✅ 已批准（附條件） | 允許**型別化**的 targeting policy 與 commitment timing；⛔ 不得形成任意 facing 控制介面（約束見 §3.2.3） |
-| **Q2c** | ✅ 已裁決 | **不改玩家**現有 aim origin（`IAimSource.CommitmentOrigin`）；敵人新 policy 使用 root origin |
-| **Q3a** | ✅ 已批准 | 死亡目標不再產生有效命中音效或 Slow |
-| **Q3b** | ✅ 已批准 | 共享**最小**存活判斷；⛔ 不合併 Hit／Target 規則 |
-| **Q4** | ✅ 方向已批准；🟡 規則細節待定 | 警戒距離外受擊即交戰；5 s 只作為「失去有效交戰條件後」的寬限**候選**。與 8／12 m 的互動設計見 §3.4 |
-| **Q5** | 🟡 重新定義 | ⛔ 不以「附近有效目標」決定施法速度限制；⛔ 不以 `InCombat` 代替施法狀態；⛔ 不預設新增黑板欄位。資料來源追蹤見 §3.5 |
-| **Q6** | ✅ 已批准 | 維持現有行為，修正文案；保留人工聆聽 |
-| **F-07** | ✅ 已批准 | 暫時保留無效的 config entry，明確註明 runtime 不讀取；測試改為驗證真正的 re-entry 行為 |
+| **WP-0** | ✅ **已實作** `ec4bc09` | ADR-007 D5 修訂、AC B 撤回改寫、Living Docs fold back、TD5／TD5B_a／TD5B_b、A38、HD3B、CA11、過期註解。⚠️ 只做了 `dotnet build`（0 error）；**Unity Test Runner 未執行**（本輪 Editor 未連線） |
+| **WP-1** | 🟡 **部分實作** `a378271` | 存活謂詞、`AIInputSource`、近戰命中音、AoE Slow、投射物／玩家改用同一謂詞。⏸ **`AIMovementSource` 那一半未做**——A4 白名單擋下（§3.3.1）。驗證同上 |
+| **Q1a** | ✅ 已批准、已落地（WP-0） | — |
+| **Q2a** | 🔬 **待量測** | M2a–M2c；不固定數值 |
+| **Q2b** | ✅ 已批准（附 §3.2.3 約束） | 欄位與 policy 可先以「預設不改行為」實作——⚠️ 但屬 WP-4，本輪未做 |
+| **Q2c** | ✅ 已裁決 | 玩家 origin 不動；敵人新 policy 用 root |
+| **Q3a／Q3b** | ✅ 已批准、大部分已落地 | 剩 `AIMovementSource`（§3.3.1） |
+| **Q4** | ✅ 方向已批准；🟡 **設計第三版**（§3.4） | L＝20 m 為第一個測試候選；近遠受擊一致；觸發原因與追擊／脫戰政策分開 |
+| **Q5** | 🟡 **設計第三版**（§3.5） | R2 未批准；先界定責任歸屬，評估「由 Action 層提供 movement constraint」 |
+| **WP-3b** | ✅ 原則同意；🟡 規則細節（§3.6） | 有有效目標的主動攻擊可算交戰互動；按鍵本身不算命中、不無條件刷新 |
+| **Q6** | ✅ 已批准、已落地（WP-0） | — |
+| **F-07** | ✅ 已批准、已落地（WP-0） | — |
 
 ---
 
@@ -167,56 +169,71 @@
 | 測試缺口 | 無 AI 目標存活測試；無「打屍體不播命中音／不 Slow」測試 |
 | 回歸風險 | 玩家重生後目標重新合法 ⇒ 敵人在距離內會立刻再交戰；`AIInputSource` 新增 `using Project.Core.Survivability`（A27 禁用清單不含它） |
 
-### 3.4 Q4 — 警戒距離外受擊即交戰：與 8 m enter／12 m exit 的互動
+#### 3.3.1 ⏸ 實作時發現的阻擋：`AIMovementSource` 不能讀目標的 `CharacterHealth`
 
-**為什麼不能只加一條進入條件**：`ResolveCombatEngagement(wasInCombat, d, 8, 12)` 在已交戰時用 12 m 判斷離開。15 m 被打 ⇒ 本帧進入、**下帧就因 15 > 12 離開**。
+`ArchitectureRegressionTests.A4` 對 `Core/Movement`（頂層，`AIMovementSource` 所在）採**白名單**：只允許
+`Project.Core.Movement`／`Project.Core.Blackboard`／`Project.Core.Effects`，理由是 **ADR-003 D2：intent producer 必須 context-free、不得回讀 gameplay state**。
+`Project.Core.Effects` 本身就被註明為「已知架構張力，不是被批准的模式」的 debt。
+⇒ 在 `AIMovementSource` 加目標存活判斷，必須先在這份白名單加入 `Project.Core.Survivability`——那是**架構不變量的變更**，超出 WP-1 的批准範圍。第二版提案漏掉了這一點。
 
-**提案：兩個交戰來源，OR 合併；距離規則一字不改**
+**為什麼它會撞上**：`AIMovementSource` 同時是**敵人的 intent producer**（ADR-003 D2 要它 context-free）與**敵人的 combat context producer**（ADR-007 D3、`docs/21` §1.1 刻意合併，避免第二份 target 真相）。目標合法性是後者的責任（玩家側在 `Core/Combat` 讀它，白名單允許），卻落在前者的資料夾規則裡。
+
+| 選項 | 做法 | 代價 |
+|---|---|---|
+| **B1**（推薦） | `Core/Movement` 白名單加 `Project.Core.Survivability`，理由寫明「只供 combat context 角色讀**目標的**已 commit 死亡判定（`IsAliveOrUntracked`）；不讀自己的 gameplay state」，比照 `Core.Effects` 那一行的寫法登記 | 白名單多一項；需要你同意這是合法例外 |
+| B2 | 把敵人的 combat context 角色拆成 `Core/Combat` 的獨立 producer | `CombatContext` 寫入者改變（A5）、管線順序（AI 移動要在 2.5 前拿到 `InCombat`）、prefab 新元件、`docs/21` 的「共用 target 真相」裁決要重議——屬 ADR 級，⛔ 不屬最小方案 |
+
+在裁決之前：`AIInputSource` 已不再對屍體出手（WP-1）；**敵人仍會繞行並面向屍體**（交戰語境仍由距離決定）。
+
+### 3.4 Q4 — 受擊交戰：觸發原因與追擊／脫戰政策分開（第三版）
+
+**第二版的問題（使用者指出）**：只在「距離外受擊」才啟動激怒，會讓**同一個受擊事件依距離有不同語意**——
+7 m 被打後退到 13 m 就脫戰，15 m 被打卻能追到 20 m。第三版把兩件事拆開：
+
+| 層 | 回答的問題 | 輸入（全部是既有資料） |
+|---|---|---|
+| **觸發原因**（entry） | 「為什麼現在開始交戰」 | ①距離 ≤ 8 m（現行）；②本帧受到有效敵對傷害（`Survivability.JustTookDamage`，任何距離） |
+| **追擊／脫戰政策**（retention） | 「交戰中，什麼時候算失去有效交戰條件、失去後多久放手」 | 目標位置、本次交戰是否受過傷害、時間 |
+
+⚠️ **政策不看觸發原因**——只看「這一次交戰中有沒有被打過」。所以 7 m 被打與 15 m 被打得到**同一套**追擊範圍。
+
+**最小規則（只用現有資料；不建立仇恨系統）**
 
 ```text
-InCombat = Proximity ∨ Provoked
-Proximity：ResolveCombatEngagement(wasInCombat, d, 8, 12)              ← 現行規則，不改
-Provoked ：被敵對攻擊激怒的追擊狀態（AIMovementSource 私有跨帧狀態）
-  開始    ：本帧 Survivability.JustTookDamage（未致死、已被 CharacterHealth 接受）∧ 目標合法（Q3）
-  有效條件：目標合法 ∧ d ≤ L（激怒追擊範圍，新序列化欄位，L > 12）
-  失去條件：
-    · 目標死亡／不合法 ⇒ 立即結束（無寬限，Q3）
-    · d > L           ⇒ 開始寬限 G（候選 5 s）；寬限內回到 L 內或再被打 ⇒ 取消寬限
-    · 寬限期滿         ⇒ 結束
-  再次受擊：重新開始，取消寬限
+交戰事件（episode）＝ InCombat 由 false 變 true 到再變回 false 的一段。
+私有狀態（AIMovementSource）：_damagedThisEpisode（bool）、_graceStartTime（無寬限時為無效值）
+
+進入：!InCombat ∧（d ≤ 8 ∨ JustTookDamage）
+受擊：JustTookDamage ⇒ _damagedThisEpisode = true；取消寬限        ← 任何距離、任何時候都一樣
+有效交戰條件：目標合法 ∧ d ≤ R，其中 R = _damagedThisEpisode ? L : 12
+失去條件：
+  · 目標不合法（死亡）           ⇒ 立即結束，不給寬限                 ← 依賴 §3.3.1 的裁決
+  · d > R                         ⇒ 開始寬限 G；寬限內 d ≤ R 或再受擊 ⇒ 取消
+  · 寬限期滿                      ⇒ 結束；_damagedThisEpisode 清除
 ```
 
-**與既有規則的互動**
+**與 8／12 m 的互動**
 
-| 情境 | 今天 | 提案後 |
+| 情境 | 今天 | 第三版 |
 |---|---|---|
-| 未受擊，走近 ≤ 8 m | 進入 | 相同 |
-| 未受擊的交戰中，玩家退到 > 12 m | 立即離開 | **相同**（未受擊時逐位元保留） |
-| 在 15 m（12 < d ≤ L）被打 | 無反應 | 進入；下帧 Proximity＝false 但 Provoked 成立 ⇒ **不會立刻脫戰**；敵人 Approach |
-| 激怒後追到 ≤ 12 m | — | Proximity 也成立；兩者同時為真 |
-| 在 10 m（8 < d ≤ 12，未交戰）被打 | 無反應 | 進入；之後 Proximity 以 12 m 規則同時成立 |
-| 激怒中玩家跑出 L | — | 寬限 G；G 內回來或再被打 ⇒ 繼續；期滿 ⇒ 離開 |
-| 玩家死亡 | 繼續交戰 | 立即離開（Q3），無寬限 |
-| 敵人自己死亡 | 不寫 `CombatContext`，consumer 收手 | 不變 |
-| 敵人離開 NavMesh | 交戰層在 NavMesh 守衛之前結算 | 不變；Provoked 一樣在守衛之前結算 |
+| 從未受擊，走近 ≤ 8 m、之後玩家退到 > 12 m | 立即離開 | 依 §7 的 Q4-G 決定：(i) 立即離開（未受擊時逐位元保留）或 (ii) 寬限 G 後離開（單一政策） |
+| 7 m 被打，之後玩家退到 13 m | 立即離開 | **繼續交戰**（受過傷 ⇒ R＝L＝20 m） |
+| 15 m 被打 | 無反應 | 進入；R＝20 m ⇒ 有效；Approach |
+| 25 m 被打（> L） | 無反應 | 進入；但 d > L ⇒ 立即開始寬限 G；寬限內追進 20 m 就繼續，否則離開 |
+| 交戰中玩家跑出 L | — | 寬限 G；G 內回來或再被打 ⇒ 繼續 |
+| 玩家死亡 | 繼續交戰 | 立即離開（Q3；**依賴 §3.3.1**） |
+| 敵人自己死亡 | 不寫 `CombatContext` | 不變 |
 
-**5 s 的定位**：只用於「d > L」之後的寬限（Q4 裁決的字面），**不是**激怒的總時長；只要玩家在 L 內，激怒不會因時間結束。
-
-**仍待定（新的設計細節，第一輪沒有問過）**：
-1. **L 的值**——必須 > 12 才有意義；玩家能命中的距離遠大於此（soft target 12 m、自由瞄準火球 15 m/s × 5 s）。候選 20／25 m，待 Play。
-2. **交戰中（距離內）受擊是否也啟動激怒**：
-   - (a) 任何受擊都啟動 ⇒ 被打過的敵人在玩家撤退時會追到 L——改變「近戰中撤退」的現行行為；
-   - (b) 只在「Proximity 不成立時受擊」才啟動 ⇒ 近戰中撤退仍在 12 m 脫戰（逐位元保留），只有遠距挑釁才拉長追擊。
-   - 推薦 (b)：它是滿足 Q4 的最小變更；(a) 是另一個手感決策。
+**數值**：L＝**20 m（第一個測試候選，非定值）**；G＝5 s（寬限候選）；8／12 m 不動。
+**已知限制**：沒有攻擊者身分 seam（`docs/15` §16-6）⇒ 假設「打我的就是我的 target」。單一玩家下成立。
 
 | 項目 | 內容 |
 |---|---|
 | 負責模組 | `AIMovementSource`（唯一 `CombatContext` 寫入者，A5 不變） |
-| 資料來源 | 自己的 `Survivability.JustTookDamage`（0.5 發布 → 2.5 讀得到，零新欄位）；目標存活（Q3） |
-| 新增狀態 | 私有：激怒中、寬限起點；序列化：L、G |
-| 已知限制 | 沒有攻擊者身分 seam（`docs/15` §16-6）⇒ 假設「打我的是我的 target」；單一玩家下成立，登記不解 |
-| 測試缺口 | `ResolveCombatEngagement` 是純函數但無時間／受擊輸入；無激怒測試 |
-| 回歸風險 | 低；未受擊時逐位元保留（AC 明列） |
+| 資料來源 | 自己的 `Survivability.JustTookDamage`（黑板，0.5 → 2.5 讀得到；`Project.Core.Blackboard`，A4 白名單內）；目標位置 |
+| 新增 | 兩個私有欄位；序列化 L、G |
+| 測試缺口 | 交戰純函數沒有時間／受擊輸入 |
+| 回歸風險 | 「受過傷的交戰」脫戰距離由 12 變 20——近戰中撤退的玩家會被追得更遠（使用者要求的一致性後果） |
 
 ### 3.5 Q5 — 施法期間的移動限制：資料來源追蹤
 
@@ -269,21 +286,70 @@ ActionState（無 Bake 的施法）→ MotionDriver.ExecuteBaseMovement(data)（
 
 ⇒ **沒有任何現成的合法資料能直接表達「這份 profile 校準的表示正在播」**。最接近的是 model 已經在用的 facade 查詢路徑（上一帧狀態，一帧延遲）。
 
-#### 3.5.3 選項（皆不新增黑板欄位、皆不使用 `InCombat`）
+#### 3.5.3 責任歸屬：Gameplay 移動限制，還是 Presentation 動畫校正？（第三版）
 
-| | 做法 | 契約影響 | 代價 |
+| 面向 | 證據 | 指向 |
+|---|---|---|
+| **它改變什麼** | 限制的是 `DesiredSpeedNormalized` → smoother → `MoveSpeed`／`MoveDirection` → `MotionDriver` 的**實際位移**；施法中側移真的變慢、閃避距離真的變短 | **Gameplay** |
+| **數值從哪來** | 每個方向引用 `MotionBakeData`，以角色滿速正規化；唯一設計參數 `maxPlaybackStretch` 是「腳頻可以拉多快」的美術預算 | 表現資產——但這是本專案的既定模式：locomotion 速度本來就由 Bake 決定（CLAUDE.md「MotionBakeData 是動作真實數值的單一真相」） |
+| **何時生效（觸發）** | 今天：`InCombat`（代理）。真正的條件：「Layer 0 正在播這份 profile 校準的表示」，而那由 ADR-006 D2 的 prefab mapping 決定 | 現行實作把**觸發**綁在表現上 |
+| **既有治理** | ADR-003 D3：Action 屬 intrinsic-motion，`OnUpdateMotion` 自帶位移（無 Bake 的施法借用 `ExecuteBaseMovement`）；ADR-006 §5「⛔ 不新增 MovementLock／AttackMovementPolicy」；`docs/21` §1.3.1「這不是 MovementLock 或 AttackMovementPolicy」 | Action 擁有施法期間的位移，但兩份文件都明確排除過「攻擊移動政策」 |
+
+**判定**：它是 **gameplay 移動限制**，數值依專案慣例由 Bake 推導；問題只在**觸發**目前由表現（或其代理 `InCombat`）推測。
+⇒ 正確的方向是讓觸發來自 gameplay 擁有者，而 X Bot 施法期間的 gameplay 擁有者是 **Action**。這與使用者的偏好一致。
+
+**同時要承認**：Y Bot 的限速**不是** Action 觸發的——它是「交戰中持續面向目標 ⇒ facing 與移動分離」的結果（`usePersistentCombatFacing`）。所以觸發條件本來就有兩種，應該是 **profile 上的 actor policy**（X Bot＝施法期間；Y Bot＝交戰中），而不是一條全域規則。
+
+#### 3.5.4 選項比較
+
+**A — 由 Action 宣告，Movement 消費（推薦評估方向）**
+
+```text
+ActionPhaseEntry：一個型別化欄位，例如 LocomotionConstraint { None, DirectionalSpeedLimit }（預設 None ＝ 現行行為）
+ActionState：進入／離開帶限制的 phase 時，經 IMovementModel 告知 model「目前有一個宣告了方向限速的 Action phase」
+LocomotionModel：限速觸發 = profile 的 actor policy（Y Bot：InCombat；X Bot：Action 宣告）
+                 數值仍是 actor 自己 profile 的 Bake 推導（Definition 不帶任何數值）
+```
+
+| | **A** Action 宣告 | **R2** facade 查詢 | R1 key 清單 |
 |---|---|---|---|
-| **R1** | profile（或 model）持有一份「其 Layer 0 companion 是本表示的 Action key」清單，model 以既有 `IsPlaying(key)` 判斷 | **零**新 API／schema | 第二份清單與 facade mapping 必須同步 ⇒ 要一條關聯式 wiring test（比照 W10）；Movement 端認識 Action key（資料層耦合）；一帧延遲 |
-| **R2**（推薦） | profile 引用它校準的那個 transition 資產；`AnimationFacadeBase` 新增一個唯讀查詢「此 transition 目前是否為 Layer 0 的播放狀態」；model 問它 | `AnimationFacadeBase` 加一個 virtual 唯讀查詢＝核心驅動介面擴充 ⇒ ADR-006（Trial）修訂記錄；查詢以資產引用為參數，facade 不認識 locomotion（A14 不受影響） | 一帧延遲；Y Bot profile 要補引用它的 `Move` transition |
-| R3 | `ActionState` 經 `IMovementModel` 推送約束 | 改 ADR-003（Accepted）的核心介面 ⇒ 新 ADR | 不推薦 |
+| **依賴方向** | Core/StateMachine → Core/Movement（既有：`BaseState` 已持有 `IMovementModel`；A4 白名單已允許）；gameplay 宣告、gameplay 消費 | Core/Movement → Presentation.Animation（既有方向，但語意是**由表現狀態反推 gameplay 限制**） | 同 R2 |
+| **跨模組契約數** | 3：①`ActionPhaseEntry` 一個型別化欄位 ②`IMovementModel` 一個方法（**核心驅動介面**，CLAUDE.md 判準③）③profile 的觸發 policy 欄位 | 2：①`AnimationFacadeBase` 一個唯讀查詢（**核心驅動介面**）②profile 引用 transition | 1：model／profile 持有 key 清單 |
+| **治理** | ADR-003 已 Accepted ⇒ 介面加方法要以 Trial ADR 記錄；ADR-006 §5「不新增 AttackMovementPolicy」要窄化修訂（這是**型別化的單一 locomotion 限制**，不是攻擊移動政策框架） | ADR-006 Trial 修訂 | 無 |
+| **同步風險** | Definition 的宣告 vs prefab mapping 的 companion（兩個 authored 事實）——但語意不同：宣告是 gameplay 規則、companion 是表現；不一致時 gameplay 仍正確，只是表現可能踩快 ⇒ 關聯測試（有 companion 的 layered mapping 對應的 phase 必須宣告） | profile 的 transition 引用 vs mapping 的 `BaseLayerTransition`（引用同一資產）⇒ 關聯測試 | 清單 vs mapping ⇒ 關聯測試；清單是第二份手寫事實，最容易漂移 |
+| **時序** | `ActionState` 在順序 4 通知、model 在下一帧順序 3 讀 ⇒ **一帧延遲** | facade 狀態來自上一帧順序 5 ⇒ **一帧延遲** | 同 R2 |
+| **測試成本** | 純 EditMode：假 model 驗 `ActionState` 的通知；model 純函數驗限制；不需 Animancer | 需要 facade 假件或 Animancer state | 同 R2 |
+| **跨 actor 語意** | Definition 共用時，宣告對每個使用它的 actor 都是同一條 gameplay 規則；數值仍各自 | 完全跟著各 actor 的表現 | 同 R2 |
+| ⛔ **不會變成** | 通用 Action Constraint Framework：只有一個型別化成員、只影響方向限速、沒有數值、沒有組合 | — | — |
 
-**R1／R2 共同的行為後果**：X Bot「交戰中未施法」不再被限速（1D 播放時）——`docs/11` §13 接受的副作用消失（手感改善，但屬行為變更，需重看 `docs/48` §7 的戰鬥轉向數字）；Y Bot 無差異（非交戰不移動）。
+**評估結論（未裁決）**：A 的依賴方向與語意都比 R2 正確，代價是多一個核心介面方法和兩項治理修訂；R2 契約較少但語意是反推。⛔ 兩者都**不新增黑板欄位**、都**不使用 `InCombat` 代替施法狀態**。
 
-#### 3.5.4 Q5 的拆分
+#### 3.5.5 Q5 的拆分（不變）
 
-- **WP-3a**：cap 改用 §3.5.3 的資料來源（不再讀 `InCombat`）。
-- **WP-3b**：`InCombat` 語意（出手不直接視為持續交戰）。**3a 之後**才不會連帶影響施法動畫。
-- WP-3b 仍有一個未回答的細節：出手時若存在合法候選，算不算一次交戰互動（`docs/54` 第一版的 Q5-A／Q5-B）。cap 解耦後，它**只影響** HealthBar／facing（玩家無效果）／交戰計時，不再影響施法動畫。
+- **WP-3a**：限速觸發改為 profile 的 actor policy＋（A 或 R2）。
+- **WP-3b**：`InCombat` 語意（§3.6）。**3a 之後**才不會連帶影響施法動畫。
+
+### 3.6 WP-3b — Combat Action 與 InCombat（第三版）
+
+**區分兩個不同的判定**：
+
+| 判定 | 回答的問題 | 現有資料 | 用途 |
+|---|---|---|---|
+| **有效目標的主動攻擊**（Target Eligibility） | 「我這次出手是不是衝著一個合法目標」 | 同一 `Tick` 已算出的黏性目標 `hasTarget` 或 soft candidate `hasSoftTarget`（兩者都已通過 `IsHostileCandidateLegal`，含存活） | 算一次**交戰互動**：可進入、可刷新離開計時 |
+| **實際傷害事件** | 「真的有傷害成立了嗎」 | 自己受傷：`Survivability.JustTookDamage` ✅；**自己打中別人：沒有**（沒有攻擊者身分 seam，`docs/15` §16-6） | 受傷照舊算互動；「打中別人」目前無法作為訊號——登記，不在本輪 |
+
+**規則**：
+```text
+interaction = JustTookDamage ∨ (RequestedActionSlot ≠ None ∧ (hasTarget ∨ hasSoftTarget))
+```
+- 沒有任何合法候選時按攻擊 ⇒ **不是**交戰互動：不進入、不刷新。
+- ⚠️ 殘留：順序 2.6 看不到 `ActionState` 是否接受這次請求（冷卻中被拒也會被算）——在**有合法目標**的前提下，這被視為「仍在跟目標交手」。若要只算「真的出手」，需要讓 combat producer 得知 Action 開始（例如經既有 `IActionLifecycleSink.Begin`），那會讓一個 gameplay 狀態 producer 掛在副作用 seam 上——不推薦，列為備案。
+
+| 項目 | 內容 |
+|---|---|
+| 負責模組 | `PlayerCombatContextSource`（唯一寫入者不變） |
+| 讀取者影響 | 只剩 `LocomotionModel` 的限速（玩家）——**因此依賴 WP-3a**；HeadLook 需要 `HasTarget`、facing 對玩家無效果 |
+| 測試 | `CombatContextTests.TC1` 被取代：無候選時出手不進入；有候選時進入；`TC1B` 不變 |
 
 ---
 
@@ -336,9 +402,9 @@ ActionState（無 Bake 的施法）→ MotionDriver.ExecuteBaseMovement(data)（
 
 | 裁決 | 檔案 | 資產 |
 |---|---|---|
-| Q3 | `AIMovementSource`、`AIInputSource`、`MeleeHitboxSink`、`GroundEffectSink`；存活謂詞 | 無 |
+| Q3 | ✅ `AIInputSource`、`MeleeHitboxSink`、`GroundEffectSink`、存活謂詞（`a378271`）；⏸ `AIMovementSource`（§3.3.1） | 無 |
 | Q4 | `AIMovementSource` | Y Bot 兩個新序列化欄位（L、G；預設值即可生效） |
-| Q5（3a） | `LocomotionModel`、`CombatDirectionalSpeedProfileSO`；R2 另含 `AnimationFacadeBase`／`AnimancerFacade` | 兩份 profile 補引用（Editor API） |
+| Q5（3a） | `LocomotionModel`、`CombatDirectionalSpeedProfileSO`（觸發 policy）；A 另含 `ActionPhaseEntry`／`ActionState`／`IMovementModel`；R2 另含 `AnimationFacadeBase`／`AnimancerFacade` | 兩份 profile 補觸發 policy（Editor API）；A 另含四份 Spell Definition 的宣告 |
 | Q5（3b） | `PlayerCombatContextSource` | 無 |
 | Q2 | `ActionState`、`ActionDefinitionSO`／`ActionPhaseEntry`、`FullBodyStateMachine` | `EnemyPunchDefinition.asset`（policy、承諾時點——**數值待 M2**） |
 | Q1／Q6／F-07 | — | — |
@@ -347,84 +413,95 @@ ActionState（無 Bake 的施法）→ MotionDriver.ExecuteBaseMovement(data)（
 
 ## 6. 最小變更方案與 Acceptance Criteria
 
-**順序**：先做零行為變更的，讓後續測試有乾淨基準；每個 WP 一個 commit，行為變更可單獨 revert。
+**順序**：零行為變更的先做；每個 WP 一個 commit；行為變更可單獨 revert。
 
-### WP-0 文件／註解／測試 fold back（Q1、Q6、F-07）——✅ 可開工
+### WP-0 文件／註解／測試 fold back（Q1、Q6、F-07）——✅ 已實作 `ec4bc09`
+
+| AC | 狀態 |
+|---|---|
+| AC-0.1 §5.1 全部改寫；「讀同一份」只剩標明已被取代的歷史段 | ✅（ADR-007 D5 原句保留並標「已被取代」） |
+| AC-0.2 `TD5B_a`／`TD5B_b` 綠；`TD5B_b` 在「effect 改回段落快照」時會紅 | 🟡 已寫；**未在 Unity 跑**；mutation 確認未做 |
+| AC-0.3 HD3B 綠；A38 不再斷言 Hurt→Hurt | 🟡 已寫；**未在 Unity 跑** |
+| AC-0.4 CA11 綠 | 🟡 已寫；**未在 Unity 跑** |
+| AC-0.5 runtime 只有註解／log 字串 diff；EditMode／PlayMode 全綠 | 🟡 diff ✅；`dotnet build` 0 error ✅；**Unity 回歸未跑** |
+
+### WP-1 Q3 eligibility——🟡 部分實作 `a378271`
+
+| AC | 狀態 |
+|---|---|
+| AC-1.1 目標 `IsDead` ⇒ `AIMovementSource` 寫 `CombatContext = default` | ⏸ **未做**（§3.3.1，A4） |
+| AC-1.2 目標 `IsDead` ⇒ `AIInputSource` 不送 `Slot1ButtonDown` | 🟡 已寫（`DeadTarget_IsNotAttacked_UntilRevived`）；未在 Unity 跑 |
+| AC-1.3 沒有 `CharacterHealth` 的目標與今天相同 | 🟡 同上測試的前半 |
+| AC-1.4 `Revive` 後恢復 | 🟡 同上測試的後半 |
+| AC-1.5 屍體：近戰不是有效命中（無命中音）、AoE 不 Slow；致死一擊有效；投射物不變 | 🟡 `T24B`、`GroundEffect_DoesNotSlowDeadTarget_ButSlowsUntrackedTarget`；既有投射物測試；未在 Unity 跑 |
+| AC-1.6 存活謂詞唯一定義；玩家／投射物改用後行為不變 | 🟡 `H14`；既有 TC／投射物測試；未在 Unity 跑 |
+| AC-1.7 A4／A27 綠 | 🟡 人工比對白名單通過；未在 Unity 跑 |
+| AC-1.8（Play）玩家死後敵人不揮拳、無命中音 | ⬜ 人工；繞行／面向屍體要等 AC-1.1 |
+
+### WP-1b `AIMovementSource` 的目標合法性——⏸ 等 §3.3.1（B1／B2）
 
 | AC | 驗證 |
 |---|---|
-| AC-0.1 §5.1 全部改寫；搜「讀同一份」「共用同一份」只剩標明已被取代的歷史段 | grep |
-| AC-0.2 `TD5B-a`／`TD5B-b` 綠；`TD5B-b` 在「effect 改回段落快照」的實作下會紅（人工 mutation 確認一次） | EditMode |
-| AC-0.3 HD3′ 綠（治具不含 Hurt→Hurt，FSM 仍重入且計時重置）；A38 不再斷言 Hurt→Hurt，並註明該 entry 無作用 | EditMode |
-| AC-0.4 Q6 結構測試綠 | EditMode |
-| AC-0.5 runtime 只有註解 diff；EditMode／PlayMode 全綠 | `git diff`＋`safe_unity_test.sh` |
+| AC-1b.1 目標 `IsDead` ⇒ `CombatContext = default`、`MovementIntent = default`、Hold | EditMode |
+| AC-1b.2 A4 的 `Core/Movement` 白名單只多 `Project.Core.Survivability` 一項，且附理由 | EditMode |
+| AC-1b.3（Play）玩家死後敵人停止繞行、不面向屍體、血條收起 | 人工 |
 
-### WP-1 Q3 eligibility——✅ 可開工
+### WP-2 Q4 受擊交戰——🟡 設計第三版（§3.4）
 
 | AC | 驗證 |
 |---|---|
-| AC-1.1 目標 `IsDead` ⇒ `AIMovementSource` 寫 `CombatContext = default`、`MovementIntent = default` | EditMode |
-| AC-1.2 目標 `IsDead` ⇒ `AIInputSource` 不再送 `Slot1ButtonDown` | EditMode |
-| AC-1.3 目標沒有 `CharacterHealth` ⇒ 與今天逐位元相同 | EditMode |
-| AC-1.4 目標 `Revive` 後恢復 | EditMode |
-| AC-1.5 屍體：近戰不播命中音、AoE 不 Slow；活目標的致死一擊仍播命中音；投射物「屍體透明」不變 | EditMode |
-| AC-1.6 存活謂詞只有一份定義；`PlayerCombatContextSource`／`ThrownProjectile` 改用它後行為逐位元不變 | EditMode（既有 TC／投射物測試綠） |
-| AC-1.7 A27 綠 | EditMode |
-| AC-1.8（Play）玩家死後 30 s：敵人停止繞行、不揮拳、無命中音、血條收起 | probe M3＋人工 |
+| AC-2.1 從未受擊的交戰：依 Q4-G 的裁決，(i) 全部既有距離規則逐位元不變，或 (ii) 改為寬限 G 後離開 | EditMode |
+| AC-2.2 **任何距離**受未致死傷害 ⇒ 當帧進入；之後 R＝L | EditMode（注入時間） |
+| AC-2.3 一致性：7 m 受擊後退到 13 m 與 15 m 受擊，兩者的脫戰距離都是 L | EditMode |
+| AC-2.4 d > R ⇒ 寬限 G；寬限內回來或再受擊 ⇒ 取消；期滿 ⇒ 離開並清除受傷標記 | EditMode |
+| AC-2.5 目標死亡 ⇒ 立即離開、無寬限（依賴 WP-1b） | EditMode |
+| AC-2.6（Play）10–20 m 外施法：Y Bot 轉身、接近、出拳；L＝20 是否合適 | probe M4＋人工 |
 
-### WP-2 Q4 激怒交戰——🟡 等 L 值與「交戰中受擊是否啟動」（§3.4）
+### WP-3a 限速觸發改為 actor policy（A 或 R2）——🟡 等 Q5 裁決（§3.5.4）
 
 | AC | 驗證 |
 |---|---|
-| AC-2.1 未受擊時，全部既有距離規則測試逐位元不變（含 12 m 立即脫戰） | 既有 CombatContextTests |
-| AC-2.2 12 < d ≤ L 處受未致死傷害 ⇒ 當帧進入；**下一帧仍在交戰**（不因 12 m 規則脫戰） | EditMode（注入時間） |
-| AC-2.3 激怒中 d ≤ L ⇒ 不因時間結束；d > L ⇒ G 秒寬限，寬限內回到 L 內或再受擊 ⇒ 取消；期滿 ⇒ 離開 | EditMode |
-| AC-2.4 激怒中目標死亡 ⇒ 立即離開、無寬限 | EditMode |
-| AC-2.5 依「交戰中受擊」的裁決：(b) 時近戰中受擊後撤退仍在 12 m 脫戰 | EditMode |
-| AC-2.6（Play）10–15 m 外施法：Y Bot 轉身、接近、出拳 | probe M4＋人工 |
-
-### WP-3a speed cap 改用正確的資料來源——🟡 等 R1／R2
-
-| AC | 驗證 |
-|---|---|
-| AC-3a.1 cap 不再讀 `CombatContext`（架構測試：`ApplyCombatDirectionalSpeedLimit` 方法體不含 `CombatContext`／`InCombat`） | EditMode |
-| AC-3a.2 X Bot 施法中（companion 在播）⇒ 限速與今天逐位元相同 | EditMode（facade 假件） |
-| AC-3a.3 X Bot 未施法（1D 在播）⇒ 不限速，**不論是否交戰** | EditMode |
-| AC-3a.4 Y Bot 交戰側移 ⇒ 限速與今天相同 | EditMode |
-| AC-3a.5（R1）action key 清單與 facade mapping 一致的關聯測試；（R2）profile 引用的 transition 確實是對應 mapping 的 companion／Move transition | EditMode（讀出貨資產） |
+| AC-3a.1 限速不再讀 `CombatContext`／`InCombat` 作為 X Bot 的觸發 | EditMode（架構測試） |
+| AC-3a.2 Y Bot 的觸發 policy＝交戰中，行為逐位元不變 | EditMode |
+| AC-3a.3 X Bot 施法中 ⇒ 限速與今天相同；未施法（1D 在播）⇒ 不限速，不論是否交戰 | EditMode |
+| AC-3a.4（A）宣告與 layered mapping 的關聯測試；（R2）profile 引用的 transition 與 mapping 一致 | EditMode（讀出貨資產） |
+| AC-3a.5 ⛔ 沒有新增黑板欄位；（A）`LocomotionConstraint` 只有 `None` 與一個限速成員 | EditMode |
 | AC-3a.6（Play）空地施法側移 playback ≤ 1.35×；交戰中未施法的轉向不再被減速 | probe＋人工 |
 
-### WP-3b `InCombat` ≠ Combat Action——依賴 WP-3a
+### WP-3b `InCombat` ≠ Combat Action——依賴 WP-3a（§3.6）
 
 | AC | 驗證 |
 |---|---|
-| AC-3b.1 依最後規則取代 TC1；受擊進入（TC1B）不變 | EditMode |
-| AC-3b.2 `LocomotionModel` 不受 3b 影響（3a 已解耦） | EditMode |
+| AC-3b.1 無合法候選時出手 ⇒ 不進入、不刷新（取代 TC1） | EditMode |
+| AC-3b.2 有黏性目標或 soft candidate 時出手 ⇒ 進入／刷新 | EditMode |
+| AC-3b.3 受擊進入（TC1B）不變 | EditMode |
 
-### WP-4 Q2 敵人承諾——🔬 等 M2a／M2b／M2c 與你選定承諾時點
+### WP-4 Q2 敵人承諾——🔬 等 M2a–M2c
 
 | AC | 驗證 |
 |---|---|
-| AC-4.1 承諾時點 0 的 Definition：與今天逐位元相同（TD5／AC1／AC2／TC6 綠） | EditMode |
-| AC-4.2 承諾時點 t > 0：t 前 `TryGetFacingCommitment == false`；t 當帧取得；之後目標移動不改變它 | EditMode |
-| AC-4.3 `CombatTarget`＋有目標 ⇒ 方向＝ root→`TargetPosition` 水平方向；無目標 ⇒ `HasAim=false`、lifecycle 照常 | EditMode |
-| AC-4.4 玩家路徑仍使用 `IAimSource.CommitmentOrigin`（Q2c） | EditMode |
-| AC-4.5 policy 清單封閉測試；A29／A31／A33 綠 | EditMode |
-| AC-4.6 有位移 Bake 的 Definition：承諾時點 ≤ 位移起點 − 3τ（或明列豁免理由） | EditMode（讀出貨資產） |
-| AC-4.7 以 M2b 的結果表達你選定的設計目標（例：站立必中、某策略可躲）並在 probe 中達成 | PlayMode probe |
-| AC-4.8（Play）可讀性 | 人工 |
+| AC-4.1 承諾時點 0 的 Definition 逐位元不變（TD5／AC1／AC2／TC6） | EditMode |
+| AC-4.2 承諾時點 t > 0：t 前無承諾、t 取得、之後不變 | EditMode |
+| AC-4.3 `CombatTarget`＋有目標 ⇒ root→目標水平方向；無目標 ⇒ `HasAim=false` | EditMode |
+| AC-4.4 玩家仍用 `IAimSource.CommitmentOrigin`（Q2c） | EditMode |
+| AC-4.5 policy 清單封閉；A29／A31／A33 綠 | EditMode |
+| AC-4.6 有位移 Bake：承諾時點 ≤ 位移起點 − 3τ（或明列豁免） | EditMode（讀出貨資產） |
+| AC-4.7 以 M2b 結果達成你選定的設計目標 | PlayMode probe |
+| AC-4.8 可讀性 | 人工 |
 
 ---
 
-## 7. 真正阻擋實作的事項
+## 7. 真正阻擋實作的事項（第三版）
 
-| 阻擋 | 阻擋哪個 WP | 需要什麼 |
+| 阻擋 | 擋住哪裡 | 需要什麼 |
 |---|---|---|
-| **M2a／M2b／M2c 量測** | WP-4 的承諾時點數值 | Editor（M2a 不需 Play）；之後由你依 §3.2.1 的三個設計目標選值。量測前可先實作「時點欄位＋policy」本身（AC-4.1–4.6），數值留 0 不生效 |
-| **R1 或 R2** | WP-3a → WP-3b | 選一個 cap 的資料來源。R2 會在 `AnimationFacadeBase` 加一個唯讀查詢（ADR-006 Trial 修訂記錄） |
-| **L 值**、**交戰中受擊是否啟動激怒** | WP-2 | 兩個都是新的設計細節（推薦 (b)；L 候選 20／25 m，可先用候選值實作、Play 後調整） |
-| WP-3b 的「出手時有合法候選是否算互動」 | WP-3b | cap 解耦後只影響交戰計時與血條 |
+| **Unity Test Runner 尚未執行** | WP-0、WP-1 的 AC 狀態從 🟡 變 ✅ | Editor 連線後跑 `safe_unity_test.sh --mode EditMode`（PlayMode 回歸也跑一次） |
+| **§3.3.1：B1 或 B2** | WP-1b；以及 WP-2 的「目標死亡 ⇒ 立即離開」 | 你決定是否把 `Project.Core.Survivability` 加進 `Core/Movement` 的 A4 白名單（B1） |
+| **Q4-G：從未受擊的交戰要不要也用寬限 G** | WP-2 | (i) 不用，未受擊時逐位元保留；(ii) 用，整套只有一個脫戰政策 |
+| **Q5：A 或 R2** | WP-3a → WP-3b | 選觸發的資料來源。A 需要 `IMovementModel` 加一個方法（以 Trial ADR 記錄）並窄化 ADR-006 §5；R2 需要 `AnimationFacadeBase` 加一個唯讀查詢 |
+| **M2a–M2c** | WP-4 的承諾時點數值 | Editor（M2a 不需 Play）；之後依 §3.2.1 的設計目標選值。欄位與 policy 本身可先以預設不改行為實作 |
+| WP-3b 備案 | 僅在你要求「只算真的出手」時 | 經 `IActionLifecycleSink.Begin` 通知 combat producer——不推薦 |
 
-**現在不被阻擋**：WP-0（文件／測試）、WP-1（Q3）。
+**現在不被阻擋、但本輪未做**：WP-4 的「承諾時點欄位＋`CombatTarget` policy」（預設不改行為）——它是 Q2 的一部分，使用者指示 Q2 保持設計／量測階段。
 
-**明確不在本輪**：攻擊者身分 seam（`docs/15` §16-6）、陣營／友軍傷害、`ActionRequestTarget` 改名（`docs/51` F-08）、近戰連段 release-once（`docs/51` F-09）。
+**明確不在本輪**：攻擊者身分 seam、陣營／友軍傷害、`ActionRequestTarget` 改名、近戰連段 release-once。
