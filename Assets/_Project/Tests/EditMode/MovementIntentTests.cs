@@ -274,7 +274,17 @@ namespace Project.Tests.EditMode
                 SetPrivateField(source, "target", targetObject.transform);
                 source.ResolveEffectState();
 
-                var data = new PlayerRuntimeData();
+                // 🔄（2026-10-12，`docs/54` §3.3.2）交戰判斷已移到 AICombatContextSource（順序 2.4）；
+                //    AIMovementSource 只讀同帧黑板 ⇒ 這裡直接給一份「交戰中」的 CombatContext。
+                var data = new PlayerRuntimeData
+                {
+                    CombatContext = new CombatContextData
+                    {
+                        InCombat = true,
+                        HasTarget = true,
+                        TargetPosition = targetObject.transform.position,
+                    },
+                };
                 InputData input = default;
                 source.ProduceIntent(ref input, data);
 

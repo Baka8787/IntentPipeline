@@ -830,6 +830,10 @@ namespace Project.Tests.EditMode
         /// Enemy baseline 的三組距離各有單一語意：attack range 決定「想不想嘗試出手」、
         /// engagement band 決定戰鬥中怎麼移動、aggro enter/leave 決定是否交戰。
         /// 本測試只守關係，不把 8/12 first-pass tuning 鎖成正式平衡值。
+        ///
+        /// 🔄（2026-10-12，`docs/54` §3.3.2）aggro 與 Provoked 半徑搬到 <see cref="AICombatContextSource"/>；
+        /// 「兩份 target 必須相同」這條改由**結構**保證——<c>AIInputSource</c> 已沒有自己的 target
+        /// （<c>AICombatContextSourceTests.AB1</c>），本測項改守「prefab 上也沒有殘留的 target 屬性」。
         /// </summary>
         [Test]
         public void W15_EnemyDecisionTargetsAndDistanceLayers_AreCoherent()
@@ -840,27 +844,28 @@ namespace Project.Tests.EditMode
             {
                 var attackSource = prefab.Host.GetComponent<AIInputSource>();
                 var movementSource = prefab.Host.GetComponent<AIMovementSource>();
+                var combatSource = prefab.Host.GetComponent<AICombatContextSource>();
                 if (attackSource == null || movementSource == null) continue;
+                if (combatSource == null) continue; // 缺席由 W27 回報，這裡不重複
 
                 var attackSerialized = new SerializedObject(attackSource);
                 var movementSerialized = new SerializedObject(movementSource);
+                var combatSerialized = new SerializedObject(combatSource);
 
-                Object attackTarget = attackSerialized.FindProperty("target").objectReferenceValue;
-                Object movementTarget = movementSerialized.FindProperty("target").objectReferenceValue;
+                if (attackSerialized.FindProperty("target") != null)
+                {
+                    violations.Add(
+                        $"{prefab.Path} → AIInputSource 仍序列化自己的 target\n" +
+                        "    contract : 整隻敵人只有 AIMovementSource.target 一份（`docs/54` §3.3.2-① T1）");
+                }
+
                 float attackRange = attackSerialized.FindProperty("attackRange").floatValue;
                 float engagementMaximum =
                     movementSerialized.FindProperty("maximumEngagementDistance").floatValue;
-                float aggroEnter = movementSerialized.FindProperty("aggroEnterRadius").floatValue;
-                float aggroLeave = movementSerialized.FindProperty("aggroLeaveRadius").floatValue;
-
-                if (attackTarget != movementTarget)
-                {
-                    violations.Add(
-                        $"{prefab.Path} → AIInputSource 與 AIMovementSource 指向不同 target\n" +
-                        "    contract : awareness、movement、action decision 必須使用同一個已知目標\n" +
-                        $"    attack  : {(attackTarget != null ? attackTarget.name : "<none>")}\n" +
-                        $"    movement: {(movementTarget != null ? movementTarget.name : "<none>")}");
-                }
+                float aggroEnter = combatSerialized.FindProperty("aggroEnterRadius").floatValue;
+                float aggroLeave = combatSerialized.FindProperty("aggroLeaveRadius").floatValue;
+                float provokedLeave = combatSerialized.FindProperty("provokedLeaveRadius").floatValue;
+                float provokedGrace = combatSerialized.FindProperty("provokedGraceSeconds").floatValue;
 
                 if (aggroEnter <= engagementMaximum)
                 {
@@ -883,10 +888,53 @@ namespace Project.Tests.EditMode
                         $"{prefab.Path} → aggroLeaveRadius {aggroLeave:0.##} < aggroEnterRadius {aggroEnter:0.##}\n" +
                         "    contract : leave 必須大於等於 enter，才能形成 engagement hysteresis");
                 }
+
+                if (provokedLeave < aggroLeave)
+                {
+                    violations.Add(
+                        $"{prefab.Path} → provokedLeaveRadius {provokedLeave:0.##} < aggroLeaveRadius {aggroLeave:0.##}\n" +
+                        "    contract : 受過傷的交戰不得比未受傷時更早放手（runtime 會夾到 leave，但 authored 值不該依賴夾持）");
+                }
+
+                if (provokedGrace <= 0f)
+                {
+                    violations.Add(
+                        $"{prefab.Path} → provokedGraceSeconds {provokedGrace:0.##} <= 0\n" +
+                        "    contract : Provoked 交戰超出 L 後要有寬限（`docs/54` §3.4）；0 ＝ 退化成未受擊的立即放手");
+                }
             }
 
             CollectionAssert.IsEmpty(violations,
                 "Enemy Decision 的 target 或距離分層不自洽：\n\n" + string.Join("\n\n", violations));
+        }
+
+        /// <summary>
+        /// 🆕（2026-10-12，`docs/54` §3.3.2，AC-B.3 的 prefab 半邊）**每隻 AI 角色恰好一個 combat context producer。**
+        /// 比照 W12（玩家）：AI 角色＝ Runner Host 上有 <see cref="AIMovementSource"/>。
+        /// 缺席 ⇒ CombatContext 恆為 default ⇒ 敵人永遠不交戰、不移動，**不會有任何錯誤訊息**；
+        /// 同時掛玩家的 producer ⇒ 兩個寫入者互相覆寫。
+        /// </summary>
+        [Test]
+        public void W27_AICharacterRoots_HaveExactlyOneAICombatContextSource()
+        {
+            var violations = new List<string>();
+
+            foreach (CharacterPrefab prefab in LoadCharacterPrefabs())
+            {
+                if (prefab.Host.GetComponent<AIMovementSource>() == null) continue;
+
+                int ai = prefab.Host.GetComponents<AICombatContextSource>().Length;
+                int player = prefab.Host.GetComponents<PlayerCombatContextSource>().Length;
+                if (ai == 1 && player == 0) continue;
+
+                violations.Add(
+                    $"{prefab.Path} → Runner Host '{prefab.Host.name}'：AICombatContextSource {ai} 顆、" +
+                    $"PlayerCombatContextSource {player} 顆\n" +
+                    "    expected : AICombatContextSource 恰好 1 顆、PlayerCombatContextSource 0 顆");
+            }
+
+            CollectionAssert.IsEmpty(violations,
+                "AI CombatContext producer 接線不完整：\n\n" + string.Join("\n\n", violations));
         }
 
         // =====================================================================

@@ -169,7 +169,7 @@ public struct CombatContextData
 - ⇒ `Transform` 留在 producer 內，黑板只出現值
 
 **寫入者**：每角色**唯一 active** 的 `ICombatContextSource`（玩家版／AI 版），比照 ADR-003 D2 的 producer 契約。
-**管線順序**：**2.6**（順序 2 已寫好 `Intent`，可直接讀「本帧是否出手」；早於順序 3／4，讓 model 與 FSM 都看得到）。
+**管線順序**：~~**2.6**~~ → 🔄 **2.4**（2026-10-12，ADR-007 §11；移到 movement intent 之前，讓敵人的移動讀同帧結果——玩家行為不變）。順序 2 已寫好 `Intent`，可直接讀「本帧是否出手」；早於順序 3／4，讓 model 與 FSM 都看得到。
 **A5 `WriterRules`**：新增一列（`CombatContext` → producer 檔名白名單）。
 
 ---

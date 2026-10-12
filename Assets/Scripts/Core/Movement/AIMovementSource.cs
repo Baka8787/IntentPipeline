@@ -34,12 +34,13 @@ namespace Project.Core.Movement
             Recover
         }
 
+        // 🔄（2026-10-12，`docs/54` §3.3.2-① T1）**這是整隻敵人唯一的序列化 target。**
+        // 本元件自己已不用它做任何決策（交戰與目標位置都從黑板的 CombatContext 讀）；
+        // 它留在這裡是因為出貨場景的 target override 就掛在這個欄位上——搬家等於改場景。
+        // `AICombatContextSource` 與 `AIInputSource` 經 <see cref="Target"/> 讀它：那是**參照資料依賴**，
+        // 不是互相呼叫決策邏輯。⛔ 不得在其他元件再加一份 target（W15／AC-B.1 守）。
         [SerializeField] private Transform target;
         [SerializeField, Range(0f, 1f)] private float desiredSpeedNormalized = 1f;
-
-        [Header("Combat Engagement")]
-        [SerializeField, Min(0f)] private float aggroEnterRadius = 8f;
-        [SerializeField, Min(0f)] private float aggroLeaveRadius = 12f;
 
         [Header("Melee Engagement Distance")]
         [SerializeField, Min(0f)] private float minimumEngagementDistance = 1.25f;
@@ -68,6 +69,18 @@ namespace Project.Core.Movement
 
         // 純診斷用：兩側都不可走而停步。**不參與任何決策**（gizmo 只讀不寫，A2 守）。
         private bool _strafeBlocked;
+
+        /// <summary>
+        /// 敵人的目標（唯讀）。只是**序列化引用的保管處**：讀者拿它去做自己的判斷，
+        /// 本元件不因被讀而做任何事。⛔ 不提供 setter——換目標的權威仍是 Inspector／場景 override。
+        /// </summary>
+        public Transform Target => target;
+
+        /// <summary>測試用的顯式接線；production 走 Inspector／場景 override。</summary>
+        internal void SetTargetForTests(Transform value)
+        {
+            target = value;
+        }
 
         private void Awake()
         {
@@ -111,45 +124,24 @@ namespace Project.Core.Movement
                 return;
             }
 
-            if (target == null)
+            // ── 層 1：接戰語境——**由 AICombatContextSource 在順序 2.4 決定，本元件只讀**（`docs/54` §3.3.2）──
+            // 「還在不在跟目標交戰」是目標關係的性質（距離、受擊激怒、目標存活），不是導航的性質，
+            // 而且它需要讀 Survivability——那不在 Core/Movement 的白名單內（ADR-003 D2，A4 守）。
+            // 順序 2.4 → 2.5 ⇒ 這裡讀到的是**同帧**結果：脫戰或目標死亡的那一帧就不再產生追擊意圖。
+            // 目標位置也取自同一份黑板值（2.4 → 2.5 之間沒有任何東西移動 Transform），
+            // 讓移動與交戰判斷永遠看同一個目標位置。
+            CombatContextData combat = data.CombatContext;
+            if (!combat.InCombat || !combat.HasTarget)
             {
-                data.CombatContext = default;
                 _engagementMovement = EngagementMovement.Hold;
+                _strafeBlocked = false;
                 return;
             }
 
-            Vector3 targetPosition = target.position;
+            Vector3 targetPosition = combat.TargetPosition;
             Vector3 toTarget = targetPosition - transform.position;
             toTarget.y = 0f;
             float distance = Mathf.Sqrt(toTarget.sqrMagnitude);
-
-            // ── 層 1：接戰語境（**與 NavMesh 無關**）────────────────────────────────
-            // CombatContext 回答的是「還在不在跟這個目標交戰」——那是**目標關係**的性質，
-            // 不是導航的性質。agent 掉出 NavMesh 不代表敵人脫離戰鬥，所以這一層必須在
-            // NavMesh 守衛**之前**結算。
-            // 敵人的移動與戰鬥語境共用同一個 target 真相；另建 context source 只會複製
-            // target reference ⇒ 目標會出現第二份真相（ADR-007 D3 補充條款明文禁止
-            // 「任何其他系統自建 isInCombat 旗標或第二份 target 清單」）。
-            // 這裡整體覆寫 value struct，不讓下游回頭讀 Transform。
-            bool inCombat = ResolveCombatEngagement(
-                data.CombatContext.InCombat,
-                distance,
-                aggroEnterRadius,
-                aggroLeaveRadius);
-            data.CombatContext = new CombatContextData
-            {
-                InCombat = inCombat,
-                HasTarget = inCombat,
-                TargetPosition = inCombat ? targetPosition : Vector3.zero,
-            };
-
-            // 尚未進入交戰語境時必須是 Idle。early-return 是權威邊界：不能讓距離帶
-            // 繼續把未交戰的敵人解析成 Approach／Strafe／Retreat。
-            if (!inCombat)
-            {
-                _engagementMovement = EngagementMovement.Hold;
-                return;
-            }
 
             // ── 層 2：**可導航前提下**的移動模式 ────────────────────────────────────
             // Approach／Retreat 回答的是「要怎麼走過去」；沒有可用路徑時那個決定沒有意義。
@@ -270,29 +262,6 @@ namespace Project.Core.Movement
             data.MovementIntent.DesiredSpeedNormalized = _engagementMovement == EngagementMovement.Strafe
                 ? ResolveDesiredSpeedNormalized(holdStrafeSpeedNormalized, Time.time)
                 : ResolveDesiredSpeedNormalized(Time.time);
-        }
-
-        /// <summary>
-        /// （純函數）接戰**語境**的黏性進出判定。沿用 <c>PlayerCombatContextSource</c> 的
-        /// enter／leave 半徑形狀：**尚未進場時用 enter、已進場時用較大的 leave**，
-        /// 讓目標在邊界附近來回時不會逐幀翻轉 facing 來源。
-        ///
-        /// enter／leave 使用獨立的 aggro 半徑，與近戰帶的
-        /// <c>minimumEngagementDistance</c>／<c>maximumEngagementDistance</c> 分離。
-        /// 退化輸入以 enter 為下限夾住 leave，避免兩個門檻反向。
-        ///
-        /// ⚠️ 與 <see cref="ResolveEngagementMovement"/> 的分工：本函數只回答「還在不在交戰」，
-        /// 不回答「要怎麼移動」。後者需要可用路徑，前者不需要。
-        /// </summary>
-        internal static bool ResolveCombatEngagement(
-            bool wasInCombat,
-            float distance,
-            float enterRadius,
-            float leaveRadius)
-        {
-            float effectiveEnterRadius = Mathf.Max(0f, enterRadius);
-            float effectiveLeaveRadius = Mathf.Max(leaveRadius, effectiveEnterRadius);
-            return distance <= (wasInCombat ? effectiveLeaveRadius : effectiveEnterRadius);
         }
 
         /// <summary>

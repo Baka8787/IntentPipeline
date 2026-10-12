@@ -569,8 +569,9 @@ namespace Project.Tests.PlayMode
 
             // 只放寬這個場景實例的 aggro 半徑（不改資產）：要驗的是「敵人能不能走完整道樓梯」，
             // 不是 aggro 調校；較長的 prototype 樓梯兩端距離超過預設的 8 m。
-            var ai = enemy.GetComponent<Project.Core.Movement.AIMovementSource>();
-            Assert.IsNotNull(ai, "Y Bot 沒有 AIMovementSource");
+            // 🔄（2026-10-12，`docs/54` §3.3.2）aggro 半徑住在 AICombatContextSource。
+            var ai = enemy.GetComponent<Project.Core.Combat.AICombatContextSource>();
+            Assert.IsNotNull(ai, "Y Bot 沒有 AICombatContextSource");
             SetPrivateField(ai, "aggroEnterRadius", 30f);
             SetPrivateField(ai, "aggroLeaveRadius", 40f);
 

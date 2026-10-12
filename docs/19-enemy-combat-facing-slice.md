@@ -62,6 +62,14 @@
 
 ### 3.1 敵人的 combat target 從哪裡來 —— **`AIMovementSource`，不新增元件**
 
+> 🔄 **2026-10-12：已依本節自訂的重拆條件拆分**（`docs/54` §3.3.2，使用者批准方案③）。
+> 目標存活（Q3）與受擊激怒／寬限（Q4）正是本節所說「與移動無關的戰鬥語境判定」，而且需要讀 `Project.Core.Survivability`
+> （`Core/Movement` 白名單不允許，ADR-003 D2）⇒ `CombatContext` 改由 **`Core/Combat/AICombatContextSource`（順序 2.4）** 寫入，
+> `AIMovementSource` 只經黑板讀它（A54 守：Movement 不得認識 combat producer）。
+> 本節擔心的「第二份 target 真相」以 **T1** 解決：target 仍**只**序列化在 `AIMovementSource.target`；`AICombatContextSource` 與
+> `AIInputSource` 讀唯讀屬性 `AIMovementSource.Target`——參照資料依賴，不是互相呼叫決策邏輯（`AIInputSource` 原有的第二份 target 已移除）。
+> aggro 半徑隨之搬到 `AICombatContextSource`；自己死亡「不寫 CombatContext、消費者收手」的裁決不變。下方原文保留為當時的決策脈絡。
+
 > ✅ **2026-09-10 已實作並修正**。落地形狀與本節原文有兩處必須明確化的地方，記於下方 **3.1.1／3.1.2**。
 > 上游依據：ADR-007 **D3 補充條款**明訂「`CombatContextData` 的唯一寫入者＝每角色唯一 active 的
 > combat context producer」、「⛔ 禁止任何其他系統自建 `isInCombat` 旗標或第二份 target 清單」，

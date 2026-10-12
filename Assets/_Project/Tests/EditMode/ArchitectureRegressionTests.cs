@@ -508,7 +508,8 @@ namespace Project.Tests.EditMode
         {
             new WriterRule { Member = "MovementIntent", AllowedFiles = new[] { "PlayerLocomotionPolicy.cs", "AIMovementSource.cs" },
                              Owner = "每隻角色當下唯一 active 的 IMovementIntentSource（ADR-003 D2 single-writer）" },
-            new WriterRule { Member = "CombatContext", AllowedFiles = new[] { "PlayerCombatContextSource.cs", "AIMovementSource.cs" },
+            // 🔄（2026-10-12，`docs/54` §3.3.2）AI 的寫入者由 AIMovementSource.cs 換成 AICombatContextSource.cs。
+            new WriterRule { Member = "CombatContext", AllowedFiles = new[] { "PlayerCombatContextSource.cs", "AICombatContextSource.cs" },
                              Owner = "每隻角色當下唯一 active 的 combat context producer（ADR-007 D3）" },
             new WriterRule { Member = "Intent", AllowedFiles = new[] { "CharacterPipelineRunner.cs" },
                              Owner = "Intent Processor（管線順序 2）" },
@@ -1941,6 +1942,38 @@ namespace Project.Tests.EditMode
                     $"OnEnter 出現 '{token}'：plan 已在 CanEnter 鎖存，OnEnter 只能發布");
                 StringAssert.DoesNotContain(token, onUpdateMotion,
                     $"OnUpdateMotion 出現 '{token}'：執行期不得重建 plan");
+            }
+        }
+
+        /// <summary>
+        /// 🆕（2026-10-12，`docs/54` §3.3.2-②；ADR-007 修訂紀錄）**combat context 在 movement intent 之前（順序 2.4 → 2.5）。**
+        ///
+        /// 敵人的 movement intent 讀 <c>CombatContext</c> 決定追不追。若 producer 排在後面，
+        /// movement 只能讀上一帧 ⇒ 脫戰或目標死亡的那一帧「已發布不在交戰、卻仍朝目標走」。
+        /// 行為面由 <c>AICombatContextSourceTests.AB5／AB8</c>（依此順序呼叫）與
+        /// <c>AICombatContextPlayModeTests</c>（真 Runner）驗證；本測項守住 Runner 的排程本身。
+        ///
+        /// 同時守住**單向**：<c>AIMovementSource</c> 不得認識 combat producer（只經黑板讀它的輸出）——
+        /// 反向的「參照資料依賴」（combat producer 讀 <c>AIMovementSource.Target</c>）是唯一允許的方向。
+        /// </summary>
+        [Test]
+        public void A54_CombatContextProducers_RunBeforeMovementIntent_AndMovementDoesNotKnowThem()
+        {
+            string runner = StripComments(File.ReadAllText(FindSingleScript("CharacterPipelineRunner.cs")));
+            int produce = runner.IndexOf("_movementIntentSource?.ProduceIntent(", StringComparison.Ordinal);
+            int player = runner.IndexOf("_combatContextSource?.Tick(", StringComparison.Ordinal);
+            int ai = runner.IndexOf("_aiCombatContextSource?.Tick(", StringComparison.Ordinal);
+            Assert.GreaterOrEqual(produce, 0, "找不到順序 2.5 的 ProduceIntent 呼叫");
+            Assert.GreaterOrEqual(player, 0, "找不到玩家 combat context producer 的排程");
+            Assert.GreaterOrEqual(ai, 0, "找不到 AI combat context producer 的排程");
+            Assert.Less(player, produce, "玩家 combat context 必須排在 movement intent 之前（順序 2.4）");
+            Assert.Less(ai, produce, "AI combat context 必須排在 movement intent 之前（順序 2.4）");
+
+            string movement = StripComments(File.ReadAllText(FindSingleScript("AIMovementSource.cs")));
+            foreach (string token in new[] { "AICombatContextSource", "PlayerCombatContextSource", "Project.Core.Combat", "CharacterHealth" })
+            {
+                StringAssert.DoesNotContain(token, movement,
+                    $"AIMovementSource 出現 '{token}'：移動意圖只經黑板讀 CombatContext，不得回頭認識 combat producer 或存活真相");
             }
         }
     }

@@ -438,28 +438,32 @@ namespace Project.Tests.EditMode
         [Test]
         public void TC8_EnemyCombatEngagement_UsesStickyEnterLeaveRadii()
         {
+            // 🔄（2026-10-12，`docs/54` §3.3.2）判定由 AIMovementSource 搬到 AICombatContextSource；
+            //    本測項守的是「**從未受擊**時 8／12 m 黏性帶逐位元保留」（Q4-G＝(i)，AC-B.5 的純函數半邊）。
             const float enterRadius = 8f;
             const float leaveRadius = 12f;
 
+            bool Engaged(bool wasInCombat, float distance, float leave = leaveRadius) =>
+                AICombatContextSource.ResolveEngagement(
+                    new AICombatContextSource.EngagementMemory { InCombat = wasInCombat },
+                    distance, tookDamage: false, currentTime: 0f,
+                    enterRadius, leave, provokedLeaveRadius: 20f, provokedGraceSeconds: 5f).InCombat;
+
             // 未進場：必須真的走進 enter 半徑才算進戰鬥。
-            Assert.IsFalse(AIMovementSource.ResolveCombatEngagement(false, 8.01f, enterRadius, leaveRadius),
-                "尚未進場且在 enter 半徑外 ⇒ 不得 InCombat");
-            Assert.IsTrue(AIMovementSource.ResolveCombatEngagement(false, 8f, enterRadius, leaveRadius),
-                "走到 enter 半徑上 ⇒ 進場");
+            Assert.IsFalse(Engaged(false, 8.01f), "尚未進場且在 enter 半徑外 ⇒ 不得 InCombat");
+            Assert.IsTrue(Engaged(false, 8f), "走到 enter 半徑上 ⇒ 進場");
 
             // 已進場：黏性——enter 與 leave 之間維持在戰鬥中，不逐幀翻轉 facing 來源。
-            Assert.IsTrue(AIMovementSource.ResolveCombatEngagement(true, 10f, enterRadius, leaveRadius),
-                "已在戰鬥中且仍在 leave 半徑內 ⇒ 維持 InCombat（黏性核心）");
-            Assert.IsFalse(AIMovementSource.ResolveCombatEngagement(true, 12.01f, enterRadius, leaveRadius),
-                "超出 leave 半徑 ⇒ 脫離戰鬥");
+            Assert.IsTrue(Engaged(true, 10f), "已在戰鬥中且仍在 leave 半徑內 ⇒ 維持 InCombat（黏性核心）");
+            Assert.IsFalse(Engaged(true, 12.01f),
+                "超出 leave 半徑 ⇒ 脫離戰鬥（從未受擊 ⇒ 沒有寬限，Q4-G＝(i)）");
 
             // 脫離後要再進場必須回到較小的 enter 半徑——不是 leave 半徑，否則遲滯等於沒有。
-            Assert.IsFalse(AIMovementSource.ResolveCombatEngagement(false, 10f, enterRadius, leaveRadius),
-                "脫離後位於 enter 與 leave 之間 ⇒ 尚未重新進場");
+            Assert.IsFalse(Engaged(false, 10f), "脫離後位於 enter 與 leave 之間 ⇒ 尚未重新進場");
 
             // 退化輸入：leave 小於 enter 時夾成 enter，兩個門檻仍不得反向。
-            Assert.IsTrue(AIMovementSource.ResolveCombatEngagement(true, 8f, enterRadius, 6f));
-            Assert.IsFalse(AIMovementSource.ResolveCombatEngagement(true, 8.01f, enterRadius, 6f));
+            Assert.IsTrue(Engaged(true, 8f, leave: 6f));
+            Assert.IsFalse(Engaged(true, 8.01f, leave: 6f));
         }
 
         /// <summary>
@@ -499,12 +503,15 @@ namespace Project.Tests.EditMode
                 // 也不會在 Awake 內對 null agent 設定 updatePosition。
                 enemy.AddComponent<NavMeshAgent>();
                 AIMovementSource source = enemy.AddComponent<AIMovementSource>();
+                AICombatContextSource combatSource = enemy.AddComponent<AICombatContextSource>();
                 SetPrivateField(source, "target", targetObject.transform);
                 SetPrivateField(source, "_agent", null);
                 SetPrivateField(source, "_engagementMovement", AIMovementSource.EngagementMovement.Approach);
 
+                // 依 Runner 的順序：2.4 combat context → 2.5 movement intent（`docs/54` §3.3.2）。
                 var data = new PlayerRuntimeData();
                 InputData input = default;
+                combatSource.Tick(data, 0f);
                 source.ProduceIntent(ref input, data);
 
                 Assert.IsTrue(data.CombatContext.InCombat,
@@ -551,9 +558,10 @@ namespace Project.Tests.EditMode
 
                 enemy.AddComponent<NavMeshAgent>();
                 AIMovementSource source = enemy.AddComponent<AIMovementSource>();
+                AICombatContextSource combatSource = enemy.AddComponent<AICombatContextSource>();
                 SetPrivateField(source, "target", targetObject.transform);
-                SetPrivateField(source, "aggroEnterRadius", 8f);
-                SetPrivateField(source, "aggroLeaveRadius", 12f);
+                SetPrivateField(combatSource, "aggroEnterRadius", 8f);
+                SetPrivateField(combatSource, "aggroLeaveRadius", 12f);
                 SetPrivateField(source, "_agent", null);
                 SetPrivateField(source, "_engagementMovement", AIMovementSource.EngagementMovement.Approach);
 
@@ -567,6 +575,7 @@ namespace Project.Tests.EditMode
                     }
                 };
                 InputData input = default;
+                combatSource.Tick(data, 0f);
                 source.ProduceIntent(ref input, data);
 
                 Assert.IsFalse(data.CombatContext.InCombat,
@@ -675,7 +684,7 @@ namespace Project.Tests.EditMode
         ///
         /// <para>⚠️ 為什麼 <c>DeathArbiterSource</c> 擋不住</para>
         /// 它封鎖 <c>BlockInput</c>，也就是**輸入產生的意圖**；但 facing 的第二順位讀的是
-        /// <c>CombatContext</c>，由 <c>AIMovementSource</c> 在順序 2.5 直接寫黑板，**不經過輸入**。
+        /// <c>CombatContext</c>，由 combat context producer 在順序 2.4 直接寫黑板，**不經過輸入**。
         ///
         /// 測試先驗證「同一份資料在活著時確實會送出 request」，否則死亡分支的斷言
         /// 可能因為別的原因（例如方向退化）而假性通過。

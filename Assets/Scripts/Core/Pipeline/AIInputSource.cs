@@ -1,5 +1,6 @@
 using UnityEngine;
 using Project.Core.Blackboard;
+using Project.Core.Movement;
 using Project.Core.Survivability;
 
 namespace Project.Core.Pipeline
@@ -25,8 +26,12 @@ namespace Project.Core.Pipeline
     {
         private const float MinimumRetryInterval = 0.01f;
 
-        [Tooltip("攻擊對象。留空 ⇒ 永不出手（不是錯誤，未接線的敵人應該安靜）。")]
-        [SerializeField] private Transform target;
+        // 🔄（2026-10-12，`docs/54` §3.3.2-① T1）**不再持有自己的 target。**
+        // 攻擊對象與移動／交戰對象必須是同一個（W15 以前只在 prefab 層約束兩份序列化欄位相同，
+        // 場景 override 照樣可以分岔）。現在整隻敵人只有 `AIMovementSource.target` 一份，
+        // 本元件經它的唯讀屬性讀取——參照資料依賴，不是呼叫移動的決策邏輯。
+        // 同物件沒有 AIMovementSource（或其 target 為空）⇒ 永不出手（未接線的敵人應該安靜）。
+        private AIMovementSource _targetSource;
 
         [Tooltip("進入這個水平距離內就想出手。\n" +
                  "⚠️ 契約（W10 守）：必須**等於** AIMovementSource 的 maximumEngagementDistance。\n" +
@@ -98,18 +103,26 @@ namespace Project.Core.Pipeline
         /// <summary>目前是否想出手。<c>internal</c> 供 EditMode 驗證，production 只經 <see cref="FetchRawInput"/>。</summary>
         internal bool WantsToAttack()
         {
+            Transform target = ResolveTarget();
             if (target == null) return false;
 
             // 🆕（2026-10-12，`docs/54` §3.3，Q3 Target Eligibility）**死亡的目標不是攻擊目標。**
             // 玩家死亡後（重生是手動鍵，可以無限期保持死亡），敵人原本會每 2–3.2 s 對屍體揮一拳。
             // 判準與玩家選目標同一個（CharacterHealth.IsAliveOrUntracked）：沒有生命值的目標視為活著。
             // ⚠️ 讀的是**目標的**已 commit 判定，不是自己的黑板，也不讀 FSM（A27 不變）。
-            if (!CharacterHealth.IsAliveOrUntracked(ResolveTargetHealth())) return false;
+            if (!CharacterHealth.IsAliveOrUntracked(ResolveTargetHealth(target))) return false;
 
             return IsWithinAttackRange(transform.position, target.position, attackRange);
         }
 
-        private CharacterHealth ResolveTargetHealth()
+        private Transform ResolveTarget()
+        {
+            // EditMode 不呼叫 Awake ⇒ 惰性解析；找到後沿用（同物件上的元件不會換人）。
+            if (_targetSource == null) _targetSource = GetComponent<AIMovementSource>();
+            return _targetSource != null ? _targetSource.Target : null;
+        }
+
+        private CharacterHealth ResolveTargetHealth(Transform target)
         {
             // 找不到（null）時每次重找：目標可能稍後才掛上生命值元件；找到後只要 target 不變就沿用。
             if (_healthResolvedFor != target || _targetHealth == null)
@@ -134,10 +147,17 @@ namespace Project.Core.Pipeline
             return offset.sqrMagnitude <= clampedRange * clampedRange;
         }
 
-        /// <summary>測試用的顯式接線；production 走 Inspector 指派。</summary>
+        /// <summary>
+        /// 測試用的顯式接線；production 走 Inspector 指派。
+        /// target 刻意寫進同物件的 <see cref="AIMovementSource"/>（必要時補掛）——測試走的就是
+        /// production 的單一權威路徑，不在本元件留後門。
+        /// </summary>
         internal void ConfigureForTests(Transform attackTarget, float range, float retryInterval = 0.5f)
         {
-            target = attackTarget;
+            AIMovementSource targetSource = GetComponent<AIMovementSource>();
+            if (targetSource == null) targetSource = gameObject.AddComponent<AIMovementSource>();
+            targetSource.SetTargetForTests(attackTarget);
+            _targetSource = targetSource;
             attackRange = range;
             attackRequestRetryInterval = retryInterval;
             RearmAttackRequest();
@@ -171,6 +191,7 @@ namespace Project.Core.Pipeline
 
             Vector3 labelAnchor = origin + Vector3.up * 2.0f;
 
+            Transform target = ResolveTarget();
             if (target == null)
             {
                 UnityEditor.Handles.color = Color.red;

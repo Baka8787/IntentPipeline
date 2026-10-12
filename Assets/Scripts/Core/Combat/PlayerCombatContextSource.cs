@@ -40,7 +40,7 @@ namespace Project.Core.Combat
         private bool _hasInteractionTime;
 
         /// <summary>
-        /// 管線順序 2.6。時間由 Runner 注入，讓距離／時間的 AND 離場規則可確定性測試。
+        /// 管線順序 2.4（2026-10-12 由 2.6 前移，行為不變，見 Runner 註解）。時間由 Runner 注入，讓距離／時間的 AND 離場規則可確定性測試。
         /// </summary>
         public void Tick(PlayerRuntimeData data, float currentTime)
         {
@@ -56,7 +56,7 @@ namespace Project.Core.Combat
             // 「被打」會安靜地停止刷新交戰計時 ⇒ 被圍毆時反而提早脫離戰鬥語境，且沒有任何錯誤訊息。**
             //
             // 新來源是同一份已 commit 的生存真相（順序 0.5 由 `CharacterHealth` 發布，
-            // 本步在順序 2.6 讀得到），而且**涵蓋面更廣**：任何來源的傷害都算互動，
+            // 本步在順序 2.4 讀得到），而且**涵蓋面更廣**：任何來源的傷害都算互動，
             // 不再限於「記得戳 mailbox」的那些。
             //
             // ⚠️ 本輪**只遷移這一條 seam**。`docs/15` §4.2 的「目標合法性改讀 `IsDead`」

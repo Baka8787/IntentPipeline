@@ -62,6 +62,11 @@ namespace Project.Core.Pipeline
         private IMovementIntentSource _movementIntentSource;
         private IMovementModel _movementModel;
         private PlayerCombatContextSource _combatContextSource;
+        // 🆕（2026-10-12，`docs/54` §3.3.2）敵人的 combat context producer。與玩家的並列為第二個**具體**
+        // optional 欄位——兩者 Tick 形狀相同，但 ⛔ 刻意不抽 ICombatContextSource 介面：
+        // 排程只有這一處，抽介面換不到任何東西（「不要為了消除簡單依賴而新增更複雜的抽象」）。
+        // 每隻角色恰好掛其中一個（W12／W27 守）。
+        private AICombatContextSource _aiCombatContextSource;
         private TraversalProbe _traversalProbe;
 
         // 🆕（ADR-009 D1）可選的生存能力。缺席時 Survivability 恆為 default ⇒ 行為與導入前完全相同。
@@ -150,6 +155,7 @@ namespace Project.Core.Pipeline
 
             if (actionRequestTarget == null) actionRequestTarget = GetComponent<ActionRequestTarget>();
             _combatContextSource = GetComponent<PlayerCombatContextSource>();
+            _aiCombatContextSource = GetComponent<AICombatContextSource>();
             _traversalProbe = GetComponent<TraversalProbe>();
             _characterHealth = GetComponent<CharacterHealth>();
             _facingSource = GetComponent<CharacterFacingSource>();
@@ -438,15 +444,22 @@ namespace Project.Core.Pipeline
             // 【順序 2】Intent Processor（封鎖時輸入全 false ⇒ 不寫入任何意圖，與舊「跳過」等價）
             ProcessIntents(ref inputData); // 改為傳址
 
+            // 【順序 2.4】Combat Context Producer —— 順序 2 已寫好 Action intent，
+            // external ActionRequestTarget 也尚未在順序 4 評估後清除。Runner 只負責排程具體 producer
+            // （玩家 S3a／敵人 `AICombatContextSource`，每隻角色恰好一個）。
+            // 🔄（2026-10-12，ADR-007 修訂紀錄，`docs/54` §3.3.2-②）由 2.6 移到 2.5 **之前**：
+            //    敵人的 movement intent 讀 CombatContext 決定追不追；放在後面它只能讀到上一帧，
+            //    脫戰／目標死亡的那一帧會「已發布不在交戰、卻仍朝目標走」。玩家行為不變——
+            //    PlayerCombatContextSource 的輸入（順序 0.5 Survivability、順序 2 Intent、相機）此時都已就緒，
+            //    而 2.4～2.6 之間沒有任何讀者（PlayerLocomotionPolicy 不讀 CombatContext）。
+            _combatContextSource?.Tick(_runtimeData, Time.time);
+            _aiCombatContextSource?.Tick(_runtimeData, Time.time);
+
             // 【順序 2.5】🆕（ADR-003 D2）Movement Intent Producer —— 唯一寫入 MovementIntent 的環節。
             // Runner 只認識介面，不知道「移動策略」長什麼樣（Shift=Sprint 這類規則全在 policy＋GaitProfileSO）。
             // 封鎖時吃到的是零輸入 ⇒ DesiredSpeedNormalized 歸零（B9 收步）；而 WalkButtonDown 同為 false，
             // 故 Ctrl toggle 的持久型態 WalkModeActive 不會被誤翻，封鎖解除後型態原樣保留。
             _movementIntentSource?.ProduceIntent(ref inputData, _runtimeData);
-
-            // 【順序 2.6】Combat Context Producer —— 順序 2 已寫好 Action intent，
-            // external ActionRequestTarget 也尚未在順序 4 評估後清除。Runner 只負責排程具體 S3a producer。
-            _combatContextSource?.Tick(_runtimeData, Time.time);
 
             // 【順序 2.7】Traversal Environment Probe —— 可選角色能力，只快取本元件的 Candidate。
             // 不寫黑板、不觸發狀態；缺席時整段跳過，敵人與既有角色的執行路徑維持不變。

@@ -276,6 +276,7 @@ GameObject:
   - component: {fileID: 8271955464518154860}
   - component: {fileID: 3646897003330964560}
   - component: {fileID: 3640152768522331870}
+  - component: {fileID: 27836346643818879}
   m_Layer: 7
   m_Name: Y Bot
   m_TagString: Untagged
@@ -625,6 +626,69 @@ MonoBehaviour:
     WeightSmoothSpeed: 8
     MaxPelvisOffset: 0.35
     PelvisSmoothSpeed: 5
+    ReferenceSampleRadius: 0
+    UseContactPrototype: 0
+    ContactPhaseSpeedMin: 1
+    ContactPhaseSpeedMax: 4
+    LockBeta: 0.95
+    UnlockBeta: 0.7
+    UnlockRadius: 0.2
+    ReleaseTime: 0.12
+    MaxPoseStepPerFrame: 0.5
+    LockedFollowExperiment: 0
+    LockedFollowDeadZone: 0.03
+    SwingFootLengthReference: 0
+    PlantAwareExtrapolation: 0
+    PlantAwareNearSteps: 1.5
+    ExtrapolationSpeedMin: 2
+    ExtrapolationSpeedMax: 6
+    UseLandingSurfaceResolver: 0
+    LandingVerifyBeta: 0.7
+    LandingConfirmFrames: 2
+    LandingReviseFrames: 3
+    LandingSurfaceTolerance: 0.03
+    LandingLowConfidenceWeight: 0.5
+    LandingWeightRate: 10
+    LandingContradictionRate: 20
+    LandingPlantStillDistance: 0.01
+    LandingProximityRadius: 0.35
+    UseStandingPosturePrototype: 0
+    StandingPreferredExtension: 0.995
+    StandingFinalSupportSpeedMax: 1.35
+    StandingReliableFootSpeedMax: 0.3
+    StandingRiseOmega: 6
+    StandingEarlyLiftOmega: 6
+    StandingEarlyLiftRetreatSpeed: 1
+    StandingEarlyReleaseMinRootSpeed: 0.1
+    StandingRiseDurationNearSettle: 0.18
+    StandingRiseDurationSettling: 0.2
+    StandingRiseDurationDefault: 0.4
+    StandingTrailingCapBand: 0.03
+    StandingTrailingCapReleaseOmega: 10
+    StandingReturnOmega: 15
+    StandingHandbackTolerance: 0.01
+    StandingHandbackSpeed: 0.05
+    UseUnifiedMovingPelvis: 0
+    MovingPelvisDropOmega: 12
+    MovingPelvisRiseOmega: 1.5
+    MovingPelvisDescendRiseOmega: 6
+    MovingTerrainExitOmega: 6
+    MovingTerrainExitMargin: 0.05
+    MovingTerrainExitReleaseMargin: 0.02
+    UseUnifiedStandingPelvis: 0
+    StandingUnifiedRiseOmega: 6
+    StandingUnifiedSettleRootSpeed: 0.05
+    StandingUseSupportTransfer: 1
+    StandingDescendingTrailingLandingPulls: 1
+    StopLandingLeftGoalOffset: {x: 0, y: 0, z: 0}
+    StopLandingRightGoalOffset: {x: 0, y: 0, z: 0}
+    MovingLandingAnticipation: 1.5
+    MovingHardReachRatio: 1.05
+    LockedRiserIntrusionRule: 0
+    LockedRiserIntrusionMinRise: 0.08
+    LockedRiserIntrusionMaxRise: 0.3
+    LockedRiserIntrusionSupportTolerance: 0.03
+    LockedRiserIntrusionEdgeTolerance: 0.004
   drawFootIKRuntimeLines: 1
   drawFootIKSceneGizmos: 1
 --- !u!114 &4152831456267580326
@@ -656,6 +720,8 @@ MonoBehaviour:
   - bakeData: {fileID: 11400000, guid: 1ab60b9008b962846970b6c488927c6e, type: 2}
     animationKey: RunStop_RU
   locomotionAnimationKey: Idle
+  alignRunEntryPhase: 0
+  entryPhaseMaxHeadingDegrees: 30
   walkStopMinIntensity: 0.35
   walkStopMaxIntensity: 0.5
   runStopMinIntensity: 0.75
@@ -681,7 +747,6 @@ MonoBehaviour:
     ContactClearance: 0.045
     PlantHorizontalSpeedMax: 2
     SwingGateMinRootSpeed: 0.5
-    GroundStepTolerance: 0.06
   recordDebugTrace: 0
   enableFootstepConsoleTrace: 0
   surfaceMap: {fileID: 11400000, guid: 3739daca706202746b7f4f2e0f605200, type: 2}
@@ -721,8 +786,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Project.Runtime::Project.Core.Movement.AIMovementSource
   target: {fileID: 8480833622433434003, guid: 1166b9756cdbe5b49a34559de0988bf0, type: 3}
   desiredSpeedNormalized: 1
-  aggroEnterRadius: 8
-  aggroLeaveRadius: 12
   minimumEngagementDistance: 1.25
   maximumEngagementDistance: 1.6
   distanceHysteresis: 0.15
@@ -767,7 +830,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b2f1232f91de9e50d5c5af6c220440ef, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Project.Runtime::Project.Core.Pipeline.AIInputSource
-  target: {fileID: 8480833622433434003, guid: 1166b9756cdbe5b49a34559de0988bf0, type: 3}
   attackRange: 1.6
   attackRequestRetryInterval: 0.5
 --- !u!114 &-930000000000000002
@@ -827,6 +889,22 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f49ab53b6ff431144bc8de2c4bce2ad6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Project.Runtime::Project.Core.Arbitration.Sources.DeathArbiterSource
+--- !u!114 &27836346643818879
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7863296372082958677}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 34da6b6fa9eae974e8b864ac848241d3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Project.Runtime::Project.Core.Combat.AICombatContextSource
+  aggroEnterRadius: 8
+  aggroLeaveRadius: 12
+  provokedLeaveRadius: 20
+  provokedGraceSeconds: 5
 --- !u!1 &7979318934365082968
 GameObject:
   m_ObjectHideFlags: 0

@@ -24,12 +24,14 @@ Movement / Action / Animation
 
 ### 1.1 Awareness／Engagement
 
-- Owner：`AIMovementSource`。它持有敵人的 target reference，因此不另建第二份 target 清單。
-  🔄 2026-10-12 更正：`AIInputSource` 另有一份序列化 `target`（攻擊 trigger 必須在順序 1，A27）——兩份參照由 `PrefabWiringTests.W15` 約束為同一物件（prefab 層）。
+- Owner：🔄 **`AICombatContextSource`**（2026-10-12，`docs/54` §3.3.2；順序 2.4）。target 的**唯一**序列化權威仍是 `AIMovementSource.target`，`AICombatContextSource`／`AIInputSource` 經唯讀屬性 `Target` 讀它（參照資料依賴）；`AIMovementSource` 只經黑板讀交戰結果。
+  ~~2026-10-12 前：Owner＝`AIMovementSource`（持有 target reference，因此不另建第二份 target 清單）。~~
+  ~~🔄 2026-10-12 更正：`AIInputSource` 另有一份序列化 `target`……由 `W15` 約束為同一物件。~~ 已於 WP-1b 移除——只剩一份（`AICombatContextSourceTests.AB1`、`W15` 守）。
   🆕 2026-10-12（WP-1，`docs/54` §3.3）：`AIInputSource` 對**已死的目標**不再送攻擊 request（判準 `CharacterHealth.IsAliveOrUntracked`：沒有生命值的目標視為活著；`Revive` 後恢復）。
-  ⏸ `AIMovementSource`（交戰語境、追擊、面向）的同一判準**尚未落地**——`Core/Movement` 頂層的 A4 白名單不含 `Project.Core.Survivability`（ADR-003 D2：intent producer 不得回讀 gameplay state），要先裁決（`docs/54` §7）。在那之前，玩家死亡後敵人仍會繞行並面向屍體，但不再揮拳。
+  ✅ 2026-10-12（WP-1b）：交戰語境用**同一判準**——目標死亡的**當帧** `CombatContext = default`、移動意圖歸零（不給寬限）；`Revive` 後依距離恢復。
+- 🆕 **Provoked 交戰（Q4，`docs/54` §3.4）**：本帧受到有效（未致死）傷害 ⇒ 任何距離都進入交戰；本次交戰受過傷 ⇒ 保持半徑改為 `provokedLeaveRadius`（L），超出 L 先給 `provokedGraceSeconds`（G）寬限；寬限內回到 L 內或再受擊 ⇒ 取消。⚠️ **L＝20 m、G＝5 s 是量測候選值，不是平衡定值**。⛔ 不是仇恨系統（一個布林＋一個時間點）。
 - `target != null` 只代表知道目標；`CombatContext.InCombat` 由黏性半徑決定。
-- first-pass tuning：`aggroEnterRadius = 8m`、`aggroLeaveRadius = 12m`；尚未進場用 enter，已進場用 leave。
+- first-pass tuning：`aggroEnterRadius = 8m`、`aggroLeaveRadius = 12m`（🔄 欄位住在 `AICombatContextSource`）；尚未進場用 enter，已進場用 leave。**從未受擊的交戰**逐位元保留此規則、沒有寬限（Q4-G＝(i)）。
 - Aggro range 只回答「是否交戰」；`minimumEngagementDistance`／`maximumEngagementDistance` 只回答戰鬥內站位。
 - `!InCombat` 時整體清空 `MovementIntent`，敵人保持 Idle。
 
