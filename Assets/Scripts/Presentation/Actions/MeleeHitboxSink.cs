@@ -89,6 +89,11 @@ namespace Project.Presentation.Actions
             TryRequestHit(health);
         }
 
+        /// <returns>
+        /// 這一下是否為**有效命中**（命中當下目標仍活著或沒有生命值）。🔄 2026-10-12：
+        /// 打屍體回 false（不播命中音），與 <c>ThrownProjectile.TryRequestHit</c> 同義；
+        /// 屍體仍會登記進去重表，同一次揮擊不再重複處理它。
+        /// </returns>
         internal bool TryRequestHit(CharacterHealth health)
         {
             if (!_windowOpen || health == null) return false;
@@ -109,9 +114,17 @@ namespace Project.Presentation.Actions
             }
 
             _hitTargets[_hitTargetCount++] = health;
+
+            // 🆕（2026-10-12，`docs/54` §3.3，Q3a）**Effect Eligibility**：命中**當下**目標是否還活著。
+            // 必須在 ApplyDamage **之前**取——致死的那一擊是有效命中（要有命中音），
+            // 打一具屍體則不是（與投射物「命中屍體不算一次命中」同義）。
+            // ⚠️ 這不是 Damage Eligibility：扣不扣血仍只由 CharacterHealth.ApplyDamage 回答，下一行照常呼叫。
+            bool validHit = CharacterHealth.IsAliveOrUntracked(health);
+
             // 🆕（ADR-009 D2）近戰與投射物、地面 AoE 走同一條新 seam：只送傷害，
             // 「要播受擊還是要死」由持有生命值的一方決定。
             health.ApplyDamage(damage);
+            if (!validHit) return false;
 
             // 🆕（2026-09-17）命中音在**被打者身上**播，不在武器上——
             // 「打到東西」這件事在空間上發生在接觸的那一側，而去重迴圈已保證每個目標只響一次。

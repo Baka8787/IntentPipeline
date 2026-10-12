@@ -76,6 +76,20 @@ namespace Project.Core.Survivability
         }
 
         /// <summary>
+        /// 🆕（2026-10-12，`docs/54` §3.3，使用者裁決 Q3b）**最小存活判斷——唯一定義。**
+        /// <para>
+        /// 「沒有 <see cref="CharacterHealth"/> ＝視為活著；有則看已 commit 的 <see cref="IsDead"/>」。
+        /// ⚠️ **缺席 ≠ 死亡**：訓練樁、可互動物件沒有生命值，不得被當成屍體（`docs/15` §4.2）。
+        /// </para>
+        /// <para>
+        /// 它只是 Target Eligibility（能不能被選為目標）與 Effect Eligibility（命中副作用要不要發生）的
+        /// 共同**輸入**，⛔ 不是合併後的 eligibility 規則——Hit Detection 留在各 sink、
+        /// Damage Eligibility 留在 <see cref="ApplyDamage"/>。
+        /// </para>
+        /// </summary>
+        public static bool IsAliveOrUntracked(CharacterHealth health) => health == null || !health.IsDead;
+
+        /// <summary>
         /// 施加傷害。**這是本元件唯一的輸入**——攻擊方只說「打多少」，不說「要播什麼」。
         /// </summary>
         /// <returns>本次呼叫是否真的結算了傷害（已死亡／非正數傷害 ⇒ false）。</returns>

@@ -26,6 +26,8 @@ Movement / Action / Animation
 
 - Owner：`AIMovementSource`。它持有敵人的 target reference，因此不另建第二份 target 清單。
   🔄 2026-10-12 更正：`AIInputSource` 另有一份序列化 `target`（攻擊 trigger 必須在順序 1，A27）——兩份參照由 `PrefabWiringTests.W15` 約束為同一物件（prefab 層）。
+  🆕 2026-10-12（WP-1，`docs/54` §3.3）：`AIInputSource` 對**已死的目標**不再送攻擊 request（判準 `CharacterHealth.IsAliveOrUntracked`：沒有生命值的目標視為活著；`Revive` 後恢復）。
+  ⏸ `AIMovementSource`（交戰語境、追擊、面向）的同一判準**尚未落地**——`Core/Movement` 頂層的 A4 白名單不含 `Project.Core.Survivability`（ADR-003 D2：intent producer 不得回讀 gameplay state），要先裁決（`docs/54` §7）。在那之前，玩家死亡後敵人仍會繞行並面向屍體，但不再揮拳。
 - `target != null` 只代表知道目標；`CombatContext.InCombat` 由黏性半徑決定。
 - first-pass tuning：`aggroEnterRadius = 8m`、`aggroLeaveRadius = 12m`；尚未進場用 enter，已進場用 leave。
 - Aggro range 只回答「是否交戰」；`minimumEngagementDistance`／`maximumEngagementDistance` 只回答戰鬥內站位。

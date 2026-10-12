@@ -265,6 +265,25 @@ namespace Project.Tests.EditMode
             Assert.IsFalse(data.Survivability.IsDead);
         }
 
+        /// <summary>
+        /// 🆕（2026-10-12，`docs/54` §3.3，Q3b）**H14 — 最小存活判斷的唯一定義。**
+        /// 缺席 ≠ 死亡（訓練樁、可互動物件沒有生命值，不得被當成屍體）；復活後回到活著。
+        /// </summary>
+        [Test]
+        public void H14_IsAliveOrUntracked_TreatsAbsenceAsAlive_AndFollowsCommittedDeath()
+        {
+            Assert.IsTrue(CharacterHealth.IsAliveOrUntracked(null), "沒有 CharacterHealth ＝ 視為活著");
+
+            CharacterHealth health = CreateHealth(100f);
+            Assert.IsTrue(CharacterHealth.IsAliveOrUntracked(health));
+
+            health.ApplyDamage(200f);
+            Assert.IsFalse(CharacterHealth.IsAliveOrUntracked(health), "已 commit 的死亡 ⇒ 不再算活著");
+
+            health.Revive();
+            Assert.IsTrue(CharacterHealth.IsAliveOrUntracked(health), "Revive 之後回到活著");
+        }
+
         private CharacterHealth CreateHealth(float maxHealth)
         {
             var go = new GameObject("Survivability-Test");

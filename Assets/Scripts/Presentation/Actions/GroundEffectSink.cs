@@ -276,7 +276,13 @@ namespace Project.Presentation.Actions
         internal void ApplyToRoot(Collider other)
         {
             CharacterHealth health = other.GetComponentInParent<CharacterHealth>();
+
+            // 🆕（2026-10-12，`docs/54` §3.3，Q3a）**Effect Eligibility**：命中當下目標是否還活著，
+            // 在 ApplyDamage **之前**取（致死的那一擊仍算有效命中）。屍體不施加 Slow——
+            // 與投射物同義。⚠️ 扣不扣血仍只由 CharacterHealth.ApplyDamage 回答。
+            bool validHit = CharacterHealth.IsAliveOrUntracked(health);
             if (health != null) health.ApplyDamage(damage);
+            if (!validHit) return;
 
             TemporaryGameplayEffectState effectState = other.GetComponentInParent<TemporaryGameplayEffectState>();
             if (effectState != null)

@@ -269,6 +269,32 @@ namespace Project.Tests.EditMode
                 "倍率必須來自 TemporaryGameplayEffectState 的單一常數，不得由 sink 自己寫死");
         }
 
+        /// <summary>
+        /// 🆕（2026-10-12，`docs/54` §3.3，Q3a）**地面 AoE 不減速屍體**——與投射物同義
+        /// （<see cref="ProjectileHit_DoesNotApplySlowToDeadTarget"/>）。
+        /// 沒有生命值的目標仍照常被減速（缺席 ≠ 死亡）。
+        /// </summary>
+        [Test]
+        public void GroundEffect_DoesNotSlowDeadTarget_ButSlowsUntrackedTarget()
+        {
+            AIMovementSource corpseSource = CreateMovementSource(out TemporaryGameplayEffectState corpseEffect);
+            CharacterHealth corpse = corpseSource.gameObject.AddComponent<CharacterHealth>();
+            corpse.InitializeForTest(0f);
+            Collider corpseCollider = corpseSource.gameObject.AddComponent<SphereCollider>();
+
+            AIMovementSource dummySource = CreateMovementSource(out TemporaryGameplayEffectState dummyEffect);
+            Collider dummyCollider = dummySource.gameObject.AddComponent<SphereCollider>();
+
+            GroundEffectSink sink = CreateGroundEffectSink();
+            sink.ApplyToRoot(corpseCollider);
+            sink.ApplyToRoot(dummyCollider);
+
+            Assert.AreEqual(Effect.None, corpseEffect.GetTagAt(Time.time),
+                "屍體不得被減速——命中當下已死就不是有效命中");
+            Assert.AreEqual(Effect.Slow, dummyEffect.GetTagAt(Time.time),
+                "沒有 CharacterHealth 的目標視為活著，照常減速");
+        }
+
         /// <summary>同一個目標在一次爆發內只結算一次；多顆 collider 的敵人不得被結算多次。</summary>
         [Test]
         public void GroundEffect_SameTargetRootIsRegisteredOnlyOnce()

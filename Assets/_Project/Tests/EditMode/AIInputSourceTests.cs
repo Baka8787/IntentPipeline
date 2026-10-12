@@ -4,6 +4,7 @@ using UnityEngine;
 using Project.Core.Blackboard;
 using Project.Core.Movement;
 using Project.Core.Pipeline;
+using Project.Core.Survivability;
 
 namespace Project.Tests.EditMode
 {
@@ -189,6 +190,31 @@ namespace Project.Tests.EditMode
 
             Assert.IsTrue(reentered.Slot1ButtonDown,
                 "離開射程應重新武裝；再次進入不必等待舊 retry interval");
+        }
+
+        /// <summary>
+        /// 🆕（2026-10-12，`docs/54` §3.3，Q3）**死亡的目標不是攻擊目標。**
+        /// 玩家死後重生是手動鍵，可以無限期保持死亡；敵人原本會持續對屍體送攻擊 request。
+        /// 沒有 CharacterHealth 的目標視為活著（缺席 ≠ 死亡）；Revive 後恢復。
+        /// </summary>
+        [Test]
+        public void DeadTarget_IsNotAttacked_UntilRevived()
+        {
+            AIInputSource source = CreateSource(
+                targetPosition: new Vector3(0f, 0f, 1f), range: 2f, out Transform targetTransform);
+            Assert.IsTrue(source.WantsToAttack(), "前提：沒有生命值的目標在射程內 ⇒ 想出手（缺席 ≠ 死亡）");
+
+            CharacterHealth health = targetTransform.gameObject.AddComponent<CharacterHealth>();
+            health.InitializeForTest(0f);
+            Assert.IsTrue(health.IsDead, "前提：目標已死");
+
+            Assert.IsFalse(source.WantsToAttack(), "目標已死 ⇒ 不再想出手");
+            InputData pulse = default;
+            source.FetchRawInputAtTimeForTests(ref pulse, 20f);
+            Assert.IsFalse(pulse.Slot1ButtonDown, "目標已死 ⇒ 不得送攻擊 request");
+
+            health.Revive();
+            Assert.IsTrue(source.WantsToAttack(), "Revive 後目標重新合法");
         }
 
         /// <summary>

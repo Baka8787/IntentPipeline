@@ -222,8 +222,7 @@ namespace Project.Presentation.Actions
                 if (_ownerRoot != null && collider.transform.IsChildOf(_ownerRoot)) continue;
 
                 // 屍體是透明的：讓掃掠在同一個 tick 內繼續找後面的活目標。
-                CharacterHealth health = collider.GetComponentInParent<CharacterHealth>();
-                if (health != null && health.IsDead) continue;
+                if (!CharacterHealth.IsAliveOrUntracked(collider.GetComponentInParent<CharacterHealth>())) continue;
 
                 if (_sweepBuffer[i].distance >= nearest) continue;
                 nearest = _sweepBuffer[i].distance;
@@ -272,7 +271,7 @@ namespace Project.Presentation.Actions
             // 掃掠端會把屍體視為**透明**（同一個 tick 內繼續往後找活目標）；
             // 這裡再守一次，確保任何呼叫路徑都不會消耗掉自己。
             // ⚠️ 連帶不施加 Slow——減速一具屍體沒有意義，而且那會讓「命中」語意分岔成兩半。
-            if (health != null && health.IsDead) return false;
+            if (!CharacterHealth.IsAliveOrUntracked(health)) return false;
 
             _completed = true;
             // 🆕（ADR-009 D2）投射物只送傷害。**不再自己呼叫 RequestAction(Reaction)**——

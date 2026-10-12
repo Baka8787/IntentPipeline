@@ -403,6 +403,41 @@ namespace Project.Tests.EditMode
             Destroy(hitboxObject, targetObject);
         }
 
+        /// <summary>
+        /// 🆕（2026-10-12，`docs/54` §3.3，Q3a）**打屍體不是有效命中**（不播命中音），與投射物同義；
+        /// 同一窗內的活目標照常命中，致死的那一擊仍是有效命中。
+        /// 命中音本身在 EditMode 聽不到（沒有 AudioSource 池）——它與回傳值走同一個分支，聽感留給人工 Play。
+        /// </summary>
+        [Test]
+        public void T24B_MeleeHitbox_CorpseIsNotAValidHit_ButLethalBlowIs()
+        {
+            var hitboxObject = new GameObject("Melee-Hitbox-Corpse-Test");
+            hitboxObject.AddComponent<BoxCollider>();
+            MeleeHitboxSink sink = hitboxObject.AddComponent<MeleeHitboxSink>();
+            sink.ResolveHitbox();
+
+            var corpseObject = new GameObject("Melee-Corpse");
+            CharacterHealth corpse = corpseObject.AddComponent<CharacterHealth>();
+            corpse.InitializeForTest(0f);
+            Assert.IsTrue(corpse.IsDead, "前提：目標已死");
+
+            var victimObject = new GameObject("Melee-LethalVictim");
+            CharacterHealth victim = victimObject.AddComponent<CharacterHealth>();
+            victim.InitializeForTest(1f);   // 這一下就會致死
+
+            sink.Begin();
+            ActionReleaseContext context = default;
+            sink.Release(in context);
+
+            Assert.IsFalse(sink.TryRequestHit(corpse), "屍體不是有效命中——不得播命中音");
+            Assert.IsFalse(sink.TryRequestHit(corpse), "屍體已登記進去重表，不重複處理");
+            Assert.IsTrue(sink.TryRequestHit(victim), "致死的那一擊是有效命中（命中前目標還活著）");
+            Assert.IsTrue(victim.IsDead, "傷害仍由 CharacterHealth 結算");
+
+            sink.Cleanup();
+            Destroy(hitboxObject, corpseObject, victimObject);
+        }
+
         [Test]
         public void T25_Slot2Action_InvokesOnlySlot2LifecycleSink()
         {

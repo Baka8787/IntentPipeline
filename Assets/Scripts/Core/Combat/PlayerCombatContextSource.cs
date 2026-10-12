@@ -259,8 +259,7 @@ namespace Project.Core.Combat
                 return false;
             }
 
-            CharacterHealth health = candidate.GetComponentInParent<CharacterHealth>();
-            return health == null || !health.IsDead;
+            return CharacterHealth.IsAliveOrUntracked(candidate.GetComponentInParent<CharacterHealth>());
         }
 
         private bool IsRetainedTargetLegal(Transform selfRoot, ActionRequestTarget target, float radius)

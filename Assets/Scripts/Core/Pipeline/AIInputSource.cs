@@ -1,5 +1,6 @@
 using UnityEngine;
 using Project.Core.Blackboard;
+using Project.Core.Survivability;
 
 namespace Project.Core.Pipeline
 {
@@ -41,6 +42,11 @@ namespace Project.Core.Pipeline
 
         private bool _wasWithinAttackRange;
         private float _nextAttackRequestTime;
+
+        // 🆕（2026-10-12，`docs/54` §3.3）目標的生命值元件快取。找到後 target 不變就不再重找；
+        // 缺席（null）＝目標沒有生命值，視為活著。
+        private Transform _healthResolvedFor;
+        private CharacterHealth _targetHealth;
 
         /// <summary>
         /// 把持續的 attack desire 轉成單幀 request pulse。**不碰移動輸入**——敵人的移動意圖由
@@ -93,7 +99,25 @@ namespace Project.Core.Pipeline
         internal bool WantsToAttack()
         {
             if (target == null) return false;
+
+            // 🆕（2026-10-12，`docs/54` §3.3，Q3 Target Eligibility）**死亡的目標不是攻擊目標。**
+            // 玩家死亡後（重生是手動鍵，可以無限期保持死亡），敵人原本會每 2–3.2 s 對屍體揮一拳。
+            // 判準與玩家選目標同一個（CharacterHealth.IsAliveOrUntracked）：沒有生命值的目標視為活著。
+            // ⚠️ 讀的是**目標的**已 commit 判定，不是自己的黑板，也不讀 FSM（A27 不變）。
+            if (!CharacterHealth.IsAliveOrUntracked(ResolveTargetHealth())) return false;
+
             return IsWithinAttackRange(transform.position, target.position, attackRange);
+        }
+
+        private CharacterHealth ResolveTargetHealth()
+        {
+            // 找不到（null）時每次重找：目標可能稍後才掛上生命值元件；找到後只要 target 不變就沿用。
+            if (_healthResolvedFor != target || _targetHealth == null)
+            {
+                _healthResolvedFor = target;
+                _targetHealth = target != null ? target.GetComponentInParent<CharacterHealth>() : null;
+            }
+            return _targetHealth;
         }
 
         /// <summary>
