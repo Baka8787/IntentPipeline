@@ -59,7 +59,7 @@
 | # | 概念 | 一句話 |
 |---|---|---|
 | 1 | **方向承諾（commitment）** | 程式已是「facing 一份、效果一份」，但治理文件六處仍寫「同一份」；ADR-007 D5 明文 ⛔ 的正是現況。效果那一份**每帧重選 soft target**，與 2026-09-11 的「段內不重選、目標失效仍保留」也矛盾（F-01） |
-| 2 | **攻擊方向承諾（AI 側）** | 敵人沒有 `IAimSource` ⇒ 出拳**沒有承諾**，整段由 persistent combat facing 連續追蹤玩家；`EnemyPunch` 已有 Bake ⇒ 前衝位移也跟著轉。`docs/19` §3.2 卻寫「敵人出拳時朝向承諾方向」（F-02） |
+| 2 | **攻擊方向承諾（AI 側）** | 敵人沒有 `IAimSource` ⇒ 出拳**沒有承諾**，整段由 persistent combat facing 連續追蹤玩家；`EnemyPunch` 的 Bake 位移為 0（🔄 2026-10-12 更正，見 F-02）⇒ 原地出拳、hitbox 隨轉身掃動。`docs/19` §3.2 卻寫「敵人出拳時朝向承諾方向」（F-02） |
 | 3 | **目標合法性／可命中** | 五條規則：玩家選目標（marker＋非屍體）、近戰（`CharacterHealth`＋碰撞矩陣）、投射物（屍體透明）、地面 AoE（屍體照樣被 Slow）、AI（序列化 Transform，**不檢查死活**）。玩家死後敵人會持續繞屍、面向屍體、每 2–3.2 s 揮拳並播命中音（推導）（F-03） |
 | 4 | **進入戰鬥** | 玩家：半徑 6／9 ＋ 出手 ＋ **受擊** ＋ 5 s AND 規則；敵人：半徑 8／12 only。玩家可在 8–12 m（soft target 12 m）外打敵人，敵人播受擊後**繼續站著**（推導）（F-04） |
 | 5 | **中斷 permission 的表示** | 同型重入（Hurt→Hurt、Action→Action）完全不經 config；A38 卻斷言 config 的 Hurt→Hurt 為 true——斷言了一個 runtime 不讀的值（F-07） |
@@ -183,6 +183,8 @@ EnemyPunchDefinition.asset：Targeting 0（CameraForward——對沒有相機的
 ActionState.cs:303   有 Bake 且正在播 ⇒ ExecuteBakedCurveMovement 沿「當下」transform.forward 積分
 ```
 ⇒ **敵人整段出拳都在追蹤玩家，Bake 的前衝位移方向也跟著轉**（推導）。玩家側移閃避時，拳與前衝會跟過來。
+
+> 🔄 **更正（2026-10-12，`docs/54` 開頭）**：`Bake_Fists_Punch_R` 的 `SpeedCurve` 全為 0（總位移 0 m）⇒ **沒有前衝**，出拳期間原地不動，只有**轉身追蹤**。追蹤的實際後果是 hitbox（root 子物件，身前 0.9 m）在命中窗 0.32→0.8 s 內跟著玩家掃。本條其餘結論不變。
 
 **文件分岔**：`docs/15` §16-8 把它登記為開放項（「敵人沒有 `AimResolver`，若要為它建立 `ActionReleaseContext` 需要一個角色 origin」）；`ActionState.cs:527-529` 的註解也知道。但後寫的 `docs/19` §3.2 寫「Action commitment 仍然壓過 combat facing——敵人出拳時朝向承諾方向是正確的，且 `EnemyPunchDefinition` 無 Bake」——兩個前提今天都不成立。
 
@@ -425,7 +427,7 @@ ADR-007 是 Trial ⇒ 記 §11 修訂即可，**不開新 ADR**。效果端「�
 
 ### G-2 敵人攻擊的方向語意
 ```text
-Current   敵人無 IAimSource ⇒ 無承諾 ⇒ 整段 persistent facing 追蹤；Bake 前衝跟著轉
+Current   敵人無 IAimSource ⇒ 無承諾 ⇒ 整段 persistent facing 追蹤；hitbox 隨轉身掃動（Bake 位移為 0，2026-10-12 更正）
 → Problem  同一個「此擊朝哪」玩家與 AI 兩種答案；docs/19 陳述相反（F-02）
 → Canonical concept  Action commitment（ADR-007 D5）
 → Desired ownership  ActionState（不變）；缺的是 AI 的 commitment 來源（docs/15 §16-8）
@@ -524,7 +526,7 @@ Living Doc（`docs/26` 或 dev-spec §3.3）補一列即可；ADR-004 為 Accept
 | # | 問題 | 選項 |
 |---|---|---|
 | **Q1** | 效果落點在抬手期間：目標離開角錐時改打相機點、或另一個敵人更對準時換目標——是要的嗎？ | (a) 維持現況（「打我現在瞄的地方」）；(b) 鎖定段落邊界選到的**目標身分**、只跟它的位置；目標失效才退回相機點 |
-| **Q2** | 敵人出拳整段追蹤玩家（含 Bake 前衝）——要的嗎？ | (a) 接受追蹤，改 `docs/19`；(b) 給敵人段落承諾（`docs/15` §16-8 的 origin seam）；(c) release 前追蹤、之後鎖定 |
+| **Q2** | 敵人出拳整段追蹤玩家（hitbox 隨轉身掃動；Bake 位移為 0）——要的嗎？ | (a) 接受追蹤，改 `docs/19`；(b) 給敵人段落承諾（`docs/15` §16-8 的 origin seam）；(c) release 前追蹤、之後鎖定 |
 | **Q3** | 玩家死後敵人繼續繞屍、揮拳、播命中音——要讓「目標死亡＝不合法」也適用 AI 嗎？ | (a) 是（G-3）；(b) 保持，等陣營／重生流程一起做 |
 | **Q4** | 敵人在 aggro 半徑外被打，要不要進入交戰？ | (a) 是（G-4，零新欄位）；(b) 否，寫進 `docs/21` 作為刻意差異 |
 | Q5 | 空地按攻擊（無敵人）算不算 `InCombat`？ | (a) 算（現況，`docs/15` §4.1 字面）；(b) 只有「有目標」或「受擊」才算 |
