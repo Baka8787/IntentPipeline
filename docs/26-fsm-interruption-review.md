@@ -228,6 +228,8 @@ if (slot == ActionSlot.None && _externalRequestTarget != null)
 | 2 | `CanBeInterruptedBy` → `_currentEntry.Interruptible` | `ActionDefinitionSO` | 只有 `ActionState` 疊加 |
 | 3 | **`CanReenter`** | `ActionDefinitionSO` ＋ `AllowsSameSlotReentry` 硬編碼 | **只有 Action→Action，而實務上只有 Hurt** |
 
+> 🔄 **2026-10-12 現況註記**（`docs/54` §4.2）：Model B 之後路徑 3 改為 `HurtState.CanReenter`（受擊）與 `ActionState.CanReenter`（不同 slot）；`AllowsSameSlotReentry` 已刪。**同型重入完全不經 config**——`EvaluateInterrupts` 對自己只問 `CanReenter`。出貨 config 的 Hurt→Hurt 一項保留但 runtime 不讀取。
+
 路徑 3 的存在理由（ADR-005 FU-1）是「兩個不同技能要能互相打斷」，
 但實際上**最常走它的是受擊**——一個根本不是技能的東西。
 

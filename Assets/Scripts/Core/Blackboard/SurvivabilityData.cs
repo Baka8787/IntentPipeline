@@ -42,7 +42,9 @@ namespace Project.Core.Blackboard
         /// <para><b>⭐ 不排隊、不補播——這是語意，不是簡化</b></para>
         /// 被 Roll／Traversal 擋掉的那一次受擊反應**就是要被丟棄**：
         /// 翻滾的無敵幀結束後補播一次踉蹌是錯的。傷害與扣血照常成立（那是
-        /// <c>CharacterHealth</c> 的事），只有**表現**被丟棄。
+        /// <c>CharacterHealth</c> 的事），被丟棄的只有**硬直反應**（Hurt 狀態）。
+        /// 🔄（2026-10-12，使用者裁決 Q6）受擊**事件**本身的表現照常：`AudioController` 的受擊語音
+        /// 讀的是本旗標、不是 FSM 狀態 ⇒ 翻滾中被打仍會出聲（`CombatAudioTests.CA11` 守）。
         /// 若改用單調計數器，`CanEnter` 會在 Roll 結束後才變真 ⇒ 正好做出錯的行為。
         ///
         /// <para><b>致死時為 <c>false</c></b></para>

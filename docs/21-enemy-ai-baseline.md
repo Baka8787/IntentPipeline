@@ -24,7 +24,8 @@ Movement / Action / Animation
 
 ### 1.1 Awareness／Engagement
 
-- Owner：`AIMovementSource`。它已持有敵人的唯一 target reference，因此不另建第二份 target 清單。
+- Owner：`AIMovementSource`。它持有敵人的 target reference，因此不另建第二份 target 清單。
+  🔄 2026-10-12 更正：`AIInputSource` 另有一份序列化 `target`（攻擊 trigger 必須在順序 1，A27）——兩份參照由 `PrefabWiringTests.W15` 約束為同一物件（prefab 層）。
 - `target != null` 只代表知道目標；`CombatContext.InCombat` 由黏性半徑決定。
 - first-pass tuning：`aggroEnterRadius = 8m`、`aggroLeaveRadius = 12m`；尚未進場用 enter，已進場用 leave。
 - Aggro range 只回答「是否交戰」；`minimumEngagementDistance`／`maximumEngagementDistance` 只回答戰鬥內站位。
@@ -84,7 +85,7 @@ Movement / Action / Animation
 - 首次符合條件立即送一次；留在範圍內以 `attackRequestRetryInterval`（預設 0.5 秒）重試；離開後重新武裝。
 - retry 只回答「多久再送一次 request」，不是 attack cooldown。
 - `ActionState` 仍唯一裁決 cooldown、variance、grounded requirement 與 lifecycle。
-- AI 不讀 FSM／`ActionState`。同幀 intent-vs-Reaction 的既有優先序不變；false pulse 幀讓 external Reaction 可被消費。
+- AI 不讀 FSM／`ActionState`。~~同幀 intent-vs-Reaction 的既有優先序不變；false pulse 幀讓 external Reaction 可被消費。~~（🔄 2026-10-12：`ActionSlot.Reaction` 已於 `docs/26` Model B 退役，受擊不再經 mailbox。）
 - Prefab 契約（`PrefabWiringTests.W10` 守）：**`attackRange` 必須等於 `maximumEngagementDistance`**，
   且不得大於 aggro enter radius。
 

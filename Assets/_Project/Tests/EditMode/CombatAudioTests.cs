@@ -290,5 +290,42 @@ namespace Project.Tests.EditMode
                     "ActionState 的連段會在每段各發一次 Release，加上閘門會讓第 2、3 段無聲。");
             }
         }
+
+        /// <summary>
+        /// 🆕（2026-10-12，使用者裁決 Q6，`docs/54` §3.6）**受擊語音跟實際傷害事件，不跟 Hurt 狀態。**
+        ///
+        /// Roll／Traversal 擋下硬直時（`docs/26` Model B），傷害已成立、受擊事件已發布——
+        /// 被丟棄的只有硬直**反應**，語音照常。這個性質目前由「`AudioController` 根本不認識 FSM」保證；
+        /// 本測試把它釘住，避免日後有人「順手」改成跟著 `HurtState` 走而沒有任何紅燈。
+        /// 聽感仍保留人工驗證。
+        /// </summary>
+        [Test]
+        public void CA11_HurtAudio_IsDrivenByDamageEvent_NotByFsmState()
+        {
+            string path = System.IO.Path.Combine(
+                Application.dataPath, "Scripts", "Presentation", "Audio", "AudioController.cs");
+            Assert.IsTrue(System.IO.File.Exists(path), $"找不到 {path}");
+
+            string code = StripLineComments(System.IO.File.ReadAllText(path));
+
+            StringAssert.Contains("data.Survivability.JustTookDamage", code,
+                "受擊語音的唯一觸發來源必須是已 commit 的傷害事件");
+            foreach (string token in new[] { "StateType", "HurtState", "FullBodyStateMachine", "CurrentState" })
+            {
+                StringAssert.DoesNotContain(token, code,
+                    $"AudioController 出現 '{token}'：受擊語音不得依賴 Hurt 狀態是否切入（Q6）");
+            }
+        }
+
+        private static string StripLineComments(string code)
+        {
+            var builder = new System.Text.StringBuilder(code.Length);
+            foreach (string line in code.Split('\n'))
+            {
+                int index = line.IndexOf("//", System.StringComparison.Ordinal);
+                builder.Append(index >= 0 ? line.Substring(0, index) : line).Append('\n');
+            }
+            return builder.ToString();
+        }
     }
 }

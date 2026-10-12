@@ -164,6 +164,11 @@ request**，因此寫成 `0.` 只是位置示意——它不參與競爭，它�
 敵人出拳時朝向承諾方向是正確的，且 `EnemyPunchDefinition` 無 Bake（可自由移動），
 正好是 committed facing 的合法案例。
 
+> 🔄 **2026-10-12 更正（`docs/51` F-02、`docs/54` §3.2）**：上一段的兩個前提都不成立。
+> ①Y Bot 沒有 `IAimSource` ⇒ `ActionState` 對敵人**不產生**承諾（`HasAim=false`），出拳期間 facing 落在優先序 2（持續 combat facing、無死區），整段追蹤玩家；
+> ②`EnemyPunchDefinition` **有** Bake（`Bake_Fists_Punch_R`），但 speed curve 全為 0 ⇒ 出拳原地不動；追蹤的後果是 root 子物件 `MeleeHitbox` 在命中窗內跟著轉。
+> 使用者方向（Q2）：承諾點前追蹤、承諾點後鎖定；承諾時點待 `docs/54` §3.2.1 的 M2a–M2c 量測。
+
 ### 3.3 1D／2D 的選擇 —— **actor policy，不是 runtime 角度切換**（D3）
 
 `LocomotionModel` **不需要知道** 1D 還是 2D：它無條件同時發布 `MoveSpeed`、`MoveX`、`MoveZ`（F3）。

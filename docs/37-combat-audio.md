@@ -59,6 +59,8 @@ mixer 路由、ducking、優先權／virtualization、腳步聲的進一步微�
 | **Melee Hit** | `MeleeHitboxSink.TryRequestHit()` 去重通過後 | `Combat/Melee_Hit` | ✅ **被打者 root** | ❌ 否 |
 | **Player Hurt** | `AudioController.Tick` ← `Survivability.JustTookDamage` | `Combat/Player_Hurt`（經 `PlayerAudioLibrary`） | ✅ 角色 | ❌ 否 |
 | **Enemy Hurt** | 同上（**同一行程式**） | `Combat/Enemy_Hurt`（經 `EnemyAudioLibrary`） | ✅ 角色 | ❌ 否 |
+
+> 🔄 **2026-10-12（使用者裁決 Q6）**：受擊語音跟**實際傷害事件**（`JustTookDamage`），**與 Hurt 狀態是否切入無關**——Roll／Traversal 擋下硬直時，語音照常播放。由 `CombatAudioTests.CA11` 守（`AudioController` 不認識 FSM 狀態）；聽感保留人工驗證。
 | **Player Death** | `AudioController.Tick` ← `Survivability.JustDied` | `Combat/Player_Death` | ✅ 角色 | ❌ 否 |
 | **Enemy Death** | 同上（**同一行程式**） | `Combat/Enemy_Death` | ✅ 角色 | ❌ 否 |
 | **Jump Takeoff** | `AudioController.Tick` ← `JustLeftGround` | `Combat/Player_JumpTakeoff` | ✅ 角色 | ❌ 否 |

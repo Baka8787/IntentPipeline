@@ -154,7 +154,7 @@
         <tr><td><strong>Definition</strong> 內容</td><td>段落、動畫鍵、冷卻、中斷、targeting</td><td class="m">資產</td><td class="no">❌ 不是 state。一顆 state 承載多份 Definition</td></tr>
         <tr><td><strong>Phase</strong> 段落</td><td><code>Start</code>／<code>Loop</code>／<code>End</code>／<code>Cancel</code></td><td class="m">ActionState</td><td class="no">❌ 連段<strong>不是</strong>新的 phase，是「Start 換素材重播」</td></tr>
         <tr class="bind"><td><strong>Release</strong> 生效時點</td><td>段落播到 <code>ReleaseNormalizedTime</code> 的那一瞬間</td><td class="m">ActionState</td><td class="no">❌ 不是動畫事件、不是粒子碰撞</td></tr>
-        <tr class="bind"><td><strong>Commitment</strong> 方向承諾</td><td>段落邊界取得<strong>一次</strong>的世界方向快照</td><td class="m">ActionReleaseContext</td><td class="no">❌ 不是每幀重算的瞄準</td></tr>
+        <tr class="bind"><td><strong>Commitment</strong> 方向承諾</td><td><strong>facing</strong>：段落邊界取得一次；<strong>效果落點</strong>：前搖每帧重解、release 當帧鎖定（2026-10-12 ADR-007 D5 修訂）</td><td class="m">ActionReleaseContext</td><td class="no">❌ 不是每幀重算的瞄準</td></tr>
       </tbody>
     </table>
   </div>

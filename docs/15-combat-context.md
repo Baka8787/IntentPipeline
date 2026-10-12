@@ -140,11 +140,11 @@ S1／S2 落地後，`MotionDriver.RequestFacing` 的方向只可能來自三條�
 ### 4.4 Action soft-target candidate（2026-09-11）
 
 同一個 `PlayerCombatContextSource` 額外發布一份**每幀無記憶**的 candidate，專供下一個 Action／連段段落
-commitment boundary 使用。它不是黏性 combat target，也不改 `InCombat`：12m 內、camera forward 水平半角
+commitment boundary 使用（🔄 2026-10-12：**facing** 承諾在段落邊界消費一次；**效果落點**在前搖期間每帧重讀本 candidate、release 當帧定案——ADR-007 D5 修訂）。它不是黏性 combat target，也不改 `InCombat`：12m 內、camera forward 水平半角
 25° 內才合格，先比 alignment、再比距離。這兩個數值是第一版 playtest tuning。
 
 只有 producer 做 query／selection；`ActionState` 不碰 Physics，只讀快照。段落開始後 candidate 是否消失
-不再影響該段：facing 與 projectile 共用已承諾的位置／方向，下一段才重取。這不是 hard lock-on，亦不修改
+不再影響該段的 **facing**；~~facing 與 projectile 共用已承諾的位置／方向~~ 🔄 2026-10-12：projectile 的落點在 release 當帧重解（candidate 消失 ⇒ 改用相機射線點），下一段才重取 facing。這不是 hard lock-on，亦不修改
 WASD、MoveX／MoveZ、一般 idle facing 或 camera mode。
 
 ---
@@ -578,7 +578,7 @@ Action 的方向意圖：**以 camera forward 為主**；**某些指定技能**�
 | **D2**（移動方向世界化，MotionDriver 只執行） | ✅ 不受影響，且**是前提**：camera-relative 輸入 → 世界方向，正是 S1 交付的東西 |
 | **D3**（每角色單一 facing authority） | ✅ 權威結構不變。**改變的只是優先序清單的內容**——而 D3 明文「**不凍結**優先序清單本身」 |
 | **D4**（單一 aim authority，方向由 lifecycle 交付） | ✅ 不受影響。「攻擊方向以 camera forward 為主、可 soft-target」正是既有 aim 解算 ＋ 承諾機制 |
-| **D5**（承諾有作用域，facing 與 release 讀同一份） | ✅ **反而被強化**：承諾成為 facing 唯一會離開移動方向的理由 |
+| **D5**（承諾有作用域，facing 與 release 讀同一份） | ✅ **反而被強化**：承諾成為 facing 唯一會離開移動方向的理由。🔄 2026-10-12：D5 已修訂為「facing 段落一次、效果 release 定案」兩個作用域 |
 
 ⇒ **S1／S2 都是承重結構，不但沒白做，而且是這個模型的前提。**
 

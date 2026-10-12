@@ -179,7 +179,7 @@ namespace Project.Core.StateMachine
             _activeSlot = slot;
             _definition = definition;
 
-            // 第 1 段邊界取得一次承諾；Reaction 是受擊而非出手，明確不取得。
+            // 第 1 段邊界取得一次承諾（每一個 Action 都取得；受擊已不是 Action，見 ShouldFaceTargetOnEnter）。
             CaptureReleaseContext(data);
 
             NotifyBegin();
@@ -234,8 +234,8 @@ namespace Project.Core.StateMachine
         /// 🆕（ADR-009 D4）**兩層中斷授權。**
         ///
         /// <para><b>Problem</b></para>
-        /// <c>Interruptible</c> 原本是單一層級的否決權。把它設成 <c>false</c>（＝Super Armor，
-        /// 現況的 <c>EnemyPunchDefinition</c> 就是）會連**死亡**一起擋掉——「霸體」不該等於「打不死」。
+        /// <c>Interruptible</c> 原本是單一層級的否決權。把它設成 <c>false</c>（＝Super Armor；
+        /// <c>EnemyPunchDefinition</c> 當時就是，2026-09-14 已改為 <c>true</c>）會連**死亡**一起擋掉——「霸體」不該等於「打不死」。
         /// 這個缺口在導入死亡之前不存在，因為當時沒有比受擊更高的中斷來源。
         ///
         /// <para><b>語意（收窄，不是推翻）</b></para>
@@ -567,9 +567,10 @@ namespace Project.Core.StateMachine
         }
 
         /// <summary>
-        /// <see cref="ActionTargetingPolicy.CameraConeSoftTarget"/> 只在 commitment boundary 消費
-        /// combat context producer 當幀算好的無記憶候選。range／cone／scoring 只存在於 producer；
-        /// ActionState 不重算選擇，也不在段落內追蹤。
+        /// <see cref="ActionTargetingPolicy.CameraConeSoftTarget"/> 消費 combat context producer 當幀算好的
+        /// 無記憶候選。range／cone／scoring 只存在於 producer；ActionState 不重算選擇。
+        /// 🔄（2026-10-12，ADR-007 D5 修訂）**facing** 承諾只在段落邊界消費一次；**效果落點**
+        /// （<see cref="RefreshEffectContext"/>）在前搖期間每帧重讀候選，release 當帧交付即鎖定。
         /// </summary>
         internal static bool TrySoftTarget(
             CombatContextData combatContext,

@@ -52,7 +52,7 @@
 ```
 ① Movement Direction  ← 相機投影 ＋ 角速度限制，是 XZ 平面的世界向量，與 transform 無關
 ② Facing              ← 由 CharacterFacingSource 解出「該朝哪」，交給 MotionDriver 執行
-③ Aim                 ← 段落邊界取得一次的快照，人與效果**共用同一份**
+③ Aim                 ← facing 承諾：段落邊界取得一次；效果落點：release 當帧定案（2026-10-12 D5 修訂）
 ```
 
 > 📌 **`transform.forward` 從此只表達 ②。** 任何地方用它當移動方向都是 bug。
@@ -230,7 +230,7 @@ bool requestSent = !isDead && resolved && ShouldRequestFacing(...);
 | **I6** | `DesiredDirection` 在**producer 邊界**就完成相機投影；下游一律只接觸**水平、正規化的世界方向** | 相機空間洩漏到下游 |
 | **I7** | `transform.forward` **只表達 Facing**，⛔ 不得冒充移動方向 | strafe 不可能（ADR-007 的起點） |
 | **I8** | 角色 rotation 的**唯一寫入者是 `MotionDriver`**；facing request 的**唯一送出者是 `CharacterFacingSource`** | 兩個人轉同一顆角色 |
-| **I9** | 人與效果**共用同一份方向承諾** | 連段的人與火球分家（FU-6） |
+| **I9** | facing 承諾段落一次、效果落點 release 定案；sink 不自行解方向 | 抬手抽搐／打不中移動目標／sink 長出第二個方向權威 |
 | **I10** | 角速度限制用 **yaw 推進再重建向量**，⛔ 不用 `Vector3.RotateTowards` | 恰好 180° 反向時旋轉平面未定義 |
 | **I11** | 轉到位時**直接採用目標向量**，不再經 `Atan2 → Sin/Cos` 往返 | 直線前進時方向會停在 `(1, 0, −4.37e−8)`，讓「安定後方向恆等於意圖方向」不成立 |
 | **I12** | `LocomotionModel` **不認識任何 Mixer**——tier 門檻是資料，住在 `Locomotion.asset` | 呈現參數焊進程式 |
@@ -457,7 +457,7 @@ Pending stop 期間 **`_smoother.Tick` 不跑**——維持 release-entry 的速
 ### 同一條裂縫的第二面：連段的人與火球分家
 
 如果承諾（人要轉去哪）與發射（火球往哪飛）各自解讀當下方向，兩者必然漂開。
-修法是 `ActionReleaseContext`——**段落邊界取得一次，人與效果共用同一份**（見 `docs/32` §C）。
+修法是 `ActionReleaseContext`——**由 lifecycle 交付、sink 不自行解方向**（見 `docs/32` §C）。🔄 2026-10-12：交付的是兩份——facing 段落一次、效果 release 定案（ADR-007 D5 修訂）。
 
 ---
 

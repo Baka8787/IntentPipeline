@@ -1813,7 +1813,10 @@ namespace Project.Tests.EditMode
             Require(Move, Hurt, true, "Locomotion → Hurt：允許");
             Require(Jump, Hurt, true, "Jump → Hurt：允許（⚠️ 舊資產的 Jump 清單是空的）");
             Require(Action, Hurt, true, "Action → Hurt：允許（是否真的進去仍受 phase 的 Interruptible 夾制）");
-            Require(Hurt, Hurt, true, "Hurt → Hurt：允許（硬直中再次受擊要再踉蹌一次）");
+            // 🔄 2026-10-12（`docs/54` §4.2，F-07）：**不再斷言 Hurt → Hurt。**
+            //    同型重入不經 config——`EvaluateInterrupts` 對自己只問 `CanReenter`。出貨資產的
+            //    Hurt 清單裡那一項**暫時保留、runtime 不讀取**；在這裡斷言它等於保證一個不影響行為的值。
+            //    「硬直中再次受擊要再踉蹌一次」由 `HurtAndDeathStateTests.HD3B` 以 FSM 行為守住。
             Require(Roll, Hurt, false,
                 "Roll → Hurt：**不允許**。⛔ 這一條必須由 config 明確表示，" +
                 "不得用 Hurt priority < Roll priority 代替——permission 與 priority 是兩個概念。");

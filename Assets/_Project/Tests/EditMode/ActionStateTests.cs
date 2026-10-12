@@ -791,7 +791,9 @@ namespace Project.Tests.EditMode
         // =====================================================================
 
         [Test]
-        public void TD5_SecondChainSegment_ReleaseAndFacingUseSameCommittedDirection()
+        // 🔄 2026-10-12：改名（原名 `…ReleaseAndFacingUseSameCommittedDirection` 描述的是已被
+        //    ADR-007 D5 修訂取代的「同一份」契約；斷言內容自 2026-09-15 起就已是新契約）。
+        public void TD5_SecondChainSegment_EffectResolvedAtRelease_FacingStaysCommitted()
         {
             AimResolver resolver = CreateAimResolverRig(out GameObject root, out MotionDriver motionDriver);
             root.transform.position = new Vector3(2f, 1f, -3f);
@@ -844,58 +846,109 @@ namespace Project.Tests.EditMode
         }
 
         /// <summary>
-        /// Soft target 的**facing 承諾**只在 commitment boundary 取一次快照；
-        /// 段落開始後即使候選被清掉、camera aim 改變，**facing 仍維持該段承諾**。
-        /// 🔄 2026-09-15：**效果落點不再受此限**（見 TD5）——它改為 release 當下解算，
-        /// 因為打移動目標時舊座標必定落空。本測項因此只守 facing 那一半。
+        /// 🔄 **2026-10-12 拆分（`docs/54` §4.1）**：原 `TD5B_SoftTargetSnapshot_IsStableForTheCommittedSegment`
+        /// 的 release 落在進場當帧（測試輔助的 <c>releaseNormalizedTime</c> 預設 0），目標失效發生在 release
+        /// **之後** ⇒ 它的效果斷言在任何實作下都會綠，沒有測到它宣稱的情境。拆成兩條：
+        /// <list type="bullet">
+        /// <item><b>a</b>：facing 承諾——段落開始取一次，前搖中候選消失、相機轉向都不改寫它。</item>
+        /// <item><b>b</b>：效果落點——release 在前搖**之後**（0.5），前搖中候選消失 ⇒ release 當帧改用相機射線點
+        /// （ADR-007 D5 修訂框列出的「被接受的同段分家 ②」）。</item>
+        /// </list>
         /// </summary>
         [Test]
-        public void TD5B_SoftTargetSnapshot_IsStableForTheCommittedSegment()
+        public void TD5B_a_SoftTargetFacingCommitment_IsStableThroughWindup()
         {
-            AimResolver resolver = CreateAimResolverRig(out GameObject root, out _);
-            root.transform.position = new Vector3(1f, 0f, -2f);
-
+            var aim = new MovingAimSource { Point = new Vector3(0f, 2f, 10f) };
             var sink = new CountingLifecycleSink();
-            ActionDefinitionSO definition = CreateDefinition(
-                "Spell_Ice", true, 0.1f, slot: ActionSlot.Slot3);
-            definition.Targeting = ActionTargetingPolicy.CameraConeSoftTarget;
+            ActionDefinitionSO definition = CreateSoftTargetSpell(releaseNormalizedTime: 0.5f);
             StateMachineConfigSO config = BuildMultiActionConfig(definition);
             config.Initialize();
 
-            var state = new ActionState(null, CreateSinkMap(ActionSlot.Slot3, sink), resolver);
+            var state = new ActionState(null, CreateSinkMap(ActionSlot.Slot3, sink), aim);
             state.Initialize(config, new FakeMovementModel());
             var data = new PlayerRuntimeData { IsGrounded = true };
 
-            Vector3 cameraAim = root.transform.position + new Vector3(0f, 2f, 10f);
-            Vector3 committedTarget = root.transform.position + new Vector3(5f, 1f, 7f);
-            CacheAim(resolver, cameraAim);
-            data.CombatContext = new CombatContextData
-            {
-                HasSoftTarget = true,
-                SoftTargetPosition = committedTarget
-            };
+            Vector3 softTarget = new Vector3(5f, 1f, 7f);
+            data.CombatContext = new CombatContextData { HasSoftTarget = true, SoftTargetPosition = softTarget };
             data.Intent.RequestedActionSlot = ActionSlot.Slot3;
-
             state.OnEnter(data);
-            Assert.IsTrue(state.TryGetFacingCommitment(out Vector3 committedFacing));
+            data.Intent.RequestedActionSlot = ActionSlot.None;
 
-            // 模擬下一幀 target 已失效且 camera aim 已轉向；本段承諾不得被這些 live 資料改寫。
+            Assert.IsTrue(state.TryGetFacingCommitment(out Vector3 committedFacing));
+            Assert.Less((committedFacing - HorizontalDirection(softTarget)).sqrMagnitude, 1e-6f,
+                "前提：facing 承諾指向段落開始時的 soft target");
+
+            // 前搖中：候選消失、相機轉向。
             data.CombatContext = default;
-            CacheAim(resolver, root.transform.position + new Vector3(-8f, 4f, 1f));
+            aim.Point = new Vector3(-8f, 4f, 1f);
             state.OnTick(data, 0.2f);
 
-            Assert.AreEqual(1, sink.ReleaseCount);
+            Assert.AreEqual(0, sink.ReleaseCount, "前提：仍在前搖（release 在 0.5）");
+            Assert.IsTrue(state.TryGetFacingCommitment(out Vector3 facingDuringWindup));
+            Assert.Less((facingDuringWindup - committedFacing).sqrMagnitude, 1e-6f,
+                "facing 承諾必須維持段落開始的快照——前搖中跟著改會讓角色抬手時扭身");
+
+            Destroy(definition, config);
+        }
+
+        [Test]
+        public void TD5B_b_EffectContext_UsesLiveAimAtRelease_WhenCandidateLostDuringWindup()
+        {
+            var aim = new MovingAimSource { Point = new Vector3(0f, 2f, 10f) };
+            var sink = new CountingLifecycleSink();
+            ActionDefinitionSO definition = CreateSoftTargetSpell(releaseNormalizedTime: 0.5f);
+            StateMachineConfigSO config = BuildMultiActionConfig(definition);
+            config.Initialize();
+
+            var state = new ActionState(null, CreateSinkMap(ActionSlot.Slot3, sink), aim);
+            state.Initialize(config, new FakeMovementModel());
+            var data = new PlayerRuntimeData { IsGrounded = true };
+
+            Vector3 softTarget = new Vector3(5f, 1f, 7f);
+            data.CombatContext = new CombatContextData { HasSoftTarget = true, SoftTargetPosition = softTarget };
+            data.Intent.RequestedActionSlot = ActionSlot.Slot3;
+            state.OnEnter(data);
+            data.Intent.RequestedActionSlot = ActionSlot.None;
+            Assert.IsTrue(state.TryGetFacingCommitment(out Vector3 committedFacing));
+            Assert.AreEqual(0, sink.ReleaseCount, "前提：release 不在進場當帧");
+
+            // 前搖中：候選消失、相機轉向；之後跨過 release 時點。
+            data.CombatContext = default;
+            Vector3 liveCameraAim = new Vector3(-8f, 4f, 1f);
+            aim.Point = liveCameraAim;
+            for (int i = 0; i < 40 && sink.ReleaseCount == 0; i++) state.OnTick(data, 0.02f);
+
+            Assert.AreEqual(1, sink.ReleaseCount, "前提：必須真的 release 過一次");
             Assert.IsTrue(sink.LastReleaseContext.HasAim);
-            Assert.AreEqual(committedTarget, sink.LastReleaseContext.AimPoint,
-                "失效後仍須保留段落開始時承諾的 soft-target point");
+            Assert.AreEqual(liveCameraAim, sink.LastReleaseContext.AimPoint,
+                "候選在前搖中消失 ⇒ release 當帧改用相機射線點（ADR-007 D5 修訂：效果在 release 定案）");
 
-            Vector3 releaseFacing = sink.LastReleaseContext.Direction;
-            releaseFacing.y = 0f;
-            releaseFacing.Normalize();
-            Assert.Less((releaseFacing - committedFacing).sqrMagnitude, 1e-6f,
-                "facing 與 projectile release 必須共享同一次 commitment");
+            Assert.IsTrue(state.TryGetFacingCommitment(out Vector3 facingAtRelease));
+            Assert.Less((facingAtRelease - committedFacing).sqrMagnitude, 1e-6f,
+                "facing 仍是段落開始的承諾——這正是被接受的同段分家，不是缺陷");
 
-            Destroy(definition, config, root);
+            Destroy(definition, config);
+        }
+
+        private static ActionDefinitionSO CreateSoftTargetSpell(float releaseNormalizedTime)
+        {
+            ActionDefinitionSO definition = ScriptableObject.CreateInstance<ActionDefinitionSO>();
+            definition.Slot = ActionSlot.Slot3;
+            definition.RequiresGrounded = false;
+            definition.Cooldown = 0f;
+            definition.Targeting = ActionTargetingPolicy.CameraConeSoftTarget;
+            definition.Phases = new[]
+            {
+                Entry(ActionPhase.Start, "Spell_Ice", 1f,
+                    emitsRelease: true, releaseNormalizedTime: releaseNormalizedTime)
+            };
+            return definition;
+        }
+
+        private static Vector3 HorizontalDirection(Vector3 point)
+        {
+            point.y = 0f;
+            return point.normalized;
         }
 
         /// <summary>

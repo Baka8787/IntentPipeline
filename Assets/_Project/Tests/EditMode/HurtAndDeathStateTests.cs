@@ -98,6 +98,54 @@ namespace Project.Tests.EditMode
             Assert.IsFalse(hurt.CanReenter(data), "沒有新的受擊事件就不得重入");
         }
 
+        /// <summary>
+        /// 🆕（2026-10-12，`docs/54` §4.2，F-07）**硬直中再次受擊 ⇒ FSM 真的重入，且計時重置。**
+        ///
+        /// HD3 只呼叫 <c>CanReenter</c> 方法本身；本測試讓 **FSM** 在 Hurt 中再收到一次受擊，
+        /// 並刻意使用一份 **Hurt 清單不含 Hurt** 的 config——
+        /// `FullBodyStateMachine.EvaluateInterrupts` 對同型只問 <c>CanReenter</c>、不讀 config，
+        /// 所以這份 config 下行為仍必須成立。出貨 config 裡的 Hurt→Hurt 一項因此只是同形保留，沒有作用。
+        /// </summary>
+        [Test]
+        public void HD3B_SecondHitDuringHurt_ReentersAndRestartsTimer_WithoutConfigSelfEntry()
+        {
+            StateMachineConfigSO config = BuildConfig(actionInterruptible: true, hurtListsItselfInConfig: false);
+            var data = new PlayerRuntimeData { IsGrounded = true };
+            var machine = new FullBodyStateMachine();
+            machine.Initialize(config, data, new FakeMovementModel());
+
+            // 前提（Initialize 之後才有 interrupt map）：config 不授權 Hurt→Hurt，但 Hurt→Death 仍在——
+            // 第二條證明前一條不是「map 是空的」造成的假象。
+            Assert.IsFalse(config.CheckCanInterrupt(StateType.Hurt, StateType.Hurt),
+                "前提：本治具的 config 不授權 Hurt→Hurt");
+            Assert.IsTrue(config.CheckCanInterrupt(StateType.Hurt, StateType.Death));
+
+            // 第一次受擊 ⇒ 進 Hurt（本治具沒有 Hurt bake ⇒ 計時＝FallbackDuration 0.4 s）。
+            data.Survivability.JustTookDamage = true;
+            machine.Tick(data, 0.016f);
+            Assert.AreEqual(StateType.Hurt, machine.CurrentState.Type);
+
+            // 硬直走了 0.3 s，剩約 0.1 s。
+            data.Survivability.JustTookDamage = false;
+            machine.Tick(data, 0.3f);
+            Assert.AreEqual(StateType.Hurt, machine.CurrentState.Type);
+
+            // 第二次受擊 ⇒ 必須重入（OnExit → OnEnter），計時回到 0.4 s。
+            data.Survivability.JustTookDamage = true;
+            machine.Tick(data, 0.016f);
+            data.Survivability.JustTookDamage = false;
+
+            // 若沒有重入，剩下的 ~0.084 s 早已用完、會回到 locomotion；重入後還剩 0.2 s。
+            machine.Tick(data, 0.2f);
+            Assert.AreEqual(StateType.Hurt, machine.CurrentState.Type,
+                "硬直中再次受擊必須重新開始硬直——而且這不依賴 config 的 Hurt→Hurt");
+
+            // 重入後的計時也確實會結束。
+            machine.Tick(data, 0.25f);
+            machine.Tick(data, 0.016f);
+            Assert.AreNotEqual(StateType.Hurt, machine.CurrentState.Type);
+        }
+
         // =====================================================================
         // Action ↔ Hurt ↔ Death（使用者點名要驗的核心）
         // =====================================================================
@@ -351,7 +399,8 @@ namespace Project.Tests.EditMode
         /// 複製正式 config 應有的形狀。Traversal 刻意省略——本檔驗的是 Hurt／Death 的機制，
         /// traversal 的 permission 由 `A38` 在**出貨資產**上守。
         /// </summary>
-        private StateMachineConfigSO BuildConfig(bool actionInterruptible, int hurtPriority = 15)
+        private StateMachineConfigSO BuildConfig(
+            bool actionInterruptible, int hurtPriority = 15, bool hurtListsItselfInConfig = true)
         {
             ActionDefinitionSO attack = ScriptableObject.CreateInstance<ActionDefinitionSO>();
             _created.Add(attack);
@@ -389,8 +438,12 @@ namespace Project.Tests.EditMode
                 Rule(StateType.Action, 10,
                      new[] { StateType.Roll, StateType.Jump, StateType.Hurt, StateType.Death },
                      new[] { StateType.Move, StateType.Idle }),
+                // ⚠️ 清單裡的 Hurt **runtime 不讀**：同型重入只問 HurtState.CanReenter（見 HD3B）。
+                //    保留它只是為了與出貨資產同形；HD3B 用 hurtListsItselfInConfig=false 證明它沒有作用。
                 Rule(StateType.Hurt, hurtPriority,
-                     new[] { StateType.Hurt, StateType.Death },
+                     hurtListsItselfInConfig
+                         ? new[] { StateType.Hurt, StateType.Death }
+                         : new[] { StateType.Death },
                      new[] { StateType.Move, StateType.Idle }),
                 // 🔄 2026-09-14（respawn，ADR-009 D3 修訂）：ValidTransitions 由空改為 Idle／Move。
                 //    CanBeInterruptedBy **仍然留空**——沒有任何狀態「打斷」死亡，

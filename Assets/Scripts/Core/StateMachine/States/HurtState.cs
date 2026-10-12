@@ -72,7 +72,7 @@ namespace Project.Core.StateMachine
             {
                 Debug.LogWarning(
                     $"[HurtState] 查無 {Type} 的 MotionBakeData（StateMachineConfig 的 bakeMappings 未綁定 State: Hurt）。" +
-                    $"受擊將退化為固定 {FallbackDuration}s 計時、且不套用烘焙曲線位移（原地硬直）。" +
+                    $"受擊將退化為固定 {FallbackDuration}s 計時（受擊本來就不套用烘焙位移，只缺時長）。" +
                     "請把 Bake_Fists_Hit_Right 綁到 bakeMappings 的 Hurt 項。");
             }
 

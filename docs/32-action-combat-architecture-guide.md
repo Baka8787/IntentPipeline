@@ -248,7 +248,7 @@ flowchart TD
 |---|---|---|
 | **O1** | `CharacterHealth.PublishTo`（順序 **0.5**）必須在輸入（1）與狀態機（4）**之前** | 傷害在 Physics 階段（早於 Update）結算，順序 0.5 發布的就是最新真相 ⇒ 死亡能在**同一幀**同時封鎖輸入並讓 `DeathState` 接管。移後就會「死了還走一幀」或「死後又出手一次」 |
 | **O2** | Combat Context producer（**2.6**）必須在 Intent（2）**之後**、狀態機（4）**之前** | 順序 2 已寫好 action intent，external mailbox 也還沒被順序 4 評估後清除——2.6 因此看得到完整的「這一幀誰想出手」 |
-| **O3** | `CaptureReleaseContext` 在 **`OnEnter`／段落邊界**，不是每幀 | 方向承諾會跟著滑鼠一路飄 ⇒ ADR-007 要解的「連段的人與火球分家」原樣重現 |
+| **O3** | `CaptureReleaseContext`（facing 承諾）在 **`OnEnter`／段落邊界**，不是每幀；效果落點才每帧刷新（`RefreshEffectContext`） | facing 會跟著滑鼠一路飄、抬手期間持續扭身 |
 | **O4** | Facing source（**4.6**）必須在 FSM（4）**之後**、LateUpdate（6）**之前** | 在後，才讀得到當幀已確定的 commitment；在前，request 才來得及被順序 6 消費 |
 | **O5** | `sink.Cleanup()` 必須在 `OnExit`，**所有結束／中斷路徑共用** | 被打斷時命中窗不會關 ⇒ 命中窗一直開著 |
 | **O6** | `CommitCooldown()` 在 `OnExit`，且連段**整條共用一次** | 每段各算一次冷卻 ⇒ 連段第 2 段就進冷卻 |
@@ -269,7 +269,7 @@ flowchart TD
 | **I5** | sink **只送傷害數值**，不決定後果 | 攻擊者不知道會不會致死 ⇒ 致死幀「受擊先播、死亡再蓋上去」 |
 | **I6** | `IsDead` 是 **commit 的結果**，讀者不得自己算 `CurrentHealth <= 0` | 下游重新推導已 commit 的狀態（本 repo review protocol 的加重項） |
 | **I7** | `JustTookDamage` **不排隊、不補播** | 翻滾無敵幀結束後補播一次踉蹌＝錯的行為 |
-| **I8** | 方向承諾在**段落邊界取得一次**，執行期唯讀 | 火球與角色朝向分家 |
+| **I8** | **facing** 承諾在段落邊界取得一次，執行期唯讀；效果落點在 release 當帧鎖定 | 角色抬手期間抽搐（facing 每帧重取）／打不中移動目標（效果用舊座標） |
 | **I9** | `ActionTargetingPolicy` 是**帶預設值的 enum，不是布林** | 布林忘了勾 ⇒ 不可預測；enum 忘了填 ⇒ 與所有普通招式一致 |
 | **I10** | 中斷權限 **100% authored**（兩層：資產 `Interruptible` ＋ config `CanBeInterruptedBy`） | 程式裡出現「哪些狀態比較特別」的硬編碼 |
 | **I11** | 每目標每次揮擊只結算一次（固定容量去重表，零 GC） | 一刀打十下 |
@@ -361,10 +361,11 @@ release  = 1.2000 × 0.35 = **0.4200 s**
 ```
 
 `_phaseElapsed ≥ 0.42` 的那一幀 ⇒ `NotifyRelease()` ⇒ 每顆 sink 收到
-`Release(in _releaseContext)` ⇒ `ThrowProjectileEmitter` 用**承諾的方向**生出火球。
+`Release(in _effectContext)` ⇒ `ThrowProjectileEmitter` 用**這一帧解出的效果落點**生出火球。
 
-> 📌 **火球飛的方向是 0.42 秒前鎖定的那個方向，不是當下的滑鼠方向。**
-> 這就是承諾的意義——而且角色朝向也來自同一份承諾，所以人和火球不會分家。
+> 📌 🔄 **2026-10-12 修訂（ADR-007 D5）**：承諾分成兩份。**角色朝向**在段落開始（0 秒）鎖定、整段不變；
+> **火球落點**在前搖期間每帧跟上目標，release（0.42 秒）那一帧交付即鎖定——否則打不中側移中的敵人（`docs/11` §14）。
+> 代價是同段內人和火球可能差一個角度（目標移動、相機轉出角錐、多目標換候選三種來源）。
 
 ### 第 5 步：連段窗
 
@@ -555,7 +556,7 @@ public override bool CanBeInterruptedBy(BaseState other)
 
 ```
 ❌ 瞄準方向每幀更新
-✅ 段落邊界取得一次，整段不變。人和火球共用同一份承諾，所以不會分家
+✅ 朝向：段落邊界取得一次，整段不變。效果：前搖中跟上目標，release 當帧鎖定（2026-10-12，ADR-007 D5 修訂）
 ```
 
 ```

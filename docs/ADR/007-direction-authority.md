@@ -144,6 +144,21 @@ lock-on、AI、玩家輸入、aim **都是那個 authority 的來源，不是第
 **不凍結**：作用域的粒度（每次執行一次 vs 每個帶 release 的段落一次）＝可調參數。
 **凍結的是「同一份」，不是「多久一份」。**
 
+> 🔄 **Trial 修訂（2026-10-12，使用者裁決 Q1a；依據 `docs/11` §14、`docs/54` §3.1／§4.1）——「同一份」改為兩個作用域**
+>
+> 2026-09-15 起程式已把承諾拆成兩份，本條文字當時沒有跟上（`docs/51` F-01）。現行契約：
+>
+> | | 何時取得 | 誰讀 |
+> |---|---|---|
+> | **facing 承諾** | 段落開始取得一次；段落內不追蹤 | `CharacterFacingSource` 優先序 1 |
+> | **效果落點** | 前搖期間每帧重解（`CameraConeSoftTarget` 時每帧重選 soft candidate），**release 當帧交付即鎖定** | `IActionLifecycleSink.Release(in)` |
+>
+> **為什麼**：同一份承諾會讓 release 打「段落開始時」的目標位置——Fireball 抬手 0.42 s ＋ 飛行 ≈ 0.6 s，側移中的敵人累積 ≈ 1.7 m，膠囊只有 0.64 m 寬 ⇒ 必定落空（`docs/11` §14 的實測）。
+> **仍然成立**：D4（sink 不解方向、方向由 lifecycle 交付）；「揮擊途中甩相機，角色不會一直轉」（facing 仍是段落快照）。
+> **⛔ 仍然禁止**：facing 每帧重取（抬手抽搐，正是本 ADR 要消除的）；sink 自行解方向。
+> **被接受的同段分家**（寫進 AC B）：①目標在前搖中移動；②前搖中相機轉出 soft-target 角錐 ⇒ 效果改打相機射線點；③多個敵人時效果可在前搖中換到另一個候選。
+> 上方「facing 與 release 讀**同一份**」「⛔ facing 讀承諾、release 讀當下」兩句保留為歷史文字，**已被本修訂取代**。
+
 ---
 
 ## 5. 明確**不**由本 ADR 管的事（下放 Living Docs，不需要 ADR）
@@ -173,6 +188,7 @@ lock-on、AI、玩家輸入、aim **都是那個 authority 的來源，不是第
 
 - **D2 切斷上半**：位移不再讀身體 ⇒「面向 A、往 B 走」在物理上成立 ⇒ strafe。
 - **D4＋D5 切斷下半**：世界效果不再自己解方向，且與 facing 讀同一份承諾 ⇒ 人與火球**在結構上不可能分家**。
+  🔄 2026-10-12：D5 已修訂為兩個作用域（見 D5 修訂框）——D4 這一半仍成立（sink 不解方向）；「不可能分家」改為「只在三種明列來源下分家」。
 - **D1 讓兩端不會再長回來**：概念有了名字，下一個方向消費者（受擊反擊方向、格擋角度、鎖定 strafe）必須說明自己讀的是三者中的哪一個。
 - 📌 **順帶**：D4 讓 E5 的隱性依賴（AoE 靠 forward 指著敵人）從「碰巧成立」變成「明確交付」——
   **否則單獨做候選 B 會把它弄壞。**
@@ -234,16 +250,22 @@ lock-on、AI、玩家輸入、aim **都是那個 authority 的來源，不是第
     **脫離 combat 後**回到 facing 跟隨 `MovementDirection`，⛔ 不得永久 TPS strafe。
     ⚠️ 「脫離 combat」必須**真的可達成**——語境進出是黏性 enter／leave 半徑，
     ⛔ 不得只由「target 欄位非 null」決定（否則本條永遠驗不過）。切片與門檻見 `docs/19` §3.1。
+    🟡 **2026-10-12 待修訂**：「出手皆然」將改為「出手時：承諾點前追蹤、承諾點後鎖定」（使用者 Q2 方向；
+    承諾時點待 `docs/54` §3.2.1 的 M2a–M2c 量測後決定）。⚠️ 現況：敵人沒有 `IAimSource` ⇒ 出拳**沒有**承諾，
+    整段由持續 combat facing 追蹤（`docs/51` F-02）。
 
   📌 **過渡觀察（2026-09-06，使用者實跑）**：以舊治具（按住右鍵）驗到「右鍵時始終面朝前方沒問題」，
   **位移／朝向分離的物理面已成立**；缺的只是「朝向來源不靠按鍵」。<br>~~facing 被鎖住時（按住瞄準／後續 lock-on）按左，角色**朝目標、往世界左方位移**，不再朝目標走過去~~
   ✅ **A1 證據**（`WORKLOG.md` 2026-09-11 combined slice，使用者實跑）：「無目標、前方、側方、背後、雙目標與
   段內 target 消失情境皆符合 snapshot 規則」「Action 結束 overlay 歸零」；facing 與 movement 分離在 Layer 0
   持續 8-way 期間成立。⚠️ 手感（瞄準修正量）仍待驗，但**本條驗的是分離與復原，不是手感**。
-- [x] **B. A6 消失**：Fireball 連段期間敵人走動，**每一段的身體朝向與火球方向一致**（允許段與段之間變向，不允許同段內分家）
-  ✅ **證據**：`PlayerCombatContextSource` 每個 Action／連段段落**只取一次** soft candidate，
-  「facing 與 projectile release 共用同一 commitment」（`WORKLOG.md`）⇒ 同段內結構上不可能分家；
-  Play 已涵蓋雙目標與段內 target 消失。
+- [ ] **B. A6 消失**（🔄 **2026-10-12 撤回 ✅、改寫，待重驗**；使用者裁決 Q1a）：
+  Fireball 連段期間敵人走動，**每一段**的身體朝向在段落開始承諾、火球方向在 release 當帧定案；
+  **同段內的分家只允許來自 D5 修訂框列出的三種來源**（目標在前搖中移動／相機轉出 soft-target 角錐／多目標換候選），
+  ⛔ 不得出現其他來源（例如 sink 自行解方向、facing 每帧重取、release 用到段落邊界以前的舊值）。
+  自動化部分由 `ActionStateTests.TD5`、`TD5B_a`、`TD5B_b`、`AC1`、`AC2` 守；Play 重驗待做。
+  ~~✅ 證據：每段只取一次 soft candidate，「facing 與 projectile release 共用同一 commitment」⇒ 同段內結構上不可能分家~~
+  ——該證據的前提已於 2026-09-15 被 `docs/11` §14 取代，不再成立。
 - [x] **C. FU-6 結案**：`AIMovementSource` 不再引用 `CameraTransform`；**移動相機不改變敵人的移動方向**（Play 直接可驗）
   ✅ **證據（程式，2026-09-12 核對）**：`Core/Movement/AIMovementSource.cs` 對 `CameraTransform`／`camera` 的
   引用數為 **0**；並由 **A30**（`A30_OnlyPlayerMovementProducer_MayReferenceCameraTransform`）機器守。
@@ -260,6 +282,8 @@ lock-on、AI、玩家輸入、aim **都是那個 authority 的來源，不是第
   ❌ **未驗**：無量測紀錄。
 
 **⇒ 2026-09-12 狀態結論：A1・B・C・D 通過（4），A2・E・G 未驗、F 部分 ⇒ 維持 🟡 Trial。**
+
+🔄 **2026-10-12**：B 撤回 ✅（D5 修訂後舊證據失效）⇒ 目前通過 **A1・C・D（3）**，B 待重驗。
 剩餘工作是 **Play（A2 敵人脫離 combat／E 回歸）＋ PlayMode 跑一次 ＋ Profiler 一次**，**不是程式**。
 ⚠️ 這同時是 `docs/18` §6-C **X-3** 的解除條件——見該節 2026-09-12 的狀態欄。
 
@@ -336,3 +360,4 @@ S3 ＝ **Combat Context（gameplay 語境 ＋ 黏性目標）＋ 單一 facing s
 | 2026-09-06 | **S1＋S2 程式落地（code-first，Trial 期允許）**。**D1–D5 五條決策一字未動、未被推翻**。實作推翻的是 `docs/14` 的兩處**寫法**（`LocomotionModel` 無需修改；AoE 是「`AimPoint` 定方向、`castDistance` 定距離」而非「落點＝`AimPoint`」），已 fold back 進 `docs/14` §2.1／§2.2——**兩者都屬本 ADR 明文不凍結的範圍** | Trial 的存在目的就是讓實作有機會推翻規格。⚠️ **Acceptance A–G 全部尚未打勾**：EditMode／PlayMode 實跑與 Play 驗收在使用者側，`dotnet build` 0 error **不等於**測試通過 |
 | 2026-09-10 | **持續 target-facing 的適用範圍收斂為「敵人」（使用者裁決）**，並據此把 **Acceptance A 拆成 A1（玩家）／A2（敵人）**。<br>⚠️ **與 2026-09-08 那一列的關係（重要，不要誤讀為互相推翻）**：09-08 記的是「**Combat Context 不再驅動持續朝向**」，當時的語境是**玩家體驗**；本列把該裁決**明確限定在玩家**，並確認**敵人相反**——敵人在 combat 且有 target 時**持續** target-facing，因為那是敵人**既有** Hold／strafe 行為本來就需要的 facing policy。<br>**D1–D5 五條決策一字未動**；D3 的補充條款（facing 來源必須是語境、單一 producer、⛔ 禁止自建第二份 isInCombat／target）**全部原樣適用**，敵人 producer 正是它明文允許的「每角色唯一 active 的 combat context producer」。<br>連帶：8-way 的定位仍是 09-08 那句「**MovementDirection 與 FacingDirection 分離時**的 locomotion 表示法」——**未改**；改的只是**誰會長時間處於分離狀態**。1D／2D 由 **locomotion presentation mode ／ actor policy** 決定，⛔ **不得**依 separation angle 做 runtime 切換（不連續選擇餵給連續量）。切片規格：`docs/19-enemy-combat-facing-slice.md` | 玩家 8-way 的真正前置是「施法期間下半身仍播 locomotion」＝ ADR-006 上下半身分層，而 ADR-006 仍是 `Proposed`（Trial 名額被本 ADR 佔用）⇒ 玩家那半邊**現在做不動**；敵人那半邊**不需要分層**（純 Layer 0 locomotion），且今天就已經是可見缺陷（繞圈時側身／背對玩家）。⇒ 先做做得動、且修的是既有缺陷的那半邊 |
 | 2026-09-11 | **combined Trial 例外＋soft-target commitment 落地**：使用者批准 ADR-006 與本 ADR 暫時同為 Trial。`PlayerCombatContextSource` 在同一 producer 內額外發布無記憶的 soft-target candidate（12m／水平半角 25°；角度優先、距離次要），`ActionState` 只在每個 Action／連段段落邊界消費一次。段內不重選；facing 與 projectile release 共用同一份 commitment；target 中途失效仍保留該段承諾。**D1–D5 未改** | 這不是 hard lock-on，也不是第二個 target authority；它只是既有 D5 commitment 的選擇輸入。與 ADR-006 的 Layer 0 Walk／Run 8-way＋Layer 1 spell 一起接受 Play 驗證 |
+| 2026-10-12 | **D5 修訂：承諾拆為兩個作用域（使用者裁決 Q1a）**——facing 段落開始承諾一次；效果落點前搖期間每帧重解、release 當帧交付即鎖定。**AC B 撤回 ✅ 並改寫**（同段分家只允許三種明列來源）；AC A2 標記待修訂（Q2，待量測）。D1–D4 一字未動 | 2026-09-15 `docs/11` §14 已依使用者裁決把承諾拆成兩份，本 ADR 當時沒有 fold back（`docs/51` F-01）；舊 AC B 的證據正是建立在被取代的「同一份」上 |
