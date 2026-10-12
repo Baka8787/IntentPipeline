@@ -104,8 +104,8 @@ FullRing，沒有重新設計 mixer。
 
 ## 5. 明確不做
 
-- 不修改 Direction Authority、Combat Context 或 Action lifecycle。
-- 不新增 MovementLock／AttackMovementPolicy。
+- 不修改 Direction Authority、Combat Context 或 Action lifecycle。（🔄 2026-10-12：lifecycle 的節點與順序仍不變；既有節點只多了「轉送當前 phase 的移動限制宣告」，見下一條）
+- ~~不新增 MovementLock／AttackMovementPolicy。~~ 🔄 **2026-10-12 窄化修訂（Trial；使用者批准 `docs/54` Q5／WP-3a）**：仍然 ⛔ 不新增 MovementLock、AttackMovementPolicy 或任何通用 Action Constraint Framework；**唯一允許**的是一個型別化宣告 `ActionPhaseEntry.MovementLimit : ActionMovementLimit { None, DirectionalSpeed }`——①封閉清單，只有 `None`＋一個成員；②**不帶任何數值、角度或倍率**（數值仍由 actor 的 `CombatDirectionalSpeedProfileSO` 從 Bake 推導）；③只**啟用**既有的 actor 方向限速，且只在該 actor 的 `LocomotionModel` 政策為 `WhileActionDeclares` 時生效；④經可選能力介面 `IActionMovementLimitTarget` 傳遞，⛔ 不修改 `IMovementModel`、⛔ 不新增黑板欄位；⑤D1 不變——宣告的是 gameplay 移動限制，不是 layer。守門：A55（形狀不得長大）、A36、`SpellLayeringWiringTests.SL7`／`SL8`、`ActionMovementLimitTests`。時序：首帧延遲一帧（宣告在順序 4，model 下一帧順序 3 讀；`docs/54` §3.5.7 證明沿用既有生命週期無法消除，PlayMode 量測在可達情境中無效果）。
 - 不重新製作或重新設計既有 FullRing；只有檢查發現接線錯誤時才修資產接線。
 - 不修改玩家一般狀態仍使用 1D locomotion 的 policy。
 - 不把 Melee／Roll／Jump／Reaction 改成上半身動作。
@@ -164,3 +164,4 @@ FullRing，沒有重新設計 mixer。
 | 2026-09-11 | 收斂實際需求、最小 authored mapping 與 ADR-007 關係；素材完整不再列 blocker | 唯讀檢查確認方向資料流與 FullRing 已存在，缺口只在 Layer 0 companion＋Layer 1 mask/lifecycle |
 | 2026-09-11 | **Proposed → Trial**；實作 authored layering，與 ADR-007 暫時同為 Trial | 使用者明確批准 combined vertical slice 例外；僅用來驗證兩份 ADR 的交互作用，不放寬一般治理規則 |
 | 2026-09-11 | Spell Layer 0 companion 由 Sprint-calibrated FullRing 改為 Walk／Run 雙環 | 現行操作最高為 Run；保持 Sprint gameplay 定義，但不再讓 Walk／Run directional clips 全部追到 Sprint 速度 |
+| 2026-10-12 | **§5 窄化修訂**：「不新增 MovementLock／AttackMovementPolicy」改為允許單一型別化、無數值的 phase 宣告 `MovementLimit`（細節見 §5） | X Bot 的施法限速原本以 `InCombat` 代理「施法中」——交戰中未施法也被限速、非交戰施法只因「出手即交戰」才成立（`docs/54` §3.5.1）。啟用權應屬 gameplay 擁有者（施法期間＝Action），數值仍屬 Bake；原禁令要防的「攻擊移動政策框架」由封閉清單＋A55 機器化守住 |

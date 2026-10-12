@@ -911,9 +911,9 @@ Slot1／Slot3 的 Begin／Release／Cleanup 全為零；架構測試新增 **A26
   側移落在前跑的 62–65%、後退 63.6%。
 - ⛔ **不得**手填方向倍率或最低速度比例。太慢的話另開 tuning 決策，不在本輪補償。
 
-> 🟡 **2026-10-12**：本節的 `InCombat` 閘門已被判定為「施法中」的代理（`docs/54` §3.5）。正確的資料來源仍在設計中（Q5，未批准），在那之前行為不變。
+> ✅ **2026-10-12（WP-3a）**：本節的 `InCombat` 閘門已被判定為「施法中」的代理（`docs/54` §3.5），並已替換——X Bot 的 `LocomotionModel` 改為 `WhileActionDeclares`，由施法 phase 的 `MovementLimit = DirectionalSpeed` 宣告啟用（`Spell_Fireball_1/2/3`、`Spell_Ice` 四個帶 Layer 0 companion 的 phase；`SL7` 守關聯）。數值與 `maxPlaybackStretch` 不變。
 
-⚠️ **超出 spell 範圍的副作用（已知並接受）**：速度上限由 `LocomotionModel.ApplyCombatDirectionalSpeedLimit`
+~~⚠️ **超出 spell 範圍的副作用（已知並接受）**：~~ ✅ 2026-10-12 已消除（WP-3a：X Bot 交戰中未施法不再限速）。以下為歷史文字——速度上限由 `LocomotionModel.ApplyCombatDirectionalSpeedLimit`
 施加，它只看 `InCombat`、不看當前 mixer ⇒ **X Bot 在所有戰鬥中側移都會變慢**，不只施法時。
 `L6` 原本明文禁止 X Bot 啟用這個 policy（`Assert.IsNull`），該禁令已於本次一併廢除。
 

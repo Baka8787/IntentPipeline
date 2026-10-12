@@ -69,4 +69,37 @@ namespace Project.Core.Movement
         /// </summary>
         bool TryGetCurrentFootPhase(MotionBakeData loopBakeData, out FootPhase phase);
     }
+
+    /// <summary>
+    /// 🆕（2026-10-12，`docs/54` §3.5.6 契約①，ADR-006 §5 窄化修訂）**Action phase 對基底移動的宣告。**
+    ///
+    /// 只回答一件事：「這個 phase 期間，基底移動受 actor 自己的方向限速約束嗎？」
+    /// ⛔ 不帶任何數值、角度或倍率（數值由 actor 的 <c>CombatDirectionalSpeedProfileSO</c> 從 Bake 推導）；
+    /// ⛔ 不可組合、不是通用 Action Constraint Framework——封閉清單，只有 <see cref="None"/> 與一個成員（A55 守）。
+    /// 住在 <c>Project.Core.Movement</c>：宣告者（StateMachine）依賴 Movement 是既有方向，反向不允許。
+    /// </summary>
+    public enum ActionMovementLimit
+    {
+        /// <summary>預設＝現行行為：Action 不對基底移動宣告任何限制。</summary>
+        None = 0,
+
+        /// <summary>本 phase 期間啟用 actor 的方向限速（只啟用，數值不由 Action 決定）。</summary>
+        DirectionalSpeed = 1
+    }
+
+    /// <summary>
+    /// 🆕（2026-10-12，`docs/54` §3.5.6 契約②）接收 Action 宣告的**可選能力**。形狀比照
+    /// <see cref="IFootPhaseSource"/>：State 只持有 <see cref="IMovementModel"/>，以 <c>as</c> 取得本介面，
+    /// null ⇒ 安全退化（不限速）。⛔ **不修改 <see cref="IMovementModel"/>**（核心驅動介面）。
+    ///
+    /// <para><b>時序契約（`docs/54` §3.5.7）</b></para>
+    /// 宣告者在順序 4（FSM）呼叫，model 在下一帧順序 3 才讀 ⇒ **進入施法的第一帧不受限**（首帧延遲，
+    /// 沿用既有生命週期無法消除）。宣告是「**僅限當帧**」的續約：宣告者每帧重新呼叫；
+    /// model 只承認上一帧或本帧的宣告，**缺少宣告 ⇒ 下一帧自動視為 <see cref="ActionMovementLimit.None"/>**
+    /// （比照 <c>MotionDriver.RequestFacing</c> 的當帧請求先例）。
+    /// </summary>
+    public interface IActionMovementLimitTarget
+    {
+        void SetActionMovementLimit(ActionMovementLimit limit);
+    }
 }

@@ -23,6 +23,7 @@ MonoBehaviour:
     WaitForTrigger: 0
     EmitsRelease: 1
     ReleaseNormalizedTime: 0.35
+    MovementLimit: 1
   ChainSegments:
   - Phase: 0
     AnimationKey: Spell_Fireball_2
@@ -32,6 +33,7 @@ MonoBehaviour:
     WaitForTrigger: 0
     EmitsRelease: 1
     ReleaseNormalizedTime: 0.35
+    MovementLimit: 1
   - Phase: 0
     AnimationKey: Spell_Fireball_3
     Bake: {fileID: 0}
@@ -40,6 +42,7 @@ MonoBehaviour:
     WaitForTrigger: 0
     EmitsRelease: 1
     ReleaseNormalizedTime: 0.35
+    MovementLimit: 1
   ChainInputOpenNormalized: 0.25
   Cooldown: 0.4
   CooldownVariance: 0

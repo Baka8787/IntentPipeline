@@ -277,6 +277,84 @@ namespace Project.Tests.EditMode
             return -1f;
         }
 
+        /// <summary>
+        /// 🆕（2026-10-12，`docs/54` AC-3a.7）**宣告與表現的關聯**：有 Layer 0 companion（施法 8-way 表示）
+        /// 的 phase 必須宣告 <see cref="ActionMovementLimit.DirectionalSpeed"/>；有 Bake 的 phase
+        /// （位移由 Bake 決定、不消費 model 輸出）必須維持 <see cref="ActionMovementLimit.None"/>。
+        ///
+        /// ⚠️ 這條**不是**讓限速由 Presentation 推測——runtime 只讀宣告（`LocomotionModel` 不認識 mapping）。
+        /// 它守的是兩份 authored 事實不漂移：宣告是 gameplay 規則、companion 是表現；
+        /// 不一致時 gameplay 仍成立，只是表現會踩快（2.07–2.17× playback，`docs/11` §13）。
+        /// </summary>
+        [Test]
+        public void SL7_CompanionPhasesDeclareDirectionalSpeed_BakePhasesDeclareNone()
+        {
+            SerializedProperty mappings = LoadMappings();
+            var companionKeys = new HashSet<string>();
+            for (int i = 0; i < mappings.arraySize; i++)
+            {
+                SerializedProperty item = mappings.GetArrayElementAtIndex(i);
+                if (item.FindPropertyRelative("BaseLayerTransition").objectReferenceValue != null)
+                    companionKeys.Add(item.FindPropertyRelative("StateKey").stringValue);
+            }
+            Assert.IsNotEmpty(companionKeys, "前提：X Bot 至少有一個帶 Layer 0 companion 的 mapping");
+
+            var violations = new List<string>();
+            int declaredCount = 0;
+            foreach (string guid in AssetDatabase.FindAssets("t:ActionDefinitionSO", new[] { "Assets/ScriptableObjects" }))
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                var definition = AssetDatabase.LoadAssetAtPath<ActionDefinitionSO>(path);
+                foreach ((string group, ActionPhaseEntry[] entries) in new[]
+                         {
+                             ("Phases", definition.Phases), ("ChainSegments", definition.ChainSegments)
+                         })
+                {
+                    if (entries == null) continue;
+                    for (int i = 0; i < entries.Length; i++)
+                    {
+                        ActionPhaseEntry entry = entries[i];
+                        string where = $"{definition.name}.{group}[{i}]（{entry.AnimationKey}）";
+                        if (entry.MovementLimit == ActionMovementLimit.DirectionalSpeed) declaredCount++;
+
+                        if (entry.Bake != null && entry.MovementLimit != ActionMovementLimit.None)
+                            violations.Add($"{where} 有 Bake 卻宣告 {entry.MovementLimit}——Bake phase 不消費 model 輸出，宣告沒有意義且會誤導");
+                        if (entry.Bake == null && companionKeys.Contains(entry.AnimationKey) &&
+                            entry.MovementLimit != ActionMovementLimit.DirectionalSpeed)
+                            violations.Add($"{where} 有 Layer 0 companion 卻未宣告 DirectionalSpeed——施法側移會回到未限速的 playback");
+                    }
+                }
+            }
+
+            CollectionAssert.IsEmpty(violations, string.Join("\n", violations));
+            Assert.Greater(declaredCount, 0, "前提：至少一個出貨 phase 宣告了限速");
+        }
+
+        /// <summary>
+        /// 🆕（2026-10-12，`docs/54` AC-3a.1）兩個 actor 的啟用政策：X Bot＝施法宣告、Y Bot＝交戰中（不變）。
+        /// 兩者都仍引用自己的 Bake 推導 profile——啟用權與數值來源分開。
+        /// </summary>
+        [Test]
+        public void SL8_ActorActivationPolicies_XBotActionDeclares_YBotInCombat()
+        {
+            foreach ((string path, DirectionalSpeedLimitActivation expected) in new[]
+                     {
+                         (PlayerPrefabPath, DirectionalSpeedLimitActivation.WhileActionDeclares),
+                         ("Assets/Prefabs/Y Bot.prefab", DirectionalSpeedLimitActivation.WhileInCombat),
+                     })
+            {
+                GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                Assert.IsNotNull(prefab, path);
+                LocomotionModel model = prefab.GetComponentInChildren<LocomotionModel>(true);
+                Assert.IsNotNull(model, $"{path} 缺少 LocomotionModel");
+                var so = new SerializedObject(model);
+                Assert.AreEqual((int)expected, so.FindProperty("directionalSpeedLimitActivation").intValue,
+                    $"{path} 的方向限速啟用政策應為 {expected}");
+                Assert.IsNotNull(so.FindProperty("combatDirectionalSpeedProfile").objectReferenceValue,
+                    $"{path} 仍必須引用 Bake 推導的方向限速 profile（數值來源不變）");
+            }
+        }
+
         private static SerializedProperty LoadMappings()
         {
             GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PlayerPrefabPath);

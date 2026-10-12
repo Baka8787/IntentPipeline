@@ -4645,6 +4645,7 @@ MonoBehaviour:
   moveSpeedDecelTime: 0.18
   directionTurnDegreesPerSecond: 720
   combatDirectionalSpeedProfile: {fileID: 11400000, guid: af7fdddb273b5df4da482059c2d296af, type: 2}
+  directionalSpeedLimitActivation: 1
   walkLoopBakeData: {fileID: 11400000, guid: c168624b83aacd642bb0d17a8561f704, type: 2}
   walkStopVariants:
   - bakeData: {fileID: 11400000, guid: 727128432b3f50f46bc7cf1ffb7417e5, type: 2}

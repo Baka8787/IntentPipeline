@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **狀態** | 🟠 設計與影響分析（第五版）＋ **實作紀錄**：WP-0、WP-1（部分）、🆕 WP-1b＋WP-2 已實作（各 WP 狀態見 §0.1／§6）。未批准的部分（WP-3b、WP-4）⛔ 仍不得作為實作基線 |
+| **狀態** | 🟠 設計與影響分析（第五版）＋ **實作紀錄**：WP-0、WP-1（部分）、🆕 WP-1b＋WP-2、🆕 WP-3a 已實作（各 WP 狀態見 §0.1／§6）。未批准的部分（WP-3b、WP-4）⛔ 仍不得作為實作基線 |
 | **輸入** | `docs/51`（審查）＋ 使用者 2026-10-12 暫定裁決（第一輪）＋ 第二輪回覆（§0.1） |
 | **路由** | 全部落在既有 Trial ADR（ADR-006／007／009）可修訂範圍或 Living Spec；**不需要新 ADR**。唯一會碰核心驅動介面的是 §3.5 選項 R2（`AnimationFacadeBase` 加一個唯讀查詢），走 ADR-006 Trial 修訂記錄 |
 | **閱讀方式** | §0.1 裁決紀錄 → §1 衝突表 → §2 共享 vs 差異 → §3 逐項變更 → §4 F-01／F-07 專審 → §5 文件 vs runtime 分離 → §6 最小方案與 AC → §7 真正阻擋實作的事項 |
@@ -23,7 +23,7 @@
 | **Q2b／Q2c** | ✅ 已裁決 | 屬 WP-4，未實作 |
 | **Q3a／Q3b** | ✅ 已裁決；✅ 已全部實作 | `AIMovementSource` 部分由 WP-1b 完成：目標死亡當帧解除交戰、移動意圖同帧歸零 |
 | **Q4** | ✅ 維持既有裁決 | 未受擊保留 8／12 m；有效敵對傷害 ⇒ Provoked；20 m／5 s 為量測候選；目標死亡 ⇒ 立即解除；⛔ 通用仇恨系統。✅ 已實作於 `AICombatContextSource`（AC-B.5–B.8）；L／G 仍是量測候選值 |
-| **Q5** | ✅ 三件 typed contract 方向＋ADR-006 窄化**原則批准**；🟢 時序／撤銷／stale 已解（§3.5.7）；⏸ 等實作批准 | 首帧延遲：沿用既有生命週期**無法消除**（三個消除方案皆違反 Accepted 契約），界定為一帧；殘留：撤銷收斂於 `ResetExecutionState`＋每帧續約 ⇒ 缺少宣告自動回 `None` |
+| **Q5** | ✅ **WP-3a 已實作——Automated Verification Passed / Human Verification Pending** | 首帧延遲：沿用既有生命週期**無法消除**（三個消除方案皆違反 Accepted 契約），界定為一帧；殘留：撤銷收斂於 `ResetExecutionState`＋每帧續約 ⇒ 缺少宣告自動回 `None` |
 | **WP-3b** | ✅ 原則同意（§3.6） | 依賴 WP-3a |
 | **Q6／F-07** | ✅ 已裁決（WP-0） | 聽感仍待人工 |
 
@@ -656,19 +656,34 @@ interaction = JustTookDamage ∨ (RequestedActionSlot ≠ None ∧ (hasTarget �
 | 驗收④ `AIInputSource`／`AICombatContextSource`／`AIMovementSource` 用同一個 Target | ✅ `SingleTargetAuthority_AllThreeAIComponentsFollowTheSameReference`（改那一份，三者同時跟著變；置空三者同時停） |
 | 驗收⑤ Y Bot prefab 序列化引用正確 | ✅ `W15`／`W27`；遷移 log：`movement.Target`＝X Bot（遷移前後相同）、`AICombatContextSource` 8／12／20／5、`AIInputSource.target` 屬性已移除。⚠️ `SaveAsPrefabAsset` 連帶把 prefab 中**缺漏的欄位**以當下記憶體值（＝程式預設）寫出（FootIK settings 約 60 欄、`LocomotionModel.alignRunEntryPhase 0`／`entryPhaseMaxHeadingDegrees 30`），並移除程式已不存在的 `GroundStepTolerance`——行為中性（Unity 本來就以這些預設值反序列化），但只有 Unity 匯入保護、沒有逐欄測試 |
 
-### WP-3a Q5 typed movement limit——🟢 設計可實作，⏸ 等批准（§3.5.6、§3.5.7）
+### WP-3a Q5 typed movement limit——**Automated Verification Passed / Human Verification Pending**（2026-10-12 使用者批准後實作；§3.5.6、§3.5.7）
+
+> **落地形狀**：①`ActionPhaseEntry.MovementLimit : ActionMovementLimit { None = 0, DirectionalSpeed = 1 }`（enum 住在 `Project.Core.Movement`，宣告者依賴 Movement 是既有方向）；②`IActionMovementLimitTarget.SetActionMovementLimit`（`IMovementModel.cs` 內，`IFootPhaseSource` 同形），`LocomotionModel` 實作：一個值＋一個帧號，只承認本帧或上一帧；③`LocomotionModel.directionalSpeedLimitActivation : DirectionalSpeedLimitActivation { WhileInCombat = 0, WhileActionDeclares = 1 }`。`ActionState` 在 `EnterPhase`／`TryAdvanceChain` 宣告、`OnTick` 每帧續約（在 `deltaTime <= 0` 的 early return **之前**）、`ResetExecutionState` 撤銷。
+> **資產（Editor API）**：`FireballDefinition` Phases[0]＋ChainSegments[0..1]、`IceSpellDefinition` Phases[0] → `DirectionalSpeed`（由 X Bot mapping 的 `BaseLayerTransition` 推導，不是手挑）；所有 Bake phase（MeleeSlash1、EnemyPunch、Throw×4）維持 `None`；`X Bot.prefab` 的 `LocomotionModel` → `WhileActionDeclares`；`Y Bot.prefab` 不動（`WhileInCombat`）。還原＝git。
 
 | AC | 驗證 |
 |---|---|
-| AC-3a.1 X Bot 的啟用政策＝`WhileActionDeclares`；Y Bot＝`WhileInCombat` 且逐位元不變 | EditMode |
-| AC-3a.2 宣告 `DirectionalSpeed` 的 phase 進入帧 N：model 在 N 不受限、N+1 起受限（明文斷言首帧延遲） | EditMode（假 model＋真 `ActionState`） |
-| AC-3a.3 被 Hurt／Death／Roll 打斷、自然結束、Action→Action 重入：撤銷後的下一帧 model 讀到 `None` | EditMode（真 `FullBodyStateMachine`） |
-| AC-3a.4 stale：停止續約（不呼叫 `OnTick`）兩帧後 model 自動視為 `None`；暫停（`deltaTime = 0`）期間續約不中斷 | EditMode |
-| AC-3a.5 未宣告（`None`）的 Definition：與今天逐位元相同 | EditMode |
-| AC-3a.6 ⛔ `IMovementModel` 未修改；⛔ 黑板未新增欄位；`ActionMovementLimit` 封閉清單（`None`＋一個成員）；`ActionState` 不含 Layer／Mask 字樣（A36） | EditMode |
-| AC-3a.7 關聯測試：有 Layer 0 companion 的 Spell phase 必須宣告；有 Bake 的 phase 必須為 `None` | EditMode（讀出貨資產） |
-| AC-3a.8（Play）空地施法側移 playback ≤ 1.35×；交戰中未施法轉向不再減速；首帧延遲不可見 | probe＋人工 |
-| AC-3a.9 ADR-006 §5 與 `docs/21` §1.3.1 的窄化修訂已寫入（單一型別化成員、無數值、只啟用既有 actor 限速） | 文件 |
+| AC-3a.1 X Bot 的啟用政策＝`WhileActionDeclares`；Y Bot＝`WhileInCombat` 且逐位元不變 | ✅ `SpellLayeringWiringTests.SL8`（讀出貨 prefab）；`Policy_WhileInCombat_IgnoresActionDeclarations_YBotUnchanged`；`RealLocomotionModel_*`（WhileInCombat 照舊受限） |
+| AC-3a.2 宣告 `DirectionalSpeed` 的 phase 進入帧 N：model 在 N 不受限、N+1 起受限（明文斷言首帧延遲） | ✅ `ActionMovementLimitTests.AC2_*`（真 `ActionState`＋真 `FullBodyStateMachine`；model 自己數帧但閘門呼叫正式純函數） |
+| AC-3a.3 被 Hurt／Death／Roll 打斷、自然結束、Action→Action 重入：撤銷後的下一帧 model 讀到 `None` | ✅ `AC3_NaturalCompletion_*`、`AC3_InterruptedByHurtDeathOrRoll_*`（3 例）、`AC3_ActionToActionSwitch_*`（雙向，後寫者贏） |
+| AC-3a.4 stale：停止續約（不呼叫 `OnTick`）兩帧後 model 自動視為 `None`；暫停（`deltaTime = 0`）期間續約不中斷 | ✅ `AC4_MissingRenewal_*`、`AC4_Pause_*`、`Stale_*`（含哨兵帧號不溢位）。🧪 **mutation**：把續約移到 early return 之後 ⇒ `AC4_Pause` 轉紅（run `20261012T101845Z-mutation-pause`），已還原 |
+| AC-3a.5 未宣告（`None`）的 Definition：與今天逐位元相同 | ✅ `AC5_UndeclaredAction_NeverLimits`；`RealLocomotionModel_*`：未宣告與沒有 profile 的 `MoveSpeed` 逐位元相同（交戰中亦然） |
+| AC-3a.6 ⛔ `IMovementModel` 未修改；⛔ 黑板未新增欄位；`ActionMovementLimit` 封閉清單（`None`＋一個成員）；`ActionState` 不含 Layer／Mask 字樣（A36） | ✅ 🆕 A55（另守：唯一宣告者＝`ActionState`；啟用判斷不讀 Presentation 播放狀態）＋ A36 |
+| AC-3a.7 關聯測試：有 Layer 0 companion 的 Spell phase 必須宣告；有 Bake 的 phase 必須為 `None` | ✅ `SpellLayeringWiringTests.SL7`（讀出貨資產；runtime 不讀 mapping，只守兩份 authored 事實不漂移） |
+| AC-3a.8（Play）空地施法側移 playback ≤ 1.35×；交戰中未施法轉向不再減速；首帧延遲不可見 | 🟡 **首帧延遲：已量測（下表）**；playback 倍率與「交戰中轉向不再減速」的手感 ⬜ 人工 |
+| AC-3a.9 ADR-006 §5 與 `docs/21` §1.3.1 的窄化修訂已寫入（單一型別化成員、無數值、只啟用既有 actor 限速） | ✅ ADR-006 §5＋§8、`docs/21` §1.3.1／§1.5、`docs/11` §13、`docs/01` |
+
+**首帧延遲量測（驗收⑦，`SpellMovementLimitPlayModeTests`；出貨場景、真鍵盤輸入 D 側移→Q 施放 Fireball、固定 60 fps；資料 `docs/artifacts/action-combat/wp3a-first-frame-delay-*.csv`）**
+
+| 情境 | 意圖速度 | 進入帧 N 的本地方向 cap | N 的 smoother 目標差（延遲的全部影響） | cap 開始咬住 | 速度 N-1／N／N+1 → N+30 | 最大逐帧速度變化 | A（正式）vs B（零延遲對照） |
+|---|---|---|---|---|---|---|---|
+| 第一次施法 | 0.7500 | 0.7715 | **0.0000** | N+6 | 0.7500／0.7500／0.7500 → 0.56 | 0.0125 | cap 咬住前 [N-10, N+6)：速度差 **0.0000**、位置差 **0.000 cm**。之後兩次執行的施法朝向（瞄準）不可重現，整段位置差 0–1.6 cm 隨執行而變——那是朝向雜訊，與宣告無關（宣告只可能影響帧 N） |
+| 冷卻一結束就再施法（最早可達） | 0.7500 | 0.7716 | **0.0000** | N+6～N+7 | 0.7488／0.7490／0.7492 → 0.56–0.61（朝向雜訊） | ≤ 0.0123 | 不比較：兩次執行在施法**前**已差約 3 cm（第一次施法後的相機／瞄準時序不可重現），改用解析對照 |
+
+**判讀**：進入帧 N 時角色仍面向移動方向（本地＝前方），前方 cap 0.7715 高於鍵盤 Run 意圖 0.75（Walk 0.3651 更低；Sprint 未綁定）⇒ 宣告在 N 生效與否**不改變任何東西**。cap 要等施法的朝向承諾在 N 的 LateUpdate 開始轉身後（N+6）才低於意圖，那時宣告早已生效。⇒ 在可達的鍵盤情境中**首帧延遲不可見**，沒有突變（逐帧速度變化 ≤ 0.0125），⛔ 無需也未改動管線。⚠️ 理論上的可見情境：進入施法時朝向**已經**偏離移動方向且意圖高於該方向 cap（例如由一個帶朝向承諾的 Action 直接切入施法）——影響上限是 smoother 一帧（≈16.7 ms）的目標差，未實測；`SpellMovementLimitPlayModeTests` 的 `entryTargetGap == 0` 斷言會在調校或朝向行為改變時轉紅，屆時先重量、回報。
+
+**行為差異（相對 WP-3a 之前）**：X Bot **交戰中未施法**不再套用施法限速（`docs/11` §13 已接受的副作用消失；`docs/48` §7 量到的戰鬥轉向最低速度 0.553–0.677 不再出現——⬜ 手感待人工）；X Bot **非交戰施法**仍受限（不再依賴「出手即交戰」）；交戰中**連續施法**改為逐次啟用；Y Bot 逐位元不變。
+
 ### WP-3b `InCombat` ≠ Combat Action——依賴 WP-3a（§3.6）
 
 | AC | 驗證 |
@@ -697,7 +712,7 @@ interaction = JustTookDamage ∨ (RequestedActionSlot ≠ None ∧ (hasTarget �
 | 阻擋 | 擋住哪裡 | 需要什麼 |
 |---|---|---|
 | ~~**方案③ 的實作批准**~~ | WP-1b＋WP-2 | ✅ 2026-10-12 已批准並實作；剩人工 AC-B.11 |
-| **Q5 的實作批准**（S2＋首帧延遲界定） | WP-3a → WP-3b | 你接受「首帧延遲無法在不破壞 Accepted 契約下消除」的結論與 S2 |
+| ~~**Q5 的實作批准**~~ | WP-3a → WP-3b | ✅ 2026-10-12 已批准並實作（WP-3a）；剩人工 AC-3a.8 手感。WP-3b 不在本輪 |
 | **M2a–M2c** | WP-4 | Editor；未驗證前不固定承諾時點 |
 | **人工驗收** | WP-0、WP-1 關閉 | AC B 的 Play 重驗；受擊語音（M5）與近戰命中音聆聽 |
 
@@ -712,3 +727,4 @@ interaction = JustTookDamage ∨ (RequestedActionSlot ≠ None ∧ (hasTarget �
 
 紀錄：EditMode `Logs/safe-test/20261012T082055Z-wp01-editmode.*`；PlayMode `Logs/safe-test/20261012T082210Z-wp01-playmode.*`。
 WP-1b＋WP-2（2026-10-12）：EditMode **912／910**（1 failed＝上表場景 mask、1 skipped）`20261012T100155Z-wp1b-editmode`；PlayMode **109／108**（唯一失敗＝`C0`）`20261012T100251Z-wp1b-playmode`——失敗清單與 WP-0／WP-1 基線逐名相同。
+WP-3a（2026-10-12）：EditMode **928／926（1 failed＝場景 mask、1 skipped）** `20261012T101738Z-wp3a-editmode-2`；PlayMode **111／110（唯一失敗＝C0）** `20261012T103416Z-wp3a-playmode-2`——失敗清單同上。

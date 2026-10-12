@@ -124,6 +124,7 @@ Movement / Action / Animation
   AI locomotion 水平輸出；結束後回到 ambient state 才再由 `ExecuteBaseMovement` 消費。
 - 這不是 MovementLock 或 AttackMovementPolicy。若未來某個攻擊 clip 明確帶位移，只需讓該 Action phase 引用
   同 clip 的非零 Bake；ownership 與 runtime 分支不變。
+  🔄 2026-10-12（ADR-006 §5 窄化，`docs/54` §3.5.6）：Action phase 現在可以**宣告** `MovementLimit = DirectionalSpeed`，只用來**啟用** actor 自己的方向限速（無數值、封閉清單）。有 Bake 的 phase（含 `EnemyPunchDefinition`）必須維持 `None`（`SL7` 守）；Y Bot 的方向限速政策是 `WhileInCombat`，不受任何 Action 宣告影響（逐位元不變）。
 - 玩家 `FireballDefinition`／`IceSpellDefinition` 刻意維持 no-Bake，仍走既有 base-movement 行為。
 
 ### 1.4 Facing Policy
@@ -139,7 +140,7 @@ Movement / Action / Animation
   不含 diagonal、Run 或 Crouch。中間方向由相鄰 cardinal samples 自然 blend。
 - Mixer child playback speed 全為 1；threshold 直接由各方向 `MotionBakeData.AutoAverageSpeed / maximumSpeedBake`
   推導，不用人工倍率統一方向速度。
-- Y-only `CombatDirectionalSpeedProfileSO` 引用同一批 bakes；`LocomotionModel` 只在 `InCombat` 時，依 committed
+- Y-only `CombatDirectionalSpeedProfileSO` 引用同一批 bakes；`LocomotionModel` 只在 `InCombat` 時（🔄 2026-10-12 起這是 Y Bot 的 actor 政策 `WhileInCombat`，不再是全域規則；X Bot 為 `WhileActionDeclares`），依 committed
   actor facing 的 local direction 把實際 `MoveSpeed` 限在對應 bake speed。它不讀 camera，也不做 runtime
   angle-based 1D／2D switch。
 - ~~X Bot 不指派 profile~~ → 🔄 **2026-09-15 已推翻，見 §1.5.1**。X Bot 的 `Move` 仍使用原有 1D `Locomotion.asset`，但**已指派自己的 profile**。

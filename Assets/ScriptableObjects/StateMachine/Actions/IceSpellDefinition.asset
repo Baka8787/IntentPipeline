@@ -23,6 +23,7 @@ MonoBehaviour:
     WaitForTrigger: 0
     EmitsRelease: 1
     ReleaseNormalizedTime: 0.35
+    MovementLimit: 1
   ChainSegments: []
   ChainInputOpenNormalized: 0.25
   Cooldown: 1.5

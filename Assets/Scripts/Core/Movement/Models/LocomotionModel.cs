@@ -29,7 +29,23 @@ namespace Project.Core.Movement
     /// D4 的最終形態（欄位完全內化、不經黑板）目標不變，但需連動 MotionDriver API 與 Jump 空中控制，
     /// 留待後續階段；本輪刻意不一次做完（migration intermediate state，見 dev-spec §7.3）。
     /// </remarks>
-    public class LocomotionModel : MonoBehaviour, IMovementModel, IFootPhaseSource
+    /// <summary>
+    /// 🆕（2026-10-12，`docs/54` §3.5.6 契約③）**actor 的方向限速啟用政策。**
+    /// 兩種角色的啟用條件本來就不同，⛔ 不合併成一條全域規則：
+    /// Y Bot 交戰中持續面向目標 ⇒ facing 與移動常態分離 ⇒ <see cref="WhileInCombat"/>；
+    /// X Bot 只有施法時 Layer 0 才換成這份 profile 校準的 8-way 表示 ⇒ <see cref="WhileActionDeclares"/>。
+    /// 數值永遠來自 profile（Bake 推導）；profile 本身**不**持有啟用政策。
+    /// </summary>
+    public enum DirectionalSpeedLimitActivation
+    {
+        /// <summary>預設＝導入前行為：<c>CombatContext.InCombat</c> 時套用。</summary>
+        WhileInCombat = 0,
+
+        /// <summary>只在合法 Action phase 宣告 <see cref="ActionMovementLimit.DirectionalSpeed"/> 期間套用。</summary>
+        WhileActionDeclares = 1
+    }
+
+    public class LocomotionModel : MonoBehaviour, IMovementModel, IFootPhaseSource, IActionMovementLimitTarget
     {
         /// <summary>
         /// ambient 門檻：平滑速度達此值即視為「正在移動」（Move），低於則為 Idle。
@@ -54,6 +70,12 @@ namespace Project.Core.Movement
         [Header("Combat Directional Locomotion (Optional)")]
         [Tooltip("只給需要 combat directional locomotion 的 actor。未指派時維持既有 1D／速度行為。")]
         [SerializeField] private CombatDirectionalSpeedProfileSO combatDirectionalSpeedProfile;
+        [Tooltip("上面那份 profile 什麼時候生效（docs/54 §3.5.6）。\n" +
+                 "WhileInCombat（預設）＝交戰中（facing 與移動常態分離的 actor，例如 Y Bot）。\n" +
+                 "WhileActionDeclares ＝只在 Action phase 宣告 DirectionalSpeed 期間（例如 X Bot 施法）。\n" +
+                 "⚠️ 改成 WhileActionDeclares 後，啟用有一帧延遲：宣告在 FSM（順序 4），本 model 下一帧順序 3 才讀。")]
+        [SerializeField] private DirectionalSpeedLimitActivation directionalSpeedLimitActivation =
+            DirectionalSpeedLimitActivation.WhileInCombat;
 
         [Header("Forward Stop (C1 / C1.1)")]
         [Tooltip("Walk loop Bake Data：只用 authored FootPhaseCurve 配合 Locomotion 主導子動作時間選 LU/RU；不是 tier 表。")]
@@ -87,6 +109,10 @@ namespace Project.Core.Movement
         private int _nextRunFallbackVariantIndex;
         private float _locomotionNormalizedTime;
         private bool _hasLocomotionTimeSnapshot;
+
+        // 🆕（docs/54 §3.5.7）Action 的當帧宣告：一個值＋一個帧號。沒有堆疊、沒有優先序、沒有多來源合併。
+        private ActionMovementLimit _actionMovementLimit;
+        private int _actionMovementLimitFrame = int.MinValue;
 
 #if UNITY_EDITOR
         private int _missingPhaseWarningMask;
@@ -277,10 +303,53 @@ namespace Project.Core.Movement
             if (prediction.Active || prediction.HasNextPlant) data.LocomotionStopPrediction = prediction;
         }
 
+        /// <inheritdoc />
+        public void SetActionMovementLimit(ActionMovementLimit limit)
+        {
+            _actionMovementLimit = limit;
+            _actionMovementLimitFrame = Time.frameCount;
+        }
+
+        /// <summary>
+        /// （純函數）方向限速這一帧要不要啟用。啟用權只有兩個來源，依 actor 政策二選一：
+        /// 交戰語境（<see cref="DirectionalSpeedLimitActivation.WhileInCombat"/>），或 Action 的當帧宣告。
+        /// ⛔ 不讀任何 Presentation 播放狀態——限速不由「動畫正在播什麼」反推（`docs/54` §3.5.3）。
+        /// </summary>
+        internal static bool ShouldApplyDirectionalSpeedLimit(
+            DirectionalSpeedLimitActivation activation,
+            bool inCombat,
+            ActionMovementLimit declaredLimit,
+            int declaredFrame,
+            int currentFrame)
+        {
+            return activation == DirectionalSpeedLimitActivation.WhileInCombat
+                ? inCombat
+                : IsActionDeclarationLive(declaredLimit, declaredFrame, currentFrame);
+        }
+
+        /// <summary>
+        /// （純函數）Action 宣告是否仍有效：只承認**上一帧或本帧**的宣告。
+        /// 宣告者每帧續約（`ActionState.OnTick`，暫停時也續約）⇒ 正常執行中永遠是「上一帧」；
+        /// 任何一條路徑忘了撤銷，最多晚一帧就自動失效（`docs/54` §3.5.7-③ S2）。
+        /// </summary>
+        internal static bool IsActionDeclarationLive(
+            ActionMovementLimit declaredLimit, int declaredFrame, int currentFrame)
+        {
+            if (declaredLimit != ActionMovementLimit.DirectionalSpeed) return false;
+            long age = (long)currentFrame - declaredFrame;
+            return age >= 0 && age <= 1;
+        }
+
         private void ApplyCombatDirectionalSpeedLimit(
             PlayerRuntimeData data, ref MovementIntentData movementIntent)
         {
-            if (combatDirectionalSpeedProfile == null || !data.CombatContext.InCombat ||
+            if (combatDirectionalSpeedProfile == null ||
+                !ShouldApplyDirectionalSpeedLimit(
+                    directionalSpeedLimitActivation,
+                    data.CombatContext.InCombat,
+                    _actionMovementLimit,
+                    _actionMovementLimitFrame,
+                    Time.frameCount) ||
                 movementIntent.DesiredDirection.sqrMagnitude <=
                 LocomotionSpeedSmoother.Epsilon * LocomotionSpeedSmoother.Epsilon)
             {

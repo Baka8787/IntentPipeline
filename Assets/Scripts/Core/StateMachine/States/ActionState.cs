@@ -98,6 +98,10 @@ namespace Project.Core.StateMachine
         private int _chainIndex;
         private bool _chainQueued;
 
+        // 🆕（2026-10-12，`docs/54` §3.5.6 契約②）把當前 phase 的移動限制宣告轉送給 model 的可選能力。
+        // null ⇒ model 不支援（安全退化）。ActionState 只轉送 authored 宣告：不帶數值、不認識 layer／profile。
+        private IActionMovementLimitTarget _movementLimitTarget;
+
         // 🆕（ADR-007 D4／D5）每個段落邊界取得一次的方向承諾。
         // ActionState 是承諾與 release 時點的共同擁有者；facing 與世界效果只讀這一份快照。
         private ActionReleaseContext _releaseContext;
@@ -148,6 +152,7 @@ namespace Project.Core.StateMachine
         public override void Initialize(StateMachineConfigSO config, IMovementModel movementModel)
         {
             base.Initialize(config, movementModel);
+            _movementLimitTarget = movementModel as IActionMovementLimitTarget;
 
 #if UNITY_EDITOR
             if (Application.isPlaying && (config == null || config.ActionDefinitionCount == 0))
@@ -188,7 +193,12 @@ namespace Project.Core.StateMachine
 
         public override void OnTick(PlayerRuntimeData data, float deltaTime)
         {
-            if (_phase == ActionPhase.None || deltaTime <= 0f) return;
+            if (_phase == ActionPhase.None) return;
+
+            // 🆕（`docs/54` §3.5.7-③ S2）每帧續約移動限制宣告——**必須在暫停的 early return 之前**：
+            // 暫停期間 Update 照跑、帧號照走，不續約的話宣告會在暫停中過期，解除暫停的第一帧短暫失去限制。
+            DeclareMovementLimit();
+            if (deltaTime <= 0f) return;
 
             // 效果落點每帧跟上目標；facing 承諾**不動**（見 CaptureReleaseContext）。
             RefreshEffectContext(data);
@@ -431,6 +441,7 @@ namespace Project.Core.StateMachine
             _phaseElapsed = 0f;
             _currentAnimationKey = _currentEntry.AnimationKey;
             _releaseEmittedThisExecution = false;
+            DeclareMovementLimit();
             CaptureReleaseContext(data);
             TryEmitRelease();
             return true;
@@ -457,6 +468,7 @@ namespace Project.Core.StateMachine
             _currentEntry = entry;
             _phaseElapsed = 0f;
             _currentAnimationKey = entry.AnimationKey;
+            DeclareMovementLimit();
 
             if (phase == ActionPhase.Cancel)
             {
@@ -738,6 +750,21 @@ namespace Project.Core.StateMachine
             _effectContext = default;
             _activeSlot = ActionSlot.None;
             _definition = null;
+
+            // 撤銷收斂在這裡：自然完成（Complete）與被中斷（OnExit：Hurt／Death／Roll／Jump／Action 重入）
+            // 都經過本方法 ⇒ 沒有任何結束路徑會殘留舊限制（`docs/54` §3.5.7-②）。
+            DeclareMovementLimit();
+        }
+
+        /// <summary>
+        /// 把**當前 phase entry** 的宣告轉送給 model；沒有 phase 時一律 <see cref="ActionMovementLimit.None"/>。
+        /// 同帧多次呼叫時後寫者贏（例如 <c>OnExit</c> 撤銷 → 同一個 Tick 內的 <c>OnEnter</c> 宣告），順序由 FSM 保證。
+        /// </summary>
+        private void DeclareMovementLimit()
+        {
+            if (_movementLimitTarget == null) return;
+            _movementLimitTarget.SetActionMovementLimit(
+                _phase == ActionPhase.None ? ActionMovementLimit.None : _currentEntry.MovementLimit);
         }
     }
 }

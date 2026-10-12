@@ -47,6 +47,13 @@ namespace Project.Core.StateMachine.Actions
         public bool WaitForTrigger;
         public bool EmitsRelease;
         [Range(0f, 1f)] public float ReleaseNormalizedTime;
+
+        [Tooltip("🆕（docs/54 §3.5.6）這個 phase 期間，基底移動是否受 actor 的方向限速約束。\n" +
+                 "None（預設）＝現行行為。DirectionalSpeed ＝只『啟用』限速；數值仍由 actor 的 " +
+                 "CombatDirectionalSpeedProfileSO 從 Bake 推導，Action 不帶任何數值。\n" +
+                 "⚠️ 只有 actor 的 LocomotionModel 啟用政策＝WhileActionDeclares 時才生效。\n" +
+                 "⚠️ 有 Bake 的 phase（位移由 Bake 決定、不消費 model 輸出）必須維持 None（AC-3a.7 守）。")]
+        public Project.Core.Movement.ActionMovementLimit MovementLimit;
     }
 
     [CreateAssetMenu(fileName = "ActionDefinition", menuName = "Project/Core/Action/ActionDefinition")]

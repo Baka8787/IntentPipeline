@@ -1976,5 +1976,63 @@ namespace Project.Tests.EditMode
                     $"AIMovementSource 出現 '{token}'：移動意圖只經黑板讀 CombatContext，不得回頭認識 combat producer 或存活真相");
             }
         }
+
+        /// <summary>
+        /// 🆕（2026-10-12，`docs/54` AC-3a.6；ADR-006 §5 窄化修訂）**Action 移動限制契約的形狀不得長大。**
+        ///
+        /// ①核心驅動介面 <c>IMovementModel</c> 未被修改（宣告走可選能力介面，<c>IFootPhaseSource</c> 先例）；
+        /// ②<c>ActionMovementLimit</c> 是封閉清單：<c>None</c>＋一個成員——長出第三個成員就是在長通用 constraint framework；
+        /// ③黑板沒有新增欄位；④唯一的宣告者是 <c>ActionState</c>；⑤啟用判斷不讀 Presentation 播放狀態。
+        /// </summary>
+        [Test]
+        public void A55_ActionMovementLimitContract_StaysNarrow()
+        {
+            System.Reflection.MemberInfo[] modelMembers = typeof(Project.Core.Movement.IMovementModel).GetMembers();
+            var names = new List<string>();
+            foreach (System.Reflection.MemberInfo member in modelMembers) names.Add(member.Name);
+            names.Sort(StringComparer.Ordinal);
+            CollectionAssert.AreEqual(
+                new[] { "IsProducingMotion", "Tick", "UpdateMotion", "get_IsProducingMotion" },
+                names,
+                "IMovementModel（核心驅動介面）被修改——Action 的宣告必須走可選能力介面 IActionMovementLimitTarget");
+
+            var limitValues = new List<int>();
+            foreach (object value in Enum.GetValues(typeof(Project.Core.Movement.ActionMovementLimit)))
+                limitValues.Add(Convert.ToInt32(value));
+            CollectionAssert.AreEqual(
+                new[] { 0, 1 },
+                limitValues,
+                "ActionMovementLimit 必須是封閉清單 { None = 0, DirectionalSpeed = 1 }（⛔ 通用 Action Constraint Framework）");
+
+            foreach (System.Reflection.FieldInfo field in typeof(Project.Core.Blackboard.PlayerRuntimeData).GetFields(
+                         System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic))
+            {
+                Assert.IsFalse(field.Name.Contains("MovementLimit") ||
+                               field.FieldType == typeof(Project.Core.Movement.ActionMovementLimit) ||
+                               field.FieldType == typeof(Project.Core.Movement.DirectionalSpeedLimitActivation),
+                    $"PlayerRuntimeData.{field.Name}：Action 移動限制不得進黑板（`docs/54` §3.5.6）");
+            }
+
+            var declarers = new List<string>();
+            foreach (string path in Directory.GetFiles(ScriptsRoot, "*.cs", SearchOption.AllDirectories))
+            {
+                string code = StripComments(File.ReadAllText(path));
+                if (code.Contains("SetActionMovementLimit(") && !path.EndsWith("LocomotionModel.cs") && !path.EndsWith("IMovementModel.cs"))
+                    declarers.Add(RelativePath(path));
+            }
+            CollectionAssert.AreEqual(new[] { RelativePath(FindSingleScript("ActionState.cs")) }, declarers,
+                "Action 移動限制的唯一宣告者是 ActionState（ADR-004 D2：Action lifecycle 的單一權威）");
+
+            string model = StripComments(File.ReadAllText(FindSingleScript("LocomotionModel.cs")));
+            foreach (string method in new[] { "ShouldApplyDirectionalSpeedLimit", "IsActionDeclarationLive" })
+            {
+                string body = ExtractMethodBody(model, method);
+                foreach (string token in new[] { "animationFacade", "IsPlaying", "AnimationFacadeBase", "Layer" })
+                {
+                    StringAssert.DoesNotContain(token, body,
+                        $"{method} 出現 '{token}'：限速的啟用權不得由 Presentation 播放狀態反推（`docs/54` §3.5.3）");
+                }
+            }
+        }
     }
 }
