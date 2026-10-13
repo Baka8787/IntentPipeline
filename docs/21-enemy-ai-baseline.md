@@ -198,6 +198,8 @@ Walk 環不受影響（clipN×1.35 ＝ 0.3545 > gait 0.35 ⇒ 預算沒咬到，
 Patrol／search、vision／hearing、threat、Behavior Tree、Utility runtime、GOAP、HTN、squad、attack token、
 cover、HP／death 重構、Player 8-way、upper/lower body layering、完整 enemy 8-way／Run ring 與 traversal 都不屬於 v1。
 
+> 🔄 **2026-10-13**：使用者要求加入巡邏／區域遊走／回家。設計審查見 `docs/55`（🟠 Proposed，待裁決 N1–N7）；本節在實作落地前不變。
+
 ## 3. 未來方案 C：Utility Selector（只留升級路線，不實作）
 
 當候選行為約達 5–6 種且互相競爭、if/else 優先序難維護、不同敵人需要不同偏好，或必須同時權衡
