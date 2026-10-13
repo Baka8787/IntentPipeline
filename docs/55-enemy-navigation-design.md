@@ -353,6 +353,8 @@ dHome ＝ 敵人到家的水平距離；R_roam < R_soft < R_hard
 
 ### 11.5 Tactical Positioning 契約（只定契約，P5 實作）
 
+> 🔄 **2026-10-13**：P5 的 Research＋Design 在 **`docs/56`**（🟠 Proposed，未裁決）。它沿用下表的 Owner／輸出／與 Recovery 分界，並提出修訂：半徑改為交戰帶中點、承諾「目標相對方位角」、評分加入觸及線與空間餘裕、明列承諾／重評規則。裁決後以 `docs/56` 為準。
+
 | 項目 | 契約 |
 |---|---|
 | Owner | 獨立元件（暫名 `EnemyTacticalPositioning`），只在交戰中被 `AIMovementSource` 詢問；**不**屬於 Recovery |
