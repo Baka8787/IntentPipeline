@@ -13,10 +13,6 @@ MonoBehaviour:
   m_Name: Melee_Hit
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Audio.AudioDefinitionSO
   clips:
-  - {fileID: 8300000, guid: 35d098989aa859f459368ea252c78253, type: 3}
-  - {fileID: 8300000, guid: b9aeb22cde0ad9644ad1373e7a139602, type: 3}
-  - {fileID: 8300000, guid: a61a123a283818342b75688b6dc8c09f, type: 3}
-  - {fileID: 8300000, guid: ca683d51ee1cd8d4fb8b22447a59afab, type: 3}
   - {fileID: 8300000, guid: 0ca40dc646b8841478536ab8fa3b919d, type: 3}
   - {fileID: 8300000, guid: d802d5b20817293478795b2010cf93a0, type: 3}
   - {fileID: 8300000, guid: 147a20ca3a2d7bc44bf4c2f57c57352d, type: 3}

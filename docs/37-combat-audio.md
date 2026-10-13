@@ -56,11 +56,12 @@ mixer 路由、ducking、優先權／virtualization、腳步聲的進一步微�
 | **Ice Release**（施法完成） | `ActionAudioSink.Release()`，Slot 3 | `Combat/Ice_Release` | ✅ 角色 | ❌ 否 |
 | **Ice Impact**（冰刺冒出來） | `GroundEffectSink.Release()`，探地後的 `center` | `Combat/Ice_Impact` | ✅ **落點**（身前 0.4–4.4 m，不是角色身上） | ❌ 否 |
 | **Melee Swing** | `ActionAudioSink.Release()`，Slot 1 | `Combat/Melee_Swing` | ✅ 角色 | ❌ 否 |
-| **Melee Hit** | `MeleeHitboxSink.TryRequestHit()` 去重通過後 | `Combat/Melee_Hit` | ✅ **被打者 root** | ❌ 否 |
+| **Melee Hit** | `MeleeHitboxSink.TryRequestHit()` 去重通過後 | 🔄 玩家（劍）`Combat/Melee_Hit`；敵人（拳）`Combat/Melee_Hit_Fist` | ✅ **被打者 root** | ❌ 否 |
 | **Player Hurt** | `AudioController.Tick` ← `Survivability.JustTookDamage` | `Combat/Player_Hurt`（經 `PlayerAudioLibrary`） | ✅ 角色 | ❌ 否 |
 | **Enemy Hurt** | 同上（**同一行程式**） | `Combat/Enemy_Hurt`（經 `EnemyAudioLibrary`） | ✅ 角色 | ❌ 否 |
 
 > 🔄 **2026-10-12（使用者裁決 Q6）**：受擊語音跟**實際傷害事件**（`JustTookDamage`），**與 Hurt 狀態是否切入無關**——Roll／Traversal 擋下硬直時，語音照常播放。由 `CombatAudioTests.CA11` 守（`AudioController` 不認識 FSM 狀態）；聽感保留人工驗證。
+> 🔄 **2026-10-13（使用者裁決：命中音「依武器拆開」）**：原本玩家的劍與敵人的拳頭共用一個混合池（4 個拳打肉身＋6 個金屬刀刃刮切，隨機抽）——劍會抽到拳擊聲、拳頭會抽到金屬刮擦聲，使用者 Play 回報「很怪」。現在 `Melee_Hit` 只留 6 個金屬刀刃（X Bot），新增 `Melee_Hit_Fist` 只放 4 個拳打肉身（Y Bot）；volume／jitter／pitch 與原池相同。**命中音的語意跟著武器，不跟著陣營**——所以拆的是兩個 `AudioDefinitionSO`，⛔ 不新增 `AudioEventId`（§3.2 的理由不變）。由 `CombatAudioTests.CA12` 守；`Tools/audio-pipeline/WireClips.cs` 已同步。揮擊音 `Melee_Swing` 維持空池（無聲），使用者裁決不補。
 > 🔄 **2026-10-12（WP-1，`docs/54` §3.3）**：`Melee Hit` 只在命中**當下**目標仍活著時播放——打屍體不再有命中音，致死的那一擊仍有（`ActionStateTests.T24B`）。地面 AoE 同理不再減速屍體（`SlowEffectTests.GroundEffect_DoesNotSlowDeadTarget_ButSlowsUntrackedTarget`）。
 | **Player Death** | `AudioController.Tick` ← `Survivability.JustDied` | `Combat/Player_Death` | ✅ 角色 | ❌ 否 |
 | **Enemy Death** | 同上（**同一行程式**） | `Combat/Enemy_Death` | ✅ 角色 | ❌ 否 |

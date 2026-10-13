@@ -317,6 +317,53 @@ namespace Project.Tests.EditMode
             }
         }
 
+        /// <summary>
+        /// 🆕（2026-10-13，使用者裁決：命中音「依武器拆開」）**命中音的語意跟著武器，不跟著陣營。**
+        /// 玩家持劍 ⇒ 只有金屬刀刃；敵人出拳 ⇒ 只有拳打肉身。原本兩者共用一個混合池，
+        /// 每次隨機抽到另一種武器的聲音（劍砍出拳擊聲、拳頭打出金屬刮擦聲）。
+        ///
+        /// ⚠️ wav 不進版控（授權，`docs/37` §6.5）⇒ 沒有素材的 clone 上 clip 引用會是 null；
+        /// 這裡只檢查**解析得到**的 clip，空引用交給 `AudioDefinitionSO` 既有的防護。
+        /// 兩支 sink 指向不同資產這一條則與素材是否存在無關，永遠檢查。
+        /// </summary>
+        [Test]
+        public void CA12_MeleeHitAudio_MatchesTheWeapon_BladeForPlayerFistForEnemy()
+        {
+            AudioDefinitionSO player = LoadHitAudio("Assets/Prefabs/X Bot.prefab");
+            AudioDefinitionSO enemy = LoadHitAudio("Assets/Prefabs/Y Bot.prefab");
+            Assert.AreNotSame(player, enemy, "玩家（劍）與敵人（拳）的命中音必須是不同的池");
+
+            AssertClipsAll(player, "WEAPSwrd_Sword_Slide_Cuts", "玩家劍的命中音只能是金屬刀刃");
+            AssertClipsAll(enemy, "FGHTImpt_4_x_Punch_Body", "敵人拳頭的命中音只能是拳打肉身");
+        }
+
+        private static AudioDefinitionSO LoadHitAudio(string prefabPath)
+        {
+            var prefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+            Assert.IsNotNull(prefab, prefabPath);
+            var sink = prefab.GetComponentInChildren<Project.Presentation.Actions.MeleeHitboxSink>(true);
+            Assert.IsNotNull(sink, $"{prefabPath} 缺少 MeleeHitboxSink");
+            var audio = new UnityEditor.SerializedObject(sink).FindProperty("hitAudio").objectReferenceValue as AudioDefinitionSO;
+            Assert.IsNotNull(audio, $"{prefabPath} 的 MeleeHitboxSink.hitAudio 未指派");
+            return audio;
+        }
+
+        private static void AssertClipsAll(AudioDefinitionSO definition, string prefix, string message)
+        {
+            SerializedPropertyIterate(definition, clip =>
+                StringAssert.StartsWith(prefix, clip.name, $"{message}（{definition.name} 含 {clip.name}）"));
+        }
+
+        private static void SerializedPropertyIterate(AudioDefinitionSO definition, System.Action<AudioClip> visit)
+        {
+            UnityEditor.SerializedProperty clips = new UnityEditor.SerializedObject(definition).FindProperty("clips");
+            Assert.IsNotNull(clips, "AudioDefinitionSO.clips 欄位不存在");
+            for (int i = 0; i < clips.arraySize; i++)
+            {
+                if (clips.GetArrayElementAtIndex(i).objectReferenceValue is AudioClip clip) visit(clip);
+            }
+        }
+
         private static string StripLineComments(string code)
         {
             var builder = new System.Text.StringBuilder(code.Length);

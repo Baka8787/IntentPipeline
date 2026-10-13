@@ -219,7 +219,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Project.Runtime::Project.Presentation.Actions.MeleeHitboxSink
   hitbox: {fileID: 4769451904037475120}
   damage: 25
-  hitAudio: {fileID: 11400000, guid: 5fa1d6c3647c9b24ab7cffc90d9e63f3, type: 2}
+  hitAudio: {fileID: 11400000, guid: 73ea5a014518d3f4290cd3361ff6e242, type: 2}
   audioController: {fileID: 6571454698858054111}
 --- !u!54 &493608363577383561
 Rigidbody:
@@ -707,6 +707,7 @@ MonoBehaviour:
   moveSpeedDecelTime: 0.18
   directionTurnDegreesPerSecond: 720
   combatDirectionalSpeedProfile: {fileID: 11400000, guid: df7b2baa7d2013148a1e1bc09475b1cd, type: 2}
+  directionalSpeedLimitActivation: 0
   walkLoopBakeData: {fileID: 11400000, guid: c168624b83aacd642bb0d17a8561f704, type: 2}
   walkStopVariants:
   - bakeData: {fileID: 11400000, guid: 727128432b3f50f46bc7cf1ffb7417e5, type: 2}

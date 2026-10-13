@@ -59,7 +59,10 @@ wire("Ice_Impact",       clipsIn(A + "/Spells/Ice/Impact"),       0.90f, 0.10f, 
 // ── 近戰 ───────────────────────────────────────────────────────────────
 // 揮擊音**必響**、命中音只在打到時響 ⇒ 揮擊給低一點，免得蓋過命中的回饋。
 wire("Melee_Swing", clipsIn(A + "/Melee/Swing"), 0.65f, 0.12f, 0.93f, 1.07f);
-wire("Melee_Hit",   clipsIn(A + "/Melee/Hit"),   0.95f, 0.10f, 0.94f, 1.06f);
+// 🔄 2026-10-13（使用者裁決）命中音依武器拆開：玩家持劍＝金屬刀刃、敵人出拳＝拳打肉身（CombatAudioTests.CA12）。
+var meleeHitAll = clipsIn(A + "/Melee/Hit");
+wire("Melee_Hit",      only(meleeHitAll, new[] { "WEAPSwrd_Sword_Slide_Cuts" }), 0.95f, 0.10f, 0.94f, 1.06f);
+wire("Melee_Hit_Fist", only(meleeHitAll, new[] { "FGHTImpt_4_x_Punch_Body" }),   0.95f, 0.10f, 0.94f, 1.06f);
 
 // ── 角色 ───────────────────────────────────────────────────────────────
 // ⚠️ 人聲的 pitch 抖動要更保守：±3% 以上就會聽成「另一個人」而不是「同一個人的另一聲」。
