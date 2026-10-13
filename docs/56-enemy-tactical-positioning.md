@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **狀態** | 🟠 **Proposed——未裁決、未實作**。⛔ 不得作為實作基線，直到 §9 裁決 |
+| **狀態** | 🟢 **已裁決（2026-10-13，§10）——方案 B、P5-0 → P5a → P5b**。D3 改寫、D5／D7 轉為研究提案（§10.3、§10.4，⛔ 未裁決的部分不得實作）。§1–§9 保留為設計原文；與 §10 衝突處以 §10 為準 |
 | **輸入** | 使用者 2026-10-13：P0–P3 人工 Play 驗收通過；進入 `docs/55` P5。戰鬥移動不應只是「固定距離左右移」，而要依玩家位置、理想攻擊距離、可達性與障礙物決定站位。本輪只做 Research＋Design |
 | **範圍限制** | ⛔ 不改 runtime／prefab／scene；⛔ 不動非戰鬥巡邏（P1–P3）；⛔ 不做 P4 多敵人避讓（只保留接入點） |
 | **基線** | `docs/55` §11（方案 B 已裁決；§11.5 是 P5 的**契約草稿**，本檔提出修訂）；`docs/54`（單一 target 權威、`AICombatContextSource` 順序 2.4）；`docs/21` §1.5（交戰方向限速） |
@@ -326,3 +326,108 @@
 | **D8** | 側翼評分（繞到玩家背後） | ①不做 ②`CombatContext` 加目標朝向（黑板 schema 變更） | ①：單一敵人時繞背沒有意義，與 P4 一起再談 |
 
 ⛔ 本輪沒有改任何程式、prefab、場景或測試；巡邏（P1–P3）與 P4 未動。
+
+---
+
+## 10. 裁決與實作基線（2026-10-13，使用者裁決）
+
+### 10.1 八項裁決
+
+| # | 裁決 | 對 §1–§9 的修正 |
+|---|---|---|
+| **D1** | 採 **B**：獨立 `EnemyTacticalPositioning`，避免 `AIMovementSource` 膨脹 | — |
+| **D2** | 允許**局部**修改交戰移動分支的接線；⛔ 不得改 `CombatContext` 目標權威、`MovementIntent`／方向權威（`AIMovementSource` 唯一寫入者、`CharacterFacingSource` 唯一 facing sender）或任何跨層規則（A4／A5／A16／A27／A54） | — |
+| **D3** | ⛔ **不採**固定 ±25° 弧內持續移動。到位後依**站位有效性**選擇：待命、短距離調整、或有目的地側移。⛔ 不得為了「看起來在動」而移動 | §5.5「到位後做什麼」改為 §10.2 |
+| **D4** | 初始理想距離＝交戰帶中點（1.625 m）；**實際值須以攻擊有效距離與動畫表現驗證**（P5b 驗收項） | §5.2 的數值降為「初始值」 |
+| **D5** | P5a **先排除隔牆或不可達的候選站位**；攻擊有效性需要一份**共用幾何契約**，避免 `AIInputSource` 與 Positioning 互相矛盾。⛔ 本輪不改寫攻擊判定，先評估契約歸屬 | §5.9 D5 列改為 §10.3（研究提案） |
+| **D6** | 一般攻擊與受擊期間**保留**承諾；目標失效、脫戰、死亡時**清除**；只有站位**真正失效**時才允許重評 | §5.6 E2／E4 降級，見 §10.2 |
+| **D7** | ⛔ **不採**「只用 1.5 s 門檻過濾卡住」。要從既有管線取得「有移動請求、實際被允許移動、但沒有有效進展」的可靠資訊；合法的攻擊、受擊、Traversal 或其他移動限制都不得算 Stuck；⛔ 不得新增第二套移動授權權威 | §5.6 E5 撤銷，改為 §10.4（研究提案） |
+| **D8** | 暫不做繞背／側翼評分；⛔ 不擴充 `CombatContext` schema | C5 保持權重 0 |
+
+**跨契約守門**：D5 或 D7 若需要新增跨層契約、黑板欄位或 ADR ⇒ **先提出方案與依賴影響，不直接實作**。
+
+### 10.2 D3／D6 改寫後的站位行為
+
+**到位後的三種動作（D3）**——每次都由「目前站位是否仍有效」決定，不由計時器決定：
+
+| 動作 | 條件 | 移動 |
+|---|---|---|
+| **待命** | 目前位置有效：在 [min, attackRange] 內、觸及線暢通、不貼牆 | 不發布移動意圖（朝向照舊由 Priority 2 面向目標） |
+| **短距離調整** | 位置仍在有效槽內，但到目標的距離漂出 `r*` 的容許帶（遲滯：出 ±0.3 m 才調、回到 ±0.1 m 停） | 只沿目標連線做**徑向**修正，不側移 |
+| **有目的地側移** | 目前槽**失效**（觸及線被擋、掉出 NavMesh、貼牆不可退），或通過 H1–H5 的換槽 | 走向**被選中的新槽點**；抵達即回到待命 |
+
+⇒ 現行 Strafe 的**計時換向**（`AIMovementSource.cs:479–494`，T4）在 P5b 由「失效才換槽」取代；P5a 不動它。
+
+**重評（D6）**——§5.6 的觸發表修正為：
+
+| # | 觸發 | 修正 |
+|---|---|---|
+| E1 | 剛進入站位區／剛交戰 | 不變 |
+| E2 | 定期 0.5 s | **撤銷**為自願換位的觸發：定期只做**有效性檢查**（便宜的 1 次取樣＋1 次 Raycast），不重新挑槽 |
+| E3 | 硬失效 | 不變——唯一允許重評的常態入口 |
+| E4 | 目標移動 > 1.5 m | 改為「**重檢目前槽的有效性**」；有效就保留 |
+| E5 | 持續卡住 | **撤銷**，待 D7（§10.4）裁決後以可靠訊號取代 |
+| — | 一般攻擊、受擊 | **不清除、不重評**（D6） |
+| — | 目標死亡、脫戰（含 leash）、自己死亡 | **清除**（D6） |
+
+### 10.3 D5 研究：攻擊有效性的共用幾何契約——歸屬（🟠 提案，未裁決）
+
+**問題**：「想不想打」（`AIInputSource`，順序 1）與「該站在哪」（Positioning，順序 2.5）各自回答「這個位置打得到嗎」。今天前者只看水平距離，後者將看距離＋觸及線——**兩個答案會不一致**：Positioning 判定隔牆、離開那個位置的同時，`AIInputSource` 仍判定「在 2 m 內，出手」。
+
+**契約內容**（不論誰擁有都要回答這四件事）：①距離怎麼量（root 對 root 的水平距離，現況）；②觸及上限 R（今天＝2.0）；③觸及線（中間是否有阻隔，今天不存在）；④高低差容許（今天不存在——平台上的玩家只要水平 ≤ 2 m 就會被「打」）。
+
+| 選項 | 擁有者 | 依賴影響 | 評估 |
+|---|---|---|---|
+| **O1 單一資料資產** | 新 `MeleeEngagementProfile`（SO）同時被 `AIInputSource`、`AIMovementSource` 引用；幾何函數是它的方法 | 新資產＋兩個 prefab 欄位改接（Editor API）；W10「兩份相等」被「一份引用」取代；`Core/Pipeline` → `Core/Movement` 多一個型別依賴（方向已存在：`AIInputSource` 讀 `AIMovementSource.Target`） | ✅ 根治「兩份資料」；資產改動需 Integration Gate |
+| **O2 共用純函數，資料不動** | `Core/Movement` 的 static `MeleeEngagementGeometry`（距離定義、範圍判定、理想半徑、觸及線查詢）；兩個元件各自呼叫；R 仍是兩個欄位＋W10 守相等 | 只有程式依賴；不改資產 | ✅ 最小；資料仍兩份（靠測試守） |
+| O3 `AIInputSource` 問 Positioning | Positioning | `AIInputSource` 呼叫移動的**決策邏輯** ⇒ 違反 `docs/54` T1「只能是參照資料依賴」 | ⛔ |
+| O4 經黑板發布「打得到」 | `AICombatContextSource`（2.4）計算、`CombatContext` 加欄位 | **黑板 schema（ADR 判準 ①）**；且 `AIInputSource` 在順序 1、早於 2.4 ⇒ 只能讀上一帧；A27 禁止 `AIInputSource` 讀 `PlayerRuntimeData` ⇒ **要推翻 A27** | ⛔ 成本最高、要 ADR |
+
+**觸及線用哪種幾何**：NavMesh（「同一可走區域、直線不跨邊界」）或 Physics（膠囊／射線打不打得到牆）。兩者對矮欄杆會給不同答案。建議 **NavMesh 版**——攻擊者本來就必須站在 NavMesh 上，且 Positioning 已用同一套查詢；Physics 版留給「打到沒打到」的 hitbox 自己。
+
+**建議**：先 **O2**（不需 ADR：不碰黑板、FSM、管線、核心介面；是 `Core/Pipeline` → `Core/Movement` 的**新呼叫契約**，依你的守門規則先提出），之後若 R 需要依動作而變（多招式）再升級 **O1**。④高低差另案。
+**P5a 怎麼避免矛盾擴大**：P5a 不碰 `AIInputSource`；Positioning 只在「不可達」與「隔牆」兩種情況介入，並以同一個水平距離定義判斷 R。已知殘留：隔牆時 `AIInputSource` 仍可能出手——P5-0 量出它的發生頻率（`attacksWhileReachBlocked`），O2 裁決後才修。
+
+### 10.4 D7 研究：可靠的「沒有有效進展」訊號（🟠 提案，未裁決）
+
+**現況證據**：
+
+| 事實 | 證據 |
+|---|---|
+| 唯一知道「本帧被允許移動、要求多少、實際走了多少」的地方是 `MotionDriver.ExecuteBaseMovement`：它由 FSM 狀態呼叫（Idle／Move／無 Bake 的 Action），計算 `horizontalVelocity = MoveDirection × MoveSpeed × moveSpeed`，再 `CharacterController.Move` | `MotionDriver.cs:528–585` |
+| 不被允許移動的路徑都走別的方法：`ExecuteVerticalOnlyMovement`（Hurt／Death）、`ExecuteBakedCurveMovement`（有 Bake 的 Action）、Traversal／Committed／Warp、`ExecuteLocomotionStopMovement`；hit-stop 時 `IsTimeFrozen` 直接 return | `:531`、`:804`、`:823`、`:866`、`:1367`、`:1559` |
+| 這些事實**沒有任何一項**被發布到黑板；`MotionDriver` 目前只發布 `IsGrounded`／`VerticalVelocity`／`JustLanded`／`JustLeftGround` | `:2757–2772`；A5 `WriterRules` |
+| `Core/Movement` 不得引用 `Project.Presentation`（A4）⇒ producer 不能直接問 `MotionDriver` | `ArchitectureRegressionTests.cs:344–346` |
+| producer 可見的 `MoveSpeed`（順序 3）在 Hurt／Action 期間照樣非零——它是意圖的動態結果，不是「被允許」 | `docs/55` §1.5 |
+
+⇒ **結論：既有管線裡沒有這份資訊。** 任何「不新增契約」的做法都只能用時間或脈衝去猜（＝被否決的 1.5 s 方案）。
+
+| 選項 | 做法 | 依賴影響 | 評估 |
+|---|---|---|---|
+| **S1 MotionDriver 發布執行事實（建議）** | 黑板新 struct（暫名 `MotionExecutionData`）：`BaseMovementExecuted`、`RequestedHorizontalDistance`、`AchievedHorizontalDistance`；**唯一寫入者 `MotionDriver`**，在 `ExecuteBaseMovement` 填、其餘路徑與 hit-stop 填「未執行」。`EnemyNavigator` 下一帧讀它判定 Stuck＝「已執行 ∧ 要求 > 門檻 ∧ 達成 < 要求 × k」 | **黑板 schema（判準 ①）⇒ 需要 ADR（Trial）**；A5 加一條 WriterRule；讀者只有 producer（順序 2.5，讀上一帧——與 `IsGrounded` 同一個先例）；玩家側不受影響 | ✅ 只**回報**唯一移動權威做了什麼，不是第二個授權者；判斷仍在消費端 |
+| S2 Core 介面旁路 | `Core` 定義 `IMotionExecutionReport`，`MotionDriver` 實作，`AIMovementSource` `GetComponent` | 不改黑板，但繞過黑板讓 gameplay 直接問另一個系統——違反「Gameplay reads data」原則 | ⛔ |
+| S3 時間／脈衝推測 | `JustTookDamage`、`RequestedActionSlot`＋門檻 | 無 | ⛔ 被 D7 否決；且請求 ≠ 執行（ActionState 可拒絕） |
+| S4 FSM 狀態寫「本帧消費意圖」 | 各 State 寫黑板 | 多寫入者；順序 4 晚於 2.5 | ⛔ |
+
+**S1 的細節（供裁決）**：
+- 為什麼不是第二個移動授權權威：它在位移**之後**才寫、內容是已發生的事實；沒有任何人能用它**允許或禁止**移動。
+- 為什麼量「距離」不量「速度」：`CharacterController.Move` 的碰撞結果就是位移差；hit-stop、步階輔助都已反映在裡面。
+- 推牆對象若是玩家膠囊，也會被判為無進展——近戰站位在 [min, max] 帶內不貼玩家，屬可接受；P5b 驗收要量。
+- 若不採 S1：P5b 不使用卡住訊號，只靠幾何失效（E3）觸發換槽；`IsStuck` 維持只回報（P0.4 現狀）。
+
+### 10.5 P5a 範圍（依本次裁決收窄）
+
+**只在兩種情況介入，其餘帧與現行程式逐行相同：**
+
+| 情況 | 判定（不用 Stuck、不用計時推測） | 介入 |
+|---|---|---|
+| **A1 不可達** | 到目標的路徑不完整，且路徑可達終點離目標的水平距離 > `attackRange` + 0.25（離開：≤ `attackRange`） | 改去**候選站位**中最好的可達點；沒有任何候選通過時，以「最接近目標的可達點」（部分路徑終點）為站位；**抵達後待命**，不推牆 |
+| **A2 隔牆** | 水平距離 ≤ `attackRange` + 0.5，且自己到目標（投影到 NavMesh）的直線跨過 NavMesh 邊界，**連續兩次檢查（0.2 s 間隔）**成立；離開同樣要連續兩次暢通 | 改去觸及線暢通、可達的候選站位；抵達且暢通 ⇒ 交還現行行為 |
+
+- 候選過濾依 §5.3 F1–F3（D5：排除隔牆與不可達）；評分依 §5.4 C1–C3；承諾依 §10.2（只因失效而換）。
+- 投影目標到 NavMesh 再做直線檢查：玩家貼牆時位置在 NavMesh 侵蝕帶外，直接 Raycast 會誤判「隔牆」——P5-0 的牆角情境就是這個守門。
+- 已知殘留：A2 期間 `AIInputSource` 仍以距離決定出手（§10.3）。
+
+### 10.6 P5-0 量測方法
+
+見 §11（量測紀錄）。
