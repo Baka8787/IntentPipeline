@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **狀態** | 🟠 **Proposed**——設計審查。⛔ 不得作為實作基線；本輪**未修改** runtime、prefab、scene 或測試 |
+| **狀態** | 🟢 **已裁決（2026-10-13，§11）——方案 B 為實作基線**；N1–N7 裁決與各階段驗收見 §11。各階段驗收見 §11.6、實作狀態見 §11.7。§1–§10 保留為審查原文（§9、§10 已被 §11 取代的部分以 §11 為準） |
 | **輸入** | 使用者 2026-10-13：敵人增加「在一個區域迂迴或巡邏」的行動；六項行為（Waypoint Patrol／Area Roaming／Chase & Return／Combat Strafing／Tactical Positioning／Navigation Recovery） |
 | **基線** | `docs/54`（第五版＋實作紀錄）：`AICombatContextSource` 順序 2.4、單一 target 權威 `AIMovementSource.Target`；`docs/21`（Enemy AI v1，FSM-lite）；ADR-003（Accepted）、ADR-007（Trial） |
 | **ADR 判斷** | **建議不開新 ADR**（§7）。唯一可能碰到跨系統契約的是「巡邏點轉頭」若要轉**全身**——那是 ADR-007（Trial）的修訂，不是新 ADR，且需你裁決（N4） |
@@ -279,3 +279,117 @@ InCombat ∧ HasTarget                       ⇒ Engage（現行 Approach／Stra
 | **N7** | 戰術站位範圍 | ①只做 MVP（不可達時改走近戰帶環上的可達點）②候選點評分（掩體、包夾、視線） | ①；②需要感知系統，`docs/21` §2 明確不做 |
 
 ⛔ 本輪沒有改任何程式、prefab、場景或測試。
+
+
+---
+
+## 11. 裁決與實作基線（2026-10-13，使用者裁決）
+
+> 本節取代 §9 的驗收摘要與 §10 的建議欄。方案 **B** 採納，但加一條硬限制：
+> **`AIMovementSource` 只負責整合行為結果與發布 `MovementIntent`**；行為狀態、目的地選擇、Navigation、Steering 各自是職責明確、可獨立測試的元件，⛔ 不得長成大型單體類別。
+
+### 11.1 七項裁決
+
+| # | 裁決 | 落地方式 |
+|---|---|---|
+| **N1** | **出生點＋半徑**為預設領地；預留**手工指定 Waypoint** | `EnemyTerritory` 在第一次使用時記下出生點；`waypoints` 欄位預設空（不改場景）。指定了就巡邏，沒指定就遊走 |
+| **N2** | **Roam Radius／Soft Leash／Hard Leash** 三層；Hard Leash 不可因持續受傷而無限延長 | 三個半徑都以**離家水平距離**量（不是到目標）。規則見 §11.3 |
+| **N3** | 返回途中**允許**重新激怒，但加遲滯／冷卻；Hard Leash 仍優先 | 脫戰後的再交戰冷卻＋Soft／Hard 兩個半徑形成的帶（§11.3） |
+| **N4** | 暫不做巡邏專屬轉頭，⛔ 不改 ADR-007 | 停留時不送任何新的朝向；`CharacterFacingSource` 照舊（Priority 3／4） |
+| **N5** | 非戰鬥速度與 Y Bot Walk 動畫、實際 Bake 速度一致 | 速度＝`walk Bake 速度 ÷ MotionDriver 的 max-speed Bake 速度`，由 Bake **推導**，不手填（§11.4） |
+| **N6** | 完整多敵人避讓延後，但不封死擴充 | Navigation 只回答「往哪走」；Steering 是獨立一步，未來的 separation／agent avoidance 從 Steering 接入（§11.2） |
+| **N7** | Tactical Positioning 與 Navigation Recovery **分離**；先定候選位置評分契約，實作延後到 P5 | 契約見 §11.5；Recovery 只處理導航失敗，不決定站位 |
+
+### 11.2 元件切分（全部在 `Core/Movement` 頂層，受 A4 白名單約束；leash 在 `Core/Combat`）
+
+| 元件 | 形狀 | 唯一職責 | 測試方式 |
+|---|---|---|---|
+| `AIMovementSource` | MonoBehaviour，`IMovementIntentSource` | **整合**：讀黑板（交戰）→ 選擇由誰給方向（交戰移動／非戰鬥行為）→ 經 Navigation 與 Steering 取得方向 → 發布 `MovementIntent`。不自己選目的地、不自己管路徑 | 既有測試＋整合測試 |
+| `EnemyNavigator`（P0） | 普通類別，`AIMovementSource` 持有一份 | **路徑**：每帧同步 agent 模擬位置、節流路徑請求、回報路徑狀態與轉角點、卡住偵測（只回報）。⛔ 不寫 Transform、⛔ 不用 `Warp`、⛔ 不讓 agent 取得位移權 | 純函數（請求節流、路徑狀態判讀、卡住判定）＋PlayMode |
+| `EnemySteering`（P0） | static 純函數 | **方向**：轉角點 → 水平單位方向；未來 separation 的接入點 | EditMode |
+| `EnemyTerritory`（P1） | MonoBehaviour（資料） | **在哪活動**：家、Roam／Soft／Hard 半徑、可選 waypoints、停留時間 | EditMode |
+| `EnemyNonCombatBehavior`（P1–P3） | 普通類別 | **非戰鬥行為狀態**：Dwell／Roam／Patrol／Return 的轉移與計時 | 純函數＋假的導航查詢 |
+| `EnemyDestinationPolicy`（P2–P3） | 普通類別／struct | **目的地選擇**：領地內隨機點（要求可完整抵達）、waypoint 游標（循環／往返、最近點接續） | 純函數＋假的導航查詢 |
+| `IEnemyNavigationQuery`（P2） | 介面，`EnemyNavigator` 實作 | 讓行為／目的地選擇不直接碰 `UnityEngine.AI`（EditMode 沒有 NavMesh）——比照既有「呼叫端問 NavMesh、純函數做決定」的切法 | — |
+| `EnemyLeash`（P1，`Core/Combat`） | static 純函數 | **何時因離家太遠而脫戰、何時可以再交戰** | EditMode |
+
+⛔ 不新增：第二個 `IMovementIntentSource`、黑板欄位、FSM 狀態、Runner 步驟、target 權威、朝向輸入。
+⚠️ 既有的交戰移動（Approach／Strafe／Retreat／Recover）**不在本輪搬家**——只把它的路徑呼叫改走 `EnemyNavigator`。把它整段抽成獨立元件是重構，需另外提出（「不能順便重構」）。
+
+### 11.3 Leash 規則（`AICombatContextSource`＋`EnemyLeash`，順序 2.4）
+
+```text
+dHome ＝ 敵人到家的水平距離；R_roam < R_soft < R_hard
+
+交戰中（InCombat）：
+  dHome > R_hard                          ⇒ 立即脫戰（不看受傷、不給寬限）＋ 開始再交戰冷卻 C
+  dHome > R_soft ∧ 本次交戰未受傷        ⇒ 立即脫戰 ＋ 冷卻 C
+  （受過傷時可以追過 R_soft，但永遠追不過 R_hard——再怎麼被打也不延長）
+
+未交戰（含返回途中）：
+  冷卻 C 未結束                          ⇒ 不得進入（受擊也不行）
+  dHome > R_hard                          ⇒ 不得進入（受擊也不行）
+  R_soft < dHome ≤ R_hard                 ⇒ 只有受擊可以進入（距離 aggro 不算）
+  dHome ≤ R_soft                          ⇒ 照既有規則（≤ 8 m 或受擊）
+```
+
+- **與 Q4（`docs/54` §3.4）的關係**：Q4 的「到目標距離」規則（8／12／20 m、寬限 5 s）**照舊**；leash 是**額外**的脫戰條件，以「到家」量。兩者任一成立就脫戰。
+- **沒有 `EnemyTerritory` 的角色**：leash 完全不生效（與現在逐位元相同）。
+- **防振盪**：冷卻 C＋Soft／Hard 之間的帶（距離 aggro 在帶內無效）＋移動端 Return 的內外圈遲滯（§11.4）。
+- 已知且接受：玩家在 R_soft～R_hard 之間持續遠程攻擊，敵人會在「追到 R_hard → 脫戰 → 冷卻 → 受擊再追」之間循環；循環週期 ≥ C，不會逐帧振盪。
+
+### 11.4 非戰鬥移動（`EnemyNonCombatBehavior`）
+
+| 模式 | 進入 | 目的地 | 結束 | 卡住／不可達 |
+|---|---|---|---|---|
+| **Return** | 未交戰 ∧ dHome > R_roam | 家（有 waypoints 時：最近的 waypoint） | dHome ≤ R_roam × 0.5（內外圈遲滯） | 重新請求路徑；連續失敗 ⇒ 原地 Dwell 一段時間後再試（不傳送） |
+| **Dwell** | 抵達目的地；或找不到可達點 | — | 停留時間到 | — |
+| **Patrol** | 未交戰 ∧ 在 R_roam 內 ∧ 有 waypoints | waypoint 游標（循環／往返）；交戰後回來從**最近**的點接續 | 抵達 ⇒ Dwell ⇒ 下一點 | 跳過該點；連續 N 點不可達 ⇒ Dwell |
+| **Roam** | 未交戰 ∧ 在 R_roam 內 ∧ 沒有 waypoints | R_roam 內隨機點，必須 NavMesh 可取樣**且**路徑完整（`PathComplete`）；與目前位置距離 ≥ 最小值 | 抵達 ⇒ Dwell ⇒ 再選 | 取樣 K 次都失敗 ⇒ Dwell 後再試 |
+
+- **抵達一律以位置判定**，不以時間推進；交戰會清掉停留計時。
+- **速度（N5）**：非戰鬥模式一律用 `walk normalized ＝ forward walk Bake 速度 ÷ max-speed Bake 速度`。資料來源是 Y Bot **既有**的 `YBotCombatDirectionalSpeedProfile`（它的 `forward` 就是 `WalkFwdLoop`、`maximumSpeedSource` 就是 `MotionDriver.moveSpeedSource` 的同一份 Bake）——⇒ 動畫 mixer 的門檻、交戰限速、非戰鬥速度三者**同源**。測試守「`AIMovementSource` 引用的 profile ＝ `LocomotionModel` 引用的 profile」與「max-speed Bake ＝ `MotionDriver.moveSpeedSource`」。實測：1.6443 ÷ 6.2614 ≈ **0.2626**。
+- **朝向（N4）**：非戰鬥移動 ⇒ `CharacterFacingSource` Priority 3（跟隨 `MoveDirection`）；停留 ⇒ Priority 4（維持）。不新增輸入。
+
+### 11.5 Tactical Positioning 契約（只定契約，P5 實作）
+
+| 項目 | 契約 |
+|---|---|
+| Owner | 獨立元件（暫名 `EnemyTacticalPositioning`），只在交戰中被 `AIMovementSource` 詢問；**不**屬於 Recovery |
+| 輸入 | 自己位置、`CombatContext.TargetPosition`（唯一目標權威）、近戰帶 [min, max]、`IEnemyNavigationQuery` |
+| 候選 | 以目標為心、半徑＝近戰帶上界的環上固定 K 個方位（零配置） |
+| 過濾 | NavMesh 可取樣 ∧ 路徑 `PathComplete` |
+| 評分 | 路徑長度（越短越好）＋與目前前進方向的轉角（越小越好）＋**保留項**：與其他敵人的分離（N6）。權重是 authored 資料 |
+| 黏性 | 新候選分數須比目前候選好過門檻才換；每 Δt 最多評估一次 |
+| 輸出 | 一個目的地點，交給 `EnemyNavigator`；⛔ 不直接產生方向或速度 |
+| 與 Recovery 的分界 | Recovery 回答「導航壞了怎麼辦」（離網、卡住、路徑失效）；Positioning 回答「該站在哪」。兩者互不呼叫 |
+
+### 11.6 各階段驗收標準
+
+**P0 導航基礎（不新增行為）**
+
+| AC | 內容 |
+|---|---|
+| P0.1 | `EnemyNavigator` 每帧在任何路徑查詢之前同步 `agent.nextPosition`（agent 在網上時），**包含未交戰** |
+| P0.2 | 路徑請求節流：目的地移動 > ε，或距上次請求 ≥ Δt 且目的地有變，或路徑失效（重試受 Δt 限制）才請求；靜止目標不重複請求 |
+| P0.3 | `PathPartial`：走到部分路徑終點附近時退回「直接朝目標」（與 `PathInvalid` 相同），不在部分終點原地停住 |
+| P0.4 | 卡住偵測只回報（不改行為）：期望移動但時間窗內前進 < 門檻 |
+| P0.5 | ⛔ agent 不取得位移權：A16 擴充到 `Core/Movement` 所有引用 `NavMeshAgent` 的檔案（無 `Warp`、無 `updatePosition = true`、無 `transform.position =`） |
+| P0.6 | 既有交戰行為不退步：既有 EditMode／PlayMode 全綠；🆕 PlayMode 追擊測試（出貨場景，玩家放在 6 m 外）在實作前後都量測，抵達近戰帶的時間不得變差超過 1 帧以上的量級 |
+| P0.7 | 路徑請求次數有量測：追擊中每秒請求數下降（實作前＝每帧一次） |
+| P0.8 | 零 GC：producer＋navigator 每帧不配置（PlayMode 量測） |
+
+**P1–P3 非戰鬥行為（一個完整體驗交付；中間只跑自動化，最後一次人工 Play）**
+
+| AC | 內容 |
+|---|---|
+| P1.1 | 沒有 `EnemyTerritory` 的角色行為逐位元不變（未交戰 ⇒ Hold） |
+| P1.2 | Leash 純函數：§11.3 每一條都有測試；持續受傷不能讓交戰超過 R_hard；冷卻內受擊也不能再交戰 |
+| P1.3 | 脫戰後 Return：真元件整合（EditMode）與出貨場景（PlayMode）都驗「拉到 R_hard 外 ⇒ 脫戰 ⇒ 回到 R_roam × 0.5 內」 |
+| P1.4 | 非戰鬥速度＝Bake 推導 walk normalized；資料同源測試（§11.4） |
+| P2.1 | 遊走點全部在 R_roam 內、可完整抵達；長時間遊走（PlayMode）位置全程在 R_soft 內 |
+| P2.2 | 抵達後停留，停留時間在 [min, max] 內 |
+| P3.1 | 指定 waypoints 時依序巡邏（循環／往返）；交戰回來從最近點接續 |
+| P3.2 | 不可達的 waypoint 被跳過，不無限推牆 |
+| P1–3.x | 障礙物後的目的地經尋路抵達（PlayMode 臨時 NavMesh＋牆）；模式不逐帧振盪（切換次數有上限）；零 GC |
+| 人工 | 巡邏／遊走的走路速度與腳步是否貼合、停留是否自然、回家路線是否合理、leash 半徑手感（數值為**測試值**） |
