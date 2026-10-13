@@ -13,6 +13,12 @@
 > - ✅ **Phase 1** 已知失敗比對器、**Phase 2** 選擇器（影子模式）、快照、影子比對、Skill 鏡像檢查：`docs/artifacts/test-orchestrator/`。自測 **127／127**、變異 **18／18**、`--check-map` OK。⛔ 沒動 `safe_unity_test.sh`、Unity 測試、CI。
 > - ⏳ **影子樣本 0／10**：需要一次完整 EditMode＋PlayMode，程序見該資料夾 README。第一個有效樣本只建立快照。
 > - ❓ 待裁決（`docs/57` §13.5）：D-1 已知失敗候選 K-1／K-2（清單目前為空 ⇒ 比對器報 FAILED）、D-2 對照表要不要先過目、D-3 何時累積樣本。Phase 3 等影子結果再議；Phase 4 暫不做。
+>
+> # 🟨 2026-10-13：P5 戰鬥站位（`docs/56` §10；與測試調度器分開追蹤）
+>
+> - ✅ 裁決 D1–D8 已記錄；D5（攻擊有效性契約歸屬，建議 O2）與 D7（可靠的「被允許移動卻沒進展」訊號，建議 S1：`MotionDriver` 發布執行事實，需 ADR）是**提案、未裁決**。
+> - ⏸ **P5-0 基線被入口擋下**（`SAFETY_STOP` 15：`SampleScene` dirty，正確行為）。量測工具 `Assets/_Project/Tests/PlayMode/EnemyCombatPositioningMetrics.cs`（`[Explicit]` Probe，8 個情境，**未 commit**）。場景乾淨後：`bash docs/artifacts/editor-memory/safe_unity_test.sh --mode PlayMode --include-explicit --filter EnemyCombatPositioningMetrics --label p5-0-baseline`，數字寫進 `docs/56` §11。
+> - ⛔ P5a 在基線之後；P5b 在 P5a 驗證之後且需 D7 裁決。
 
 > # 🟥 2026-10-10（第四輪，優先於 Traversal 後續）：Unity Editor 記憶體／日誌暴增調查（`docs/53`，診斷輪，⛔ 未修正）
 >
