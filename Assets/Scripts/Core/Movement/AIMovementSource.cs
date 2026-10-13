@@ -64,9 +64,19 @@ namespace Project.Core.Movement
         [Header("Navigation（docs/55 P0）")]
         [SerializeField] private EnemyNavigationSettings navigation = EnemyNavigationSettings.Default;
 
+        [Header("Non-Combat（docs/55 P1–P3）")]
+        [Tooltip("非戰鬥移動速度的來源：正前方 clip 的 Bake 速度 ÷ max-speed Bake 速度（N5）。\n" +
+                 "必須與同一隻角色 LocomotionModel 的 profile 是同一份（W28 守）——mixer 門檻、交戰限速、非戰鬥速度同源。\n" +
+                 "留空 ⇒ 不做任何非戰鬥移動（寧可站著，也不要以錯的速度滑步）。")]
+        [SerializeField] private CombatDirectionalSpeedProfileSO nonCombatSpeedSource;
+
         private NavMeshAgent _agent;
         // 🆕（docs/55 §11.2）路徑同步、請求節流、路徑狀態與卡住偵測都委派給它；本元件只整合結果。
         private EnemyNavigator _navigator;
+        // 🆕（docs/55 §11.2）非戰鬥行為（去哪）。領地資料由同物件的 EnemyTerritory 提供；缺席 ⇒ 未交戰時照舊站著。
+        private EnemyNonCombatBehavior _nonCombat;
+        private EnemyTerritory _territory;
+        private bool _territoryResolved;
         private TemporaryGameplayEffectState _effectState;
         private EngagementMovement _engagementMovement;
         private int _strafeDirectionSign = 1;
@@ -110,6 +120,55 @@ namespace Project.Core.Movement
         {
             _effectState = GetComponent<TemporaryGameplayEffectState>();
         }
+
+        /// <summary>
+        /// 🆕（docs/55 §11.2）**整合**非戰鬥移動：行為給目的地 → 導航給轉角點 → steering 給方向 → 發布意圖。
+        /// 本方法不做任何判斷——每一步的規則都在自己的元件裡。
+        /// </summary>
+        private void ProduceNonCombatIntent(PlayerRuntimeData data, EnemyNavigator navigator)
+        {
+            EnemyTerritory territory = ResolveTerritory();
+            if (territory == null || nonCombatSpeedSource == null) return;
+
+            if (_nonCombat == null)
+            {
+                // 種子取自家的位置：可重現（同一個出生點每次同一串選點），不同出生點的敵人彼此不同步。
+                Vector3 home = territory.Home;
+                _nonCombat = new EnemyNonCombatBehavior(
+                    Mathf.RoundToInt(home.x * 1000f) ^ (Mathf.RoundToInt(home.z * 1000f) * 31));
+            }
+
+            Vector3 self = transform.position;
+            float now = Time.time;
+            NonCombatDecision decision = _nonCombat.Tick(self, now, navigator.IsStuck, territory, navigator);
+            if (!decision.HasDestination) return;
+
+            Vector3 steeringPoint = decision.Destination;
+            if (navigator.IsOnNavMesh)
+            {
+                navigator.RequestDestination(decision.Destination, now);
+                if (!navigator.TryResolveSteeringPoint(self, decision.Destination, out steeringPoint)) return;
+            }
+
+            if (!EnemySteering.TryResolveDirection(self, steeringPoint, out Vector3 direction)) return;
+
+            data.MovementIntent.DesiredDirection = direction;
+            data.MovementIntent.DesiredSpeedNormalized =
+                ResolveDesiredSpeedNormalized(nonCombatSpeedSource.ResolveForwardNormalizedSpeed(), now);
+        }
+
+        private EnemyTerritory ResolveTerritory()
+        {
+            if (!_territoryResolved || _territory == null)
+            {
+                _territory = GetComponent<EnemyTerritory>();
+                _territoryResolved = _territory != null;
+            }
+            return _territory;
+        }
+
+        /// <summary>目前的非戰鬥模式（診斷／測試用；未啟用時為 None）。</summary>
+        internal EnemyNonCombatMode NonCombatMode => _nonCombat != null ? _nonCombat.Mode : EnemyNonCombatMode.None;
 
         /// <summary>
         /// 導航者惰性建立（EditMode 不呼叫 Awake）。每帧重新綁定 agent：測試會以反射替換 <c>_agent</c>，
@@ -158,8 +217,13 @@ namespace Project.Core.Movement
             {
                 _engagementMovement = EngagementMovement.Hold;
                 _strafeBlocked = false;
+                // 🆕（docs/55 P1–P3）未交戰：交給非戰鬥行為選目的地；沒有 EnemyTerritory ⇒ 與舊版相同（站著）。
+                ProduceNonCombatIntent(data, navigator);
                 return;
             }
+
+            // 交戰中：非戰鬥行為下次從頭選（巡邏從最近點接續）。
+            _nonCombat?.OnEngaged();
 
             Vector3 targetPosition = combat.TargetPosition;
             Vector3 toTarget = targetPosition - transform.position;
@@ -456,7 +520,7 @@ namespace Project.Core.Movement
             if (target == null)
             {
                 UnityEditor.Handles.color = Color.red;
-                UnityEditor.Handles.Label(labelAnchor, "AI move: target = <none> ⇒ 永遠不動");
+                UnityEditor.Handles.Label(labelAnchor, "AI move: target = <none> ⇒ 不會交戰（非戰鬥行為照常）");
                 return;
             }
 
@@ -474,7 +538,8 @@ namespace Project.Core.Movement
             UnityEditor.Handles.Label(labelAnchor,
                 $"AI move: {_engagementMovement}{(_strafeBlocked ? "  ⚠ 兩側皆不可走 ⇒ 停步" : string.Empty)}\n" +
                 $"distance {distance:0.00}  band [{minimumEngagementDistance:0.00}, {maximumEngagementDistance:0.00}]\n" +
-                $"strafe {(_strafeDirectionSign > 0 ? "CW" : "CCW")}  onNavMesh {(_agent != null && _agent.isOnNavMesh ? "yes" : "NO")}");
+                $"strafe {(_strafeDirectionSign > 0 ? "CW" : "CCW")}  onNavMesh {(_agent != null && _agent.isOnNavMesh ? "yes" : "NO")}" +
+                $"  nonCombat {NonCombatMode}{(_navigator != null && _navigator.IsStuck ? "  ⚠ stuck" : string.Empty)}");
         }
 
         private static Color EngagementGizmoColor(EngagementMovement movement)

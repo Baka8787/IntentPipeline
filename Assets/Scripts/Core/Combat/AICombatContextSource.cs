@@ -48,6 +48,13 @@ namespace Project.Core.Combat
         private AIMovementSource _targetSource;
         private EngagementMemory _memory;
 
+        // 🆕（docs/55 §11.3）leash：家與半徑由 EnemyTerritory 提供（純資料，Core/Movement）；判斷在這裡。
+        // 沒有 territory 的角色完全不受 leash 影響（與導入前逐位元相同）。
+        private EnemyTerritory _territory;
+        private bool _territoryResolved;
+        private bool _hasLeashDisengage;
+        private float _leashDisengageTime;
+
         // 目標的生命值元件快取（零 GC）。缺席（null）＝目標沒有生命值，視為活著。
         private Transform _healthResolvedFor;
         private CharacterHealth _targetHealth;
@@ -79,15 +86,47 @@ namespace Project.Core.Combat
             toTarget.y = 0f;
             float distance = Mathf.Sqrt(toTarget.sqrMagnitude);
 
+            bool tookDamage = data.Survivability.JustTookDamage;
+            EnemyTerritory territory = ResolveTerritory();
+            LeashZone zone = LeashZone.Inside;
+            if (territory != null)
+            {
+                zone = EnemyLeash.Classify(
+                    territory.HorizontalDistanceFromHome(transform.position),
+                    territory.SoftLeashRadius,
+                    territory.HardLeashRadius);
+
+                // 未交戰：先問 leash 准不准進入（冷卻、Hard 外、Soft～Hard 只准受擊）。
+                if (!_memory.InCombat)
+                {
+                    bool cooldownActive = _hasLeashDisengage &&
+                                          currentTime - _leashDisengageTime < territory.ReengageCooldownSeconds;
+                    LeashEntry entry = EnemyLeash.ResolveEntry(zone, cooldownActive);
+                    if (entry == LeashEntry.Blocked || (entry == LeashEntry.DamageOnly && !tookDamage))
+                    {
+                        data.CombatContext = default;
+                        return;
+                    }
+                }
+            }
+
             _memory = ResolveEngagement(
                 _memory,
                 distance,
-                data.Survivability.JustTookDamage,
+                tookDamage,
                 currentTime,
                 aggroEnterRadius,
                 aggroLeaveRadius,
                 provokedLeaveRadius,
                 provokedGraceSeconds);
+
+            // 交戰中：Hard 外一定脫戰（不看受傷、不給寬限）；Soft 外且沒被打過也脫戰。並開始再交戰冷卻。
+            if (territory != null && _memory.InCombat && EnemyLeash.ShouldDisengage(zone, _memory.DamagedThisEpisode))
+            {
+                _memory = default;
+                _hasLeashDisengage = true;
+                _leashDisengageTime = currentTime;
+            }
 
             // 整體覆寫 value struct，不讓下游回頭讀 Transform。
             bool inCombat = _memory.InCombat;
@@ -157,6 +196,17 @@ namespace Project.Core.Combat
             return currentTime - next.GraceStartTime >= Mathf.Max(0f, provokedGraceSeconds)
                 ? default
                 : next;
+        }
+
+        private EnemyTerritory ResolveTerritory()
+        {
+            // 惰性解析一次（EditMode 不呼叫 Awake）；缺席是合法設定（＝不使用 leash）。
+            if (!_territoryResolved || _territory == null)
+            {
+                _territory = GetComponent<EnemyTerritory>();
+                _territoryResolved = _territory != null;
+            }
+            return _territory;
         }
 
         private Transform ResolveTarget()

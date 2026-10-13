@@ -650,6 +650,7 @@ interaction = JustTookDamage ∨ (RequestedActionSlot ≠ None ∧ (hasTarget �
 | AC-B.6 任何距離受未致死傷害 ⇒ 當帧 `InCombat`；R＝L；d > L ⇒ 寬限 G；再受擊或回到 L 內 ⇒ 取消；期滿 ⇒ 離開 | ✅ `AB6_ProvokedEngagement_*`、`AB6_ProvokedBeyondProvokedRadius_*`、`AB6_ProvokedRadiusSmallerThanLeave_*`、`AB6_OwnNonLethalDamage_*`（真 `CharacterHealth`）；PlayMode：18.6 m 受擊 ⇒ 下一帧交戰、> 12 m 持續交戰。⚠️ L＝20／G＝5 是**測試值** |
 | AC-B.7 一致性：7 m 受擊後退到 13 m、與 15 m 受擊，兩者脫戰距離都是 L | ✅ `AB7_DisengageRadius_DoesNotDependOnWhereTheHitHappened` |
 | AC-B.8 目標死亡 ⇒ **當帧** `CombatContext = default` 且 `MovementIntent = default`；無寬限；`Revive` 後依距離恢復 | ✅ `AB8_TargetDeath_*`（Provoked episode 中死亡也不給寬限）、`AB8_UntrackedTarget_*`；PlayMode `YBot_StopsChasingOnTheFrameThePlayerDies`（真 Runner；同帧 `AIInputSource` 也不出手） |
+| ↳ 🔄 2026-10-13（`docs/55` P1） | 有 `EnemyTerritory` 的敵人在目標死亡（或任何脫戰）的那一帧起改由**非戰鬥行為**給意圖（回家／遊走，walk 速度），不再是 `MovementIntent = default`。本 AC 真正要守的「**同一帧不再追擊**」不變：`AICombatContextPlayModeTests` 改為斷言「意圖若存在必須來自非戰鬥行為（模式非 None、速度＜0.5）」——順序 mutation 仍會被抓到（追擊意圖的模式是 None、速度 1）。EditMode `AB8` 的 rig 沒有 territory，仍斷言歸零 |
 | AC-B.9 自己死亡 ⇒ 不寫 `CombatContext`、不產生意圖（沿用既有裁決） | ✅ `AB9_SelfDead_*` |
 | AC-B.10 `SampleScene.unity` 的 git diff 與實作前**位元相同**（使用者 WIP 未被覆寫） | ✅ 工作樹 blob `ab892bb…`、`git diff` sha256 `b8d8fe03…` 實作前後相同；prefab 遷移後 Editor 回報 scene dirty＝False；未呼叫任何存場景 API |
 | AC-B.11（Play）玩家死後敵人停止繞行、不面向屍體、血條收起；10–20 m 外施法會激怒敵人；L／G 觀感 | ⬜ 人工（PlayMode 已驗資料層：交戰解除與移動歸零；**面向、血條、觀感未驗**） |

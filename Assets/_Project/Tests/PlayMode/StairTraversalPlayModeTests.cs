@@ -580,6 +580,12 @@ namespace Project.Tests.PlayMode
             float enemyS = direction == Direction.Up ? stair.BottomS - 1.5f : stair.TopS - 0.12f;
             Teleport(player, stair, playerS, direction == Direction.Up ? -stair.Ascent : stair.Ascent);
             Teleport(enemy, stair, enemyS, direction == Direction.Up ? stair.Ascent : -stair.Ascent);
+            // 🔄（2026-10-13，docs/55 P1）敵人有了領地與 leash（以出生點為家）。本測試把敵人瞬移到樓梯旁，
+            // 要驗的是「能不能走完整道樓梯」，不是 leash——比照上面放寬 aggro 的做法，把這個實例的家設在瞬移點、
+            // 半徑放大到不會介入（不改資產）。
+            var territory = enemy.GetComponent<Project.Core.Movement.EnemyTerritory>();
+            if (territory != null)
+                territory.ConfigureForTests(enemy.transform.position, roam: 60f, soft: 70f, hard: 80f);
             for (int i = 0; i < 20; i++) yield return null;
 
             var trace = new Trace(stair, enemy);

@@ -87,7 +87,12 @@ namespace Project.Tests.PlayMode
                 yield return null;
                 Assert.IsFalse(enemyData.CombatContext.InCombat,
                     $"未受擊、{distance:F2} m（> 8 m）⇒ 不得進入交戰（第 {i} 帧）");
-                Assert.AreEqual(default(MovementIntentData), enemyData.MovementIntent);
+                // 🔄（2026-10-13，docs/55 P1–P3）未交戰時會遊走：意圖若存在，必須是非戰鬥行為（walk 速度），不是追擊。
+                if (enemyData.MovementIntent.HasMovementRequest)
+                {
+                    Assert.AreNotEqual(EnemyNonCombatMode.None, movement.NonCombatMode, "未交戰的移動只能來自非戰鬥行為");
+                    Assert.Less(enemyData.MovementIntent.DesiredSpeedNormalized, 0.5f, "非戰鬥速度是 walk，不是追擊");
+                }
             }
 
             CharacterHealth enemyHealth = enemy.GetComponent<CharacterHealth>();
@@ -153,8 +158,17 @@ namespace Project.Tests.PlayMode
             yield return null;   // 死亡後的第一個 Update：Runner 依 2.4 → 2.5 跑完
             Assert.AreEqual(default(CombatContextData), enemyData.CombatContext,
                 "玩家死亡的那一帧，Y Bot 的 CombatContext 必須整體解除（不給寬限）");
-            Assert.AreEqual(default(MovementIntentData), enemyData.MovementIntent,
-                "同一帧 Y Bot 的移動意圖必須歸零——不得朝屍體多走一帧");
+            // 🔄（2026-10-13，docs/55 P1）Y Bot 有 EnemyTerritory 之後，脫戰的那一帧起由非戰鬥行為（回家／遊走）
+            //    給意圖，不再是「站著」。這條要守的事沒變：**同一帧不再追擊屍體**——意圖若存在，必須來自
+            //    非戰鬥行為（模式非 None、速度＝walk），不得是交戰的 Approach（desiredSpeedNormalized＝1）。
+            var movement = enemy.GetComponent<AIMovementSource>();
+            if (enemyData.MovementIntent.HasMovementRequest)
+            {
+                Assert.AreNotEqual(EnemyNonCombatMode.None, movement.NonCombatMode,
+                    "同一帧的移動意圖只能來自非戰鬥行為——不得朝屍體多追一帧");
+                Assert.Less(enemyData.MovementIntent.DesiredSpeedNormalized, 0.5f,
+                    "非戰鬥速度是 walk（≈0.263），不是追擊的 1");
+            }
             Assert.IsFalse(attack.WantsToAttack(), "同一個目標已死 ⇒ 攻擊來源也不出手（同一謂詞、同一目標）");
 
             for (int i = 0; i < 30; i++)

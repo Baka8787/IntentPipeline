@@ -410,4 +410,26 @@ dHome ＝ 敵人到家的水平距離；R_roam < R_soft < R_hard
 | P0.8 零 GC | ✅ `YBot_MovementProducer_DoesNotAllocatePerCall`：真 producer＋真 NavMesh、交戰中呼叫 1000 次，配置 0 bytes |
 | 回歸 | EditMode **937／935**（唯一失敗＝既有場景 mask）；PlayMode **113／112**（唯一失敗＝既有 `C0`）；`StairTraversalPlayModeTests` 敵人上下樓梯全綠 |
 
+**P1–P3 非戰鬥行為——Automated Verification Passed / Human Verification Pending（2026-10-13）**
+
+| AC | 結果 |
+|---|---|
+| P1.1 沒有 territory 不變 | ✅ `EnemyNonCombatBehaviorTests.P1_Integration_NoTerritory_StaysIdle_AsBefore`、`EnemyLeashTests.NoTerritory_LeashNeverApplies` |
+| P1.2 Leash 規則 | ✅ `EnemyLeashTests`（純函數＋真 `AICombatContextSource`）；PlayMode：Soft 3／Hard 5、每 1.5 s 受擊一次 ⇒ 交戰中離家最遠 **4.99 m**（Hard 5），冷卻內再交戰 **0 帧** |
+| P1.3 脫戰回家 | ✅ EditMode 內外圈遲滯（`P1_Return_*`）；PlayMode：Soft 4 ⇒ 在 **4.01 m** 放手、交戰中最遠 3.98 m；回家途中於冷卻結束（**恰 120 帧＝2 s**）後依 N3 再被激怒，再交戰前已回到 **1.15 m**（Roam 2 內） |
+| P1.4 非戰鬥速度同源 | ✅ `PrefabWiringTests.W28`；PlayMode 穩態走路 **1.641 m/s**（walk Bake 1.644） |
+| P2.1 遊走不出領地 | ✅ PlayMode 30 s：走了 23.0 m，離家最遠 **5.71 m**（Roam 6），模式切換 10 次，從未交戰 |
+| P2.2 停留 | ✅ `P2_Roam_PicksReachablePointsInsideRadius_DwellsOnArrival`（停留落在 [min, max]） |
+| P3.1 巡邏順序 | ✅ EditMode Loop／PingPong／最近點接續；PlayMode 抵達順序 **2,0,1,2,0**（從最近點開始、依序循環） |
+| P3.2 不可達 waypoint | ✅ `P3_Patrol_UnreachableWaypointIsSkipped_AllUnreachableRests` |
+| 尋路繞牆 | ✅ 執行期建的場景（牆寬 ±6 m）：牆後 waypoint 在 **593 帧**抵達，軌跡最遠 x＝**6.50 m**（繞牆，不是直線推牆） |
+| 零 GC | ✅ 非戰鬥分支 `ProduceIntent` ×1000 配置 **0 bytes** |
+| 回歸 | EditMode **956／954**（唯一失敗＝既有場景 mask）；PlayMode **118／117**（唯一失敗＝既有 `C0`） |
+
+**同一工作包內更新的既有測試（新基線取代舊基線，不是放寬）**
+- `AICombatContextPlayModeTests`（2 處）：有 territory 後，未交戰／目標死亡時不再「意圖為零」，改為斷言「意圖若存在只能來自非戰鬥行為、walk 速度」。順序 mutation 仍會被抓到。見 `docs/54` AC-B.8 的註記。
+- `StairTraversalPlayModeTests.Enemy_TraversesGeneratedStair`：測試把敵人瞬移到樓梯旁，新的 Hard Leash（離出生點 22 m）正確地擋下了追擊；比照它原本放寬 aggro 的做法，把這個實例的家設在瞬移點並放大半徑。
+
+**⏳ 人工 Play（一次完成）**：Y Bot 在出生點附近遊走的走路速度與腳步是否貼合；停留 1.5–4 s 是否自然；把它引出 14 m（沒打它）會放手回家、打了它最多追到 22 m；回家途中 2 s 後可能再被激怒；半徑都是**測試值**。選取 Y Bot 時 Scene 視窗會畫出三層半徑（綠／黃／紅）與目前的非戰鬥模式。
+
 ⚠️ G9（離網自救沒有「放棄」）**刻意不在 P0 處理**：2026-09-15 的裁決明確否決「沒有出口的靜止終態」，加放棄上限會把它帶回來。卡住偵測（P0.4）是之後處理的入口。

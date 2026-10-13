@@ -309,7 +309,8 @@
         <tr><td class="m">Approach</td><td>距離 &gt; 近戰帶上緣</td><td>朝目標移動，speed = 1</td><td>✅</td></tr>
         <tr class="bind"><td class="m">Strafe</td><td><strong>在近戰帶內</strong>（帶內的正常解）</td><td>橫向移動，speed = 0.35；換向間隔 <strong>基準 2.5 s × 隨機 0.75–1.25</strong>（實際 1.875–3.125 s）</td><td>✅</td></tr>
         <tr><td class="m">Retreat</td><td>距離 &lt; 近戰帶下緣</td><td>後退拉開</td><td>✅</td></tr>
-        <tr><td class="m">Hold</td><td><strong>零移動 fallback</strong>：未交戰／無 target／死亡</td><td>直接 return，不產生任何位移</td><td>—</td></tr>
+        <tr><td class="m">Hold</td><td><strong>零移動 fallback</strong>：死亡；交戰中無路可走；<strong>沒有 EnemyTerritory 的角色</strong>未交戰時</td><td>直接 return，不產生任何位移</td><td>—</td></tr>
+        <tr><td class="m">🆕 非戰鬥（Return／Dwell／Roam／Patrol）</td><td>有 <code>EnemyTerritory</code> 且未交戰（2026-10-13，<code>docs/55</code> §11）</td><td>由 <code>EnemyNonCombatBehavior</code> 選目的地、<code>EnemyNavigator</code> 查路，walk 速度（Bake 推導）</td><td>—</td></tr>
         <tr class="bind"><td class="m">Recover</td><td><strong>agent 離開 NavMesh</strong></td><td>往回得去的方向走（speed 0.5）</td><td class="no">⛔ <strong>刻意不推進</strong></td></tr>
       </tbody>
     </table>

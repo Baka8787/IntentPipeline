@@ -61,9 +61,11 @@ namespace Project.Core.Movement
     /// 不決定目的地（行為元件的事）；不產生速度（producer 的事）。
     /// 位置唯一的出海口仍是 <c>MotionDriver</c>。
     /// </summary>
-    internal sealed class EnemyNavigator
+    internal sealed class EnemyNavigator : IEnemyNavigationQuery
     {
         private NavMeshAgent _agent;
+        // 唯讀查詢用的路徑容器：建構時配置一次，之後重複使用（零 GC）。
+        private readonly NavMeshPath _queryPath = new NavMeshPath();
         private EnemyNavigationSettings _settings;
 
         private bool _hasRequest;
@@ -175,6 +177,30 @@ namespace Project.Core.Movement
         {
             IsStuck = UpdateStuck(ref _hasProgressAnchor, ref _progressAnchor, ref _progressAnchorTime,
                 position, wantsToMove, now, _settings);
+        }
+
+        // =====================================================================
+        // IEnemyNavigationQuery（給行為／目的地選擇的唯讀查詢；不碰 agent 的路徑）
+        // =====================================================================
+
+        bool IEnemyNavigationQuery.TrySampleWalkablePoint(Vector3 point, float maxDistance, out Vector3 walkable)
+        {
+            if (NavMesh.SamplePosition(point, out NavMeshHit hit, Mathf.Max(0.01f, maxDistance), NavMesh.AllAreas))
+            {
+                walkable = hit.position;
+                return true;
+            }
+            walkable = default;
+            return false;
+        }
+
+        bool IEnemyNavigationQuery.IsPathComplete(Vector3 from, Vector3 to)
+        {
+            const float EndpointSampleRadius = 1f;
+            if (!NavMesh.SamplePosition(from, out NavMeshHit start, EndpointSampleRadius, NavMesh.AllAreas)) return false;
+            if (!NavMesh.SamplePosition(to, out NavMeshHit end, EndpointSampleRadius, NavMesh.AllAreas)) return false;
+            return NavMesh.CalculatePath(start.position, end.position, NavMesh.AllAreas, _queryPath) &&
+                   _queryPath.status == NavMeshPathStatus.PathComplete;
         }
 
         // =====================================================================

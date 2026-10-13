@@ -277,6 +277,7 @@ GameObject:
   - component: {fileID: 3646897003330964560}
   - component: {fileID: 3640152768522331870}
   - component: {fileID: 27836346643818879}
+  - component: {fileID: 2884819173253995008}
   m_Layer: 7
   m_Name: Y Bot
   m_TagString: Untagged
@@ -795,6 +796,13 @@ MonoBehaviour:
   strafeWalkableProbeDistance: 0.6
   offMeshRecoverSampleRadius: 3
   recoverSpeedNormalized: 0.5
+  navigation:
+    RepathDistance: 0.3
+    RepathInterval: 0.2
+    PartialPathArriveDistance: 0.5
+    StuckWindowSeconds: 0.75
+    StuckMinProgress: 0.15
+  nonCombatSpeedSource: {fileID: 11400000, guid: df7b2baa7d2013148a1e1bc09475b1cd, type: 2}
 --- !u!114 &539958097729564367
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -906,6 +914,26 @@ MonoBehaviour:
   aggroLeaveRadius: 12
   provokedLeaveRadius: 20
   provokedGraceSeconds: 5
+--- !u!114 &2884819173253995008
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7863296372082958677}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a5b8796dcb8419f4fbe63191dcf8807c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Project.Runtime::Project.Core.Movement.EnemyTerritory
+  roamRadius: 6
+  softLeashRadius: 14
+  hardLeashRadius: 22
+  reengageCooldownSeconds: 2
+  dwellMinSeconds: 1.5
+  dwellMaxSeconds: 4
+  waypoints: []
+  waypointTraversal: 0
 --- !u!1 &7979318934365082968
 GameObject:
   m_ObjectHideFlags: 0

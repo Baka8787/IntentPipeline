@@ -937,6 +937,58 @@ namespace Project.Tests.EditMode
                 "AI CombatContext producer 接線不完整：\n\n" + string.Join("\n\n", violations));
         }
 
+        /// <summary>
+        /// 🆕（2026-10-13，`docs/55` §11.4 N5，P1.4）**非戰鬥速度與動畫同源。**
+        /// AI 角色若有 <see cref="EnemyTerritory"/>（會做非戰鬥移動），它的速度來源必須是
+        /// 同一隻角色 <c>LocomotionModel</c> 的方向限速 profile，而那份 profile 的 max-speed Bake 必須是
+        /// <c>MotionDriver.moveSpeedSource</c>——三者同源，normalized 速度才會剛好以 1× 播 walk clip。
+        /// </summary>
+        [Test]
+        public void W28_AINonCombatSpeed_SharesTheLocomotionProfileAndMaxSpeedBake()
+        {
+            var violations = new List<string>();
+            int checkedCount = 0;
+
+            foreach (CharacterPrefab prefab in LoadCharacterPrefabs())
+            {
+                var movement = prefab.Host.GetComponent<AIMovementSource>();
+                var territory = prefab.Host.GetComponent<EnemyTerritory>();
+                if (movement == null || territory == null) continue;
+                checkedCount++;
+
+                var model = prefab.Host.GetComponentInChildren<Project.Core.Movement.LocomotionModel>(true);
+                var driver = prefab.Host.GetComponentInChildren<MotionDriver>(true);
+                Object speedSource = new SerializedObject(movement).FindProperty("nonCombatSpeedSource").objectReferenceValue;
+                Object modelProfile = model != null
+                    ? new SerializedObject(model).FindProperty("combatDirectionalSpeedProfile").objectReferenceValue
+                    : null;
+
+                if (speedSource == null || speedSource != modelProfile)
+                {
+                    violations.Add($"{prefab.Path} → AIMovementSource.nonCombatSpeedSource（{(speedSource != null ? speedSource.name : "<none>")}）" +
+                                   $" ≠ LocomotionModel.combatDirectionalSpeedProfile（{(modelProfile != null ? modelProfile.name : "<none>")}）");
+                    continue;
+                }
+
+                Object maxBake = new SerializedObject(speedSource).FindProperty("maximumSpeedSource").objectReferenceValue;
+                Object driverBake = driver != null ? new SerializedObject(driver).FindProperty("moveSpeedSource").objectReferenceValue : null;
+                if (maxBake == null || maxBake != driverBake)
+                {
+                    violations.Add($"{prefab.Path} → profile 的 maximumSpeedSource（{(maxBake != null ? maxBake.name : "<none>")}）" +
+                                   $" ≠ MotionDriver.moveSpeedSource（{(driverBake != null ? driverBake.name : "<none>")}）");
+                }
+
+                if (!(territory.RoamRadius < territory.SoftLeashRadius && territory.SoftLeashRadius < territory.HardLeashRadius))
+                {
+                    violations.Add($"{prefab.Path} → EnemyTerritory 半徑必須 Roam < Soft < Hard" +
+                                   $"（{territory.RoamRadius}／{territory.SoftLeashRadius}／{territory.HardLeashRadius}）");
+                }
+            }
+
+            Assert.Greater(checkedCount, 0, "前提：至少一隻 AI 角色有 EnemyTerritory");
+            CollectionAssert.IsEmpty(violations, "非戰鬥速度來源不同源：\n\n" + string.Join("\n\n", violations));
+        }
+
         // =====================================================================
         // W5 — 玩家角色的輸入必須是可封鎖的
         // =====================================================================

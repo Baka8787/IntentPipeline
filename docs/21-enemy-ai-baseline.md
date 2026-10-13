@@ -41,7 +41,13 @@ Movement / Action / Animation
 - `Approach`：超出近戰帶，沿 NavMesh 查得的路徑方向接近。
 - `Strafe`：位於近戰帶內，沿目標切線側移並維持距離。
 - `Retreat`：過近時背離目標；這是既有 BackOff 等價行為。
-- `Hold`：真正的零移動 fallback，供未交戰或無 target 時使用。
+- `Hold`：真正的零移動 fallback，供交戰中無路可走、或**沒有 `EnemyTerritory` 的角色**未交戰時使用。
+- 🆕 **非戰鬥行為（2026-10-13，`docs/55` §11）**：有 `EnemyTerritory` 的敵人未交戰時不再站著——
+  `EnemyNonCombatBehavior` 在 **Return／Dwell／Roam／Patrol** 之間選目的地，`EnemyNavigator` 查路、`EnemySteering` 給方向，
+  `AIMovementSource` 只整合並發布 `MovementIntent`。家＝出生點；半徑 Roam 6／Soft 14／Hard 22 m（**測試值**）；
+  waypoints 留空＝遊走、指定＝依序巡邏。非戰鬥速度＝walk Bake ÷ max-speed Bake（≈0.2626，N5，W28 守同源）。
+  Leash（以離家距離量）屬 `AICombatContextSource`：未受擊的追擊過 Soft 放手、再怎麼受擊都追不過 Hard、脫戰後 2 s 再交戰冷卻。
+  沒有 `EnemyTerritory` 的角色行為與導入前逐位元相同。
 - `Recover`：🆕 **離開 NavMesh 後的自救**（2026-09-15）。
 - 距離帶切換保留 hysteresis；steering 可每幀更新，不另建 decision scheduler。
 
@@ -198,7 +204,7 @@ Walk 環不受影響（clipN×1.35 ＝ 0.3545 > gait 0.35 ⇒ 預算沒咬到，
 Patrol／search、vision／hearing、threat、Behavior Tree、Utility runtime、GOAP、HTN、squad、attack token、
 cover、HP／death 重構、Player 8-way、upper/lower body layering、完整 enemy 8-way／Run ring 與 traversal 都不屬於 v1。
 
-> 🔄 **2026-10-13**：使用者要求加入巡邏／區域遊走／回家。設計審查見 `docs/55`（🟠 Proposed，待裁決 N1–N7）；本節在實作落地前不變。
+> 🔄 **2026-10-13**：使用者要求加入巡邏／區域遊走／回家。設計與裁決見 `docs/55` §11；**遊走／巡邏／回家（P1–P3）已實作**（見 §1.2）。Search、vision／hearing、threat 等其餘項目仍不在範圍。
 
 ## 3. 未來方案 C：Utility Selector（只留升級路線，不實作）
 

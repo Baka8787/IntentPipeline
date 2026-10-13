@@ -86,6 +86,17 @@ namespace Project.Core.Movement
         /// Cardinal 方向直接使用該 clip 的 bake speed；中間方向落在相鄰 cardinal samples 的連線上，
         /// 讓缺少 diagonal clip 的 2D mixer 自然混合而不必補 Run 資產。
         /// </summary>
+        /// <summary>
+        /// 🆕（2026-10-13，`docs/55` §11.4 N5）**正前方以 clip 原生速度行走時的 normalized speed**＝
+        /// forward Bake 速度 ÷ max-speed Bake 速度（不乘 playback stretch）。
+        /// 非戰鬥移動用它，讓 locomotion mixer 剛好以 1× 播 forward clip——數值完全由 Bake 推導，不手填。
+        /// </summary>
+        internal float ResolveForwardNormalizedSpeed()
+        {
+            float maximum = GetSpeed(maximumSpeedSource);
+            return maximum > 0f ? Mathf.Clamp01(GetSpeed(forward) / maximum) : 0f;
+        }
+
         internal float ResolveNormalizedSpeed(Vector2 localDirection)
         {
             float maximum = GetSpeed(maximumSpeedSource);
