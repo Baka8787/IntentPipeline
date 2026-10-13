@@ -60,7 +60,7 @@ flowchart TD
         IN["InputData.Slot1/2/3ButtonDown"] -->|"順序 2<br/>按鍵 → slot 映射"| INT["Intent.RequestedActionSlot<br/>（單幀邊沿）"]
         EXT["外部 gameplay<br/>（AI、腳本）"] -->|"RequestAction(slot)"| MB["ActionRequestTarget<br/>單格 mailbox"]
 
-        CC["PlayerCombatContextSource"] -->|"順序 2.6<br/>整體覆寫"| CTX["黑板 CombatContext<br/>InCombat / HasTarget / HasSoftTarget"]
+        CC["PlayerCombatContextSource<br/>（敵人：AICombatContextSource）"] -->|"順序 2.4<br/>整體覆寫"| CTX["黑板 CombatContext<br/>InCombat / HasTarget / HasSoftTarget"]
 
         HP["CharacterHealth"] -->|"順序 0.5<br/>整體覆寫"| SV["黑板 Survivability<br/>CurrentHealth / IsDead / JustTookDamage"]
 
@@ -103,7 +103,7 @@ flowchart TD
 | 輸入 → `Intent.RequestedActionSlot` | `ActionSlot` enum | 順序 2 Intent Processor | — | 每幀，順序 7 復位 | ❌ **單幀邊沿** |
 | 外部 → `ActionRequestTarget` | `ActionSlot` | 呼叫方 | — | 任意；FSM 每次 Tick 後 `ClearAfterEvaluation` | ⚠️ 單格 mailbox，**不排隊、不重試** |
 | `CharacterHealth` → `Survivability` | `CurrentHealth` / `MaxHealth` / `IsDead` / `JustTookDamage` | `CharacterHealth`（唯一） | 公尺無關，純量 | **順序 0.5**（最早） | `IsDead` 持續型；`JustTookDamage` 單幀，**整體覆寫即復位** |
-| `PlayerCombatContextSource` → `CombatContext` | `InCombat` / `HasTarget` / `TargetPosition` / `HasSoftTarget` / `SoftTargetPosition` | 該 producer（唯一） | **世界座標** | 順序 2.6，**整體覆寫** | 內部有 `disengageSeconds` 計時 |
+| `PlayerCombatContextSource`（敵人：`AICombatContextSource`）→ `CombatContext` | `InCombat` / `HasTarget` / `TargetPosition` / `HasSoftTarget` / `SoftTargetPosition` | 該 producer（每角色唯一） | **世界座標** | 順序 2.4（🔄 2026-10-12 由 2.6 前移），**整體覆寫** | 內部有 `disengageSeconds` 計時 |
 | `IAimSource` → `ActionReleaseContext` | `AimPoint`（世界點，保留高度）＋ `Direction`（正規化） | `ActionState`（快照） | **世界空間** | **段落邊界一次** | ✅ **整段不變** |
 | `ActionState` → sink | `Begin()` / `Release(in ctx)` / `Cleanup()` | `ActionState`（時點單一持有） | — | 段落事件 | ❌ |
 | sink → `CharacterHealth` | `ApplyDamage(float)` | 呼叫方只送**數值** | 純量 | 命中時 | ❌ |
@@ -247,7 +247,7 @@ flowchart TD
 | # | 約束 | 交換之後會發生什麼 |
 |---|---|---|
 | **O1** | `CharacterHealth.PublishTo`（順序 **0.5**）必須在輸入（1）與狀態機（4）**之前** | 傷害在 Physics 階段（早於 Update）結算，順序 0.5 發布的就是最新真相 ⇒ 死亡能在**同一幀**同時封鎖輸入並讓 `DeathState` 接管。移後就會「死了還走一幀」或「死後又出手一次」 |
-| **O2** | Combat Context producer（**2.6**）必須在 Intent（2）**之後**、狀態機（4）**之前** | 順序 2 已寫好 action intent，external mailbox 也還沒被順序 4 評估後清除——2.6 因此看得到完整的「這一幀誰想出手」 |
+| **O2** | Combat Context producer（**2.4**）必須在 Intent（2）**之後**、敵人移動意圖（2.5）**之前**（當然也在狀態機 4 之前） | 順序 2 已寫好 action intent，external mailbox 也還沒被順序 4 評估後清除——看得到完整的「這一幀誰想出手」；敵人的 `AIMovementSource` 讀同帧語境決定追不追，排在後面就會「已脫戰仍多追一帧」。🔄 2026-10-12 前為 2.6（ADR-007 §11；A54 守） |
 | **O3** | `CaptureReleaseContext`（facing 承諾）在 **`OnEnter`／段落邊界**，不是每幀；效果落點才每帧刷新（`RefreshEffectContext`） | facing 會跟著滑鼠一路飄、抬手期間持續扭身 |
 | **O4** | Facing source（**4.6**）必須在 FSM（4）**之後**、LateUpdate（6）**之前** | 在後，才讀得到當幀已確定的 commitment；在前，request 才來得及被順序 6 消費 |
 | **O5** | `sink.Cleanup()` 必須在 `OnExit`，**所有結束／中斷路徑共用** | 被打斷時命中窗不會關 ⇒ 命中窗一直開著 |
@@ -315,7 +315,7 @@ FSM 規則：`Action(5)` Priority **10**，`CanBeInterruptedBy = [Roll(4), Jump(
 ### 第 1 步：按下 Q
 
 - 順序 2：`Slot2ButtonDown` → `Intent.RequestedActionSlot = Slot2`（單幀邊沿）。
-- 順序 2.6：`PlayerCombatContextSource` 整體覆寫 `CombatContext`
+- 順序 2.4：`PlayerCombatContextSource` 整體覆寫 `CombatContext`
   （敵人在 12 m 內、鏡頭前方 25° 半角錐內 ⇒ `HasSoftTarget = true`）。
 - 順序 4：`EvaluateInterrupts`
   - `ActionState.CanEnter` → `TryResolveRequest`：

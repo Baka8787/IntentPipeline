@@ -290,7 +290,7 @@
     <div class="h">🔴 死亡是<strong>否決層</strong>，不是 Priority 0</div>
     2026-09-14 Play 回報：<strong>屍體會不斷面向玩家</strong>。
     <code>DeathArbiterSource</code> 擋不住——它封鎖的是 <code>BlockInput</code>，也就是<strong>輸入產生的意圖</strong>；
-    但 facing 的第二順位讀的是 <code>CombatContext</code>，由 <code>AIMovementSource</code> 在順序 2.5
+    但 facing 的第二順位讀的是 <code>CombatContext</code>，由 <code>AIMovementSource</code> 在順序 2.5（🔄 2026-10-12 起改為 <code>AICombatContextSource</code>，順序 2.4）
     <strong>直接寫入黑板，根本不經過輸入</strong> ⇒ 封鎖輸入對它毫無作用。<br>
     修法是<strong>不送 request</strong> ⇒ <code>MotionDriver</code> 維持既有 rotation
     ⇒ 這正是 Priority 4 既有的語意。⛔ 因此<strong>不需要</strong>新增任何「凍結朝向」機制。

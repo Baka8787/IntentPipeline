@@ -153,7 +153,7 @@
         <tr><td class="m">Survivability</td><td>覆寫式</td><td class="m">CharacterHealth</td><td class="num">0.5</td><td>DeathState／HurtState／仲裁</td></tr>
         <tr class="bind"><td class="m">Intent</td><td><strong>trigger 邊沿</strong></td><td class="m">ProcessIntents</td><td class="num">2</td><td>狀態機（順序 4）</td></tr>
         <tr class="bind"><td class="m">MovementIntent</td><td><strong>連續型</strong></td><td class="m">IMovementIntentSource</td><td class="num">2.5</td><td>Movement Model（順序 3）</td></tr>
-        <tr><td class="m">CombatContext</td><td>覆寫式</td><td class="m">敵人 AIMovementSource<br>玩家 PlayerCombatContextSource</td><td class="num">2.5<br>2.6</td><td>Facing（4.6）／Action targeting</td></tr>
+        <tr><td class="m">CombatContext</td><td>覆寫式</td><td class="m">敵人 AICombatContextSource<br>玩家 PlayerCombatContextSource</td><td class="num">2.4</td><td>敵人移動（2.5）／Facing（4.6）／Action targeting</td></tr>
         <tr><td class="m">Movement Output</td><td>衍生值</td><td class="m">IMovementModel</td><td class="num">3</td><td>MotionDriver／Facing</td></tr>
         <tr><td class="m">Arbitration</td><td>覆寫式</td><td class="m">ArbiterPipeline</td><td class="num">4.5</td><td>順序 2 閘門（<strong>下一幀</strong>）</td></tr>
         <tr><td class="m">IsGrounded／VerticalVelocity<br>JustLanded／JustLeftGround</td><td>觀測＋<strong>單幀邊沿</strong><br><span style="color:var(--muted)">🔄 兩個<strong>邊沿</strong>在 committed traversal 期間不回報；<strong>觀測</strong>照常</span></td><td class="m">MotionDriver</td><td class="num">6</td><td>FSM（下一幀）／表現層（6.5）</td></tr>
@@ -164,10 +164,11 @@
 
   <div class="callout">
     <div class="h">⚠️ <code>CombatContext</code> 的兩個寫入者不是例外</div>
-    敵人在 2.5 寫、玩家在 2.6 寫——但<strong>同一個角色只會有其中一個</strong>。
+    玩家與敵人各有一個 producer，都在 2.4 寫——但<strong>同一個角色只會有其中一個</strong>（W12／W27 守）。
     這是「每個 actor 一個寫入者」，不是「一個欄位兩個寫入者」。<br>
-    玩家為什麼非得在 2.6：它要讀順序 2 剛寫好的 Action intent，又必須在順序 4 之前
-    （external <code>ActionRequestTarget</code> 會被順序 4 評估後清除）——<strong>那個夾縫就是 2.6 存在的理由</strong>。
+    為什麼是 2.4：玩家要讀順序 2 剛寫好的 Action intent、又必須在順序 4 之前（external <code>ActionRequestTarget</code> 會被清除）；
+    敵人的移動意圖（2.5）讀同帧語境決定追不追——<strong>兩條夾出來的區間就是 (2, 2.5)</strong>。
+    🔄 2026-10-12 之前是玩家 2.6、敵人由 <code>AIMovementSource</code> 在 2.5 兼寫（ADR-007 §11）。
   </div>
 </section>
 

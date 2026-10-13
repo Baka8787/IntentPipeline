@@ -313,6 +313,7 @@
       <tbody>
         <tr class="bind"><td class="m">DeathState.CanEnter（順序 4）</td><td>本幀的 <code>IsDead</code> 是<strong>最新真相</strong></td><td>死了還走一幀</td></tr>
         <tr><td class="m">AIMovementSource（順序 2.5）</td><td>同上——它<strong>直接讀 <code>IsDead</code></strong> 停止產生意圖</td><td>屍體繼續走向玩家</td></tr>
+        <tr><td class="m">AICombatContextSource（順序 2.4）🆕</td><td>本幀的 <code>JustTookDamage</code>（受擊 ⇒ Provoked 交戰）；自己 <code>IsDead</code> ⇒ 不寫語境</td><td>受擊後晚一幀才追；屍體仍發布交戰</td></tr>
         <tr><td class="m">HurtState.CanEnter（順序 4）</td><td><code>JustTookDamage</code> 這一幀有效</td><td>受擊反應晚一幀或整個漏掉</td></tr>
         <tr><td class="m">DeathArbiterSource（順序 4.5）</td><td>只需要 <code>IsDead</code>，不要求同幀</td><td>（本來就是下一幀生效）</td></tr>
       </tbody>

@@ -71,7 +71,8 @@ flowchart TD
         P --> MI[("黑板 MovementIntent<br/>DesiredSpeedNormalized<br/>DesiredDirection<br/>WalkModeActive")]
 
         MI --> M["順序 3<br/>LocomotionModel.Tick<br/>（唯一 Movement Output writer）"]
-        CTX["CombatContext.InCombat"] -->|"方向性速限（可選）"| M
+        CTX["CombatContext.InCombat<br/>（只有 WhileInCombat 政策）"] -->|"方向性速限（可選）"| M
+        ACT["ActionState 的當帧宣告<br/>MovementLimit（WhileActionDeclares 政策）"] -->|"IActionMovementLimitTarget"| M
         SM[("_smoother<br/>⭐ 跨幀 dynamics")] <--> M
         ST[("_stop<br/>⭐ 跨幀 stop 狀態")] <--> M
         M --> OUT[("黑板 MoveSpeed / MoveDirection")]
@@ -103,7 +104,8 @@ flowchart TD
 | 相機 → Policy | `CameraTransform.forward/right` | `ThirdPersonCamera` | 世界 | 每幀讀 | ❌ |
 | Policy → `MovementIntent` | `DesiredSpeedNormalized` [0,1]、`DesiredDirection`（**世界 XZ，已正規化**）、`WalkModeActive` | `PlayerLocomotionPolicy`（唯一） | **世界空間** | 順序 2.5，**每幀整體覆寫** | ⚠️ `WalkModeActive` 是**持久 mode**，刻意**不**參與順序 7 復位 |
 | `MovementIntent` → Model | 同上 | — | 世界 | 順序 3 | — |
-| `CombatContext` → Model | `InCombat`（只有裝了 profile 才讀） | `PlayerCombatContextSource` | — | 順序 3 | — |
+| `CombatContext` → Model | `InCombat`（只有裝了 profile **且**政策為 `WhileInCombat` 才用，例如 Y Bot） | 該角色的 combat producer | — | 順序 3 | — |
+| `ActionState` → Model 🆕 | `ActionMovementLimit`（`None`／`DirectionalSpeed`；無數值） | `ActionState`（唯一宣告者，A55） | — | 順序 4 宣告 → **下一帧**順序 3 讀（首帧延遲一帧） | ⚠️ 只承認本帧或上一帧的宣告；每帧續約，缺少宣告自動失效（`docs/54` §3.5.7） |
 | Model → `MoveSpeed`/`MoveDirection` | float [0,1]、Vector3（世界 XZ，y=0） | `LocomotionModel`（唯一） | **世界空間** | 順序 3 | ✅ `_smoother` 內部有速度／SmoothDamp 緩存／最後方向 |
 | Model → Animator 參數 | `MoveSpeed`、`MoveX`、`MoveZ` | `LocomotionModel` | `MoveX/Z` 是**角色本地** XZ | 順序 3（**刻意不在 LateUpdate**） | ❌ |
 | 承諾／戰鬥目標／移動方向 → FacingSource | 三個候選方向 | 各自 | 世界 XZ | 順序 4.6 | ❌ |
@@ -194,7 +196,7 @@ bool requestSent = !isDead && resolved && ShouldRequestFacing(...);
 註解記錄了為什麼 `DeathArbiterSource` 擋不住這件事（2026-09-14 使用者 Play 回報：**屍體會不斷面向玩家**）：
 
 > `DeathArbiterSource` 封鎖的是 `BlockInput`，也就是**輸入產生的意圖**。
-> 但 facing 的第二順位讀的是 `CombatContext`，由 `AIMovementSource` 在順序 2.5 **直接寫入黑板**，
+> 但 facing 的第二順位讀的是 `CombatContext`，由 `AIMovementSource` 在順序 2.5 **直接寫入黑板**（🔄 2026-10-12 起寫入者改為 `AICombatContextSource`、順序 2.4——結論不變：仍不經過輸入），
 > **根本不經過輸入** ⇒ 封鎖輸入對它毫無作用。
 
 修法是**不送 request** ⇒ `MotionDriver` 維持既有 rotation ⇒ 這正是 Priority 4 既有的語意。
@@ -472,7 +474,7 @@ Pending stop 期間 **`_smoother.Tick` 不跑**——維持 release-entry 的速
 | `CharacterHealth` | `IsDead = true`，順序 0.5 發布 | ❌ 正常 |
 | `DeathArbiterSource` | 設 `Arbitration.BlockInput = true` | ⚠️ **它做的事是對的，但管不到這裡** |
 | 順序 2 閘門 | `if (BlockInput) inputData = default;` | ❌ 對輸入有效 |
-| `AIMovementSource`（順序 2.5） | 🔴 **直接寫黑板，根本不經過輸入** | ✅ |
+| `AIMovementSource`（順序 2.5；🔄 現為 `AICombatContextSource`，2.4） | 🔴 **直接寫黑板，根本不經過輸入** | ✅ |
 | `CharacterFacingSource` Priority 2 | 讀 `CombatContext` ⇒ 解出面向玩家的方向 ⇒ 送 request | ✅ |
 
 ### 根因，一句話

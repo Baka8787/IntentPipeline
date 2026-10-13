@@ -162,30 +162,33 @@
 
       <rect class="boxm" x="16" y="148" width="200" height="50"></rect>
       <text class="xs m me" x="28" y="168">PlayerCombatContextSource</text>
-      <text class="xs mu" x="28" y="186">順序 2.6（獨立一步）</text>
+      <text class="xs mu" x="28" y="186">順序 2.4</text>
 
       <text class="xs m bd" x="16" y="228">敵人</text>
-      <rect class="boxb" x="16" y="238" width="200" height="50"></rect>
-      <text class="xs m bd" x="28" y="258">AIInputSource</text>
-      <text class="xs mu" x="28" y="276">距離帶 ⇒ Action intent</text>
+      <rect class="boxb" x="16" y="238" width="200" height="40"></rect>
+      <text class="xs m bd" x="28" y="256">AIInputSource</text>
+      <text class="xs mu" x="28" y="272">距離帶 ⇒ Action intent</text>
 
-      <rect class="boxb" x="16" y="298" width="200" height="72"></rect>
-      <text class="xs m bd" x="28" y="318">AIMovementSource</text>
-      <text class="xs mu" x="28" y="336">NavMesh ⇒ MovementIntent</text>
-      <text class="xs mu" x="28" y="352">＋ CombatContext（同一步）</text>
-      <text class="xs bd" x="28" y="366" style="font-size:9.5px">敵人沒有 2.6</text>
+      <rect class="boxb" x="16" y="284" width="200" height="40"></rect>
+      <text class="xs m bd" x="28" y="302">AICombatContextSource</text>
+      <text class="xs mu" x="28" y="318">順序 2.4 ⇒ CombatContext</text>
+
+      <rect class="boxb" x="16" y="330" width="200" height="44"></rect>
+      <text class="xs m bd" x="28" y="348">AIMovementSource</text>
+      <text class="xs mu" x="28" y="366">2.5 讀同帧語境 ⇒ MovementIntent</text>
 
       <path class="lnm" d="M220,53 L262,53 L262,150 L300,150" marker-end="url(#arm)"></path>
       <path class="lnm" d="M220,113 L250,113 L250,158 L300,158" marker-end="url(#arm)"></path>
       <path class="lnm" d="M220,173 L238,173 L238,166 L300,166" marker-end="url(#arm)"></path>
-      <path class="lnb" d="M220,263 L262,263 L262,182 L300,182" marker-end="url(#arb)"></path>
-      <path class="lnb" d="M220,334 L250,334 L250,190 L300,190" marker-end="url(#arb)"></path>
+      <path class="lnb" d="M220,258 L262,258 L262,178 L300,178" marker-end="url(#arb)"></path>
+      <path class="lnb" d="M220,304 L256,304 L256,186 L300,186" marker-end="url(#arb)"></path>
+      <path class="lnb" d="M220,352 L250,352 L250,194 L300,194" marker-end="url(#arb)"></path>
 
       <rect class="box" x="304" y="130" width="180" height="76"></rect>
       <text class="xs m" x="316" y="150">黑板</text>
       <text class="xs mu" x="316" y="168">InputData（順序 1）</text>
       <text class="xs mu" x="316" y="184">MovementIntent（2.5）</text>
-      <text class="xs mu" x="316" y="200">CombatContext（2.5／2.6）</text>
+      <text class="xs mu" x="316" y="200">CombatContext（2.4）</text>
 
       <line class="ln" x1="488" y1="168" x2="524" y2="168" marker-end="url(#ar)"></line>
 
@@ -203,7 +206,7 @@
       <text class="xs bd m" x="540" y="288">⭐ 這就是「介面可換」的實證</text>
       <text class="xs mu" x="540" y="306">Runner 不知道自己在跑玩家還是敵人——它只呼叫介面。</text>
 
-      <text class="xs mu" x="16" y="392">⚠️ 核心 Runner 管線的唯一排程差異：玩家多一個順序 2.6；敵人把 CombatContext 併進 2.5。理由見 <tspan class="m">combat-context.html</tspan> §02。</text>
+      <text class="xs mu" x="16" y="392">🔄 2026-10-12：兩種角色的 combat producer 都排在 2.4（movement intent 之前），Runner 不再有角色專屬步驟。理由見 <tspan class="m">combat-context.html</tspan> §02。</text>
     </svg>
 
     <figcaption>
@@ -212,7 +215,7 @@
       <code>AnimancerFacade</code>、Foot IK——以及順序 3 之後的整條管線。<br>
       ⚠️ <strong>元件集合本身並不相同</strong>：X Bot 另有 <code>PlayerCombatContextSource</code>／
       <code>TraversalProbe</code>／<code>RespawnController</code>／<code>PlayerHud</code>／<code>HeadLookController</code>；
-      Y Bot 另有 <code>AIInputSource</code>／<code>AIMovementSource</code>／<code>WorldSpaceHealthBar</code>。
+      Y Bot 另有 <code>AIInputSource</code>／<code>AICombatContextSource</code>／<code>AIMovementSource</code>／<code>WorldSpaceHealthBar</code>。
       <strong>共用的是管線與 driver，不是 prefab 的元件清單。</strong>
     </figcaption>
   </figure>
@@ -237,10 +240,10 @@
       <text class="s t" x="28" y="54">CombatContext</text>
       <text class="xs mu" x="28" y="76">回答：「還在不在跟這個目標交戰」</text>
       <text class="xs mu" x="28" y="98">由<tspan class="me" font-weight="700">目標關係</tspan>決定</text>
-      <text class="xs mu" x="28" y="114">（aggro 8／12 黏性半徑）</text>
+      <text class="xs mu" x="28" y="114">（aggro 8／12；受擊 Provoked 20 m／5 s）</text>
       <text class="xs wr" x="28" y="140">⛔ 與 NavMesh 可用性<tspan font-weight="700">完全無關</tspan></text>
-      <text class="xs mu" x="28" y="164">所以它必須在 NavMesh 守衛</text>
-      <text class="xs mu" x="28" y="180"><tspan class="me" font-weight="700">之前</tspan>結算</text>
+      <text class="xs mu" x="28" y="164">🔄 由 AICombatContextSource 在 2.4</text>
+      <text class="xs mu" x="28" y="180">結算，<tspan class="me" font-weight="700">根本不經過</tspan>導航</text>
       <text class="xs mu" x="28" y="202">寫進黑板，7 個消費者共用</text>
 
       <rect class="boxb" x="296" y="30" width="270" height="180"></rect>
@@ -273,17 +276,21 @@
     </svg>
 
     <figcaption>
-      程式裡的註解逐字寫著：「<strong><code>CombatContext</code> 回答的是『還在不在跟這個目標交戰』——
-      那是目標關係的性質，不是導航的性質</strong>。agent 掉出 NavMesh 不代表敵人脫離戰鬥，
-      所以這一層必須在 NavMesh 守衛之前結算。」
+      2026-09-10 的原始裁決：「<strong><code>CombatContext</code> 回答的是『還在不在跟這個目標交戰』——
+      那是目標關係的性質，不是導航的性質</strong>。agent 掉出 NavMesh 不代表敵人脫離戰鬥。」<br>
+      🔄 2026-10-12 起這一層搬到獨立的 <code>AICombatContextSource</code>（順序 2.4），
+      這個區分因此由<strong>結構</strong>保證，而不再靠同一個方法裡的呼叫順序（<code>docs/54</code> §3.3.2）。
     </figcaption>
   </figure>
 
   <div class="callout">
-    <div class="h">為什麼敵人不另建一個 combat context source</div>
-    敵人的移動與戰鬥語境<strong>共用同一個 target 真相</strong>。
-    另建 context source 只會複製 target reference ⇒ 目標會出現<strong>第二份真相</strong>。<br>
-    ADR-007 D3 補充條款明文禁止「任何其他系統自建 <code>isInCombat</code> 旗標或第二份 target 清單」。
+    <div class="h">🔄 敵人後來還是有了獨立的 combat context source——但 target 仍只有一份</div>
+    2026-09-10 的理由是「另建 context source 只會複製 target reference ⇒ 第二份真相」。
+    2026-10-12 拆分（目標存活與受擊激怒是<strong>與移動無關</strong>的判定，正是原裁決自訂的重拆條件），
+    但沒有複製 target：<strong>序列化的 target 仍只在 <code>AIMovementSource</code></strong>，
+    <code>AICombatContextSource</code> 與 <code>AIInputSource</code> 讀它的唯讀屬性 <code>Target</code>（參照資料依賴，不互相呼叫決策邏輯）。
+    <code>AIInputSource</code> 原本那份第二個 target 也一併移除。<br>
+    ADR-007 D3 補充條款「⛔ 第二份 target 清單」因此仍然成立（<code>AICombatContextSourceTests.AB1</code> 守）。
   </div>
 </section>
 
@@ -363,6 +370,7 @@
         <tr><td class="m">_strafeDirectionSign</td><td class="m">AIMovementSource</td><td>現在往左還是往右繞</td><td>每幀換向 ⇒ 原地抽搐</td></tr>
         <tr><td class="m">_nextStrafeDirectionFlipTime</td><td class="m">AIMovementSource</td><td>下一次換向的時刻（基準 2.5 s × 0.75–1.25 隨機）</td><td>換向時機失控</td></tr>
         <tr><td class="m">_strafeBlocked</td><td class="m">AIMovementSource</td><td class="no">⚠️ <strong>純診斷</strong>——兩側都不可走而停步的快照，<strong>不參與任何決策</strong>（gizmo 只讀）</td><td>只影響 debug 顯示，不影響行為</td></tr>
+        <tr class="bind"><td class="m">_memory（InCombat／受擊／寬限起點）</td><td class="m">AICombatContextSource</td><td>交戰遲滯＋「這次交戰被打過沒」＋寬限計時</td><td>受擊後 12 m 就放手；寬限失效</td></tr>
         <tr class="bind"><td class="m">_wasWithinAttackRange</td><td class="m">AIInputSource</td><td>進入攻擊距離的<strong>邊沿</strong></td><td>每幀重複請求出手</td></tr>
         <tr><td class="m">_nextAttackRequestTime</td><td class="m">AIInputSource</td><td>0.5 s 重試間隔</td><td>被拒絕後瘋狂重送</td></tr>
       </tbody>
@@ -371,8 +379,9 @@
 
   <div class="note why"><span class="lab">分工</span><p>
     注意兩個元件的跨幀狀態<strong>沒有重疊</strong>：
-    <code>AIInputSource</code> 只記「該不該出手」，<code>AIMovementSource</code> 只記「該怎麼移動」。
-    它們<strong>不互相引用</strong>，各自獨立地讀同一個 <code>target</code> Transform。
+    <code>AIInputSource</code> 只記「該不該出手」，<code>AICombatContextSource</code> 只記「還在不在交戰」，
+    <code>AIMovementSource</code> 只記「該怎麼移動」。三者讀<strong>同一個</strong> target（<code>AIMovementSource.Target</code>），
+    但<strong>不呼叫彼此的決策邏輯</strong>；移動只經黑板讀交戰結果。
   </p></div>
 </section>
 
@@ -388,9 +397,12 @@
 attackRange                 = <span class="me">1.6</span>
 attackRequestRetryInterval  = 0.5
 
-<span class="c">// AIMovementSource（順序 2.5 —— 移動與語境）</span>
-desiredSpeedNormalized      = 1
+<span class="c">// AICombatContextSource（順序 2.4 —— 交戰語境）</span>
 aggroEnterRadius            = <span class="me">8</span>        aggroLeaveRadius = <span class="me">12</span>
+provokedLeaveRadius         = 20       provokedGraceSeconds = 5   <span class="c">← 量測候選值，非平衡定值</span>
+
+<span class="c">// AIMovementSource（順序 2.5 —— 移動；target 的唯一序列化權威）</span>
+desiredSpeedNormalized      = 1
 minimumEngagementDistance   = <span class="hl">1.25</span>     maximumEngagementDistance = <span class="hl">1.6</span>
 distanceHysteresis          = 0.15
 holdStrafeSpeedNormalized   = 0.35     strafeDirectionFlipInterval = 2.5  <span class="c">← 基準值</span>

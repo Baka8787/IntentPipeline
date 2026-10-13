@@ -344,7 +344,7 @@
       <div class="row tell"><span class="k">怎麼認</span><p>「我已經關掉它了，為什麼還在動」。而且你檢查過那個開關<strong>確實生效了</strong>。</p></div>
       <div class="row"><span class="k">去哪找</span><p>畫出那個行為的<strong>資料來源鏈</strong>，然後問：這條鏈有經過我關掉的那一環嗎？AI、網路、replay 這類 producer 通常不經過。</p></div>
       <div class="row case"><span class="k">實例</span><p><strong>屍體會不斷面向玩家</strong>：<code>DeathArbiterSource</code> 封鎖的是 <code>BlockInput</code>，
-        但 facing 的第二順位讀的是 <code>CombatContext</code>，由 <code>AIMovementSource</code> 在順序 2.5 <strong>直接寫入黑板</strong>——根本不經過輸入。
+        但 facing 的第二順位讀的是 <code>CombatContext</code>，由 <code>AIMovementSource</code> 在順序 2.5（🔄 2026-10-12 起為 <code>AICombatContextSource</code>，順序 2.4）<strong>直接寫入黑板</strong>——根本不經過輸入。
         <span class="m">→ direction-authority §02</span></p></div>
       <div class="row rule"><span class="k">修法</span><p class="rulebox">修法是<strong>不送 request</strong>，讓既有的「沒有人要求 ⇒ 維持現狀」語意接手。<br>
         ⛔ 不需要新增「凍結朝向」機制——那是在既有語意之外再造一個。</p></div>

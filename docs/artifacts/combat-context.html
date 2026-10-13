@@ -127,7 +127,7 @@
 
   <div class="keyfacts">
     <div><div class="v">7</div><div class="k">消費者<br>（Core／Presentation／App）</div></div>
-    <div><div class="v">2</div><div class="k">per-actor writer<br>（玩家 2.6／敵人 2.5）</div></div>
+    <div><div class="v">2</div><div class="k">per-actor writer<br>（玩家／敵人，皆順序 2.4）</div></div>
     <div><div class="v">5</div><div class="k">欄位</div></div>
     <div><div class="v">6 / 9</div><div class="k">玩家進／離場半徑<br>（遲滯）</div></div>
     <div><div class="v">8 / 12</div><div class="k">敵人 aggro<br>進／離場半徑</div></div>
@@ -153,14 +153,14 @@
       <text class="xs m mu" x="16" y="18">Writer —— 每個 actor 只有一個</text>
 
       <rect class="boxm" x="16" y="28" width="230" height="72"></rect>
-      <text class="s t me" x="28" y="50">玩家　順序 2.6</text>
+      <text class="s t me" x="28" y="50">玩家　順序 2.4</text>
       <text class="xs mu" x="28" y="70">PlayerCombatContextSource</text>
       <text class="xs mu" x="28" y="86">enter 6 ／ leave 9 ／ 5 s 倒數</text>
 
       <rect class="boxb" x="16" y="108" width="230" height="72"></rect>
-      <text class="s t bd" x="28" y="130">敵人　順序 2.5</text>
-      <text class="xs mu" x="28" y="150">AIMovementSource（同一步一併發布）</text>
-      <text class="xs mu" x="28" y="166">aggroEnter 8 ／ aggroLeave 12</text>
+      <text class="s t bd" x="28" y="130">敵人　順序 2.4</text>
+      <text class="xs mu" x="28" y="150">AICombatContextSource（2026-10-12 拆出）</text>
+      <text class="xs mu" x="28" y="166">aggro 8／12 ＋ 受擊 Provoked 20 m／5 s</text>
 
       <path class="lnm" d="M250,64 L292,64 L292,100" marker-end="url(#arm)"></path>
       <path class="lnb" d="M250,144 L292,144 L292,112" marker-end="url(#arb)"></path>
@@ -185,11 +185,11 @@
 
         <rect class="box" x="580" y="104" width="264" height="34"></rect>
         <text class="m" x="592" y="118">LocomotionModel</text>
-        <text class="mu" x="592" y="132" style="font-size:9.5px">InCombat（切 directional speed profile）</text>
+        <text class="mu" x="592" y="132" style="font-size:9.5px">InCombat（只有 WhileInCombat 政策的 actor）</text>
 
         <rect class="box" x="580" y="142" width="264" height="34"></rect>
         <text class="m" x="592" y="156">AIMovementSource</text>
-        <text class="mu" x="592" y="170" style="font-size:9.5px">InCombat（自己寫也自己讀）</text>
+        <text class="mu" x="592" y="170" style="font-size:9.5px">InCombat／TargetPosition（同帧唯讀）</text>
 
         <rect class="box" x="580" y="180" width="264" height="34"></rect>
         <text class="m" x="592" y="194">HeadLookController</text>
@@ -219,9 +219,12 @@
     </svg>
 
     <figcaption>
-      <strong>兩個 producer 同時是 reader</strong>，而且讀的都是自己<strong>上一幀</strong>寫的值——
+      <strong>玩家 producer 同時是 reader</strong>，讀的是自己<strong>上一幀</strong>寫的值——
       那不是循環依賴，那就是<strong>遲滯的實作方式</strong>：
-      <code>wasInCombat</code> 決定這一幀用 enter 還是 leave 半徑。<br>
+      <code>wasInCombat</code> 決定這一幀用 enter 還是 leave 半徑。敵人 producer 把同一份記憶
+      （再加上「這次交戰有沒有被打過」與寬限計時）留在自己的私有欄位，黑板只發布結果。<br>
+      🔄 2026-10-12：敵人的移動（<code>AIMovementSource</code>）不再兼寫語境，改為<strong>同帧唯讀</strong>的消費者；
+      target 的唯一序列化權威仍在它身上，combat producer 只讀那個引用（<code>AIMovementSource.Target</code>，<code>docs/54</code> §3.3.2）。<br>
       ⚠️ <code>CharacterPipelineRunner</code> <strong>不是</strong> reader——它只排程 producer，不解讀語境內容。
     </figcaption>
   </figure>
@@ -231,63 +234,64 @@
 <section>
   <div class="sec-head">
     <span class="n">02</span>
-    <h2>合法區間：順序 2 之後、順序 3 之前</h2>
-    <span class="tag">2.6 是落點，不是唯一解</span>
+    <h2>合法區間：順序 2 之後、敵人移動（2.5）之前</h2>
+    <span class="tag">2.4 是兩種 producer 的共同落點</span>
   </div>
   <p class="sec-intro">
-    玩家的語境需要<strong>晚於順序 2</strong>（要讀本幀剛寫好的 <code>Intent</code>），
-    並<strong>早於順序 3</strong>（最早的消費者 <code>LocomotionModel</code>）。
-    <strong>2.5 與 2.6 都落在這個區間內</strong>——玩家獨立排在 2.6 是責任分工（它的 2.5 producer
-    <code>PlayerLocomotionPolicy</code> 不管戰鬥語境），不是排程上的唯一解。
+    語境必須<strong>晚於順序 2</strong>（玩家要讀本幀剛寫好的 <code>Intent</code>），
+    並<strong>早於它最早的消費者</strong>。2026-10-12 起，最早的消費者是<strong>敵人的移動意圖（2.5）</strong>——
+    <code>AIMovementSource</code> 讀 <code>CombatContext</code> 決定追不追。
+    ⇒ 兩種 producer 一起排在 <strong>2.4</strong>。玩家的行為不變：它的輸入在 2.4 之前都已就緒，2.4–2.6 之間也沒有任何讀者。
   </p>
 
   <figure>
-    <svg viewBox="0 0 860 300" role="img" aria-label="戰鬥語境的合法產生區間：下界是順序 2（要讀本幀 Intent），上界是順序 3（最早的消費者 LocomotionModel；FSM 在順序 4 也消費），2.6 是玩家目前的落點">
+    <svg viewBox="0 0 860 300" role="img" aria-label="戰鬥語境的合法產生區間：下界是順序 2（要讀本幀 Intent），上界是順序 2.5（敵人的移動意圖讀同帧語境），兩種 producer 都排在 2.4">
       <line class="grid" x1="60" y1="150" x2="800" y2="150"></line>
       <g class="xs m mu">
         <text x="110" y="142" text-anchor="middle">2</text>
-        <text x="260" y="142" text-anchor="middle">2.5</text>
-        <text x="410" y="142" text-anchor="middle">2.6</text>
-        <text x="560" y="142" text-anchor="middle">2.7</text>
+        <text x="300" y="142" text-anchor="middle">2.4</text>
+        <text x="430" y="142" text-anchor="middle">2.5</text>
+        <text x="570" y="142" text-anchor="middle">3</text>
         <text x="710" y="142" text-anchor="middle">4</text>
       </g>
       <g class="grid">
         <line x1="110" y1="146" x2="110" y2="154"></line>
-        <line x1="260" y1="146" x2="260" y2="154"></line>
-        <line x1="410" y1="146" x2="410" y2="154"></line>
-        <line x1="560" y1="146" x2="560" y2="154"></line>
+        <line x1="300" y1="146" x2="300" y2="154"></line>
+        <line x1="430" y1="146" x2="430" y2="154"></line>
+        <line x1="570" y1="146" x2="570" y2="154"></line>
         <line x1="710" y1="146" x2="710" y2="154"></line>
       </g>
 
       <rect class="boxm" x="60" y="60" width="100" height="40"></rect>
       <text class="xs m me" x="110" y="78" text-anchor="middle">Intent 寫好</text>
       <text class="xs mu" x="110" y="93" text-anchor="middle">Action intent</text>
-      <path class="lnm" d="M110,104 L110,124 L396,124 L396,144" marker-end="url(#arm)"></path>
-      <text class="xs m me" x="250" y="120" text-anchor="middle">① 必須在這之後 —— 要讀本幀的 Action intent</text>
+      <path class="lnm" d="M110,104 L110,124 L288,124 L288,144" marker-end="url(#arm)"></path>
+      <text class="xs m me" x="200" y="118" text-anchor="middle">① 下界：要讀本幀 Action intent</text>
 
-      <rect class="boxb" x="360" y="162" width="100" height="40"></rect>
-      <text class="xs m bd" x="410" y="180" text-anchor="middle">2.6</text>
-      <text class="xs mu" x="410" y="195" text-anchor="middle">玩家語境</text>
+      <rect class="boxw" x="370" y="60" width="160" height="40"></rect>
+      <text class="xs m wr" x="450" y="78" text-anchor="middle">敵人移動意圖（2.5）</text>
+      <text class="xs mu" x="450" y="93" text-anchor="middle">讀同帧 InCombat／目標位置</text>
+      <path class="lnw" d="M420,104 L420,124 L312,124 L312,144" marker-end="url(#arw)"></path>
+      <text class="xs m wr" x="520" y="118">② 上界：錯過就會「已脫戰仍多追一帧」</text>
 
-      <rect class="boxw" x="640" y="60" width="160" height="40"></rect>
-      <text class="xs m wr" x="720" y="78" text-anchor="middle">model（3）最早消費</text>
-      <text class="xs mu" x="720" y="93" text-anchor="middle">FSM（4）稍後也消費</text>
-      <path class="lnw" d="M700,104 L700,124 L424,124 L424,144" marker-end="url(#arw)"></path>
-      <text class="xs m wr" x="570" y="120" text-anchor="middle">② 上界＝順序 3 —— 錯過的話至少 model 看到上一幀</text>
+      <rect class="box" x="600" y="168" width="200" height="40"></rect>
+      <text class="xs m" x="700" y="186" text-anchor="middle">model（3）／FSM（4）／facing（4.6）</text>
+      <text class="xs mu" x="700" y="201" text-anchor="middle">讀到的值與舊版 2.6 完全相同</text>
 
-      <rect class="boxb" x="330" y="216" width="160" height="26"></rect>
-      <text class="xs m bd" x="410" y="234" text-anchor="middle">合法區間（2.5 也在裡面）</text>
+      <rect class="boxb" x="240" y="162" width="120" height="40"></rect>
+      <text class="xs m bd" x="300" y="180" text-anchor="middle">2.4</text>
+      <text class="xs mu" x="300" y="195" text-anchor="middle">玩家／敵人 producer</text>
 
-      <rect class="boxm" x="16" y="256" width="828" height="36"></rect>
-      <text class="xs me m" x="28" y="278">📌 敵人沒有<tspan font-weight="700">下界</tspan>①（不讀順序 2 的 Action intent），但同樣受上界②約束 ⇒ 2.5 已滿足，可併進同一步。</text>
+      <rect class="boxm" x="16" y="234" width="828" height="56"></rect>
+      <text class="xs me m" x="28" y="256">🔄 2026-10-12 之前：玩家 2.6、敵人把語境併進自己的 2.5（移動 producer 兼寫）。</text>
+      <text class="xs me m" x="28" y="276">敵人改由獨立 producer 寫、移動只讀之後，2.6 會讓脫戰與目標死亡的那一帧多追一帧 ⇒ 兩者一起前移（ADR-007 §11）。</text>
     </svg>
 
     <figcaption>
       <code>docs/15</code> 的原話：「順序 2 已寫好 <code>Intent</code>，可直接讀『本帧是否出手』；
-      早於順序 3／4，讓 model 與 FSM 都看得到。」<br>
-      ⚠️ 注意這是一個<strong>區間</strong>而不是一個點——2.5 也滿足這兩條。
-      玩家用獨立的 2.6 是因為它的 2.5 producer（<code>PlayerLocomotionPolicy</code>）不管戰鬥語境；
-      敵人則把它併進自己的 2.5。<strong>編號是排程，約束是區間。</strong>
+      早於順序 3／4，讓 model 與 FSM 都看得到。」——上界從 3 收緊到 2.5，是因為多了一個更早的讀者。<br>
+      ⚠️ 這仍是一個<strong>區間</strong>而不是一個點。守住排程的是 <code>ArchitectureRegressionTests.A54</code>；
+      寫錯順序時會紅的行為測試是 <code>AICombatContextPlayModeTests</code>（mutation 已驗證）。<strong>編號是排程，約束是區間。</strong>
     </figcaption>
   </figure>
 
@@ -415,7 +419,7 @@ aggroEnterRadius = <span class="me">8</span>      aggroLeaveRadius = <span class
         <tr><td class="m">direction-authority</td><td>Facing 四段優先序；Priority 2 為什麼不吃死區</td><td>Priority 2 讀的那份語境<strong>從哪來、何時產生</strong></td></tr>
         <tr><td class="m">action-combat</td><td>targeting 模式（<code>CameraForward</code> vs <code>CameraConeSoftTarget</code>）</td><td>soft target 本身的產生與黏性</td></tr>
         <tr><td class="m">enemy-ai</td><td><code>EngagementMovement</code> 的五個模式與 NavMesh 退回</td><td>aggro 語境與移動模式<strong>為什麼是兩層</strong></td></tr>
-        <tr><td class="m">authority-timeline</td><td>2.5／2.6 在時間軸上的位置</td><td>那個區間的<strong>上下界各自從哪來</strong></td></tr>
+        <tr><td class="m">authority-timeline</td><td>2.4／2.5 在時間軸上的位置</td><td>那個區間的<strong>上下界各自從哪來</strong></td></tr>
         <tr><td class="m">survivability</td><td><code>WorldSpaceHealthBar</code> 讀的血量真相</td><td>那條血條的<strong>可見性</strong>判準（<code>InCombat</code>）</td></tr>
       </tbody>
     </table>
