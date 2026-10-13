@@ -1,0 +1,942 @@
+{
+ "schema": 1,
+ "_comment": "Synthetic change sets for plan_tests.py (docs/57 §12 Q5): input changes (path/status/old/new), optional snapshot/context/probes/facts overrides, expected decision. Generated once; edit by hand from now on.",
+ "cases": [
+  {
+   "id": "P01",
+   "description": "docs only",
+   "changes": [
+    {
+     "path": "docs/99-x.md",
+     "status": "M"
+    }
+   ],
+   "expect": {
+    "tier": "R0",
+    "rules": [
+     "UNITY_INVISIBLE"
+    ],
+    "editMode": false,
+    "invocationCount": 0,
+    "notRunInclude": [
+     "StairTraversalPlayModeTests"
+    ]
+   }
+  },
+  {
+   "id": "P02",
+   "description": "outside Unity roots (.codex-temp)",
+   "changes": [
+    {
+     "path": ".codex-temp/Dump.cs",
+     "status": "A",
+     "old": null,
+     "new": "// x\n"
+    }
+   ],
+   "expect": {
+    "tier": "R0"
+   }
+  },
+  {
+   "id": "P03",
+   "description": "WORKLOG",
+   "changes": [
+    {
+     "path": "WORKLOG.md",
+     "status": "M"
+    }
+   ],
+   "expect": {
+    "tier": "R0"
+   }
+  },
+  {
+   "id": "P04",
+   "description": "skill file",
+   "changes": [
+    {
+     "path": ".claude/skills/unity-live-control/SKILL.md",
+     "status": "M"
+    }
+   ],
+   "expect": {
+    "tier": "R0",
+    "rules": [
+     "SKILL"
+    ],
+    "staticChecksContain": [
+     "check_skill_mirror.py"
+    ]
+   }
+  },
+  {
+   "id": "P05",
+   "description": "MotionDriver (authority)",
+   "changes": [
+    {
+     "path": "Assets/Scripts/Presentation/Motion/MotionDriver.cs",
+     "status": "M",
+     "old": "// a\n",
+     "new": "// b\n"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "E2"
+    ],
+    "selection": "full"
+   }
+  },
+  {
+   "id": "P06",
+   "description": "CharacterPipelineRunner",
+   "changes": [
+    {
+     "path": "Assets/Scripts/Core/Pipeline/CharacterPipelineRunner.cs",
+     "status": "M",
+     "old": "// a\n",
+     "new": "// b\n"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "E2"
+    ]
+   }
+  },
+  {
+   "id": "P07",
+   "description": "CombatContext schema",
+   "changes": [
+    {
+     "path": "Assets/Scripts/Core/Blackboard/CombatContextData.cs",
+     "status": "M",
+     "old": "// a\n",
+     "new": "// b\n"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "E3"
+    ]
+   }
+  },
+  {
+   "id": "P08",
+   "description": "core interface",
+   "changes": [
+    {
+     "path": "Assets/Scripts/Core/Movement/IMovementIntentSource.cs",
+     "status": "M",
+     "old": "// a\n",
+     "new": "// b\n"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "E3"
+    ]
+   }
+  },
+  {
+   "id": "P09",
+   "description": "movement authority AIMovementSource",
+   "changes": [
+    {
+     "path": "Assets/Scripts/Core/Movement/AIMovementSource.cs",
+     "status": "M",
+     "old": "// a\n",
+     "new": "// b\n"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "E2"
+    ]
+   }
+  },
+  {
+   "id": "P10",
+   "description": "facing authority",
+   "changes": [
+    {
+     "path": "Assets/Scripts/Core/Facing/CharacterFacingSource.cs",
+     "status": "M",
+     "old": "// a\n",
+     "new": "// b\n"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "E3"
+    ]
+   }
+  },
+  {
+   "id": "P11",
+   "description": "unknown runtime folder",
+   "changes": [
+    {
+     "path": "Assets/Scripts/Core/NewThing/Thing.cs",
+     "status": "A",
+     "old": null,
+     "new": "// new\n"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "UNMAPPED"
+    ]
+   }
+  },
+  {
+   "id": "P12",
+   "description": "unknown asset",
+   "changes": [
+    {
+     "path": "Assets/Art/rock.mat",
+     "status": "M"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "UNMAPPED_ASSET"
+    ]
+   }
+  },
+  {
+   "id": "P13",
+   "description": "third-party material (real WIP path)",
+   "changes": [
+    {
+     "path": "Assets/EEJANAI_Team/FreeSwordAnimations/Models/SwordSample/swordmaterial.mat",
+     "status": "M"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "UNMAPPED_ASSET"
+    ]
+   }
+  },
+  {
+   "id": "P14",
+   "description": "no snapshot",
+   "changes": [
+    {
+     "path": "docs/x.md",
+     "status": "M"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "S3"
+    ]
+   },
+   "snapshot": {
+    "valid": false,
+    "reason": "SNAPSHOT_MISSING: test"
+   }
+  },
+  {
+   "id": "P15",
+   "description": "snapshot not ancestor",
+   "changes": [],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "S3"
+    ]
+   },
+   "snapshot": {
+    "valid": false,
+    "reason": "SNAPSHOT_BASE_NOT_ANCESTOR: test"
+   }
+  },
+  {
+   "id": "P16",
+   "description": "EditMode test edit",
+   "changes": [
+    {
+     "path": "Assets/_Project/Tests/EditMode/EnemyLeashTests.cs",
+     "status": "M",
+     "old": "namespace Project.Tests.EditMode { public sealed class EnemyLeashTests { } }\n",
+     "new": "namespace Project.Tests.EditMode { public sealed class EnemyLeashTests { } }\n// more\n"
+    }
+   ],
+   "expect": {
+    "tier": "R1",
+    "rules": [
+     "EDITMODE_TEST"
+    ],
+    "editMode": true,
+    "selection": "none",
+    "invocationCount": 1,
+    "notRunInclude": [
+     "EnemyChasePlayModeTests"
+    ]
+   }
+  },
+  {
+   "id": "P17",
+   "description": "PlayMode test edit selects itself",
+   "changes": [
+    {
+     "path": "Assets/_Project/Tests/PlayMode/EnemyChasePlayModeTests.cs",
+     "status": "M",
+     "old": "namespace Project.Tests.PlayMode\n{\n    public sealed class EnemyChasePlayModeTests { }\n}\n",
+     "new": "namespace Project.Tests.PlayMode\n{\n    public sealed class EnemyChasePlayModeTests { }\n}\n// more\n"
+    }
+   ],
+   "expect": {
+    "tier": "R2",
+    "selection": "filters",
+    "selectedExact": [
+     "EnemyChasePlayModeTests"
+    ],
+    "filtersExact": [
+     "Project.Tests.PlayMode.EnemyChasePlayModeTests"
+    ],
+    "notRunInclude": [
+     "StairTraversalPlayModeTests"
+    ]
+   }
+  },
+  {
+   "id": "P18",
+   "description": "PlayMode test deleted",
+   "changes": [
+    {
+     "path": "Assets/_Project/Tests/PlayMode/EnemyChasePlayModeTests.cs",
+     "status": "D",
+     "old": "namespace Project.Tests.PlayMode\n{\n    public sealed class EnemyChasePlayModeTests { }\n}\n",
+     "new": ""
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "E9"
+    ]
+   }
+  },
+  {
+   "id": "P19",
+   "description": "probe edited is not auto-run",
+   "changes": [
+    {
+     "path": "Assets/_Project/Tests/PlayMode/EnemyCombatPositioningMetrics.cs",
+     "status": "M",
+     "old": "namespace Project.Tests.PlayMode\n{\n    [Category(\"Probe\")]\n    public sealed class EnemyCombatPositioningMetrics { }\n}\n",
+     "new": "namespace Project.Tests.PlayMode\n{\n    [Category(\"Probe\")]\n    public sealed class EnemyCombatPositioningMetrics { }\n}\n// x\n"
+    }
+   ],
+   "expect": {
+    "tier": "R1",
+    "rules": [
+     "PROBE_CHANGED"
+    ],
+    "notRunInclude": [
+     "EnemyCombatPositioningMetrics"
+    ]
+   }
+  },
+  {
+   "id": "P20",
+   "description": "new PlayMode class not in the map",
+   "changes": [
+    {
+     "path": "Assets/_Project/Tests/PlayMode/BrandNewPlayModeTests.cs",
+     "status": "A",
+     "old": null,
+     "new": "namespace Project.Tests.PlayMode\n{\n    public sealed class BrandNewPlayModeTests { }\n}\n"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "UNMAPPED_FIXTURE"
+    ]
+   }
+  },
+  {
+   "id": "P21",
+   "description": "enemy navigation edit: selection costs more than full",
+   "changes": [
+    {
+     "path": "Assets/Scripts/Core/Movement/EnemyNavigator.cs",
+     "status": "M",
+     "old": "using UnityEngine;\nusing Project.Core.Blackboard;\n\nnamespace Project.Core.Movement\n{\n    internal sealed class EnemyNavigator\n    {\n    }\n}\n",
+     "new": "using UnityEngine;\nusing Project.Core.Blackboard;\n\nnamespace Project.Core.Movement\n{\n    internal sealed class EnemyNavigator\n    {\n        private float _tuned = 0.3f;\n    }\n}\n"
+    }
+   ],
+   "expect": {
+    "tier": "R2",
+    "rules": [
+     "MODULE"
+    ],
+    "selection": "full",
+    "selectedInclude": [
+     "EnemyChasePlayModeTests",
+     "EnemyNonCombatPlayModeTests",
+     "StairTraversalPlayModeTests",
+     "AICombatContextPlayModeTests"
+    ]
+   }
+  },
+  {
+   "id": "P22",
+   "description": "leash edit: filters cheaper than full",
+   "changes": [
+    {
+     "path": "Assets/Scripts/Core/Combat/EnemyLeash.cs",
+     "status": "M",
+     "old": "namespace Project.Core.Combat\n{\n    internal static class EnemyLeash { }\n}\n",
+     "new": "namespace Project.Core.Combat\n{\n    internal static class EnemyLeash { }\n}\n// tune\n"
+    }
+   ],
+   "expect": {
+    "tier": "R2",
+    "selection": "filters",
+    "selectedExact": [
+     "AICombatContextPlayModeTests",
+     "EnemyChasePlayModeTests",
+     "EnemyNonCombatPlayModeTests"
+    ],
+    "notRunInclude": [
+     "StairTraversalPlayModeTests"
+    ],
+    "notRunExclude": [
+     "EnemyChasePlayModeTests"
+    ]
+   }
+  },
+  {
+   "id": "P23",
+   "description": "audio edit: smoke only",
+   "changes": [
+    {
+     "path": "Assets/Scripts/Presentation/Audio/AudioController.cs",
+     "status": "M",
+     "old": "// a\n",
+     "new": "// b\n"
+    }
+   ],
+   "expect": {
+    "tier": "R2",
+    "selection": "filters",
+    "selectedExact": [
+     "AICombatContextPlayModeTests"
+    ]
+   }
+  },
+  {
+   "id": "P24",
+   "description": "new cross-layer using",
+   "changes": [
+    {
+     "path": "Assets/Scripts/Core/Movement/EnemyNavigator.cs",
+     "status": "M",
+     "old": "using UnityEngine;\nusing Project.Core.Blackboard;\n\nnamespace Project.Core.Movement\n{\n    internal sealed class EnemyNavigator\n    {\n    }\n}\n",
+     "new": "using UnityEngine;\nusing Project.Core.Blackboard;\nusing Project.Presentation.Motion;\n\nnamespace Project.Core.Movement\n{\n    internal sealed class EnemyNavigator\n    {\n    }\n}\n"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "E4"
+    ]
+   }
+  },
+  {
+   "id": "P25",
+   "description": "new core-interface implementer",
+   "changes": [
+    {
+     "path": "Assets/Scripts/Core/Combat/EnemyLeash.cs",
+     "status": "M",
+     "old": "namespace Project.Core.Combat\n{\n    internal static class EnemyLeash { }\n}\n",
+     "new": "namespace Project.Core.Combat\n{\n    internal static class EnemyLeash { }\n    internal sealed class SneakyProducer : Project.Core.Movement.IMovementIntentSource { }\n}\n"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "E4"
+    ]
+   }
+  },
+  {
+   "id": "P26",
+   "description": "old content unrecoverable",
+   "changes": [
+    {
+     "path": "Assets/Scripts/Core/Combat/EnemyLeash.cs",
+     "status": "M",
+     "old": null,
+     "new": "namespace Project.Core.Combat\n{\n    internal static class EnemyLeash { }\n}\n"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "CONTENT_UNEVALUABLE"
+    ]
+   }
+  },
+  {
+   "id": "P27",
+   "description": "editor read-only window",
+   "changes": [
+    {
+     "path": "Assets/Scripts/Editor/Tools/TraversalDebugWindow.cs",
+     "status": "M",
+     "old": "using UnityEditor;\nnamespace Project.Editor\n{\n    internal sealed class TraversalDebugWindow : EditorWindow { void OnEnable() { EditorApplication.update += Repaint; } }\n}\n",
+     "new": "using UnityEditor;\nnamespace Project.Editor\n{\n    internal sealed class TraversalDebugWindow : EditorWindow { void OnEnable() { EditorApplication.update += Repaint; } }\n}\n// ui\n"
+    }
+   ],
+   "expect": {
+    "tier": "R1",
+    "rules": [
+     "EDITOR_READONLY"
+    ]
+   }
+  },
+  {
+   "id": "P28",
+   "description": "read-only editor starts writing",
+   "changes": [
+    {
+     "path": "Assets/Scripts/Editor/Tools/TraversalDebugWindow.cs",
+     "status": "M",
+     "old": "using UnityEditor;\nnamespace Project.Editor\n{\n    internal sealed class TraversalDebugWindow : EditorWindow { void OnEnable() { EditorApplication.update += Repaint; } }\n}\n",
+     "new": "using UnityEditor;\nnamespace Project.Editor\n{\n    internal sealed class TraversalDebugWindow : EditorWindow { void OnEnable() { EditorApplication.update += Repaint; EditorUtility.SetDirty(this); } }\n}\n"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "MAP_INCONSISTENT"
+    ]
+   }
+  },
+  {
+   "id": "P29",
+   "description": "scoped editor writer (traversal params)",
+   "changes": [
+    {
+     "path": "Assets/Scripts/Editor/Stages/TraversalContactDerivation.cs",
+     "status": "M",
+     "old": "// a\n",
+     "new": "// b EditorUtility.SetDirty\n"
+    }
+   ],
+   "expect": {
+    "tier": "R2",
+    "rules": [
+     "EDITOR_WRITER"
+    ],
+    "selectedExact": [
+     "StairTraversalPlayModeTests",
+     "TraversalClimbPlayModeTests",
+     "TraversalExitValidityPlayModeTests",
+     "TraversalStatePlayModeTests"
+    ]
+   }
+  },
+  {
+   "id": "P30",
+   "description": "universal editor writer (motion bake)",
+   "changes": [
+    {
+     "path": "Assets/Scripts/Editor/Stages/MotionBakeEditor.cs",
+     "status": "M",
+     "old": "// a\n",
+     "new": "// b\n"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "EDITOR_WRITER_UNIVERSAL"
+    ]
+   }
+  },
+  {
+   "id": "P31",
+   "description": "editor auto-run hook",
+   "changes": [
+    {
+     "path": "Assets/Scripts/Editor/Tools/TraversalDebugWindow.cs",
+     "status": "M",
+     "old": "using UnityEditor;\nnamespace Project.Editor\n{\n    internal sealed class TraversalDebugWindow : EditorWindow { void OnEnable() { EditorApplication.update += Repaint; } }\n}\n",
+     "new": "using UnityEditor;\n[InitializeOnLoad]\ninternal static class TraversalDebugWindow { }\n"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "EDITOR_AUTORUN"
+    ]
+   }
+  },
+  {
+   "id": "P32",
+   "description": "unknown editor script",
+   "changes": [
+    {
+     "path": "Assets/Scripts/Editor/Tools/NewTool.cs",
+     "status": "A",
+     "old": null,
+     "new": "// tool\n"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "UNMAPPED_EDITOR"
+    ]
+   }
+  },
+  {
+   "id": "P33",
+   "description": "shipped scene",
+   "changes": [
+    {
+     "path": "Assets/Scenes/SampleScene.unity",
+     "status": "M"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "E7"
+    ]
+   }
+  },
+  {
+   "id": "P34",
+   "description": "prefab meta",
+   "changes": [
+    {
+     "path": "Assets/Prefabs/Y Bot.prefab.meta",
+     "status": "M"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "E7"
+    ]
+   }
+  },
+  {
+   "id": "P35",
+   "description": "runtime script .meta follows the script",
+   "changes": [
+    {
+     "path": "Assets/Scripts/Presentation/Audio/AudioController.cs.meta",
+     "status": "M"
+    }
+   ],
+   "expect": {
+    "tier": "R2",
+    "rules": [
+     "MODULE"
+    ]
+   }
+  },
+  {
+   "id": "P36",
+   "description": "asmdef / settings / packages",
+   "changes": [
+    {
+     "path": "Assets/Scripts/Project.Runtime.asmdef",
+     "status": "M"
+    },
+    {
+     "path": "ProjectSettings/EditorSettings.asset",
+     "status": "M"
+    },
+    {
+     "path": "Packages/manifest.json",
+     "status": "M"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "E6"
+    ]
+   }
+  },
+  {
+   "id": "P37",
+   "description": "integration gate forces R3",
+   "changes": [
+    {
+     "path": "docs/x.md",
+     "status": "M"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "Q4"
+    ]
+   },
+   "context": "gate"
+  },
+  {
+   "id": "P38",
+   "description": "safe entry change",
+   "changes": [
+    {
+     "path": "docs/artifacts/editor-memory/safe_unity_test.sh",
+     "status": "M"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "E6"
+    ],
+    "staticChecksContain": [
+     "selftest_safe_entry.sh",
+     "selftest_loop.sh"
+    ]
+   }
+  },
+  {
+   "id": "P39",
+   "description": "selector rules change",
+   "changes": [
+    {
+     "path": "docs/artifacts/test-orchestrator/test-map.json",
+     "status": "M"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "E6"
+    ],
+    "staticChecksContain": [
+     "selftest.py"
+    ]
+   }
+  },
+  {
+   "id": "P40",
+   "description": "architecture tests",
+   "changes": [
+    {
+     "path": "Assets/_Project/Tests/EditMode/ArchitectureRegressionTests.cs",
+     "status": "M",
+     "old": "// a\n",
+     "new": "// b\n"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "E5"
+    ]
+   }
+  },
+  {
+   "id": "P41",
+   "description": "runtime script deleted",
+   "changes": [
+    {
+     "path": "Assets/Scripts/Core/Combat/EnemyLeash.cs",
+     "status": "D",
+     "old": "namespace Project.Core.Combat\n{\n    internal static class EnemyLeash { }\n}\n",
+     "new": ""
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "E9"
+    ]
+   }
+  },
+  {
+   "id": "P42",
+   "description": "WriterRules unparseable",
+   "changes": [
+    {
+     "path": "Assets/Scripts/Presentation/Audio/AudioController.cs",
+     "status": "M",
+     "old": "// a\n",
+     "new": "// b\n"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "WRITER_RULES_UNPARSEABLE"
+    ]
+   },
+   "facts": {
+    "writerFiles": null
+   }
+  },
+  {
+   "id": "P43",
+   "description": "no change since snapshot",
+   "changes": [],
+   "expect": {
+    "tier": "R0",
+    "rules": [
+     "NO_CHANGE"
+    ],
+    "invocationCount": 0
+   }
+  },
+  {
+   "id": "P44",
+   "description": "mixed docs + EditMode test + PlayMode test",
+   "changes": [
+    {
+     "path": "docs/a.md",
+     "status": "M"
+    },
+    {
+     "path": "Assets/_Project/Tests/EditMode/EnemyLeashTests.cs",
+     "status": "M",
+     "old": "namespace Project.Tests.EditMode { public sealed class EnemyLeashTests { } }\n",
+     "new": "namespace Project.Tests.EditMode { public sealed class EnemyLeashTests { } }\n//\n"
+    },
+    {
+     "path": "Assets/_Project/Tests/PlayMode/EnemyChasePlayModeTests.cs",
+     "status": "M",
+     "old": "namespace Project.Tests.PlayMode\n{\n    public sealed class EnemyChasePlayModeTests { }\n}\n",
+     "new": "namespace Project.Tests.PlayMode\n{\n    public sealed class EnemyChasePlayModeTests { }\n}\n//\n"
+    }
+   ],
+   "expect": {
+    "tier": "R2",
+    "selectedExact": [
+     "EnemyChasePlayModeTests"
+    ]
+   }
+  },
+  {
+   "id": "P45",
+   "description": "explicit probe on demand",
+   "changes": [
+    {
+     "path": "docs/a.md",
+     "status": "M"
+    }
+   ],
+   "expect": {
+    "tier": "R0",
+    "probeInvocations": 1,
+    "probeFilter": "Project.Tests.PlayMode.EnemyCombatPositioningMetrics.Measure"
+   },
+   "probes": [
+    "PlayMode:EnemyCombatPositioningMetrics.Measure"
+   ]
+  },
+  {
+   "id": "P46",
+   "description": "unknown probe rejected",
+   "changes": [
+    {
+     "path": "docs/a.md",
+     "status": "M"
+    }
+   ],
+   "expect": {
+    "error": true
+   },
+   "probes": [
+    "NoSuchProbe.Run"
+   ]
+  },
+  {
+   "id": "P47",
+   "description": "probe on a class without [Explicit] rejected",
+   "changes": [
+    {
+     "path": "docs/a.md",
+     "status": "M"
+    }
+   ],
+   "expect": {
+    "error": true
+   },
+   "probes": [
+    "EnemyChasePlayModeTests"
+   ]
+  },
+  {
+   "id": "P48",
+   "description": "small high-risk change stays R3",
+   "changes": [
+    {
+     "path": "docs/a.md",
+     "status": "M"
+    },
+    {
+     "path": "Assets/Scripts/Core/Blackboard/MovementIntentData.cs",
+     "status": "M",
+     "old": "// a\n",
+     "new": "// a \n"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "E3"
+    ]
+   }
+  },
+  {
+   "id": "P49",
+   "description": "RollState has no targeted fixture",
+   "changes": [
+    {
+     "path": "Assets/Scripts/Core/StateMachine/States/RollState.cs",
+     "status": "M",
+     "old": "// a\n",
+     "new": "// b\n"
+    }
+   ],
+   "expect": {
+    "tier": "R3",
+    "rules": [
+     "E3"
+    ]
+   }
+  },
+  {
+   "id": "P50",
+   "description": "unknown context rejected",
+   "changes": [
+    {
+     "path": "docs/a.md",
+     "status": "M"
+    }
+   ],
+   "expect": {
+    "error": true
+   },
+   "context": "whatever"
+  }
+ ]
+}

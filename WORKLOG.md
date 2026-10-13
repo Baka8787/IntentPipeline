@@ -7,6 +7,13 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
+> # 🟩 2026-10-13：測試調度器 Phase 1＋2（`docs/57` §12–§13；與 P5 分開追蹤）
+>
+> - ✅ 已裁決：方案 B、命名 **R0–R3**、EditMode 一律全量、Gate／合併／發布／重大架構／高風險 ⇒ R3（拆小 commit 不能規避：變更集基準是上次全量快照）。
+> - ✅ **Phase 1** 已知失敗比對器、**Phase 2** 選擇器（影子模式）、快照、影子比對、Skill 鏡像檢查：`docs/artifacts/test-orchestrator/`。自測 **127／127**、變異 **18／18**、`--check-map` OK。⛔ 沒動 `safe_unity_test.sh`、Unity 測試、CI。
+> - ⏳ **影子樣本 0／10**：需要一次完整 EditMode＋PlayMode，程序見該資料夾 README。第一個有效樣本只建立快照。
+> - ❓ 待裁決（`docs/57` §13.5）：D-1 已知失敗候選 K-1／K-2（清單目前為空 ⇒ 比對器報 FAILED）、D-2 對照表要不要先過目、D-3 何時累積樣本。Phase 3 等影子結果再議；Phase 4 暫不做。
+
 > # 🟥 2026-10-10（第四輪，優先於 Traversal 後續）：Unity Editor 記憶體／日誌暴增調查（`docs/53`，診斷輪，⛔ 未修正）
 >
 > - **日誌**：23.6 GB 的 99.82% 是 `Access version should be odd when acquiring lock`——**Unity 6000.5.1f1 原生音訊模組**（`Unity.dll` `Modules/Audio/Public/Utilities/CriticalSection.h`）的斷言，不在任何 C# 中。10/08 ≈05:06Z PlayMode run 後首次出現；同一套測試多次不觸發（非決定性）。穩態 12–14k 行/s ≈ 2.4 GB/h。

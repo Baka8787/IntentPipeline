@@ -1,0 +1,5 @@
+{
+  "schema": 1,
+  "_comment": "docs/57 §6.2 / §12.5. Adding, changing or removing an entry requires the user's decision (Q6). Each entry: id, mode (EditMode|PlayMode), fullName (complete test name), symptoms (stable message fragments, all must appear; whitespace-normalized), cause, ref, approvedBy, approvedOn, reviewBy. Candidates awaiting a decision are listed in docs/57 §12.5, NOT here.",
+  "entries": []
+}

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **狀態** | 🟠 **Proposed——未裁決、未實作**。本輪 ⛔ 沒有改任何測試、安全腳本、CI、Skill 檔 |
+| **狀態** | 🟢 **已裁決（2026-10-13，§12）——方案 B、命名 R0–R3**；Phase 1（已知失敗比對器）＋Phase 2（選擇器影子模式）**核准實作**；Phase 3 待影子期結果再議；Phase 4 暫不做。§1–§11 保留為設計原文，與 §12 衝突處以 §12 為準 |
 | **輸入** | 使用者 2026-10-13：每次小修改都跑完整 EditMode／PlayMode 回歸，成本越來越高；評估專案專用 `unity-test-orchestrator` Skill。**目標是讓測試時機與範圍合理，不是減少覆蓋** |
 | **不可動搖的前提** | 所有 Unity 測試仍經 `safe_unity_test.sh`（`docs/53` §17）；dirty scene／Editor busy／recompile 異常 ⇒ fail-closed；⛔ 不自動存檔、捨棄場景變更或重啟 Editor。2026-10-13 P5-0 因 dirty scene 被 `SAFETY_STOP` 是**正確行為**，本設計不降低它 |
 | **閱讀方式** | §1 現況（全部有量測或檔案證據）→ §2 安全入口的篩選能力 → §3 能否推導受影響測試 → §4 L0–L3 → §5 強制升級 → §6 結果分類與已知失敗 → §7 方案比較 → §8 推薦設計與檔案結構 → §9 驗收 → §10 導入計畫 → §11 待裁決 |
@@ -311,3 +311,123 @@ bash docs/artifacts/test-orchestrator/run_plan.sh <plan.json>                   
 | **Q7** | 是否核准 Phase 4（改安全入口＋測試加 Category） | ①先不做 ②與 Phase 3 一起 | ①：先用影子期資料證明需要 |
 
 ⛔ 本輪沒有改任何測試、安全腳本、CI 或 Skill 檔。
+
+---
+
+## 12. 裁決與實作基線（2026-10-13，使用者裁決）
+
+### 12.1 Q1–Q7
+
+| # | 裁決 | 對 §1–§11 的修正 |
+|---|---|---|
+| **Q1** | 命名 **R0–R3**（Run scope），避免與 `docs/12` §6 的 L0–L6 衝突 | 本節起一律 R0–R3；§4 的 L0–L3 依序對應 R0–R3 |
+| **Q2** | 採 **B**：Skill＋測試對照表＋確定性選擇腳本；暫不做 C | — |
+| **Q3** | 只要進入 Unity 測試流程，**EditMode 一律全量** | — |
+| **Q4** | **必須 R3**：Feature Integration Gate、合併／發布、重大架構修改、高風險檔案變更。**普通開發 commit 不強制 R3**，由變更風險決定。⛔ 不得以拆小 commit 規避高風險規則 | §4「每個 Slice 收尾 commit 前一律 L3」改為本列；防規避的機制見 §12.3 |
+| **Q5** | 影子模式至少 **10 次真實改動**，並加入**合成 Git diff fixtures**（高風險、未知檔案、失效快照、測試變更、跨層依賴）。影子期**仍跑全量**，並比對「未選中測試的新增失敗」 | §10 Phase 2 的放行條件 |
+| **Q6** | 已知失敗清單的**新增、變更、移除都需使用者裁決**；比對完整測試名稱＋穩定症狀，不能只看 exit code | §6.2；工具不會自動改清單 |
+| **Q7** | Phase 4 暫不做；先量 R2 實際節省，再決定 category 篩選與入口功能 | — |
+
+### 12.2 補充裁決
+
+| # | 內容 | 落地 |
+|---|---|---|
+| S1 | **Editor 資料夾不能一律視為不影響 PlayMode**：Bake、資產產生、Prefab／SO 修改工具要考慮下游產物 | §12.4 |
+| S2 | 所有測試繼續經 `safe_unity_test.sh`；不得繞過 dirty scene 等防護 | 選擇器只產生計畫；影子期照舊由入口跑全量 |
+| S3 | 沒有可信快照、範圍未知、規則無法評估 ⇒ **一律 R3** | §5 原則不變 |
+| S4 | Explicit Probe 不自動納入 R0–R3，但必須能**明確指定**執行 | 選擇器 `--probe Class.Method` 產生獨立呼叫（帶 `--include-explicit`） |
+| S5 | 快照要明確定義基準版本、工作樹內容 hash、失效條件 | §12.3 |
+| S6 | `.claude` 與 `.agents` 的 Skill 必須一致，並有防漂移驗證 | `check_skill_mirror.py`（對既有三個 Skill 已生效） |
+
+### 12.3 快照（`last-verified.json`）的精確定義
+
+**內容**：`baseCommit`（完整 SHA）、`worktree`（快照當下**每個** dirty／untracked 路徑 → 內容 blob hash 或 `ABSENT`）、`mapHash`（`test-map.json` 的 SHA-256）、`plannerVersion`、`createdUtc`、`failures`（該次全量的失敗指紋：完整名稱＋正規化訊息）、`records`（兩個入口紀錄目錄）。
+
+**「某路徑有沒有變」只看內容**：
+`快照時的內容(P)` ＝ `worktree[P]`（若快照時 dirty）否則 `baseCommit:P` 的 blob（不存在＝`ABSENT`）；
+`現在的內容(P)` ＝ 工作樹檔案的 blob hash（`git hash-object`，與 git 的換行正規化一致）。
+兩者不同 ⇒ 變了。檢查的路徑集合＝`baseCommit..HEAD` 的變更 ∪ 現在的 dirty ∪ 快照時的 dirty。
+⇒ 長期未 commit、內容沒再變的場景 WIP **不會**被當成改動；之後原封不動 commit 進去也不會。
+
+**何時寫入**：只在一次**完整**的 EditMode＋PlayMode 全量之後（兩者都有結果 JSON、入口 exit 0 或 1，沒有 BLOCKED／INCOMPLETE），而且執行**前後**的工作樹狀態完全相同（執行中被改 ⇒ 不寫）。寫入時以 `git hash-object -w` 把 dirty 的 `.cs`／`.asmdef` 內容存進 git 物件庫（不動 index、ref、工作樹），供下次做內容規則比對。
+
+**防規避（Q4）**：變更集永遠是「上一次全量已驗證狀態 → 現在」，**不是**「上一個 commit → 現在」。R2 不移動基準；拆成幾個小 commit 只會讓變更集累積，高風險路徑不論大小一律 R3。
+
+**失效 ⇒ R3**：檔案不存在／無法解析／schema 不符；`baseCommit` 不存在或不是 HEAD 的祖先；`mapHash` 或 `plannerVersion` 不同；超過 `snapshotMaxAgeDays`（預設 7 天：Library／套件快取不在 git 裡）；需要做內容比對的檔案，其快照 blob 已不在物件庫。
+
+### 12.4 Editor 程式的分級（S1）
+
+PlayMode 組件不參照 `Project.Editor`，但 **PlayMode 測試是在 Editor 裡跑的**：自動執行的 Editor 程式、開著的 Inspector／視窗都可能在測試期間寫入狀態。分級以對照表宣告為準，並以原始碼記號做**一致性檢查**（宣告比記號寬鬆 ⇒ `MAP_INCONSISTENT` ⇒ R3）：
+
+| 等級 | 判準（記號） | 層級 |
+|---|---|---|
+| 自動執行 | `InitializeOnLoad*`、`DidReloadScripts`、`AssetPostprocessor` | **R3** |
+| 寫資產／場景／匯入設定 | `AssetDatabase.Create/Save/Import…`、`EditorUtility.SetDirty`、`ApplyModifiedProperties*`、`PrefabUtility.Save*`、`SaveAndReimport`、`ModelImporter`、`Undo.*`、`EditorSceneManager.MarkSceneDirty` | 對照表宣告的**下游產物**：通用動作真相（Motion Bake、批次動畫／prefab）⇒ **R3**；範圍明確（Traversal 參數、場景表面、樓梯幾何）⇒ **R2＋消費這些產物的 PlayMode 類別**；同一變更集裡下游產物本身也變了 ⇒ 依資產規則 **R3** |
+| 唯讀（Inspector、分析、除錯視窗） | 以上皆無 | **R1** |
+| 未列入對照表的 Editor 檔 | — | **R3** |
+
+### 12.5 已知失敗清單的現況
+
+`known-failures.json` 以**空清單**交付（Q6：新增需要你裁決）。目前全量中的兩個失敗是**候選**，待你裁決是否列入：
+
+| 候選 | mode | 完整名稱 | 建議症狀片段 | 原因 |
+|---|---|---|---|---|
+| K-1 | EditMode | `Project.Tests.EditMode.StairAuthoringContractTests.Scene_InstanceMasks_MatchSemanticTable` | `FootIKController.settings.GroundLayers=503` | 使用者未 commit 的 `SampleScene` WIP（環境相依） |
+| K-2 | PlayMode | `Project.Tests.PlayMode.MotionDriverCommittedMovementPlayModeTests.C0_TraversalDoesNotReportGroundEdgesFromIncidentalContact` | `Expected: True` ＋ `But was: False` | 既有缺陷（WORKLOG／`docs/52`） |
+
+未裁決前，比對器會把它們報為 `NEW_FAILURE`——這是刻意的。
+
+---
+
+## 13. 實作狀態：Phase 1＋Phase 2（2026-10-13）
+
+> 程式在 `docs/artifacts/test-orchestrator/`（用法見該資料夾 `README.md`）。⛔ 沒有改 `safe_unity_test.sh`、任何 Unity 測試或 CI。
+> **狀態：Automated Verification Passed（工具本身）／影子期尚未開始（0 個真實樣本）。** Phase 3 未啟用：選擇器目前不決定少跑任何測試。
+
+### 13.1 交付內容
+
+| Phase | 元件 | 對應裁決 |
+|---|---|---|
+| 1 | `classify_results.py`＋`known-failures.json`（空清單，§12.5 兩個候選待裁決） | Q6、§6.2 |
+| 2 | `plan_tests.py`＋`test-map.json`＋`snapshot.py` | Q1、Q3、Q4、S1、S3、S4、S5 |
+| 2 | `shadow_compare.py`（`Logs/test-orchestrator/shadow.tsv`，`countsTowardQ5` 欄） | Q5 |
+| 2 | `check_skill_mirror.py` | S6（對既有三個鏡像 Skill 已生效：一致） |
+| 2 | `selftest.py`（127 案）、`selftest_mutations.py`（18 種退化）、`fixtures/planner-cases.json`（50 個合成變更集） | Q5、AC1–AC12 |
+
+### 13.2 自動化驗證結果
+
+| 套件 | 內容 | 結果 |
+|---|---|---|
+| MAP | 真實 repo 的規則表完整性（每個 `Assets/Scripts` 檔案恰好落在一條規則、22 個 PlayMode 類別與 probe 旗標、Editor 分級與原始碼記號一致）；`WriterRules` 解析出 10 個權威檔；解析失敗 ⇒ `None` | **7／7** |
+| PLAN | 50 個合成變更集：高風險（MotionDriver、Runner、CombatContext、核心介面、Movement／Facing 權威）、未知檔案／資料夾／資產、失效快照、EditMode／PlayMode 測試變更與刪除、Probe、跨層 `using`、新核心介面實作者、內容不可評估、Editor 四級＋自動執行＋宣告不一致、場景／prefab／`.meta`、asmdef／設定／套件、Gate context、基礎設施、`WriterRules` 解析失敗、成本取捨。每案另驗**不變量**：每個呼叫都經安全入口、tier 呼叫不含 Explicit、非 R0 一定 EditMode 全量、R3 一定 PlayMode 全量、每個 PlayMode 類別不是「會跑」就是列在「未執行」並附原因 | **50／50** |
+| DET | 重算位元相同；變更順序不影響結果 | **2／2** |
+| GIT | 暫存 git repo：未再變動的長期 WIP 不算變更、再改就算、原封 commit 不算、快照 blob 取回舊內容、blob 遺失 ⇒ 不可評估 ⇒ R3、新增／刪除、**拆成兩個小 commit 仍抓到 MotionDriver ⇒ R3**、七種失效（遺失、規則變更、過期、base 不存在、base 非祖先、planner 版本、schema、無法解析） | **18／18** |
+| CLS | 用**真實** Unity 失敗訊息（`GroundLayers=503`、`C0` 中文訊息）：KNOWN_MATCH、NUnit 雙空白正規化、KNOWN_NAME_NEW_SYMPTOM、NEW_FAILURE、KNOWN_NOT_OBSERVED、KNOWN_NOT_RUN、KNOWN_MISSING_FROM_FULL_RUN、dirty scene exit 15 ⇒ BLOCKED、exit 2／3／4／5、check-only、缺 JSON、執行中、**BLOCKED 不得掩蓋新失敗**、取樣器告警後仍列失敗、Inconclusive、Skipped、清單格式錯誤七種 ⇒ 拒絕 | **32／32** |
+| SHD | 未選中類別的新失敗 ⇒ ESCAPE；前次全量已有 ⇒ 不算；同名不同訊息 ⇒ ESCAPE_SYMPTOM；選中範圍內 ⇒ 不算；他 HEAD／過濾過／被阻擋的紀錄、計畫後工作樹被改 ⇒ 樣本無效且不寫快照；TSV 欄位數一致；只有「快照有效」的樣本計入 Q5 | **13／13** |
+| MIR | 只差 `CLAUDE.md`↔`AGENTS.md` ⇒ 一致；其他差異、缺 skill、多檔 ⇒ 漂移；真實 repo 一致 | **5／5** |
+| 變異 | 在副本上逐一拿掉：高風險表、`WriterRules`、內容規則、未知檔案 R3、失效快照 R3、Gate R3、成本比較、Probe 排除、Editor 自動執行、快照 WIP、祖先檢查、過期檢查、症狀比對、核准欄位、BLOCKED 優先序、影子選中判定、影子工作樹檢查、鏡像比較 | **18／18 被抓到** |
+
+### 13.3 真實環境
+
+| 項目 | 結果 |
+|---|---|
+| `--check-map`（live repo） | OK，0 問題 |
+| 比對器 × 最新全量（EditMode `20261013T095531Z`、PlayMode `20261013T100953Z`）＋ P5-0 的停止紀錄 | `GroundLayers=503` 與 `C0` 皆為 **NEW_FAILURE**（清單為空，刻意）；P5-0 dirty scene ⇒ **BLOCKED**；另列出 EditMode 一個 Skipped 測試（`MovementIntentTests.AIMovementSource_WithoutCamera_ProducesNonZeroWorldDirection`）＝未執行 |
+| 計畫器 × 目前工作樹 | **R3**（`SNAPSHOT_MISSING`；另有 `ProjectSettings` WIP、場景／音訊資產 WIP、本工具新檔）。1.3 s，不寫 `__pycache__` |
+| 影子樣本 | **0**。需要一次完整 EditMode＋PlayMode；目前 `SampleScene` dirty ⇒ 入口正確地拒絕（BLOCKED）。第一個有效樣本只建立快照，第二個起才計入 Q5 |
+
+### 13.4 已知限制（不隱藏）
+
+- **模組 → PlayMode 類別的對照是一次性的人工判斷**（`test-map.json` `runtimeModules`），依據是各類別的 `using` 與載入的場景／prefab。它正是影子期要驗證的東西——`ESCAPE` 會直接指出哪條對照漏了。
+- 內容規則只看 `.cs` **新增行**的 `using Project.*` 與核心介面實作；語意上的影響（改常數改變下游行為）偵測不到，由對照表＋Gate R3 承擔。
+- R2 成本模型是常數（每次呼叫 60 s 固定開銷＋最近一次全量的各類別時間）；實際節省要由影子期量（Q7）。
+- 長期 WIP 很多時（目前約 1000 個路徑，多數在 `.codex-temp/`），無快照的計畫會列出全部（皆為 R0 `UNITY_INVISIBLE`），報告冗長但不影響判定。
+- 快照寫入要求「計畫到比對之間工作樹完全不變」：若 Unity 在測試期間重新序列化資產或產生 `.meta`，該樣本會被判無效——保守方向，需在影子期觀察發生頻率。
+
+### 13.5 待你裁決
+
+| # | 問題 | 建議 |
+|---|---|---|
+| D-1 | §12.5 的兩個已知失敗候選（K-1 場景 mask、K-2 `C0`）是否列入，症狀片段是否接受 | 由你決定；未列入前比對器持續報 FAILED |
+| D-2 | `test-map.json` 的模組 → 類別對照是否需要你先過目，或直接進影子期由 ESCAPE 修正 | 直接進影子期（漏的會被量到） |
+| D-3 | 何時開始累積影子樣本：等 P5-0 那次全量一起做，或另外安排 | 與下一次需要全量的工作一起做，不額外佔 Editor |
