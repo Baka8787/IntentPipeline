@@ -788,6 +788,23 @@ namespace Project.Tests.EditMode
                 "AI 的 NavMeshAgent 不得取得 Transform 旋轉 authority");
             StringAssert.DoesNotContain("CharacterController", code,
                 "AI producer 只能寫 MovementIntent，不得繞過 MotionDriver 直接位移");
+
+            // 🆕（2026-10-13，docs/55 P0.5）導航拆成獨立元件後，規則要跟著擴大到 Core/Movement 裡
+            // **每一個**碰 NavMeshAgent 的檔案——否則把位移權偷偷交給 agent 的那一行可以寫在新檔案裡。
+            foreach (string file in Directory.GetFiles(Path.Combine(ScriptsRoot, "Core", "Movement"), "*.cs", SearchOption.AllDirectories))
+            {
+                string source = StripComments(File.ReadAllText(file));
+                if (!source.Contains("NavMeshAgent")) continue;
+                foreach (string forbidden in new[]
+                         {
+                             "Warp(", "updatePosition = true", "updateRotation = true",
+                             "transform.position =", "transform.rotation =", "CharacterController",
+                         })
+                {
+                    StringAssert.DoesNotContain(forbidden, source,
+                        $"{RelativePath(file)} 出現 '{forbidden}'：NavMeshAgent 只能查路，位移與旋轉只能經 MotionDriver");
+                }
+            }
         }
 
         [Test]

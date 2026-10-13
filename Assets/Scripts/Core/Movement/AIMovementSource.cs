@@ -61,7 +61,12 @@ namespace Project.Core.Movement
         [SerializeField, Min(0.01f)] private float offMeshRecoverSampleRadius = 3f;
         [SerializeField, Range(0f, 1f)] private float recoverSpeedNormalized = 0.5f;
 
+        [Header("Navigation（docs/55 P0）")]
+        [SerializeField] private EnemyNavigationSettings navigation = EnemyNavigationSettings.Default;
+
         private NavMeshAgent _agent;
+        // 🆕（docs/55 §11.2）路徑同步、請求節流、路徑狀態與卡住偵測都委派給它；本元件只整合結果。
+        private EnemyNavigator _navigator;
         private TemporaryGameplayEffectState _effectState;
         private EngagementMovement _engagementMovement;
         private int _strafeDirectionSign = 1;
@@ -106,9 +111,27 @@ namespace Project.Core.Movement
             _effectState = GetComponent<TemporaryGameplayEffectState>();
         }
 
+        /// <summary>
+        /// 導航者惰性建立（EditMode 不呼叫 Awake）。每帧重新綁定 agent：測試會以反射替換 <c>_agent</c>，
+        /// 綁定是冪等的，換了 agent 才清掉請求記憶。
+        /// </summary>
+        private EnemyNavigator ResolveNavigator()
+        {
+            if (_navigator == null) _navigator = new EnemyNavigator(navigation);
+            _navigator.Bind(_agent, navigation);
+            return _navigator;
+        }
+
         public void ProduceIntent(ref InputData input, PlayerRuntimeData data)
         {
             if (data == null) return;
+
+            // 🆕（docs/55 P0.1／P0.4）每帧先讓導航跟上角色實際位置（**包含未交戰**），再回報上一帧
+            // 的意圖有沒有讓角色前進（卡住偵測只回報，不改行為）。上一帧的意圖就是黑板上還沒覆寫的值——
+            // 本元件是 MovementIntent 的唯一寫入者。
+            EnemyNavigator navigator = ResolveNavigator();
+            navigator.Sync(transform.position);
+            navigator.ReportProgress(transform.position, data.MovementIntent.HasMovementRequest, Time.time);
 
             data.MovementIntent = default;
 
@@ -154,7 +177,7 @@ namespace Project.Core.Movement
             //    但輸出一個「走回可導航區」的意圖，讓 MotionDriver 自己走回去。
             // ⛔ 刻意**不用** `NavMeshAgent.Warp()`——它會直接設 `transform.position`，
             //    違反本專案「位移由 MotionDriver 獨佔」的不變量。自救也必須走同一條輸出。
-            if (_agent == null || !_agent.isOnNavMesh)
+            if (!navigator.IsOnNavMesh)
             {
                 _engagementMovement = EngagementMovement.Recover;
                 _strafeBlocked = false;
@@ -185,9 +208,10 @@ namespace Project.Core.Movement
                 maximumEngagementDistance,
                 distanceHysteresis);
 
-            // Agent 只維護 path query 的內部位置；角色 Transform 只會被 MotionDriver 搬動。
-            _agent.nextPosition = transform.position;
-            _agent.SetDestination(targetPosition);
+            // Agent 只維護 path query 的內部位置（已在本帧開頭同步）；角色 Transform 只會被 MotionDriver 搬動。
+            // 🔄（docs/55 P0.2）舊版每帧 SetDestination；改為節流——目的地移動夠多或路徑失效才重新請求。
+            //    仍在所有交戰模式下請求（與舊版相同），讓 Strafe → Approach 的第一帧就有現成路徑。
+            navigator.RequestDestination(targetPosition, Time.time);
 
             // 只有側移分支會把它設為 true；其餘模式必須清掉，否則 gizmo 會留著上一次的「被擋」狀態。
             _strafeBlocked = false;
@@ -242,11 +266,12 @@ namespace Project.Core.Movement
                 // ⚠️ Trade-off：目標真的不可達時，敵人會變成「持續推牆」而不是「站著不動」。
                 //    兩者都不理想，但推牆是**可見的嘗試**，站著不動看起來就是壞掉——
                 //    而且推牆會讓 FSM／動畫維持在移動語境，不會留下假的 Idle。
-                if (_agent.pathPending) return;
+                // 🔄（docs/55 P0.3）路徑判讀移到 EnemyNavigator：等／沿轉角／直接朝目標三選一，
+                //    另外補上 PathPartial 走到盡頭時改為直接朝目標（舊版會在部分終點停住）。
+                if (!navigator.TryResolveSteeringPoint(transform.position, targetPosition, out Vector3 steeringPoint))
+                    return;
 
-                worldDirection = !_agent.hasPath || _agent.pathStatus == NavMeshPathStatus.PathInvalid
-                    ? toTarget
-                    : _agent.steeringTarget - transform.position;
+                worldDirection = steeringPoint - transform.position;
             }
             else
             {

@@ -393,3 +393,21 @@ dHome ＝ 敵人到家的水平距離；R_roam < R_soft < R_hard
 | P3.2 | 不可達的 waypoint 被跳過，不無限推牆 |
 | P1–3.x | 障礙物後的目的地經尋路抵達（PlayMode 臨時 NavMesh＋牆）；模式不逐帧振盪（切換次數有上限）；零 GC |
 | 人工 | 巡邏／遊走的走路速度與腳步是否貼合、停留是否自然、回家路線是否合理、leash 半徑手感（數值為**測試值**） |
+
+### 11.7 實作狀態
+
+**P0 導航基礎——Automated Verification Passed（2026-10-13）**
+
+| AC | 結果 |
+|---|---|
+| P0.1 每帧同步 | ✅ `EnemyNavigator.Sync` 在 `ProduceIntent` 開頭、任何查詢之前（含未交戰、含死亡帧） |
+| P0.2 請求節流 | ✅ `ShouldRequestPath`：目的地移動 > 0.3 m 或路徑失效，且距上次 ≥ 0.2 s 才請求；`EnemyNavigatorTests.P02_*` |
+| P0.3 PathPartial | ✅ `ResolvePathFollow`：部分路徑走到盡頭（≤ 0.5 m）改直接朝目標；其餘分支與舊版逐一對應（`P03_*`） |
+| P0.4 卡住偵測 | ✅ 只回報（`IsStuck`），不改行為；`P04_*` |
+| P0.5 位移權 | ✅ A16 擴充到 `Core/Movement` 所有碰 `NavMeshAgent` 的檔案（無 `Warp(`、`updatePosition = true`、`transform.position =`、`CharacterController`） |
+| P0.6 追擊不退步 | ✅ `EnemyChasePlayModeTests`（出貨場景、6 m 起追、60 fps）：實作前 **165 帧**（三次一致）→ 實作後 **165 帧** |
+| P0.7 請求次數 | ✅ 同一段追擊：舊版每帧請求一次（≈165 次）→ **1 次**（玩家靜止）。⚠️ 移動目標下的請求率未另外量測，上限由節流規則保證（≤ 5 次／秒） |
+| P0.8 零 GC | ✅ `YBot_MovementProducer_DoesNotAllocatePerCall`：真 producer＋真 NavMesh、交戰中呼叫 1000 次，配置 0 bytes |
+| 回歸 | EditMode **937／935**（唯一失敗＝既有場景 mask）；PlayMode **113／112**（唯一失敗＝既有 `C0`）；`StairTraversalPlayModeTests` 敵人上下樓梯全綠 |
+
+⚠️ G9（離網自救沒有「放棄」）**刻意不在 P0 處理**：2026-09-15 的裁決明確否決「沒有出口的靜止終態」，加放棄上限會把它帶回來。卡住偵測（P0.4）是之後處理的入口。
