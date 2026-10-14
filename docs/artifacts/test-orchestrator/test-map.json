@@ -159,7 +159,7 @@
   "playModeFixtures": {
     "AICombatContextPlayModeTests": {"seconds": 2.6},
     "AIMovementNoCameraPlayModeTests": {"seconds": 4.7},
-    "EnemyNavigationProgressPlayModeTests": {"seconds": 37.7},
+    "EnemyNavigationProgressPlayModeTests": {"seconds": 72.9},
     "CapsuleOffsetPlayModeTests": {"seconds": 4.6},
     "EnemyChasePlayModeTests": {"seconds": 3.6},
     "EnemyNonCombatPlayModeTests": {"seconds": 78.7},
