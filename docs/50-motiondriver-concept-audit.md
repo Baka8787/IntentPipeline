@@ -763,3 +763,22 @@ Current   零呼叫者；文件仍當 Motion Warping seam（M-09）
 | **D-5** | 刪 `ApplyBakedCompensation` 時，①4-arg `ExecuteBakedCurveMovement`（零呼叫者）與 ②`ExecuteCommittedCurveMovement`（`8a124dd` 後只剩防禦分支呼叫；另有 3 個 PlayMode 測試直接呼叫、A-test `:1381` 以字串鎖住）各要刪，還是保留並列入 allowlist？ | ①保留＋allowlist（Roll／Action 未來需要 playback rate 時的現成入口）；②保留為防禦分支＋allowlist（bake 有問題時仍不退回普通重力路徑，是 `TraversalState` 註解明載的語意） | API 保留策略 |
 | **D-6** | WP-C 量測若證實 Climb1m 結尾整段未觸地，要不要給 EP 加 post-exit 貼地？ | 量測後再決定 | 會改變出貨 Climb1m 的觀感；也是 `docs/52` T-04 的一個軸，與 Traversal 會話的 J3′ 相鄰 |
 | — | `docs/00-map.md` 目前沒有 `docs/50` 的索引列（也要更新 `docs/42`、`docs/43` 兩列）：由哪個會話收尾？ | 三個審查會話都閒置後，由一個會話一次補 | 三個會話都會改這個檔 |
+
+---
+
+### L.9 使用者裁決（2026-10-14，協調 session 收尾盤點後）
+
+| # | 裁決 | 對工作包的約束 |
+|---|---|---|
+| **D-3** | **(a) 實時語意**：失地時間代表真實 elapsed time，與 `docs/42` R7「連續失地時間」字面語意一致 | WP-E 照 (a) 做：計時器移到 `SyncGroundedState` 的取樣域（每個入口推進、帧守衛）；Normal／Stop 逐帧 parity 必須成立 |
+| **D-4** | **合併**兩個 Move 診斷 log——**但前提是確認兩者屬於同一個 decision point**；不同 phase 的診斷不得硬併 | WP-G 開工前先逐欄確認：`[StepDownAssist]` 與 Step-Up trace 都是「本帧 `Move()` 前後」的觀測才合併；若某些欄位屬於別的 phase（例如 gate 判斷在 Move 之前、碰撞旗標在之後），按 phase 分組保留，在 WP-G 的 commit 說明哪些合了、哪些沒合與理由 |
+| **D-5** | 4-arg `ExecuteBakedCurveMovement` 與 `ExecuteCommittedCurveMovement` **保留並列入允許清單**；`ApplyBakedCompensation` **刪除** | 允許清單與規格（WP-I1／`docs/58`）必須寫明兩個保留入口**各自合法的 architecture contract**（誰可以呼叫、在什麼前提下、與其他入口的分界），⛔ 不得只寫「未來可能使用」 |
+| **D-6** | 併入 `docs/52` J3′，**先不裁最終方案**；WP-C 量測與 Climb1m 人工 Play 綁同一輪後再裁 | 見 `docs/52` §M |
+
+**修訂後的順序**（取代 §L.6 的排序；各 WP 內容不變）：
+1. **WP-I1** 先寫到可審查草案（`docs/58`）；同步進行烘焙管線審查（`docs/59`，research-only），其 SpeedCurve／FootPhase 結論回填 WP-I1。
+2. Editor 恢復後：**WP-A → WP-D → WP-E′ → WP-E**。⚠️ WP-A 修綠 `C0` 後要通知測試調度器那條線撤掉已知失敗 K-2（`docs/57` §14.1）。
+3. **WP-C** 與 Climb1m 人工 Play 同輪完成，再裁 J3′／D-6。
+4. **WP-F／G／H** cleanup（WP-B 縮小版 invariant 測試可併入 WP-I2 或與 WP-H 同包）。
+5. 本主線之後：`docs/48` M3.2／M3.3 → `docs/47` G-3 → D2-a／Footstep 審查。
+⛔ 不因 Editor 暫時不可用而擴大 runtime scope。

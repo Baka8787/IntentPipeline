@@ -564,3 +564,13 @@ J1、J2、J4、J5 不變（見 §J），另加 **J3′**（§K.2）。J1／J2 �
   - **F5（Low）** 文件 PlayMode 數字過期（105 → 107）⇒ 已更新。
   - **F6（Low）** 容差未寫入 Living Spec ⇒ `docs/22` §22.2 寫明 1 mm。
   - **F7（Low）** J3′「landmark 驗證」說法過強 ⇒ 改為「同一取樣法的一致性對照（非獨立驗證）」，並註明 1.00–1.22 的 landmark 未交叉驗證。
+
+---
+
+## M. 2026-10-14 裁決（協調 session 收尾盤點後，使用者）
+
+| 項目 | 裁決 | 落地 |
+|---|---|---|
+| **J4**（T-03 高度帶 owner） | 維持人工設定，**fold back 進 ADR-008 D7**：authored coverage＝實際高度帶 authority；jump-reach／apex 推導只保留為 defensive check；死分支保留、⛔ 不刪 runtime | ✅ ADR-008 D7 修訂＋Revision Log（2026-10-14）；`docs/22` §21 註記。runtime／測試零改動 |
+| **J3′**＋`docs/50` **D-6**（合併） | **先不裁最終方案。** 先做 `docs/50` WP-C（EP／Climb1m post-exit 貼地量測），與 Climb1m 人工 Play **綁同一輪**；方向暫偏 **A′**（marker 先只作進場／endpoint 推導，不改 traversal 執行模型）。合法站位帶外移約 0.6 m 要**和實際出口 pose 一起看**，不能只看數字決定 | ⏳ 等 Editor 恢復；排在 `docs/50` WP-A／D／E′／E 之後 |
+| J5 | 維持獨立延期 | — |

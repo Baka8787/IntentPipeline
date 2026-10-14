@@ -27,6 +27,8 @@
 | 順序 | **先完成 F2-J measurement，再決定 Jump 要不要修 clock-family ownership** | — |
 | **D2-g**（第三輪） | **不修**：F2-J 標為 **Known low-impact edge case／Deferred**；J2′／J1 都不實作，⛔ 不為這一項單獨修改 Jump runtime。重開條件：①人工 Play 看到起跳換腳／抽動；②加入類比輸入使 Walk↔Run blend zone 常態可達；③Jump 重構 clock ownership 時順手處理 | §7.6 |
 | 範圍 | 六個 no-behavior-change migration 中，**不依賴新 tier 的可以繼續**；凡預設新 canonical field 已成立的 M2.x 先停 | 繼續：M1.0、M1.1、M3.0、M3.1。停：M2.1–M2.5。M2.0 見 §6.5 |
+| **D2-a**（2026-10-14） | **繼續延後**。Footstep 不得因 #6 審查而先綁 control gait 或任何 tier；等 #6（Footstep／Audio 審查）時**單獨當 Presentation policy 審** | 順序在 M3.2／M3.3、`docs/47` G-3 之後 |
+| **順序**（2026-10-14） | `docs/47` **G-3**（骨盆管線收斂）排在 **M3.2／M3.3 之後** | 本主線先收 `docs/50`／`docs/52` 的工作包，見 `docs/50` §L.9 |
 
 ---
 

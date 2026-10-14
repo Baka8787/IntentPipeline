@@ -1479,7 +1479,7 @@ contact correction 漂移仍是 **0 mm**。窄 ledge 測試中 primary 落在安
 
 `JumpStateParams.TryGetBakedLaunch`（v = √(2gh)×倍率；bake 缺失或 g≤0 ⇒ false）是唯一實作。`JumpState.BuildStages` 失敗時照舊合成 fallback 段；`TraversalSelectionPolicy` 失敗時照舊判 `JumpReachUnknown` 並保守保留 traversal（ADR-008 D7 不變）。唯一行為差異只在無效資料：bake 重力 ≤0 時 policy 不再自取 |g|（與 JumpState 一致）。
 
-Coverage 下限與 jump apex 的關係（2026-09-20 裁決：下限以 apex 為基準）改由 `TraversalAnimationFitTests.R4` 守；欄位 tooltip 註明 Climb1m 1.00 ← apex 0.9535、Climb2m 1.65 ← Hand IK guard 0.35 m。是否改成 runtime 推導見 `docs/52` J4。
+Coverage 下限與 jump apex 的關係（2026-09-20 裁決：下限以 apex 為基準）改由 `TraversalAnimationFitTests.R4` 守；欄位 tooltip 註明 Climb1m 1.00 ← apex 0.9535、Climb2m 1.65 ← Hand IK guard 0.35 m。是否改成 runtime 推導見 `docs/52` J4——🔄 2026-10-14 已裁決：**維持人工設定**，authored coverage 是高度帶 authority、jump-reach 推導只作 defensive check（ADR-008 D7 修訂）。
 
 ### 21.4 量測（live Editor，Edit Mode；`docs/artifacts/traversal-audit/probe-output-2026-10-10{,-after}.txt`）
 
