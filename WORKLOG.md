@@ -19,6 +19,7 @@
 >
 > - ✅ 裁決 D1–D8 已記錄；D5（攻擊有效性契約歸屬，建議 O2）與 D7（可靠的「被允許移動卻沒進展」訊號，建議 S1：`MotionDriver` 發布執行事實，需 ADR）是**提案、未裁決**。
 > - ⏸ **P5-0 基線被入口擋下**（`SAFETY_STOP` 15：`SampleScene` dirty，正確行為）。量測工具 `Assets/_Project/Tests/PlayMode/EnemyCombatPositioningMetrics.cs`（`[Explicit]` Probe，8 個情境，**未 commit**）。場景乾淨後：`bash docs/artifacts/editor-memory/safe_unity_test.sh --mode PlayMode --include-explicit --filter EnemyCombatPositioningMetrics --label p5-0-baseline`，數字寫進 `docs/56` §11。
+> - ⏸ 2026-10-14：Editor 無回應（`unity status` 無 instance；安全入口 `--check-only` ⇒ `PREFLIGHT_FAILED` 32）。依指示：不重啟、不存檔、不捨棄場景，等環境恢復再照原流程跑 P5-0。
 > - ⛔ P5a 在基線之後；P5b 在 P5a 驗證之後且需 D7 裁決。
 
 > # 🟥 2026-10-10（第四輪，優先於 Traversal 後續）：Unity Editor 記憶體／日誌暴增調查（`docs/53`，診斷輪，⛔ 未修正）
