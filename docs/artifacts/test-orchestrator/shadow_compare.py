@@ -10,12 +10,14 @@ Shadow procedure (tests still run in FULL, through the safe entry, exactly as to
   3. this script:
      - the sample is valid only if both records are complete, unfiltered, of the planned HEAD, and the work tree is
        still byte-identical to preState (otherwise the plan and the run looked at different code);
-     - ESCAPE = a failure in a test the plan would NOT have run, that was not already failing (same name AND same
-       normalised message) in the previous snapshot's full run. ESCAPE_SYMPTOM = same name, different message.
-       Every escape must later be investigated (escape-investigations.json): mapping gap / rule gap / flaky test;
+     - ESCAPE = a NEW_FAILURE (classifier: not an approved known failure with its approved symptoms) in a test the
+       plan would NOT have run. ESCAPE_SYMPTOM = a known test failing with a changed symptom. Every escape must later be
+       investigated (escape-investigations.json): mapping gap / rule gap / flaky test;
      - writes one sample record (sample.json + sample.md: change set, planned scope, selected tests, full results,
-       escapes, snapshot validity, estimated and measured savings), appends one row to shadow.tsv, and writes the new
-       last-verified snapshot when the sample is valid.
+       escapes, snapshot validity, estimated and measured savings) and appends one row to shadow.tsv;
+     - advances the trusted snapshot ONLY when (§14.6): the sample is valid AND the classification is VERIFIED or
+       VERIFIED_WITH_KNOWN_FAILURES (no new failure, nothing blocked, nothing incomplete) AND no selected test went
+       unexecuted (skipped / ignored / inconclusive). Otherwise the previous snapshot stays untouched.
 Exit: 0 valid sample, no escape · 1 escape(s) · 3 invalid sample (nothing concluded) · 2 usage.
 """
 import argparse
@@ -65,23 +67,33 @@ def validate_sample(plan, edit, play, current_state):
     return None
 
 
-def compare(plan, edit, play, previous_failures):
-    escapes = []
-    failing_now = []
-    prev = set(previous_failures)
-    prev_names = {f.split("|")[0] + "|" + f.split("|")[1] for f in prev}
-    for rec in (edit, play):
-        for r in rec.results:
-            if r["Status"] != "Failed":
+def compare(plan, report):
+    """Escapes come from the classifier: an approved known failure with its approved symptoms is never an escape."""
+    escapes, failing_now = [], []
+    for rec in report["records"]:
+        for f in rec["failures"]:
+            failing_now.append(fingerprint(rec["mode"], f["fullName"], f["message"]))
+            if f["kind"] != "NEW_FAILURE" or would_have_run(plan, rec["mode"], f["fullName"]):
                 continue
-            fp = fingerprint(rec.mode, r["FullName"], r.get("Message"))
-            failing_now.append(fp)
-            if would_have_run(plan, rec.mode, r["FullName"]) or fp in prev:
-                continue
-            kind = "ESCAPE_SYMPTOM" if (rec.mode + "|" + r["FullName"]) in prev_names else "ESCAPE"
-            escapes.append({"kind": kind, "mode": rec.mode, "fullName": r["FullName"],
-                            "message": lib.normalize_message(r.get("Message"))[:200], "investigation": "PENDING"})
+            escapes.append({"kind": "ESCAPE_SYMPTOM" if f.get("symptomChangedFrom") else "ESCAPE",
+                            "mode": rec["mode"], "fullName": f["fullName"], "message": f["message"][:200],
+                            "symptomChangedFrom": f.get("symptomChangedFrom"), "investigation": "PENDING"})
     return escapes, failing_now
+
+
+def snapshot_blocker(invalid, report, no_snapshot):
+    """Why the trusted baseline must NOT advance (None = it may). Order = most fundamental first."""
+    if invalid:
+        return "invalid sample: " + invalid
+    if no_snapshot:
+        return "--no-snapshot"
+    verdict = report["verdict"]
+    if verdict not in ("VERIFIED", "VERIFIED_WITH_KNOWN_FAILURES"):
+        return "classification %s: a baseline is never advanced past a new failure, a block or an incomplete run" % verdict
+    not_executed = sum(len(r["not_executed"]) for r in report["records"])
+    if not_executed:
+        return "%d selected test(s) not executed (skipped / ignored / inconclusive): verification incomplete" % not_executed
+    return None
 
 
 def savings(plan, play, overhead):
@@ -166,20 +178,11 @@ def main(argv):
     invalid = validate_sample(plan, edit, play, current)
     if plan.get("mapSha256") != map_hash and not invalid:
         invalid = "test-map.json changed after planning"
-    previous = []
-    if os.path.isfile(a.snapshot):
-        try:
-            previous = lib.load_json(a.snapshot).get("failures", [])
-        except (OSError, ValueError):
-            previous = []
-    escapes, failing_now = ([], []) if invalid else compare(plan, edit, play, previous)
+    escapes, failing_now = ([], []) if invalid else compare(plan, report)
 
-    written, not_written = False, None
-    if invalid:
-        not_written = "invalid sample"
-    elif a.no_snapshot:
-        not_written = "--no-snapshot"
-    else:
+    written = False
+    not_written = snapshot_blocker(invalid, report, a.no_snapshot)
+    if not_written is None:
         state = snap_mod.worktree_state(a.repo, write_text_blobs=True)
         if snap_mod.state_equal(state, plan["preState"]):
             snap_mod.write(a.repo, a.snapshot, state, map_hash, failing_now,

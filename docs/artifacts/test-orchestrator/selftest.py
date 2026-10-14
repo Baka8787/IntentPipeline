@@ -485,20 +485,21 @@ def suite_shd():
                    {"mode": "PlayMode", "filter": "Project.Tests.PlayMode.EnemyChasePlayModeTests", "kind": "tier"}])
         r1 = plan([{"mode": "EditMode", "filter": "", "kind": "tier"}], tier="R1")
 
-        def run(p, edit, play, prev_failures=None, tag="x"):
+        def run(p, edit, play, tag, known=(), previous=None, extra=()):
+            """previous: text of an existing last-verified snapshot (must stay byte-identical unless advanced)."""
             pp = os.path.join(root, "plan-%s.json" % tag)
             with open(pp, "w", encoding="utf-8") as f:
                 json.dump(p, f)
             sp = os.path.join(root, "snap-%s.json" % tag)
-            if prev_failures is not None:
+            if previous is not None:
                 with open(sp, "w", encoding="utf-8") as f:
-                    json.dump({"failures": prev_failures}, f)
+                    f.write(previous)
             logp = os.path.join(root, "shadow-%s.tsv" % tag)
             out = io.StringIO()
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
                 code = shadow.main(["--plan", pp, "--edit-record", edit, "--play-record", play, "--repo", repo,
-                                    "--snapshot", sp, "--log", logp, "--known", known_list(root, [], "empty-%s.json" % tag),
-                                    "--samples", os.path.join(root, "samples-%s" % tag)])
+                                    "--snapshot", sp, "--log", logp, "--known", known_list(root, list(known), "known-%s.json" % tag),
+                                    "--samples", os.path.join(root, "samples-%s" % tag)] + list(extra))
             return code, out.getvalue(), sp, logp
 
         def sample_of(tag):
@@ -506,63 +507,128 @@ def suite_shd():
             names = os.listdir(d) if os.path.isdir(d) else []
             return lib.load_json(os.path.join(d, names[0], "sample.json")) if len(names) == 1 else None
 
+        def snapshot_unchanged(sp, previous):
+            return os.path.isfile(sp) and open(sp, encoding="utf-8").read() == previous
+
         short = head[:7]
+        PREV = '{"schema": 1, "marker": "previous trusted baseline"}'
         e_ok = make_record(root, "e-ok", "EditMode", 0, [("Project.Tests.EditMode.A.B", "Passed", None)], head=short)
         stair = "Project.Tests.PlayMode.StairTraversalPlayModeTests.Climb"
-        p_escape = make_record(root, "p-esc", "PlayMode", 1, [(stair, "Failed", "boom"),
-                                                              ("Project.Tests.PlayMode.EnemyChasePlayModeTests.Run", "Passed", None)], head=short)
-        code, out, sp, logp = run(r2, e_ok, p_escape, tag="s1")
+        chase = "Project.Tests.PlayMode.EnemyChasePlayModeTests.Run"
+        p_ok = make_record(root, "p-ok", "PlayMode", 0, [(stair, "Passed", None), (chase, "Passed", None)], head=short)
+        p_escape = make_record(root, "p-esc", "PlayMode", 1, [(stair, "Failed", "boom"), (chase, "Passed", None)], head=short)
+        k_stair = entry("K-9", "PlayMode", stair, ["boom"])
+
+        # ---- escapes ------------------------------------------------------------------------------------------------
+        code, out, sp, logp = run(r2, e_ok, p_escape, "s1", previous=PREV)
         check("SHD", "S1 new failure in an unselected fixture -> ESCAPE (exit 1)", code == 1 and "ESCAPE" in out, out)
         smp = sample_of("s1")
         required = ("changeSet", "plannedScope", "selectedTests", "fullResults", "escapes", "snapshot", "savings")
         check("SHD", "S1 sample record: change set, planned scope, selected tests, full results, escapes, snapshot validity, savings",
               smp is not None and all(k in smp for k in required) and smp["changeSet"]["changes"]
               and smp["selectedTests"]["filters"] and smp["fullResults"]["records"] and smp["escapes"]
-              and smp["snapshot"]["written"] is True and smp["snapshot"]["atPlan"]["status"] == "invalid", str(smp)[:300])
+              and smp["snapshot"]["atPlan"]["status"] == "invalid", str(smp)[:300])
         check("SHD", "S1 escape is recorded as PENDING investigation", smp and smp["escapes"][0]["investigation"] == "PENDING")
         meas = (smp or {}).get("savings", {}).get("measured") or {}
         check("SHD", "S1 measured savings from real durations: full 60+1.0 s vs planned 60+0.1 s = 0.9 s",
               meas.get("fullSeconds") == 61.0 and meas.get("plannedSeconds") == 60.1 and meas.get("savedSeconds") == 0.9, str(meas))
         check("SHD", "S1 estimated savings from the plan's cost model = 306-62 = 244 s",
               smp and smp["savings"]["estimated"]["savedSeconds"] == 244.0, str((smp or {}).get("savings")))
-        check("SHD", "S1 valid sample writes the snapshot with the failure fingerprint",
-              os.path.isfile(sp) and any(stair in f for f in lib.load_json(sp)["failures"]), out)
         lines = open(logp, encoding="utf-8").read().splitlines() if os.path.isfile(logp) else []
         check("SHD", "S1 shadow.tsv row appended, same column count as the header",
-              len(lines) == 2 and len(lines[0].split("	")) == len(lines[1].split("	")), str(lines))
+              len(lines) == 2 and len(lines[0].split("\t")) == len(lines[1].split("\t")), str(lines))
         check("SHD", "S1 sample planned without a valid snapshot does not count toward Q5",
-              len(lines) == 2 and lines[1].split("	")[2] == "no", str(lines[1:]))
-        code, out, _, _ = run(r2, e_ok, p_escape, prev_failures=[shadow.fingerprint("PlayMode", stair, "boom")], tag="s2")
-        check("SHD", "S2 same failure already in the previous full run -> not an escape", code == 0, out)
-        code, out, _, _ = run(r2, e_ok, p_escape, prev_failures=[shadow.fingerprint("PlayMode", stair, "other")], tag="s3")
-        check("SHD", "S3 same test, different message -> ESCAPE_SYMPTOM", code == 1 and "ESCAPE_SYMPTOM" in out, out)
-        p_sel = make_record(root, "p-sel", "PlayMode", 1, [("Project.Tests.PlayMode.EnemyChasePlayModeTests.Run", "Failed", "x")], head=short)
+              len(lines) == 2 and lines[1].split("\t")[2] == "no", str(lines[1:]))
+        code, out, _, _ = run(r2, e_ok, p_escape, "s2", known=[k_stair])
+        check("SHD", "S2 approved known failure (name + symptom) in an unselected fixture -> not an escape", code == 0, out)
+        code, out, _, _ = run(r2, e_ok, p_escape, "s3", known=[entry("K-9", "PlayMode", stair, ["other"])])
+        check("SHD", "S3 known test, changed symptom -> ESCAPE_SYMPTOM", code == 1 and "ESCAPE_SYMPTOM" in out, out)
+        p_sel = make_record(root, "p-sel", "PlayMode", 1, [(chase, "Failed", "x")], head=short)
+        code, out, _, _ = run(r2, e_ok, p_sel, "s4")
+        check("SHD", "S4 new failure inside the selection -> not an escape (R2 would have caught it)", code == 0, out)
         counted = dict(r2, snapshot={"status": "valid"})
-        code, out, _, logp = run(counted, e_ok, p_sel, tag="s4b")
-        row = open(logp, encoding="utf-8").read().splitlines()[1].split("	")
+        code, out, _, logp = run(counted, e_ok, p_ok, "s4b")
+        row = open(logp, encoding="utf-8").read().splitlines()[1].split("\t")
         check("SHD", "S4b valid sample against a valid snapshot counts toward Q5", row[2] == "yes", str(row))
-        code, out, _, _ = run(r2, e_ok, p_sel, tag="s4")
-        check("SHD", "S4 failure inside the selection -> not an escape", code == 0, out)
-        p_other_head = make_record(root, "p-head", "PlayMode", 0, [("Project.Tests.PlayMode.A.B", "Passed", None)], head="0000000")
-        code, out, sp, _ = run(r2, e_ok, p_other_head, tag="s5")
-        check("SHD", "S5 record from another HEAD -> invalid sample (exit 3), no snapshot", code == 3 and not os.path.isfile(sp), out)
+        p_other_head = make_record(root, "p-head", "PlayMode", 0, [(stair, "Passed", None)], head="0000000")
+        code, out, sp, _ = run(r2, e_ok, p_other_head, "s5")
         smp = sample_of("s5")
-        check("SHD", "S5 invalid sample is still recorded, with its reason and snapshot not written",
-              smp is not None and not smp["valid"] and smp["invalidReason"] and not smp["snapshot"]["written"]
-              and not smp["countsTowardQ5"], str(smp)[:300])
-        p_filtered = make_record(root, "p-filt", "PlayMode", 0, [("Project.Tests.PlayMode.A.B", "Passed", None)], head=short, filt="A")
-        code, out, _, _ = run(r2, e_ok, p_filtered, tag="s6")
+        check("SHD", "S5 record from another HEAD -> invalid sample (exit 3), recorded with its reason, counts nothing",
+              code == 3 and smp is not None and not smp["valid"] and smp["invalidReason"] and not smp["countsTowardQ5"], out)
+        p_filtered = make_record(root, "p-filt", "PlayMode", 0, [(stair, "Passed", None)], head=short, filt="A")
+        code, out, _, _ = run(r2, e_ok, p_filtered, "s6")
         check("SHD", "S6 filtered record -> invalid sample", code == 3, out)
-        e_blocked = make_record(root, "e-blk", "EditMode", 15, None, head=short)
-        code, out, _, _ = run(r2, e_blocked, p_escape, tag="s7")
-        check("SHD", "S7 blocked EditMode record -> invalid sample", code == 3, out)
         e_failed = make_record(root, "e-fail", "EditMode", 1, [("Project.Tests.EditMode.A.B", "Failed", "e")], head=short)
-        code, out, _, _ = run(r1, e_failed, p_escape, tag="s8")
+        code, out, _, _ = run(r1, e_failed, p_escape, "s8")
         check("SHD", "S8 R1 plan: every PlayMode failure is unselected -> ESCAPE; EditMode failure is not",
               code == 1 and out.count("ESCAPE ") == 1, out)
+
+        # ---- SNP: when may the trusted baseline advance? (§14.6) ------------------------------------------------------
+        code, out, sp, _ = run(r2, e_ok, p_ok, "n1", previous=PREV)
+        smp = sample_of("n1")
+        check("SNP", "N1 complete, all passed -> snapshot advanced",
+              smp["snapshot"]["written"] and lib.load_json(sp).get("baseCommit") == head, str(smp["snapshot"]))
+        code, out, sp, _ = run(r2, e_ok, p_escape, "n2", known=[k_stair], previous=PREV)
+        smp = sample_of("n2")
+        check("SNP", "N2 only approved known failures -> snapshot advanced (VERIFIED_WITH_KNOWN_FAILURES)",
+              smp["snapshot"]["written"] and stair in " ".join(lib.load_json(sp)["failures"]), str(smp["snapshot"]))
+        code, out, sp, _ = run(r2, e_ok, p_escape, "n3", previous=PREV)
+        smp = sample_of("n3")
+        check("SNP", "N3 new failure (unselected) -> NOT advanced, previous snapshot byte-identical",
+              not smp["snapshot"]["written"] and snapshot_unchanged(sp, PREV) and "FAILED" in smp["snapshot"]["notWrittenReason"],
+              str(smp["snapshot"]))
+        code, out, sp, _ = run(r2, e_ok, p_sel, "n4", previous=PREV)
+        smp = sample_of("n4")
+        check("SNP", "N4 new failure inside the selection (no escape) -> still NOT advanced",
+              code == 0 and not smp["snapshot"]["written"] and snapshot_unchanged(sp, PREV), str(smp["snapshot"]))
+        code, out, sp, _ = run(r2, e_ok, p_escape, "n5", known=[entry("K-9", "PlayMode", stair, ["other"])], previous=PREV)
+        smp = sample_of("n5")
+        check("SNP", "N5 known test with a changed symptom -> NOT advanced",
+              not smp["snapshot"]["written"] and snapshot_unchanged(sp, PREV), str(smp["snapshot"]))
+        e_blocked = make_record(root, "e-blk", "EditMode", 15, None, head=short)
+        code, out, sp, _ = run(r2, e_blocked, p_ok, "n6", previous=PREV)
+        smp = sample_of("n6")
+        check("SNP", "N6 BLOCKED (dirty scene, exit 15) -> invalid, NOT advanced, previous intact",
+              code == 3 and not smp["snapshot"]["written"] and snapshot_unchanged(sp, PREV), str(smp["snapshot"]))
+        p_alert = make_record(root, "p-alert", "PlayMode", 31, [(stair, "Passed", None)], head=short, verdict="SAMPLER_ALERT")
+        code, out, sp, _ = run(r2, e_ok, p_alert, "n7", previous=PREV)
+        smp = sample_of("n7")
+        check("SNP", "N7 sampler alert after a completed run (exit 31) -> NOT advanced",
+              not smp["snapshot"]["written"] and snapshot_unchanged(sp, PREV), str(smp["snapshot"]))
+        e_skip = make_record(root, "e-skip", "EditMode", 0, [("Project.Tests.EditMode.A.B", "Passed", None),
+                                                             ("Project.Tests.EditMode.A.C", "Skipped", "ignored")], head=short)
+        code, out, sp, _ = run(r2, e_skip, p_ok, "n8", previous=PREV)
+        smp = sample_of("n8")
+        check("SNP", "N8 a selected test was skipped (incomplete verification) -> NOT advanced",
+              not smp["snapshot"]["written"] and snapshot_unchanged(sp, PREV) and "not executed" in smp["snapshot"]["notWrittenReason"],
+              str(smp["snapshot"]))
+        e_inc = make_record(root, "e-inc", "EditMode", 0, [("Project.Tests.EditMode.A.B", "Inconclusive", None)], head=short)
+        code, out, sp, _ = run(r2, e_inc, p_ok, "n9", previous=PREV)
+        smp = sample_of("n9")
+        check("SNP", "N9 inconclusive result (classification INCOMPLETE) -> NOT advanced",
+              not smp["snapshot"]["written"] and snapshot_unchanged(sp, PREV), str(smp["snapshot"]))
+        p_none = make_record(root, "p-none", "PlayMode", 5, [(stair, "Skipped", None)], head=short, verdict="NOTHING_EXECUTED")
+        code, out, sp, _ = run(r2, e_ok, p_none, "n10", previous=PREV)
+        smp = sample_of("n10")
+        check("SNP", "N10 nothing executed (exit 5) -> invalid, NOT advanced",
+              code == 3 and not smp["snapshot"]["written"] and snapshot_unchanged(sp, PREV), str(smp["snapshot"]))
+        code, out, sp, _ = run(r2, e_ok, p_other_head, "n14", previous=PREV)
+        smp = sample_of("n14")
+        check("SNP", "N14 complete passing run but from another HEAD (invalid) -> NOT advanced",
+              code == 3 and not smp["snapshot"]["written"] and snapshot_unchanged(sp, PREV), str(smp["snapshot"]))
+        code, out, sp, _ = run(r2, e_ok, p_filtered, "n15", previous=PREV)
+        smp = sample_of("n15")
+        check("SNP", "N15 passing but filtered PlayMode run (not a full run) -> NOT advanced",
+              code == 3 and not smp["snapshot"]["written"] and snapshot_unchanged(sp, PREV), str(smp["snapshot"]))
+        code, out, sp, _ = run(r2, e_ok, p_ok, "n11", previous=PREV, extra=["--no-snapshot"])
+        check("SNP", "N11 --no-snapshot -> NOT advanced", snapshot_unchanged(sp, PREV), out)
+        code, out, sp, _ = run(r2, e_ok, p_ok, "n12")
+        check("SNP", "N12 first baseline: no previous snapshot + clean complete run -> created", os.path.isfile(sp), out)
         write(repo, "docs/a.md", "changed during the run\n")
-        code, out, sp, _ = run(r2, e_ok, p_escape, tag="s9")
-        check("SHD", "S9 work tree changed after planning -> invalid sample, no snapshot", code == 3 and not os.path.isfile(sp), out)
+        code, out, sp, _ = run(r2, e_ok, p_ok, "n13", previous=PREV)
+        smp = sample_of("n13")
+        check("SNP", "N13 work tree changed after planning -> invalid, NOT advanced",
+              code == 3 and not smp["snapshot"]["written"] and snapshot_unchanged(sp, PREV), str(smp["snapshot"]))
     finally:
         shutil.rmtree(repo, ignore_errors=True)
         shutil.rmtree(root, ignore_errors=True)
