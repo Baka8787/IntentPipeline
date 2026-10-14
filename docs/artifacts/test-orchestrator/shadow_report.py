@@ -5,6 +5,7 @@
 
 Reports — never decides. Phase 3 needs a separate user decision (§14, supplement 4) whatever these numbers say.
 - Q5 progress: valid samples planned against a trustworthy snapshot (first valid sample only creates the snapshot).
+  Shadow Sample Validity and Snapshot Validity are reported separately (§14.9); Q5 reads both, never "advanced".
 - Benefit, not just "no escapes": tier distribution, how often R3 was forced and by which rules, estimated and
   measured PlayMode seconds the plan would have saved.
 - Every ESCAPE must have an investigation entry (mapping gap / rule gap / flaky test) with evidence and action;
@@ -57,11 +58,28 @@ def load_samples(root):
     return out
 
 
+def sample_validity(s):
+    """(valid, reason) — Shadow Sample Validity. Schema 1 (before §14.9) stored it as top-level valid/invalidReason."""
+    if isinstance(s.get("sampleValidity"), dict):
+        return bool(s["sampleValidity"].get("valid")), s["sampleValidity"].get("reason")
+    return bool(s.get("valid")), s.get("invalidReason")
+
+
+def snapshot_validity(s):
+    """(status at plan time, advanced) — Snapshot Validity, kept apart from sample validity."""
+    if isinstance(s.get("snapshotValidity"), dict):
+        return (s["snapshotValidity"].get("atPlan") or {}).get("status"), bool(s["snapshotValidity"].get("advanced"))
+    old = s.get("snapshot") or {}
+    return (old.get("atPlan") or {}).get("status"), bool(old.get("written"))
+
+
 def build(samples, investigations):
     inv_by = {(e["sample"], e["mode"], e["fullName"]): e for e in investigations}
     readable = [s for s in samples if not s.get("unreadable")]
-    valid = [s for s in readable if s.get("valid")]
-    counting = [s for s in valid if s.get("countsTowardQ5")]
+    valid = [s for s in readable if sample_validity(s)[0]]
+    # Q5 is decided from the two validities themselves (never from a stored flag, never from whether the snapshot
+    # advanced): a valid sample planned against a trustworthy snapshot.
+    counting = [s for s in valid if snapshot_validity(s)[0] == "valid"]
     tiers, r3_rules = {}, {}
     for s in counting:
         t = s["plannedScope"]["tier"]
@@ -83,7 +101,10 @@ def build(samples, investigations):
                 pending.append(item)
     return {
         "samples": len(samples), "unreadable": len(samples) - len(readable), "valid": len(valid),
-        "invalid": [(s["id"], s.get("invalidReason")) for s in readable if not s.get("valid")],
+        "invalid": [(s["id"], sample_validity(s)[1]) for s in readable if not sample_validity(s)[0]],
+        "validNoTrustedSnapshot": len(valid) - len(counting),
+        "snapshotAdvanced": sum(1 for s in readable if snapshot_validity(s)[1]),
+        "docOnlyFastForward": sum(1 for s in valid if (s.get("sampleValidity") or {}).get("headPolicy") == "doc-only-fast-forward"),
         "counting": len(counting), "q5Target": Q5_TARGET, "tiers": tiers, "r3Rules": r3_rules,
         "r3Share": (tiers.get("R3", 0) / len(counting)) if counting else None,
         "estimatedSaved": {"total": round(sum(est), 1), "median": round(statistics.median(est), 1) if est else None},
@@ -98,11 +119,16 @@ def to_markdown(r):
     L = ["# Shadow period report", "",
          "**Phase 3 is NOT enabled by this report** — it needs a separate user decision (docs/57 §14).", "",
          "## Q5 progress",
-         "- samples recorded: %d (valid %d, unreadable %d)" % (r["samples"], r["valid"], r["unreadable"]),
-         "- counting toward Q5 (valid AND planned against a trustworthy snapshot): **%d / %d**" % (r["counting"], r["q5Target"]),
-         "- synthetic coverage: fixtures/planner-cases.json, run selftest.py (required alongside, not instead)"]
+         "- counting toward Q5 (sample valid AND planned against a trustworthy snapshot): **%d / %d**" % (r["counting"], r["q5Target"]),
+         "- synthetic coverage: fixtures/planner-cases.json, run selftest.py (required alongside, not instead)",
+         "", "## Shadow Sample Validity",
+         "- samples recorded: %d · valid %d (of which HEAD advanced by doc-only commits: %d) · invalid %d · unreadable %d"
+         % (r["samples"], r["valid"], r["docOnlyFastForward"], len(r["invalid"]), r["unreadable"])]
     for sid, why in r["invalid"]:
         L.append("- invalid sample %s — %s" % (sid, why))
+    L += ["", "## Snapshot Validity",
+          "- valid samples planned WITHOUT a trustworthy snapshot (do not count toward Q5): %d" % r["validNoTrustedSnapshot"],
+          "- samples that advanced the trusted snapshot: %d" % r["snapshotAdvanced"]]
     L += ["", "## Benefit (counting samples)"]
     if not r["counting"]:
         L.append("- no counting samples yet — nothing can be said about the benefit")

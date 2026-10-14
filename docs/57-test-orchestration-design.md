@@ -554,3 +554,63 @@ ESCAPE 的判定也改為以比對器為準：只有 `NEW_FAILURE`（不是已�
 ②放寬為「計畫到比對之間**所有**內容有變的路徑，依 `test-map.json` 都是 `UNITY_INVISIBLE`（或純 Skill 檔），且 Unity 看得到的內容逐位元組相同」——快照記錄的是**被測的狀態**（計畫時的 HEAD＋工作樹），不是比對當下；任何一個路徑無法判定 ⇒ 仍無效；
 ③同②，但只容許「HEAD 前進且新 commit 全是文件」，不容許工作樹變動。
 建議 ③（範圍最小、可由 git 確定判定），並配合合成案例與變異測試。
+
+➡️ **2026-10-14 使用者裁決：採 ③ 強化版，並把 Snapshot Validity 與 Shadow Sample Validity 分開記錄——已實作，見 §14.9。**
+
+### 14.9 影子樣本有效性：方案③強化版（2026-10-14，使用者裁決；✅ 已實作、自測與變異測試通過；⛔ Phase 3 仍未啟用）
+
+**裁決**：計畫到比對之間，HEAD 可以因**純文件 commit** 前進——但只在能以確定性規則證明以下全部成立時；**⛔ 不以副檔名判定**。並把兩種有效性**分開記錄**：
+
+| | 問的是什麼 | 決定什麼 |
+|---|---|---|
+| **Shadow Sample Validity**（樣本有效性） | 這次全量測到的，是不是計畫所針對的那個狀態？ | 能不能比對 ESCAPE、能不能計入 Q5、能不能推進快照（必要條件之一） |
+| **Snapshot Validity**（快照有效性） | 計畫時有沒有可信的基準？這次有沒有把基準往前推？ | 計畫是否被迫 R3（計畫時）；下一次計畫的基準（比對後） |
+
+**樣本有效＝以下每一項都成立**（`sample_validity.py`；每項都會求值並記錄，第一個失敗的項目就是原因）：
+
+| 檢查 | 規則 | 不成立 ⇒ |
+|---|---|---|
+| `records` | 兩份紀錄都是完整、未過濾、非 check-only、exit 0／1 且有結果的全量 | 無效（同 §14.7） |
+| `head` | HEAD 與計畫時相同；或 `git merge-base --is-ancestor <計畫 HEAD> <現在 HEAD>` 成立（**fast-forward**），且區間內**沒有 merge commit**，且**每一個** commit 的變更路徑（`diff-tree -r --no-renames`，改名拆成刪＋增）都通過路徑判定、至少有一條路徑 | 無效 |
+| 路徑判定 | **先查禁止清單**（`docOnlyDeny`），命中即拒絕；再查白名單（`docOnlyAllow`），沒命中也拒絕。⇒ 兩者衝突時**禁止優先** | 該 commit 不安全 ⇒ 無效 |
+| `recordHead` | 每份紀錄的 `git_head` 是計畫 HEAD，或是上述 doc-only 鏈上的某個 commit（入口在文件 commit 之後才啟動也算） | 無效 |
+| `worktree` | 未提交狀態（每個 dirty／untracked 路徑 → blob）與計畫時**完全相同** | 無效——包括「把計畫時 dirty 的文件原封不動 commit 掉」（嚴格方向，見下） |
+| `inputs` | `plan.json` 的 `inputHashes`（`planInputs`＋`writerRulesSource` 的 sha256）與現在逐檔相同；**計畫沒有 `inputHashes`（§14.9 之前的計畫）時，只有 HEAD 未變才有效** | 無效 |
+| `map` | `test-map.json` 是計畫時那份 | 無效 |
+
+**白名單與禁止清單**（`test-map.json` → `sampleValidity`；改它本身＝R3＋快照失效＋所有在途樣本 `map` 失敗）：
+
+| 清單 | 內容 | 理由 |
+|---|---|---|
+| `docOnlyAllow` | `re:^docs/[0-9]{2}-[^/]+\.md$`（`docs/NN-*.md`，含 `00-map`）、`docs/ADR/*.md`、`docs/changelog.md`、`docs/changelog-archive.md`、`WORKLOG.md` | 明確列出位置，不是「所有 `.md`」。`docs/` 頂層非編號文件（`phase-c-forward-stop.md`、`portfolio-framing.md`）、根目錄 `README.md` 都**不在**內——罕見且不值得為它們放寬 |
+| `docOnlyDeny` | `docs/artifacts/**`（**一律**，含其中的 `.md`）、`docs/images/**`、`Assets/**`、`Packages/**`、`ProjectSettings/**`、`UserSettings/**`、`Library/**`、`Logs/**`、`.claude/**`、`.agents/**`、`.github/**`、`CLAUDE.md`、`AGENTS.md`、`.gitignore`／`.gitattributes`／`.editorconfig`，以及 `*.meta`／`*.cs`／`*.asmdef`／`*.asmref`／`*.csproj`／`*.sln`／`*.json`／`*.py`／`*.sh`／`*.ps1`／`*.bat`／`*.cmd`／`*.txt`／`*.yml`／`*.yaml`／`*.unity`／`*.prefab`／`*.asset`／`*.inputactions`（任何深度） | 執行腳本、測試規則、對照表、已知失敗清單、Unity 資產、專案設定、產生器輸入、Skill／指示檔。副檔名**只出現在禁止端**作為第二道防線；接受永遠要靠白名單的明確位置 |
+| `planInputs` | `docs/artifacts/test-orchestrator/**`、`docs/artifacts/editor-memory/*.sh`／`*.ps1`／`*.py`／`*.cs.txt`，外加 `writerRulesSource`（`ArchitectureRegressionTests.cs`） | 計畫用的變更集規則、選擇規則、已知失敗、入口與其探針。這些檔案同時被禁止清單覆蓋——雜湊是**縱深防禦**（例如被 gitignore 的檔案 git 看不到） |
+
+`--check-map` 另驗設定本身：`docs/artifacts/**` 必須在禁止清單；`test-map.json`、`known-failures.json`、`plan_tests.py`、`safe_unity_test.sh`、WriterRules 來源必須在 `inputHashes` 內；**任何計畫輸入都不得被白名單接受**；`WORKLOG.md`、`docs/00-map.md`、ADR 必須被接受。
+
+**快照記錄的是被測的狀態**：推進時寫入的是**計畫時的 HEAD＋計畫時的工作樹**（不是比對當下、已經多了文件 commit 的 HEAD）；寫入前再讀一次，HEAD 必須仍是驗證時那一個、工作樹仍與計畫時相同，否則不寫。下一次計畫的變更集從計畫 HEAD 算起，中間的文件 commit 依規則是 `UNITY_INVISIBLE`，不影響層級。快照推進規則本身**不變**（§14.7：樣本有效 ∧ VERIFIED／VERIFIED_WITH_KNOWN_FAILURES ∧ 沒有未執行的測試）。
+
+**Q5 計數**：`shadow_report.py` 直接讀兩種有效性——**樣本有效 ∧ 計畫時快照可信**（§14.3 補充 2 不變）；不讀儲存的旗標、也**不看快照有沒有推進**（樣本有效但全量出現新失敗、所以快照沒推進的樣本，正是 Q5 要看到的）。
+
+**紀錄格式**（`sample.json` schema 2）：`sampleValidity`（`valid`、`reason`、`headPolicy` = `unchanged`／`doc-only-fast-forward`、`planHead`、`currentHead`、`interveningCommits`［commit、paths、rejected］、逐項 `checks`）與 `snapshotValidity`（`atPlan`、`advanced`、`notAdvancedReason`、`recordedHead`）分開；`sample.md` 兩個獨立章節；`shadow.tsv` 新欄位 `sampleValid`／`sampleInvalidReason`／`headPolicy`／`interveningCommits`／`snapshotAtPlan`／`snapshotAtPlanReason`／`snapshotAdvanced`／`snapshotNotAdvancedReason`（舊版面的 `shadow.tsv` 會改名為 `shadow.tsv.old-N` 保留，不與新列混寫）；報告分「Shadow Sample Validity」「Snapshot Validity」兩節。`shadow_report.py` 仍讀得懂 schema 1 的舊樣本。`plan_tests.py` 在真實計畫中加入 `inputHashes`。
+
+**刻意的嚴格方向（已知代價）**：
+- 平行工作若把**計畫時就 dirty／untracked** 的文件 commit 掉，未提交狀態就不再相同 ⇒ 無效（合成案例 V14）。放寬需要證明「commit 進去的 blob 與計畫時的 dirty blob 相同」，這次不做。
+- 白名單外的文件（`docs/phase-c-*.md` 等）、`docs/artifacts/**` 下任何東西（含 `.md`）、`CLAUDE.md`／`AGENTS.md` 都會讓樣本無效。
+- 舊的樣本 1（`20261014T020133Z-shadow-1`）的計畫沒有 `inputHashes` ⇒ 依新規則仍**無效**（不能證明輸入未變）；它計畫時也沒有快照，本來就不計入 Q5。**沒有重判、沒有改寫舊紀錄。**
+
+**驗證**（`python -I`，只用標準函式庫）：
+
+| 項目 | 結果 |
+|---|---|
+| `selftest.py` | **202／202**（原 162；新增 SVL 36 案、RPT 4 案；SHD／SNP 改讀新欄位，斷言未放寬） |
+| `selftest_mutations.py` | **36／36**（原 26：新增 11 種、舊的「工作樹漂移不檢查」錨點已不存在而改由新的 `worktree` 變異取代） |
+| `plan_tests.py --check-map` | OK（含新的 `sampleValidity` 一致性檢查） |
+
+合成案例（SVL，暫存 git repo）：V1 文件 FF（`docs/NN-*.md`＋ADR＋WORKLOG＋changelog）⇒ 有效；V2 兩個文件 commit、PlayMode 在第一個之後才啟動 ⇒ 有效；V3 紀錄來自鏈外 commit ⇒ 無效；V4 HEAD 未變 ⇒ 有效；V5 各一案 ⇒ 無效：`test-map.json`、`Assets/` 執行期腳本、`ProjectSettings/`、editor-memory 腳本、`ArchitectureRegressionTests.cs`、`docs/artifacts` 下的 `.md`、`known-failures.json`、同一 commit 文件＋一個禁止路徑、根目錄 `README.md`、`docs/` 頂層非編號 `.md`；V6 `docs/artifacts` 的 `.md` 是被**禁止清單**擋下（不是副檔名）；V7 兩清單都沒命中 ⇒「不在白名單」；V8／V9 白名單 `docs/**` 與禁止 `docs/artifacts/**` 衝突 ⇒ 禁止優先（路徑層與完整流程各一）；V10 非 FF（`git commit-tree` 造一個樹相同的兄弟 commit）⇒ 無效且**只有** `head` 失敗；V11 merge commit ⇒ 無效並指名 merge；V12 期間未提交的修改 ⇒ 無效（只有 `worktree`）；V13 文件 commit＋未提交的 `Assets` 修改 ⇒ 無效；V14 把計畫時 dirty 的文件 commit 掉 ⇒ 無效；V15 舊計畫（無 `inputHashes`）＋HEAD 前進 ⇒ 無效；V16 舊計畫＋HEAD 未變 ⇒ 有效；V17 `inputHashes` 涵蓋清單；V18 計畫輸入位元組不同但 git 狀態相同 ⇒ 無效（只有 `inputs`）；V19 `test-map.json` 不同 ⇒ 無效；V20–V23 端到端：文件 FF 期間的完整比對 ⇒ 樣本有效、計入 Q5、快照記錄**計畫 HEAD**（不是文件 commit）與計畫時工作樹、`sample.md` 兩節分開、`shadow.tsv` 新欄位且舊版面檔案被移到 `.old-1`。
+
+**以真實的 docs(59) 做回歸**：G1 對本 repo 的 `7e17764..51aa360` 執行同一個判定 ⇒ **doc-only fast-forward、有效**，區間恰為一個 commit、路徑恰為 `docs/00-map.md`、`docs/59-bake-pipeline-concept-audit.md`（與 `git show --stat 51aa360` 相同）；G2 同一組路徑在暫存 repo 重放 ⇒ 有效；G3 對照：同一個 commit 再加 `docs/artifacts/test-orchestrator/test-map.json` ⇒ **無效**；G4 路徑層對照。⚠️ G1 依賴本 repo 歷史：歷史被改寫時它會**失敗**（不會略過）。
+
+**變異**（全部必須被抓到）：白名單外路徑也接受、先查白名單再查禁止、不檢查 FF、接受 merge commit、不比對未提交狀態（取代舊的「工作樹漂移不檢查」）、不比對計畫輸入雜湊、舊計畫在 HEAD 前進時也接受、紀錄可來自任何 commit、不比對 test-map 雜湊、快照記錄比對當下的 HEAD、報告的 Q5 改看快照有沒有推進；既有的「報告計入無快照樣本」改用新錨點。
+
+**範圍**：只動 `docs/artifacts/test-orchestrator/`（新增 `sample_validity.py`；改 `shadow_compare.py`、`shadow_report.py`、`plan_tests.py`、`test-map.json`、`selftest.py`、`selftest_mutations.py`、README）與本文件。⛔ 未改 `safe_unity_test.sh`、任何 Unity 測試、CI；未放寬 Unity 安全入口；**Phase 3 仍未啟用**。

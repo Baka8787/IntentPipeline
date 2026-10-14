@@ -8,8 +8,11 @@ Shadow procedure (tests still run in FULL, through the safe entry, exactly as to
   1. plan_tests.py  -> plan.json (records the work-tree state it planned against: preState)
   2. safe_unity_test.sh --mode EditMode   and   --mode PlayMode   (no filter)
   3. this script:
-     - the sample is valid only if both records are complete, unfiltered, of the planned HEAD, and the work tree is
-       still byte-identical to preState (otherwise the plan and the run looked at different code);
+     - Shadow Sample Validity (sample_validity.py, §14.9): both records complete and unfiltered; HEAD unchanged or a
+       doc-only fast-forward (every intervening commit's paths in the allowlist, none denied); records ran on that
+       chain; uncommitted state, plan inputs and test-map.json identical to plan time. Otherwise the plan and the run
+       may have looked at different code and nothing is concluded;
+     - Snapshot Validity is recorded separately: was the baseline trustworthy at plan time, and does it advance now;
      - ESCAPE = a NEW_FAILURE (classifier: not an approved known failure with its approved symptoms) in a test the
        plan would NOT have run. ESCAPE_SYMPTOM = a known test failing with a changed symptom. Every escape must later be
        investigated (escape-investigations.json): mapping gap / rule gap / flaky test;
@@ -17,7 +20,8 @@ Shadow procedure (tests still run in FULL, through the safe entry, exactly as to
        escapes, snapshot validity, estimated and measured savings) and appends one row to shadow.tsv;
      - advances the trusted snapshot ONLY when (§14.6): the sample is valid AND the classification is VERIFIED or
        VERIFIED_WITH_KNOWN_FAILURES (no new failure, nothing blocked, nothing incomplete) AND no selected test went
-       unexecuted (skipped / ignored / inconclusive). Otherwise the previous snapshot stays untouched.
+       unexecuted (skipped / ignored / inconclusive). Otherwise the previous snapshot stays untouched. The snapshot
+       records the TESTED state: the planned HEAD + plan-time work tree, never a HEAD that only advanced by docs.
 Exit: 0 valid sample, no escape · 1 escape(s) · 3 invalid sample (nothing concluded) · 2 usage.
 """
 import argparse
@@ -29,11 +33,15 @@ sys.dont_write_bytecode = True   # never leave __pycache__ in docs/ (it would it
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import classify_results as classify  # noqa: E402
 import orchestrator_lib as lib  # noqa: E402
+import sample_validity as validity  # noqa: E402
 import snapshot as snap_mod  # noqa: E402
 
-TSV_HEADER = ("utc\thead\tcountsTowardQ5\tsnapshotStatus\tplanTier\tplaySelection\tselectedFixtures\testimateSeconds\t"
-              "fullEstimateSeconds\testimatedSavedSeconds\tmeasuredSavedSeconds\tactualEditSeconds\tactualPlaySeconds\t"
-              "valid\tinvalidReason\tescapes\tescapeTests\tclassification\tsnapshotWritten\tsample")
+SAMPLE_SCHEMA = 2
+TSV_HEADER = ("utc\tplanHead\tcurrentHead\tcountsTowardQ5\t"
+              "sampleValid\tsampleInvalidReason\theadPolicy\tinterveningCommits\t"
+              "snapshotAtPlan\tsnapshotAtPlanReason\tsnapshotAdvanced\tsnapshotNotAdvancedReason\t"
+              "planTier\tplaySelection\tselectedFixtures\testimateSeconds\tfullEstimateSeconds\testimatedSavedSeconds\t"
+              "measuredSavedSeconds\tactualEditSeconds\tactualPlaySeconds\tescapes\tescapeTests\tclassification\tsample")
 
 
 def fingerprint(mode, full_name, message):
@@ -49,22 +57,28 @@ def would_have_run(plan, mode, full_name):
     return False
 
 
-def validate_sample(plan, edit, play, current_state):
-    head = (plan.get("preState") or {}).get("head")
-    if not head:
-        return "plan has no preState (synthetic plan?)"
-    for rec, mode in ((edit, "EditMode"), (play, "PlayMode")):
-        if rec.mode != mode:
-            return "%s record is %s" % (mode, rec.mode)
-        if not rec.is_full_run:
-            return "%s record is not a full run (filter=%r explicit=%s check_only=%s)" % (mode, rec.filter, rec.include_explicit, rec.check_only)
-        if rec.exit_code not in (0, 1) or rec.results is None:
-            return "%s record did not complete (exit %s, %s)" % (mode, rec.exit_code, rec.status_error or rec.verdict)
-        if not rec.git_head or not head.startswith(rec.git_head):
-            return "%s record ran at %s, plan was made at %s" % (mode, rec.git_head, head[:12])
-    if not snap_mod.state_equal(plan["preState"], current_state):
-        return "work tree changed between planning and now: the run may not have tested the planned state"
-    return None
+def counts_toward_q5(sample_valid, snapshot_at_plan):
+    """Q5 (§14.3 supplement 2): a VALID SAMPLE planned against a trustworthy snapshot. Whether the snapshot advanced
+    afterwards is irrelevant — a valid sample whose full run found a new failure is exactly what Q5 must see."""
+    return bool(sample_valid) and (snapshot_at_plan or {}).get("status") == "valid"
+
+
+def append_tsv(path, row):
+    """A log written under an older header is renamed aside (kept), never mixed with rows of another layout."""
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as f:
+            header = f.readline().rstrip("\r\n")
+        if header != TSV_HEADER:
+            n = 1
+            while os.path.exists("%s.old-%d" % (path, n)):
+                n += 1
+            os.replace(path, "%s.old-%d" % (path, n))
+    new_log = not os.path.isfile(path)
+    with open(path, "a", encoding="utf-8") as f:
+        if new_log:
+            f.write(TSV_HEADER + "\n")
+        f.write("\t".join(row) + "\n")
 
 
 def compare(plan, report):
@@ -118,12 +132,24 @@ def savings(plan, play, overhead):
 
 
 def sample_markdown(s):
+    sv, snp = s["sampleValidity"], s["snapshotValidity"]
     L = ["# Shadow sample %s" % s["id"], "",
-         "- **valid**: %s%s · counts toward Q5: **%s**" % (s["valid"], "" if s["valid"] else " — " + s["invalidReason"], s["countsTowardQ5"]),
-         "- snapshot at plan time: %s %s · new snapshot written: %s %s" % (
-             s["snapshot"]["atPlan"].get("status"), s["snapshot"]["atPlan"].get("reason") or "",
-             s["snapshot"]["written"], s["snapshot"]["notWrittenReason"] or ""),
-         "- planned scope: **%s** (PlayMode %s)" % (s["plannedScope"]["tier"], s["selectedTests"]["selection"]),
+         "- counts toward Q5: **%s** (sample valid AND snapshot trustworthy at plan time)" % s["countsTowardQ5"], "",
+         "## Shadow Sample Validity: **%s**%s" % ("valid" if sv["valid"] else "INVALID", "" if sv["valid"] else " — " + sv["reason"]),
+         "- HEAD: plan %s · now %s · policy %s" % ((sv["planHead"] or "?")[:12], (sv["currentHead"] or "?")[:12],
+                                                   sv["headPolicy"] or "not provable")]
+    L += ["- check %s: %s%s" % (c["check"], "ok" if c["ok"] else "FAILED", "" if c["ok"] else " — %s" % c["detail"])
+          for c in sv["checks"]]
+    for c in sv["interveningCommits"]:
+        L.append("- intervening commit %s: %s%s" % (c["commit"][:12], ", ".join(c["paths"][:10]),
+                                                    "" if not c["rejected"] else " — REJECTED " + "; ".join(
+                                                        "%s (%s)" % (r["path"], r["why"]) for r in c["rejected"][:5])))
+    L += ["", "## Snapshot Validity",
+          "- at plan time: %s %s" % (snp["atPlan"].get("status"), snp["atPlan"].get("reason") or ""),
+          "- advanced now: %s %s" % (snp["advanced"], snp["notAdvancedReason"] or ""),
+          "- recorded (tested) state: HEAD %s" % ((snp["recordedHead"] or "—")[:12]), "",
+          "## Plan and results",
+          "- planned scope: **%s** (PlayMode %s)" % (s["plannedScope"]["tier"], s["selectedTests"]["selection"]),
          "- classification of the full run: **%s**" % s["fullResults"]["verdict"],
          "- savings — estimated: %s s · measured: %s s" % (s["savings"]["estimated"]["savedSeconds"],
                                                             (s["savings"]["measured"] or {}).get("savedSeconds", "n/a")),
@@ -170,40 +196,45 @@ def main(argv):
         report = classify.classify([a.edit_record, a.play_record], a.known)
         current = snap_mod.worktree_state(a.repo)
         map_hash = lib.sha256_file(a.map)
-        overhead = float(lib.load_json(a.map)["costModel"]["invocationOverheadSeconds"])
+        tmap = lib.load_json(a.map)
+        overhead = float(tmap["costModel"]["invocationOverheadSeconds"])
+        sv = validity.validate(plan, edit, play, a.repo, current, tmap, map_hash)
     except (OSError, ValueError, KeyError, lib.GitError, classify.KnownListError) as e:
         print("usage: %s: %s" % (e.__class__.__name__, e), file=sys.stderr)
         return 2
 
-    invalid = validate_sample(plan, edit, play, current)
-    if plan.get("mapSha256") != map_hash and not invalid:
-        invalid = "test-map.json changed after planning"
+    invalid = None if sv["valid"] else sv["reason"]
     escapes, failing_now = ([], []) if invalid else compare(plan, report)
 
-    written = False
+    written, recorded_head = False, None
     not_written = snapshot_blocker(invalid, report, a.no_snapshot)
     if not_written is None:
+        # The snapshot records the TESTED state (plan HEAD + plan-time work tree). Re-read now: nothing may have moved
+        # since the validity check (same HEAD as validated, same uncommitted state as planned).
         state = snap_mod.worktree_state(a.repo, write_text_blobs=True)
-        if snap_mod.state_equal(state, plan["preState"]):
-            snap_mod.write(a.repo, a.snapshot, state, map_hash, failing_now,
+        if state["head"] == current["head"] and state["worktree"] == plan["preState"]["worktree"]:
+            tested = {"head": plan["preState"]["head"], "worktree": plan["preState"]["worktree"]}
+            snap_mod.write(a.repo, a.snapshot, tested, map_hash, failing_now,
                            [lib.norm_path(os.path.relpath(d, a.repo)) for d in (a.edit_record, a.play_record)])
-            written = True
+            written, recorded_head = True, tested["head"]
         else:
-            not_written = "work tree changed while writing"
+            not_written = "HEAD or work tree changed while writing"
 
     now = datetime.datetime.now(datetime.timezone.utc)
     snap_at_plan = plan.get("snapshot") or {}
-    counts = not invalid and snap_at_plan.get("status") == "valid"
+    counts = counts_toward_q5(sv["valid"], snap_at_plan)
     est, measured = savings(plan, play, overhead)
     by_tier = {}
     for c in plan.get("changes", []):
         by_tier[c["tier"]] = by_tier.get(c["tier"], 0) + 1
     sample_id = now.strftime("%Y%m%dT%H%M%SZ") + "-" + os.path.basename(os.path.dirname(os.path.abspath(a.plan)))[:60]
     sample = {
-        "schema": 1, "id": sample_id, "utc": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "schema": SAMPLE_SCHEMA, "id": sample_id, "utc": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "head": (plan.get("preState") or {}).get("head"), "plan": lib.norm_path(os.path.relpath(os.path.abspath(a.plan), a.repo)),
-        "valid": not invalid, "invalidReason": invalid, "countsTowardQ5": bool(counts),
-        "snapshot": {"atPlan": snap_at_plan, "written": written, "notWrittenReason": not_written},
+        "countsTowardQ5": counts,
+        "sampleValidity": sv,
+        "snapshotValidity": {"atPlan": snap_at_plan, "advanced": written, "notAdvancedReason": not_written,
+                             "recordedHead": recorded_head},
         "changeSet": {"byTier": by_tier, "changes": plan.get("changes", [])},
         "plannedScope": {"tier": plan["tier"], "context": plan.get("context"), "reasons": plan.get("reasons", []),
                          "invocations": plan.get("invocations", [])},
@@ -224,23 +255,25 @@ def main(argv):
     with open(os.path.join(sdir, "sample.md"), "w", encoding="utf-8") as f:
         f.write(sample_markdown(sample))
 
-    row = [sample["utc"], (sample["head"] or "")[:12], "yes" if counts else "no", snap_at_plan.get("status", "?"),
+    def cell(x):
+        return str(x if x is not None else "").replace("\t", " ").replace("\n", " ")
+
+    row = [sample["utc"], (sv["planHead"] or "")[:12], (sv["currentHead"] or "")[:12], "yes" if counts else "no",
+           "yes" if sv["valid"] else "no", cell(invalid), cell(sv["headPolicy"]),
+           ";".join(c["commit"][:12] for c in sv["interveningCommits"]),
+           cell(snap_at_plan.get("status", "?")), cell(snap_at_plan.get("reason")), "yes" if written else "no",
+           cell(not_written),
            plan["tier"], plan["playMode"]["selection"], str(len(plan["playMode"]["selectedFixtures"])),
            str(est["plannedSeconds"]), str(est["fullSeconds"]), str(est["savedSeconds"]),
            str((measured or {}).get("savedSeconds", "")), str(edit.runner_duration), str(play.runner_duration),
-           "no" if invalid else "yes", (invalid or "").replace("\t", " "), str(len(escapes)),
-           ";".join(e["fullName"] for e in escapes), report["verdict"], "yes" if written else "no",
+           str(len(escapes)), ";".join(e["fullName"] for e in escapes), report["verdict"],
            lib.norm_path(os.path.relpath(sdir, a.repo))]
-    os.makedirs(os.path.dirname(os.path.abspath(a.log)), exist_ok=True)
-    new_log = not os.path.isfile(a.log)
-    with open(a.log, "a", encoding="utf-8") as f:
-        if new_log:
-            f.write(TSV_HEADER + "\n")
-        f.write("\t".join(row) + "\n")
+    append_tsv(a.log, row)
 
-    print("shadow: %s · plan %s/%s · classification %s · escapes %d · snapshot %s · sample %s"
-          % ("INVALID (" + invalid + ")" if invalid else "valid", plan["tier"], plan["playMode"]["selection"],
-             report["verdict"], len(escapes), "written" if written else "not written", sdir))
+    print("shadow: sample %s · snapshot %s · plan %s/%s · classification %s · escapes %d · Q5 %s · %s"
+          % ("INVALID (" + invalid + ")" if invalid else "valid (HEAD %s)" % sv["headPolicy"],
+             "advanced" if written else "not advanced", plan["tier"], plan["playMode"]["selection"],
+             report["verdict"], len(escapes), "counts" if counts else "does not count", sdir))
     for e in escapes:
         print("  %s %s %s — %s" % (e["kind"], e["mode"], e["fullName"], e["message"]))
     if invalid:

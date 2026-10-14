@@ -21,6 +21,7 @@ import sys
 sys.dont_write_bytecode = True   # never leave __pycache__ in docs/ (it would itself be a change)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orchestrator_lib as lib  # noqa: E402
+import sample_validity as validity  # noqa: E402
 import snapshot as snap_mod  # noqa: E402
 
 TIERS = ("R0", "R1", "R2", "R3")
@@ -498,6 +499,32 @@ def check_map(repo, facts):
         refs |= set(e.get("fixtures", []))
     for f in sorted(refs - set(tmap["playModeFixtures"])):
         problems.append("rule references unknown fixture: %s" % f)
+    problems += check_sample_validity(repo, tmap)
+    return problems
+
+
+def check_sample_validity(repo, tmap):
+    """§14.9: the doc-only allowlist must never be able to accept a file the plan or the run depends on."""
+    try:
+        pol = validity.policy(tmap)
+        inputs = validity.input_hashes(repo, pol)
+    except (validity.PolicyError, KeyError) as e:
+        return ["sampleValidity: %s" % e]
+    problems = []
+    if "docs/artifacts/**" not in pol["deny"]:
+        problems.append("sampleValidity: docs/artifacts/** must be in docOnlyDeny")
+    for must in ("docs/artifacts/test-orchestrator/test-map.json", "docs/artifacts/test-orchestrator/known-failures.json",
+                 "docs/artifacts/test-orchestrator/plan_tests.py", "docs/artifacts/editor-memory/safe_unity_test.sh",
+                 tmap["writerRulesSource"]):
+        if must not in inputs:
+            problems.append("sampleValidity: plan input not hashed (missing file or pattern): %s" % must)
+    for p in sorted(inputs):
+        ok, _ = validity.classify_path(p, pol)
+        if ok:
+            problems.append("sampleValidity: the doc-only allowlist would accept a plan input: %s" % p)
+    for p in ("WORKLOG.md", "docs/00-map.md", "docs/ADR/001-root-model-hierarchy.md"):
+        if not validity.classify_path(p, pol)[0]:
+            problems.append("sampleValidity: expected doc-only path is not accepted: %s" % p)
     return problems
 
 
@@ -562,7 +589,9 @@ def main(argv):
                 changes = [{"path": p, "status": "A" if h != snap_mod.ABSENT else "D"} for p, h in state["worktree"].items()]
                 info = {"status": "invalid", "reason": why}
             plan = build_plan(changes, facts, why, a.context, a.probe, a.label, pre_state=state, snapshot_info=info)
-    except (PlanError, lib.GitError, KeyError, ValueError, OSError) as e:
+            # §14.9: what the plan and the run depend on, so the shadow comparison can prove it did not change.
+            plan["inputHashes"] = validity.input_hashes(repo, validity.policy(facts["map"]))
+    except (PlanError, validity.PolicyError, lib.GitError, KeyError, ValueError, OSError) as e:
         print("PLAN_ERROR: %s: %s" % (e.__class__.__name__, e), file=sys.stderr)
         return 2
 

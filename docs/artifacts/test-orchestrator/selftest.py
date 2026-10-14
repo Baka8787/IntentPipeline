@@ -5,6 +5,7 @@
 Suites:  MAP  live rule table is complete (AC2)          PLAN  synthetic change sets (fixtures/planner-cases.json)
          DET  determinism (AC1)                          GIT   snapshot / change-set mechanics in throwaway repos
          CLS  known-failure classification (AC9)         SHD   shadow comparison (escapes, invalid samples)
+         SVL  shadow sample validity (doc-only fast-forward, deny-first allowlist, plan inputs; §14.9)
          RPT  shadow-period report (benefit, R3 share, pending escape investigations)
          MIR  .claude / .agents skill mirror (S6)
 Exit 0 = every case passed.
@@ -26,6 +27,7 @@ import check_skill_mirror as mirror  # noqa: E402
 import classify_results as classify  # noqa: E402
 import orchestrator_lib as lib  # noqa: E402
 import plan_tests as planner  # noqa: E402
+import sample_validity as validity  # noqa: E402
 import shadow_compare as shadow  # noqa: E402
 import shadow_report as sreport  # noqa: E402
 import snapshot as snap_mod  # noqa: E402
@@ -523,11 +525,12 @@ def suite_shd():
         code, out, sp, logp = run(r2, e_ok, p_escape, "s1", previous=PREV)
         check("SHD", "S1 new failure in an unselected fixture -> ESCAPE (exit 1)", code == 1 and "ESCAPE" in out, out)
         smp = sample_of("s1")
-        required = ("changeSet", "plannedScope", "selectedTests", "fullResults", "escapes", "snapshot", "savings")
+        required = ("changeSet", "plannedScope", "selectedTests", "fullResults", "escapes", "sampleValidity",
+                    "snapshotValidity", "savings")
         check("SHD", "S1 sample record: change set, planned scope, selected tests, full results, escapes, snapshot validity, savings",
               smp is not None and all(k in smp for k in required) and smp["changeSet"]["changes"]
               and smp["selectedTests"]["filters"] and smp["fullResults"]["records"] and smp["escapes"]
-              and smp["snapshot"]["atPlan"]["status"] == "invalid", str(smp)[:300])
+              and smp["snapshotValidity"]["atPlan"]["status"] == "invalid", str(smp)[:300])
         check("SHD", "S1 escape is recorded as PENDING investigation", smp and smp["escapes"][0]["investigation"] == "PENDING")
         meas = (smp or {}).get("savings", {}).get("measured") or {}
         check("SHD", "S1 measured savings from real durations: full 60+1.0 s vs planned 60+0.1 s = 0.9 s",
@@ -538,7 +541,7 @@ def suite_shd():
         check("SHD", "S1 shadow.tsv row appended, same column count as the header",
               len(lines) == 2 and len(lines[0].split("\t")) == len(lines[1].split("\t")), str(lines))
         check("SHD", "S1 sample planned without a valid snapshot does not count toward Q5",
-              len(lines) == 2 and lines[1].split("\t")[2] == "no", str(lines[1:]))
+              len(lines) == 2 and lines[1].split("\t")[3] == "no", str(lines[1:]))
         code, out, _, _ = run(r2, e_ok, p_escape, "s2", known=[k_stair])
         check("SHD", "S2 approved known failure (name + symptom) in an unselected fixture -> not an escape", code == 0, out)
         code, out, _, _ = run(r2, e_ok, p_escape, "s3", known=[entry("K-9", "PlayMode", stair, ["other"])])
@@ -549,12 +552,13 @@ def suite_shd():
         counted = dict(r2, snapshot={"status": "valid"})
         code, out, _, logp = run(counted, e_ok, p_ok, "s4b")
         row = open(logp, encoding="utf-8").read().splitlines()[1].split("\t")
-        check("SHD", "S4b valid sample against a valid snapshot counts toward Q5", row[2] == "yes", str(row))
+        check("SHD", "S4b valid sample against a valid snapshot counts toward Q5", row[3] == "yes", str(row))
         p_other_head = make_record(root, "p-head", "PlayMode", 0, [(stair, "Passed", None)], head="0000000")
         code, out, sp, _ = run(r2, e_ok, p_other_head, "s5")
         smp = sample_of("s5")
         check("SHD", "S5 record from another HEAD -> invalid sample (exit 3), recorded with its reason, counts nothing",
-              code == 3 and smp is not None and not smp["valid"] and smp["invalidReason"] and not smp["countsTowardQ5"], out)
+              code == 3 and smp is not None and not smp["sampleValidity"]["valid"] and smp["sampleValidity"]["reason"]
+              and not smp["countsTowardQ5"], out)
         p_filtered = make_record(root, "p-filt", "PlayMode", 0, [(stair, "Passed", None)], head=short, filt="A")
         code, out, _, _ = run(r2, e_ok, p_filtered, "s6")
         check("SHD", "S6 filtered record -> invalid sample", code == 3, out)
@@ -567,59 +571,59 @@ def suite_shd():
         code, out, sp, _ = run(r2, e_ok, p_ok, "n1", previous=PREV)
         smp = sample_of("n1")
         check("SNP", "N1 complete, all passed -> snapshot advanced",
-              smp["snapshot"]["written"] and lib.load_json(sp).get("baseCommit") == head, str(smp["snapshot"]))
+              smp["snapshotValidity"]["advanced"] and lib.load_json(sp).get("baseCommit") == head, str(smp["snapshotValidity"]))
         code, out, sp, _ = run(r2, e_ok, p_escape, "n2", known=[k_stair], previous=PREV)
         smp = sample_of("n2")
         check("SNP", "N2 only approved known failures -> snapshot advanced (VERIFIED_WITH_KNOWN_FAILURES)",
-              smp["snapshot"]["written"] and stair in " ".join(lib.load_json(sp)["failures"]), str(smp["snapshot"]))
+              smp["snapshotValidity"]["advanced"] and stair in " ".join(lib.load_json(sp)["failures"]), str(smp["snapshotValidity"]))
         code, out, sp, _ = run(r2, e_ok, p_escape, "n3", previous=PREV)
         smp = sample_of("n3")
         check("SNP", "N3 new failure (unselected) -> NOT advanced, previous snapshot byte-identical",
-              not smp["snapshot"]["written"] and snapshot_unchanged(sp, PREV) and "FAILED" in smp["snapshot"]["notWrittenReason"],
-              str(smp["snapshot"]))
+              not smp["snapshotValidity"]["advanced"] and snapshot_unchanged(sp, PREV) and "FAILED" in smp["snapshotValidity"]["notAdvancedReason"],
+              str(smp["snapshotValidity"]))
         code, out, sp, _ = run(r2, e_ok, p_sel, "n4", previous=PREV)
         smp = sample_of("n4")
         check("SNP", "N4 new failure inside the selection (no escape) -> still NOT advanced",
-              code == 0 and not smp["snapshot"]["written"] and snapshot_unchanged(sp, PREV), str(smp["snapshot"]))
+              code == 0 and not smp["snapshotValidity"]["advanced"] and snapshot_unchanged(sp, PREV), str(smp["snapshotValidity"]))
         code, out, sp, _ = run(r2, e_ok, p_escape, "n5", known=[entry("K-9", "PlayMode", stair, ["other"])], previous=PREV)
         smp = sample_of("n5")
         check("SNP", "N5 known test with a changed symptom -> NOT advanced",
-              not smp["snapshot"]["written"] and snapshot_unchanged(sp, PREV), str(smp["snapshot"]))
+              not smp["snapshotValidity"]["advanced"] and snapshot_unchanged(sp, PREV), str(smp["snapshotValidity"]))
         e_blocked = make_record(root, "e-blk", "EditMode", 15, None, head=short)
         code, out, sp, _ = run(r2, e_blocked, p_ok, "n6", previous=PREV)
         smp = sample_of("n6")
         check("SNP", "N6 BLOCKED (dirty scene, exit 15) -> invalid, NOT advanced, previous intact",
-              code == 3 and not smp["snapshot"]["written"] and snapshot_unchanged(sp, PREV), str(smp["snapshot"]))
+              code == 3 and not smp["snapshotValidity"]["advanced"] and snapshot_unchanged(sp, PREV), str(smp["snapshotValidity"]))
         p_alert = make_record(root, "p-alert", "PlayMode", 31, [(stair, "Passed", None)], head=short, verdict="SAMPLER_ALERT")
         code, out, sp, _ = run(r2, e_ok, p_alert, "n7", previous=PREV)
         smp = sample_of("n7")
         check("SNP", "N7 sampler alert after a completed run (exit 31) -> NOT advanced",
-              not smp["snapshot"]["written"] and snapshot_unchanged(sp, PREV), str(smp["snapshot"]))
+              not smp["snapshotValidity"]["advanced"] and snapshot_unchanged(sp, PREV), str(smp["snapshotValidity"]))
         e_skip = make_record(root, "e-skip", "EditMode", 0, [("Project.Tests.EditMode.A.B", "Passed", None),
                                                              ("Project.Tests.EditMode.A.C", "Skipped", "ignored")], head=short)
         code, out, sp, _ = run(r2, e_skip, p_ok, "n8", previous=PREV)
         smp = sample_of("n8")
         check("SNP", "N8 a selected test was skipped (incomplete verification) -> NOT advanced",
-              not smp["snapshot"]["written"] and snapshot_unchanged(sp, PREV) and "not executed" in smp["snapshot"]["notWrittenReason"],
-              str(smp["snapshot"]))
+              not smp["snapshotValidity"]["advanced"] and snapshot_unchanged(sp, PREV) and "not executed" in smp["snapshotValidity"]["notAdvancedReason"],
+              str(smp["snapshotValidity"]))
         e_inc = make_record(root, "e-inc", "EditMode", 0, [("Project.Tests.EditMode.A.B", "Inconclusive", None)], head=short)
         code, out, sp, _ = run(r2, e_inc, p_ok, "n9", previous=PREV)
         smp = sample_of("n9")
         check("SNP", "N9 inconclusive result (classification INCOMPLETE) -> NOT advanced",
-              not smp["snapshot"]["written"] and snapshot_unchanged(sp, PREV), str(smp["snapshot"]))
+              not smp["snapshotValidity"]["advanced"] and snapshot_unchanged(sp, PREV), str(smp["snapshotValidity"]))
         p_none = make_record(root, "p-none", "PlayMode", 5, [(stair, "Skipped", None)], head=short, verdict="NOTHING_EXECUTED")
         code, out, sp, _ = run(r2, e_ok, p_none, "n10", previous=PREV)
         smp = sample_of("n10")
         check("SNP", "N10 nothing executed (exit 5) -> invalid, NOT advanced",
-              code == 3 and not smp["snapshot"]["written"] and snapshot_unchanged(sp, PREV), str(smp["snapshot"]))
+              code == 3 and not smp["snapshotValidity"]["advanced"] and snapshot_unchanged(sp, PREV), str(smp["snapshotValidity"]))
         code, out, sp, _ = run(r2, e_ok, p_other_head, "n14", previous=PREV)
         smp = sample_of("n14")
         check("SNP", "N14 complete passing run but from another HEAD (invalid) -> NOT advanced",
-              code == 3 and not smp["snapshot"]["written"] and snapshot_unchanged(sp, PREV), str(smp["snapshot"]))
+              code == 3 and not smp["snapshotValidity"]["advanced"] and snapshot_unchanged(sp, PREV), str(smp["snapshotValidity"]))
         code, out, sp, _ = run(r2, e_ok, p_filtered, "n15", previous=PREV)
         smp = sample_of("n15")
         check("SNP", "N15 passing but filtered PlayMode run (not a full run) -> NOT advanced",
-              code == 3 and not smp["snapshot"]["written"] and snapshot_unchanged(sp, PREV), str(smp["snapshot"]))
+              code == 3 and not smp["snapshotValidity"]["advanced"] and snapshot_unchanged(sp, PREV), str(smp["snapshotValidity"]))
         code, out, sp, _ = run(r2, e_ok, p_ok, "n11", previous=PREV, extra=["--no-snapshot"])
         check("SNP", "N11 --no-snapshot -> NOT advanced", snapshot_unchanged(sp, PREV), out)
         code, out, sp, _ = run(r2, e_ok, p_ok, "n12")
@@ -628,9 +632,285 @@ def suite_shd():
         code, out, sp, _ = run(r2, e_ok, p_ok, "n13", previous=PREV)
         smp = sample_of("n13")
         check("SNP", "N13 work tree changed after planning -> invalid, NOT advanced",
-              code == 3 and not smp["snapshot"]["written"] and snapshot_unchanged(sp, PREV), str(smp["snapshot"]))
+              code == 3 and not smp["snapshotValidity"]["advanced"] and snapshot_unchanged(sp, PREV), str(smp["snapshotValidity"]))
     finally:
         shutil.rmtree(repo, ignore_errors=True)
+        shutil.rmtree(root, ignore_errors=True)
+
+
+# =====================================================================================================================
+# SVL: Shadow Sample Validity (§14.9) — doc-only fast-forward, deny-first allowlist, plan inputs, uncommitted state
+# =====================================================================================================================
+
+SVL_FILES = (("docs/artifacts/test-orchestrator/test-map.json", "{}\n"),
+             ("docs/artifacts/test-orchestrator/known-failures.json", "{}\n"),
+             ("docs/artifacts/test-orchestrator/plan_tests.py", "# planner\n"),
+             ("docs/artifacts/editor-memory/safe_unity_test.sh", "# entry\n"),
+             ("Assets/_Project/Tests/EditMode/ArchitectureRegressionTests.cs", "// WriterRules\n"),
+             ("ProjectSettings/ProjectSettings.asset", "settings v1\n"),
+             ("docs/artifacts/notes/readme.md", "artifact notes\n"),
+             ("docs/10-x.md", "x\n"), ("WORKLOG.md", "w\n"), ("docs/ADR/001-a.md", "a\n"))
+# Real commit 51aa360 docs(59), committed by parallel work while sample 1's PlayMode run was in flight (§14.8).
+REAL_DOC_BASE, REAL_DOC_COMMIT = "7e17764", "51aa360"
+
+
+def svl_repo():
+    d = temp_repo()
+    for rel, text in SVL_FILES:
+        write(d, rel, text)
+    gitc(d, "add", "-A")
+    gitc(d, "commit", "-q", "-m", "svl base")
+    write(d, "Assets/Scenes/S.unity", "scene WIP\n")       # long-lived uncommitted WIP, dirty at plan time
+    return d
+
+
+def commit_paths(repo, paths, msg="c"):
+    for p in paths:
+        write(repo, p, "edit %s %s\n" % (msg, p))
+    gitc(repo, "add", "--", *paths)
+    gitc(repo, "commit", "-q", "-m", msg)
+    return gitc(repo, "rev-parse", "HEAD")
+
+
+def suite_svl():
+    tmap = lib.load_json(MAP)
+    map_hash = lib.sha256_file(MAP)
+    pol = validity.policy(tmap)
+    root = tempfile.mkdtemp(prefix="orch-svl-")
+    repos, n = [], [0]
+
+    def plan_of(repo, inputs=True):
+        p = {"preState": snap_mod.worktree_state(repo), "mapSha256": map_hash}
+        if inputs:
+            p["inputHashes"] = validity.input_hashes(repo, pol)
+        return p
+
+    def judge(repo, plan, edit_head=None, play_head=None, policy_map=None):
+        n[0] += 1
+        short = plan["preState"]["head"][:7]
+        e = make_record(root, "e%d" % n[0], "EditMode", 0, [("Project.Tests.EditMode.A.B", "Passed", None)], head=edit_head or short)
+        p = make_record(root, "p%d" % n[0], "PlayMode", 0, [("Project.Tests.PlayMode.X.Y", "Passed", None)], head=play_head or short)
+        return validity.validate(plan, lib.Record(e), lib.Record(p), repo, snap_mod.worktree_state(repo),
+                                 policy_map or tmap, map_hash)
+
+    def fresh():
+        r = svl_repo()
+        repos.append(r)
+        return r
+
+    def failed(v):
+        return sorted(c["check"] for c in v["checks"] if not c["ok"])
+
+    try:
+        # ---- valid: HEAD advanced only by doc-only, fast-forward commits ---------------------------------------------
+        r = fresh()
+        pl = plan_of(r)
+        c1 = commit_paths(r, ["docs/60-new.md", "WORKLOG.md", "docs/ADR/011-x.md", "docs/changelog.md"], "docs")
+        v = judge(r, pl)
+        check("SVL", "V1 doc-only fast-forward commit (docs/NN-*.md, ADR, WORKLOG, changelog) -> valid",
+              v["valid"] and v["headPolicy"] == validity.HEAD_DOC_ONLY_FF and len(v["interveningCommits"]) == 1
+              and v["interveningCommits"][0]["commit"] == c1, str(v))
+        c2 = commit_paths(r, ["docs/61-more.md"], "docs2")
+        v = judge(r, pl, play_head=c1[:7])
+        check("SVL", "V2 two doc commits; PlayMode run started after the first one -> valid (record on the doc-only chain)",
+              v["valid"] and len(v["interveningCommits"]) == 2, str(v))
+        v = judge(r, pl, play_head="0000000")
+        check("SVL", "V3 record from a commit outside plan..HEAD -> invalid (recordHead)",
+              not v["valid"] and failed(v) == ["recordHead"], str(v))
+        v = judge(r, plan_of(r))
+        check("SVL", "V4 HEAD unchanged -> valid, policy unchanged, no intervening commits",
+              v["valid"] and v["headPolicy"] == validity.HEAD_UNCHANGED and not v["interveningCommits"], str(v))
+
+        # ---- invalid: one forbidden path in an intervening commit ---------------------------------------------------------
+        for label, paths in (("test-map.json", ["docs/artifacts/test-orchestrator/test-map.json"]),
+                             ("Assets/ runtime script", ["Assets/Scripts/Core/Movement/EnemyNavigator.cs"]),
+                             ("ProjectSettings/", ["ProjectSettings/ProjectSettings.asset"]),
+                             ("editor-memory script", ["docs/artifacts/editor-memory/safe_unity_test.sh"]),
+                             ("ArchitectureRegressionTests.cs (WriterRules)", ["Assets/_Project/Tests/EditMode/ArchitectureRegressionTests.cs"]),
+                             ("a .md under docs/artifacts", ["docs/artifacts/notes/readme.md"]),
+                             ("known-failures.json", ["docs/artifacts/test-orchestrator/known-failures.json"]),
+                             ("doc + one forbidden path in the same commit", ["docs/60-new.md", "ProjectSettings/ProjectSettings.asset"]),
+                             ("a .md outside the allowlist (root README)", ["README.md"]),
+                             ("a .md outside the allowlist (docs/ top level, not NN-)", ["docs/phase-c-forward-stop.md"])):
+            r = fresh()
+            pl = plan_of(r)
+            commit_paths(r, paths, "bad")
+            v = judge(r, pl)
+            check("SVL", "V5 intervening commit touching %s -> invalid (head)" % label,
+                  not v["valid"] and "head" in failed(v) and v["headPolicy"] is None, str(v))
+        r = fresh()
+        pl = plan_of(r)
+        commit_paths(r, ["docs/artifacts/notes/readme.md"], "artifact-md")
+        v = judge(r, pl)
+        check("SVL", "V6 .md under docs/artifacts is rejected by the deny list, not by its extension",
+              not v["valid"] and "denied by docs/artifacts/**" in v["reason"], v["reason"])
+        r = fresh()
+        pl = plan_of(r)
+        commit_paths(r, ["README.md"], "readme")
+        v = judge(r, pl)
+        check("SVL", "V7 a path in neither list -> 'not in the doc-only allowlist' (allowlist, not extension)",
+              not v["valid"] and "not in the doc-only allowlist" in v["reason"], v["reason"])
+
+        # ---- deny wins over allow ----------------------------------------------------------------------------------------
+        wide = json.loads(json.dumps(tmap))
+        wide["sampleValidity"]["docOnlyAllow"] = ["docs/**"]
+        wide["sampleValidity"]["docOnlyDeny"] = ["docs/artifacts/**"]
+        wpol = validity.policy(wide)
+        check("SVL", "V8 conflict (allow docs/**, deny docs/artifacts/**): classify_path denies",
+              validity.classify_path("docs/artifacts/x/notes.md", wpol) == (False, "denied by docs/artifacts/**")
+              and validity.classify_path("docs/x/notes.md", wpol) == (True, "docs/**"))
+        r = fresh()
+        pl = plan_of(r)
+        commit_paths(r, ["docs/artifacts/notes/readme.md"], "conflict")
+        v = judge(r, pl, policy_map=wide)
+        check("SVL", "V9 conflict through the full check: allowed by docs/** but denied -> invalid",
+              not v["valid"] and "denied by docs/artifacts/**" in v["reason"], str(v))
+
+        # ---- non fast-forward ------------------------------------------------------------------------------------------
+        r = fresh()
+        commit_paths(r, ["docs/10-x.md"], "planned doc")
+        pl = plan_of(r)
+        tree = gitc(r, "rev-parse", "HEAD^{tree}")
+        sibling = gitc(r, "commit-tree", tree, "-p", "HEAD~1", "-m", "rewritten sibling (same tree, doc-only vs parent)")
+        gitc(r, "update-ref", "HEAD", sibling)
+        v = judge(r, pl)
+        check("SVL", "V10 HEAD not a descendant of the planned HEAD (commit-tree sibling, identical tree) -> invalid; "
+                     "only the fast-forward check fails",
+              not v["valid"] and failed(v) == ["head"] and "not a fast-forward" in v["reason"], str(v))
+        r = fresh()
+        pl = plan_of(r)
+        base = gitc(r, "rev-parse", "HEAD")
+        side = gitc(r, "commit-tree", gitc(r, "rev-parse", "HEAD^{tree}"), "-p", base, "-m", "side")
+        commit_paths(r, ["docs/60-new.md"], "main doc")
+        gitc(r, "merge", "-q", "--no-ff", "--no-edit", side)
+        v = judge(r, pl)
+        check("SVL", "V11 a merge commit between plan and comparison -> invalid, named as a merge",
+              not v["valid"] and "merge commit" in v["reason"], str(v))
+
+        # ---- uncommitted state -----------------------------------------------------------------------------------------
+        r = fresh()
+        pl = plan_of(r)
+        write(r, "docs/a.md", "edited in the work tree during the run\n")
+        v = judge(r, pl)
+        check("SVL", "V12 uncommitted modification during the run (no commit) -> invalid (worktree)",
+              not v["valid"] and failed(v) == ["worktree"] and "docs/a.md" in v["reason"], str(v))
+        r = fresh()
+        pl = plan_of(r)
+        commit_paths(r, ["docs/60-new.md"], "doc")
+        write(r, "Assets/Scripts/Core/Movement/EnemyNavigator.cs", "// edited, not committed\n")
+        v = judge(r, pl)
+        check("SVL", "V13 doc-only commit + an uncommitted Assets edit -> invalid (worktree)",
+              not v["valid"] and failed(v) == ["worktree"], str(v))
+        r = fresh()
+        write(r, "WORKLOG.md", "dirty at plan time\n")
+        pl = plan_of(r)
+        gitc(r, "add", "WORKLOG.md")
+        gitc(r, "commit", "-q", "-m", "commit the WIP doc unchanged")
+        v = judge(r, pl)
+        check("SVL", "V14 doc commit that commits a path dirty at plan time -> invalid (uncommitted state no longer identical)",
+              not v["valid"] and failed(v) == ["worktree"], str(v))
+
+        # ---- plan inputs -----------------------------------------------------------------------------------------------
+        r = fresh()
+        pl = plan_of(r, inputs=False)
+        commit_paths(r, ["docs/60-new.md"], "doc")
+        v = judge(r, pl)
+        check("SVL", "V15 plan without inputHashes + HEAD advanced -> invalid (inputs cannot be proven)",
+              not v["valid"] and failed(v) == ["inputs"], str(v))
+        r = fresh()
+        v = judge(r, plan_of(r, inputs=False))
+        check("SVL", "V16 plan without inputHashes + HEAD unchanged -> valid (pre-§14.9 behaviour kept)", v["valid"], str(v))
+        r = fresh()
+        pl = plan_of(r)
+        check("SVL", "V17 inputHashes cover map, known failures, planner, entry script, WriterRules source",
+              {"docs/artifacts/test-orchestrator/test-map.json", "docs/artifacts/test-orchestrator/known-failures.json",
+               "docs/artifacts/test-orchestrator/plan_tests.py", "docs/artifacts/editor-memory/safe_unity_test.sh",
+               "Assets/_Project/Tests/EditMode/ArchitectureRegressionTests.cs"} <= set(pl["inputHashes"]), str(pl["inputHashes"]))
+        pl["inputHashes"]["docs/artifacts/test-orchestrator/known-failures.json"] = "0" * 64
+        v = judge(r, pl)
+        check("SVL", "V18 a plan input whose bytes differ from plan time -> invalid (inputs), even with git state identical",
+              not v["valid"] and failed(v) == ["inputs"], str(v))
+        r = fresh()
+        pl = plan_of(r)
+        pl["mapSha256"] = "f" * 64
+        v = judge(r, pl)
+        check("SVL", "V19 test-map.json not the planned one -> invalid (map)", not v["valid"] and failed(v) == ["map"], str(v))
+
+        # ---- end to end: shadow_compare records both validities and snapshots the TESTED state --------------------------
+        r = fresh()
+        state = snap_mod.worktree_state(r)
+        pl = {"tier": "R3", "invocations": [{"mode": "EditMode", "filter": "", "kind": "tier"},
+                                            {"mode": "PlayMode", "filter": "", "kind": "tier"}],
+              "preState": state, "mapSha256": map_hash, "inputHashes": validity.input_hashes(r, pol), "context": "dev",
+              "snapshot": {"status": "valid", "reason": None}, "changes": [], "reasons": [],
+              "playMode": {"selection": "full", "selectedFixtures": [], "filters": [], "matchedFixtures": [], "notRun": [],
+                           "estimateSeconds": 300.0, "fullEstimateSeconds": 300.0}}
+        pp, sp, logp = os.path.join(root, "e2e-plan.json"), os.path.join(root, "e2e-snap.json"), os.path.join(root, "e2e.tsv")
+        with open(pp, "w", encoding="utf-8") as f:
+            json.dump(pl, f)
+        with open(logp, "w", encoding="utf-8") as f:
+            f.write("utc\thead\told\tlayout\n1\t2\t3\t4\n")              # a schema-1 log must be set aside, not mixed
+        doc = commit_paths(r, ["docs/59-bake-pipeline-concept-audit.md", "docs/00-map.md"], "docs(59) replica")
+        short = state["head"][:7]
+        e = make_record(root, "e2e-e", "EditMode", 0, [("Project.Tests.EditMode.A.B", "Passed", None)], head=short)
+        p = make_record(root, "e2e-p", "PlayMode", 0, [("Project.Tests.PlayMode.X.Y", "Passed", None)], head=short)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            code = shadow.main(["--plan", pp, "--edit-record", e, "--play-record", p, "--repo", r, "--snapshot", sp,
+                                "--log", logp, "--known", known_list(root, [], "e2e-known.json"),
+                                "--samples", os.path.join(root, "e2e-samples")])
+        sd = os.path.join(root, "e2e-samples")
+        names = os.listdir(sd) if os.path.isdir(sd) else []
+        smp = lib.load_json(os.path.join(sd, names[0], "sample.json")) if len(names) == 1 else {}
+        snap = lib.load_json(sp) if os.path.isfile(sp) else {}
+        check("SVL", "V20 end to end: doc-only FF during the run -> valid sample, counts toward Q5 (exit 0)",
+              code == 0 and smp.get("sampleValidity", {}).get("valid") and smp.get("countsTowardQ5")
+              and smp["sampleValidity"]["headPolicy"] == validity.HEAD_DOC_ONLY_FF, out.getvalue())
+        check("SVL", "V21 snapshot records the TESTED state: plan HEAD (not the doc commit) + plan-time work tree",
+              snap.get("baseCommit") == state["head"] and snap.get("baseCommit") != doc and snap.get("worktree") == state["worktree"]
+              and smp.get("snapshotValidity", {}).get("recordedHead") == state["head"], str(snap)[:300])
+        md = open(os.path.join(sd, names[0], "sample.md"), encoding="utf-8").read() if names else ""
+        check("SVL", "V22 sample.md has separate Shadow Sample Validity and Snapshot Validity sections",
+              "## Shadow Sample Validity: **valid**" in md and "## Snapshot Validity" in md and doc[:12] in md, md)
+        rows = open(logp, encoding="utf-8").read().splitlines()
+        hdr = rows[0].split("\t") if rows else []
+        cells = dict(zip(hdr, rows[1].split("\t"))) if len(rows) == 2 else {}
+        check("SVL", "V23 shadow.tsv: separate sampleValid / snapshotAtPlan / snapshotAdvanced columns; old-layout log set aside",
+              rows and rows[0] == shadow.TSV_HEADER and cells.get("sampleValid") == "yes"
+              and cells.get("headPolicy") == validity.HEAD_DOC_ONLY_FF and cells.get("snapshotAtPlan") == "valid"
+              and cells.get("snapshotAdvanced") == "yes" and os.path.isfile(logp + ".old-1"), str(rows))
+
+        # ---- regression: the real docs(59) commit that invalidated sample 1 ----------------------------------------------
+        try:
+            b = gitc(REPO, "rev-parse", REAL_DOC_BASE + "^{commit}")
+            c = gitc(REPO, "rev-parse", REAL_DOC_COMMIT + "^{commit}")
+        except RuntimeError as ex:
+            b = c = None
+            check("SVL", "G0 real commits %s / %s exist" % (REAL_DOC_BASE, REAL_DOC_COMMIT), False, str(ex))
+        if b and c:
+            ok, policy_name, why, commits = validity.head_progress(REPO, b, c, pol)
+            real_paths = commits[0]["paths"] if commits else []
+            check("SVL", "G1 real %s..%s (docs(59), parallel work during sample 1) -> doc-only fast-forward, valid"
+                  % (REAL_DOC_BASE, REAL_DOC_COMMIT),
+                  ok and policy_name == validity.HEAD_DOC_ONLY_FF and len(commits) == 1
+                  and real_paths == ["docs/00-map.md", "docs/59-bake-pipeline-concept-audit.md"], "%s %s %s" % (ok, why, commits))
+            r = fresh()
+            pl = plan_of(r)
+            commit_paths(r, real_paths, "replica")
+            v = judge(r, pl)
+            check("SVL", "G2 the same paths replayed in a throwaway repo -> valid", v["valid"], str(v))
+            r = fresh()
+            pl = plan_of(r)
+            commit_paths(r, real_paths + ["docs/artifacts/test-orchestrator/test-map.json"], "replica+forbidden")
+            v = judge(r, pl)
+            check("SVL", "G3 control: the same commit plus one forbidden path (test-map.json) -> invalid",
+                  not v["valid"] and "head" in failed(v) and "test-map.json" in v["reason"], str(v))
+            check("SVL", "G4 control at path level: real paths all accepted, the added forbidden path denied",
+                  all(validity.classify_path(x, pol)[0] for x in real_paths)
+                  and not validity.classify_path("docs/artifacts/test-orchestrator/test-map.json", pol)[0])
+    finally:
+        for r in repos:
+            shutil.rmtree(r, ignore_errors=True)
         shutil.rmtree(root, ignore_errors=True)
 
 
@@ -641,15 +921,26 @@ def suite_shd():
 def suite_rpt():
     root = tempfile.mkdtemp(prefix="orch-rpt-")
     try:
-        def sample(sid, valid=True, counts=True, tier="R2", saved_est=200.0, saved_meas=150.0, escapes=(), r3_rule="E2"):
-            d = os.path.join(root, "samples", sid)
+        def sample(sid, valid=True, counts=True, tier="R2", saved_est=200.0, saved_meas=150.0, escapes=(), r3_rule="E2",
+                   advanced=False, stored_counts=None, head_policy="unchanged", legacy=False, samples="samples"):
+            """counts = planned against a trustworthy snapshot (Snapshot Validity at plan time)."""
+            d = os.path.join(root, samples, sid)
             os.makedirs(d)
-            s = {"id": sid, "valid": valid, "invalidReason": None if valid else "work tree changed", "countsTowardQ5": counts,
+            at_plan = {"status": "valid" if counts else "invalid"}
+            if legacy:      # schema 1, before §14.9
+                head = {"valid": valid, "invalidReason": None if valid else "work tree changed",
+                        "countsTowardQ5": valid and counts, "snapshot": {"atPlan": at_plan, "written": advanced}}
+            else:
+                head = {"schema": 2, "countsTowardQ5": (valid and counts) if stored_counts is None else stored_counts,
+                        "sampleValidity": {"valid": valid, "reason": None if valid else "worktree: work tree changed",
+                                           "headPolicy": head_policy if valid else None},
+                        "snapshotValidity": {"atPlan": at_plan, "advanced": advanced}}
+            s = dict(head, **{"id": sid,
                  "plannedScope": {"tier": tier, "reasons": [{"tier": tier, "rule": r3_rule if tier == "R3" else "MODULE",
                                                              "path": "p", "detail": "d"}]},
                  "savings": {"estimated": {"savedSeconds": saved_est},
                              "measured": {"savedSeconds": saved_meas, "fullSeconds": 300.0}},
-                 "escapes": [dict(e) for e in escapes]}
+                 "escapes": [dict(e) for e in escapes]})
             with open(os.path.join(d, "sample.json"), "w", encoding="utf-8") as f:
                 json.dump(s, f)
         esc = {"kind": "ESCAPE", "mode": "PlayMode", "fullName": "Project.Tests.PlayMode.X.Y", "message": "m"}
@@ -692,6 +983,26 @@ def suite_rpt():
             check("RPT", "R7 invalid investigation (%s) is refused" % label, ok)
         check("RPT", "R8 shipped escape-investigations.json is valid",
               sreport.load_investigations(os.path.join(HERE, "escape-investigations.json")) == [])
+
+        # ---- §14.9: Q5 reads the two validities themselves, kept apart ------------------------------------------------
+        sample("q-01", stored_counts=False, advanced=False, samples="q5")          # valid, trusted at plan, not advanced
+        sample("q-02", valid=False, counts=True, advanced=True, stored_counts=True, samples="q5")   # invalid sample
+        sample("q-03", head_policy="doc-only-fast-forward", advanced=True, samples="q5")
+        sample("q-04", counts=False, advanced=True, samples="q5")                  # valid, untrusted at plan
+        sample("q-05", legacy=True, samples="q5")                                   # schema 1, valid + trusted
+        sample("q-06", legacy=True, valid=False, samples="q5")
+        r = sreport.build(sreport.load_samples(os.path.join(root, "q5")), [])
+        check("RPT", "R9 Q5 = sample valid AND trusted at plan; ignores the stored flag and whether the snapshot advanced",
+              r["counting"] == 3 and r["valid"] == 4, str({k: r[k] for k in ("counting", "valid", "invalid")}))
+        check("RPT", "R10 an invalid sample never counts, even if a snapshot was (wrongly) advanced",
+              ("q-02", "worktree: work tree changed") in r["invalid"], str(r["invalid"]))
+        check("RPT", "R11 schema-1 samples (before §14.9) still read: valid/invalidReason/snapshot.atPlan",
+              ("q-06", "work tree changed") in r["invalid"], str(r["invalid"]))
+        md = sreport.to_markdown(r)
+        check("RPT", "R12 report has separate Shadow Sample Validity and Snapshot Validity sections",
+              "## Shadow Sample Validity" in md and "## Snapshot Validity" in md
+              and "doc-only commits: 1" in md and "advanced the trusted snapshot: 3" in md
+              and "WITHOUT a trustworthy snapshot (do not count toward Q5): 1" in md, md)
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
@@ -723,7 +1034,7 @@ def suite_mir():
 
 def main():
     lib.utf8_stdout()
-    for suite in (suite_map, suite_plan, suite_det, suite_git, suite_cls, suite_shd, suite_rpt, suite_mir):
+    for suite in (suite_map, suite_plan, suite_det, suite_git, suite_cls, suite_shd, suite_svl, suite_rpt, suite_mir):
         try:
             suite()
         except Exception as e:  # a crashing suite is a failure, never a silent skip
