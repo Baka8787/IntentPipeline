@@ -55,7 +55,7 @@ namespace Project.Tests.PlayMode
         private NavMeshDataInstance _navMesh;
         private readonly List<Object> _created = new List<Object>();
 
-        public enum Scenario { OpenStatic, Corner, Pillar, ThinWall, Unreachable, MovingSlow, Kiting, AttackAndHurt }
+        public enum Scenario { OpenStatic, Corner, Pillar, ThinWall, Unreachable, MovingSlow, Kiting, AttackAndHurt, CornerPinned }
 
         [UnityTearDown]
         public IEnumerator TearDown()
@@ -126,10 +126,31 @@ namespace Project.Tests.PlayMode
                     // 以 4.0 m/s（遠高於敵人）繞原點半徑 5 的圓：敵人追不上。
                     return new Setup { EnemyStart = Vector3.zero, BoxCenters = none, BoxSizes = none, Seconds = 20f,
                         Target = t => Circle(Vector3.zero, 5f, 4.0f, t) };
+                case Scenario.CornerPinned:
+                    // 🆕（docs/56 §11.6）真的把敵人困在牆角：敵人起點在牆角內（離兩面各 0.7 m，NavMesh 邊界 0.5 m），
+                    // 目標沿對角線從外側壓近。原 Corner 情境的目標遠在 7 m 外，敵人會先走出牆角，所以重現不了 T1／T2。
+                    // 0–3 s 距離 1.6 m（帶內 ⇒ Strafe：兩個切線方向都撞牆＝T1）；3–4 s 目標壓到離敵人起點 0.5 m——
+                    // 敵人退到背貼兩牆時仍只有約 1.0 m（< 1.25 ⇒ 持續 Retreat 朝牆角推＝T2）；4–12 s 維持；12–13 s 退回；之後維持。
+                    // （第一版只壓到 1.0 m：敵人退 0.35 m 就回到帶內，T2 重現不出來——docs/56 §11.6。）
+                    return new Setup { EnemyStart = new Vector3(7.3f, 0f, 7.3f), Seconds = 20f,
+                        BoxCenters = new[] { new Vector3(5f, 1f, 8.3f), new Vector3(8.3f, 1f, 5f) },
+                        BoxSizes = new[] { new Vector3(8f, 2f, 0.6f), new Vector3(0.6f, 2f, 8f) },
+                        Target = t => PinnedTarget(t) };
                 default: // AttackAndHurt
                     return new Setup { EnemyStart = Vector3.zero, BoxCenters = none, BoxSizes = none, Seconds = 20f,
                         DamageInterval = 2f, Target = t => new Vector3(0f, 0f, 4f) };
             }
+        }
+
+        private static Vector3 PinnedTarget(float t)
+        {
+            float d = t < 3f ? 1.6f
+                : t < 4f ? Mathf.Lerp(1.6f, 0.5f, t - 3f)
+                : t < 12f ? 0.5f
+                : t < 13f ? Mathf.Lerp(0.5f, 1.6f, t - 12f)
+                : 1.6f;
+            float k = d / Mathf.Sqrt(2f);
+            return new Vector3(7.3f - k, 0f, 7.3f - k);
         }
 
         private static Vector3 Circle(Vector3 center, float radius, float speed, float t)
@@ -184,6 +205,7 @@ namespace Project.Tests.PlayMode
             float previousExpectedStep = 0f;
             bool previousWantsMove = false;
             object previousEngagement = null;
+            string previousMode = "";
             int previousSign = 0, hurtRun = 0, actionRun = 0;
             float motorSpeed = MotorSpeedField != null && motor != null ? (float)MotorSpeedField.GetValue(motor) : 0f;
 
@@ -217,7 +239,11 @@ namespace Project.Tests.PlayMode
                     if (baseMovementAllowed && previousWantsMove && previousExpectedStep > 0.3f * FixedDelta)
                     {
                         m.AllowedMoveFrames++;
-                        if (moved < 0.25f * previousExpectedStep) m.NoProgressFrames++;
+                        if (moved < 0.25f * previousExpectedStep)
+                        {
+                            m.NoProgressFrames++;
+                            if (previousMode == "Retreat") m.RetreatNoProgressFrames++;
+                        }
                     }
                 }
 
@@ -246,12 +272,16 @@ namespace Project.Tests.PlayMode
 
                 object engagement = EngagementField.GetValue(movement);
                 if (previousEngagement != null && !Equals(engagement, previousEngagement)) m.EngagementSwitches++;
-                if (engagement.ToString() == "Recover") m.RecoverFrames++;
+                string mode = engagement.ToString();
+                if (inCombat && mode == "Recover") m.RecoverFrames++;
+                if (inCombat && mode == "Retreat") m.RetreatFrames++;
+                if (inCombat && mode == "Strafe") m.StrafeFrames++;
                 if ((bool)StrafeBlockedField.GetValue(movement)) m.StrafeBlockedFrames++;
                 int sign = (int)StrafeSignField.GetValue(movement);
                 if (previousSign != 0 && sign != previousSign) m.StrafeFlips++;
                 previousSign = sign;
                 previousEngagement = engagement;
+                previousMode = mode;
 
                 var navigator = NavigatorField.GetValue(movement) as EnemyNavigator;
                 if (navigator != null && navigator.IsStuck)
@@ -329,6 +359,7 @@ namespace Project.Tests.PlayMode
             public int Frames, CombatFrames, InBandFrames, AttackValidFrames, InBandReachBlockedFrames, FirstAttackValidFrame = -1;
             public int AttacksStarted, AttacksWhileNotValid;
             public int AllowedMoveFrames, NoProgressFrames, RecoverFrames, StrafeBlockedFrames;
+            public int StrafeFrames, RetreatFrames, RetreatNoProgressFrames;
             public int EngagementSwitches, StrafeFlips, PathRequests;
             public int StuckFrames, StuckDuringActionOrHurtFrames;
             public int ActionFrames, MaxActionRun, HurtFrames, HurtEpisodes, MaxHurtRun;
@@ -343,7 +374,7 @@ namespace Project.Tests.PlayMode
                 $"inBand={Seconds(InBandFrames):F1}s inBandBlocked={Seconds(InBandReachBlockedFrames):F1}s firstValid={Seconds(FirstAttackValidFrame):F2}s " +
                 $"meanDist={(CombatFrames > 0 ? DistanceSum / CombatFrames : 0f):F2}m travelled={Travelled:F2}m m/validSec={MetersPerValidSecond:F2} " +
                 $"attacks={AttacksStarted} attacksNotValid={AttacksWhileNotValid} noProgress={NoProgressFrames}/{AllowedMoveFrames} " +
-                $"recover={RecoverFrames} strafeBlocked={StrafeBlockedFrames} modeSwitches={EngagementSwitches} strafeFlips={StrafeFlips} " +
+                $"recover={RecoverFrames} strafe={StrafeFrames}f strafeBlocked={StrafeBlockedFrames} retreat={RetreatFrames}f retreatNoProgress={RetreatNoProgressFrames} modeSwitches={EngagementSwitches} strafeFlips={StrafeFlips} " +
                 $"pathRequests={PathRequests} stuck={StuckFrames} stuckInActionHurt={StuckDuringActionOrHurtFrames} " +
                 $"action={ActionFrames}f(max {MaxActionRun}) hurt={HurtFrames}f/{HurtEpisodes}ep(max {MaxHurtRun})";
 
@@ -351,7 +382,7 @@ namespace Project.Tests.PlayMode
                 "utc\tcommit\tscenario\tvariant\tframes\tcombatFrames\tattackValidRatio\tinBandFrames\tinBandBlockedFrames\tfirstValidFrame\t" +
                 "meanDistance\ttravelled\tmetersPerValidSecond\tattacks\tattacksNotValid\tnoProgressFrames\tallowedMoveFrames\t" +
                 "recoverFrames\tstrafeBlockedFrames\tmodeSwitches\tstrafeFlips\tpathRequests\tstuckFrames\tstuckInActionHurt\t" +
-                "actionFrames\tmaxActionRun\thurtFrames\thurtEpisodes\tmaxHurtRun";
+                "actionFrames\tmaxActionRun\thurtFrames\thurtEpisodes\tmaxHurtRun\tstrafeFrames\tretreatFrames\tretreatNoProgressFrames";
 
             public string Row(string utc, string commit) => string.Join("\t", new[]
             {
@@ -363,6 +394,7 @@ namespace Project.Tests.PlayMode
                 EngagementSwitches.ToString(), StrafeFlips.ToString(), PathRequests.ToString(), StuckFrames.ToString(),
                 StuckDuringActionOrHurtFrames.ToString(), ActionFrames.ToString(), MaxActionRun.ToString(),
                 HurtFrames.ToString(), HurtEpisodes.ToString(), MaxHurtRun.ToString(),
+                StrafeFrames.ToString(), RetreatFrames.ToString(), RetreatNoProgressFrames.ToString(),
             });
         }
 
@@ -371,6 +403,18 @@ namespace Project.Tests.PlayMode
             string directory = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "Logs", "p5-metrics"));
             Directory.CreateDirectory(directory);
             string path = Path.Combine(directory, "metrics.tsv");
+            // 欄位改變時不與舊列混寫：舊檔改名保留（metrics.tsv.old-N）。
+            if (File.Exists(path))
+            {
+                string first;
+                using (var reader = new StreamReader(path)) first = reader.ReadLine();
+                if (first != Metrics.Header)
+                {
+                    int n = 1;
+                    while (File.Exists(path + ".old-" + n)) n++;
+                    File.Move(path, path + ".old-" + n);
+                }
+            }
             bool exists = File.Exists(path);
             using (var writer = new StreamWriter(path, append: true))
             {

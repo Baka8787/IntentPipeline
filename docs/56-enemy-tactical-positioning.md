@@ -498,3 +498,26 @@
 - **目標沒有膠囊、沒有生命值**：敵人的拳不會命中、不會被玩家碰撞擋住；「無效攻擊」只看出拳開始那一帧的距離與觸及線。
 - **未量**：A→B→A 換位次數（M5 只量了模式切換與 strafe 翻面）、`CalculatePath` 次數與 GC bytes（M6 只量了路徑請求數）、帶方向的受擊。
 - **可重現性**：兩輪的**主要指標逐值相同**（attackValid、帶內／被擋時間、首次有效、攻擊與無效攻擊、noProgress（Unreachable 804／1195）、recover、strafeBlocked、路徑請求、Hurt／Action 最長段）；Corner、Unreachable、AttackAndHurt 三個情境整行相同。**次要指標有浮動**：移動距離 ≤ 4%、平均距離 ≤ 0.06 m、模式切換（OpenStatic 9／5、MovingSlow 44／40）、strafe 翻面（MovingSlow 9／7）、allowedMove 帧（OpenStatic 934／898、ThinWall 957／969）、stuck 帧（差 8–26 帧）。⇒ 固定種子＋固定 Δt 下**不是逐位元可重現**；A/B 比較時主要指標可直接比，次要指標要多輪取範圍，差距小於上表的浮動不得當成改善。
+
+### 11.6 牆角情境補強：`CornerPinned`（2026-10-14）
+
+**為什麼要補**：原 `Corner` 情境（§11.3）在基線上 strafeBlocked、recover、noProgress 全為 0——目標在 7 m 外，敵人會先走出牆角，牆角根本沒有困住它。用它驗收 T1／T2 什麼都證明不了。`Corner` **保留不動**（基線數字可比），另加 `CornerPinned`。
+
+**情境**：同一組兩道牆（內面 x＝8、z＝8，NavMesh 邊界 7.5）。敵人起點 (7.3, 0, 7.3)——牆角內。目標沿對角線從外側壓近：0–3 s 離起點 1.6 m（帶內 ⇒ Strafe，兩個切線方向都撞牆＝**T1**）；3–4 s 壓到 0.5 m（敵人退到背貼兩牆後仍只有約 1.0 m < 1.25 ⇒ 持續 Retreat 朝牆角推＝**T2**）；4–12 s 維持；12–13 s 退回 1.6 m；之後維持。
+第一版只壓到 1.0 m：敵人退約 0.35 m 就回到帶內，**T2 沒有重現**（Retreat 72 帧、無進展 0）——依此改為 0.5 m。
+
+新增指標：`strafeFrames`、`retreatFrames`、`retreatNoProgressFrames`（無進展且上一帧模式是 Retreat，用來把無進展歸因到 T2）。`metrics.tsv` 欄位改變時，舊檔改名為 `metrics.tsv.old-N` 保留。
+
+**基線（現行程式，三輪，`Logs/safe-test/20261014T…-p5-cornerpinned2-r1..r3`，全部 PASS）**：
+
+| 指標 | 第 1／2／3 輪 | 判讀 |
+|---|---|---|
+| retreatNoProgress（帧） | 361 / 372 / 359 | **T2 穩定重現**：約 6 s 朝牆角推、沒有進展 |
+| noProgress / allowedMove | 365/728 · 375/592 · 359/547 | 被允許移動的帧有 50–67% 沒有進展 |
+| strafeBlocked（帧） | 175 / 419 / 463 | **T1 重現，但浮動大**——要用分布比較 |
+| retreat / strafe（帧） | 730/241 · 628/467 · 613/501 | 浮動 |
+| attackValid | 49.4% / 51.8% / 50.6% | 被壓在 1.0 m 時不在帶內 |
+| stuck／其中出拳或受擊中 | 511/156 · 491/132 · 474/115 | 出拳中的 `IsStuck` 誤報仍在（§11.3） |
+| 攻擊／無效攻擊、recover、路徑請求 | 6/0、0、7（三輪相同） | — |
+
+⇒ `CornerPinned` 是 **P5b**（T1／T2：站位與 Retreat）的驗收情境，**不是 P5a 的**——P5a 不改 Retreat。P5a 對它的預期只有「出拳／受擊中的 stuck 誤報歸零，推牆時的 stuck 仍被偵測到」（ADR-012）。
