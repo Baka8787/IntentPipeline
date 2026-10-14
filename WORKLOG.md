@@ -14,6 +14,7 @@
 > - 🔎 `MovementIntentTests.AIMovementSource_WithoutCamera_ProducesNonZeroWorldDirection`：EditMode 中 `NavMeshAgent.Warp` 恆回 false ⇒ 8／8 次全量都 Skipped（註解說「不定期」不符實況）；交戰分支「無相機」的行為沒有任何會執行的回歸測試。❓ 建議移到 PlayMode（需你裁決，未改測試）。
 > - ✅ 每個影子樣本有完整紀錄（變更集／計畫範圍／選中測試／全量結果／ESCAPE／快照有效性／預估與實測節省），`shadow_report.py` 報實際效益與 R3 比例；ESCAPE 調查記在 `escape-investigations.json`。自測 **151／151**、變異 **22／22**。
 > - ✅ **快照推進規則修正**（`docs/57` §14.7）：原本含新增失敗的完整全量也會推進可信基準；現在只有「樣本有效 ∧ 分類 VERIFIED／VERIFIED_WITH_KNOWN_FAILURES ∧ 沒有未執行的測試」才推進，其餘情況舊快照位元組不變。合成案例 SNP N1–N15、變異 26／26（一個存活的變異促成 N14／N15）。
+> - ✅ **Skipped 覆蓋缺口 → PlayMode**（`docs/57` §14.6）：`AIMovementNoCameraPlayModeTests` 在沒有任何相機的世界、真 NavMesh＋真 Y Bot 驗交戰方向（Approach＋帶內 Strafe）；前置條件全部硬斷言。原 EditMode 測試移除。Unity：PASS；突變 M1／M2／M3 全被抓到、還原後 PASS。
 > - ⏳ **影子樣本 0／10**：隨正常完整回歸累積（D-3）。2026-10-14 安全入口 `--check-only` ⇒ `PREFLIGHT_FAILED`（沒有可用的 Editor）。
 >
 > # 🟨 2026-10-13：P5 戰鬥站位（`docs/56` §10；與測試調度器分開追蹤）

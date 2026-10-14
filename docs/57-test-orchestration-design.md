@@ -488,6 +488,37 @@ PlayMode 組件不參照 `Project.Editor`，但 **PlayMode 測試是在 Editor �
 - 影子樣本：**0**。2026-10-14 01:23Z 安全入口 `--check-only` 回 `PREFLIGHT_FAILED`（32，`editor-not-ready-for-this-project`）——沒有可用的 Editor，未嘗試重啟、存檔或捨棄場景。
 - ⚠️ 預期的效益風險（尚未量到，先記下）：目前工作樹長期有 `ProjectSettings`、場景、音訊資產 WIP——只要它們在**下一個快照之後**又被改，計畫就會 R3。第一批樣本很可能以 R3 為主；報告會如實顯示。
 
+### 14.6 Skipped 覆蓋缺口的處置：移到 PlayMode（2026-10-14，使用者同意；✅ 目標測試與突變驗證已在 Unity 通過，R3 見 §14.8）
+
+**原測試的完整意圖**（讀完整檔案與歷史後確認）：它是 `ProduceIntent_WithoutCamera_ProducesZeroWorldDirection` 的對偶——玩家的方向投影自相機基底，沒有相機 ⇒ 零；AI 的方向是世界座標，沒有相機也必須是**非零、水平、單位**的方向。它把目標放在 1.5 m（交戰帶 [1.25, 2.0] 內），所以實際走的是 **Strafe 分支**，不是 Approach。2026-09-10 寫成時就帶著 `Assert.Ignore`。
+**它比 A30 多守什麼**：Runner 對每個角色都把 `data.CameraTransform` 填成 `playerCamera ?? Camera.main`（`CharacterPipelineRunner.cs:226`）；A30 只掃 `Core/Movement` 有沒有 `CameraTransform` 這個字——改讀 `Camera.main` 或經別處取得相機，A30 都看不到。
+
+**選擇：搬移並重新設計，不改成純邏輯測試**——方向來自 `EnemyNavigator`＋真 agent 的轉角點，純邏輯的部分（`ResolveEngagementMovement`、`ResolveStrafeDirection`、`EnemySteering`）已由 `EnemyEngagementMovementTests`／`EnemyNavigatorTests` 覆蓋；這個測試的價值正是「整條交戰分支在沒有相機的世界裡跑起來」，只能在 Play 生命週期裡驗。
+
+| 要求 | `AIMovementNoCameraPlayModeTests.Engaged_WithoutAnyCamera_ProducesFiniteWorldDirectionTowardTarget` |
+|---|---|
+| 1 有效 NavMesh、agent 真的註冊 | 執行期建平地 NavMesh 並斷言建置／加入／出生點與目標可取樣；30 帧內 `agent.isOnNavMesh` 必須為 true；另驗 `updatePosition == false`（A16） |
+| 2 進入交戰、沒有相機 | 場景建立後、生成敵人後、結束時三次斷言：`FindObjectsByType<Camera>(Include)` 為 0 且 `Camera.main == null`；黑板 `CameraTransform == null`；30 帧內 `InCombat ∧ HasTarget`（真 `AICombatContextSource`） |
+| 3 意圖非零、有限、方向合理 | Approach（5 m → 2.5 m）：每帧有限、非零、水平、單位、與目標方向 dot ≥ 0.95，且 1 s 內實際前進 > 0.5 m；交戰帶內（原情境）：讀 producer 自己的模式逐帧檢查——Strafe ⇒ \|dot\| ≤ 0.25、Approach ⇒ ≥ 0.9、Retreat ⇒ ≤ −0.9、Hold／Recover ⇒ 失敗；至少 10 帧 Strafe（確保原測試的分支真的被執行） |
+| 4 不掩蓋初始化失敗 | 全部前置條件都是 `Assert`，訊息以「前置失敗」開頭；沒有 `Assert.Ignore`／`Assume`／`Inconclusive` |
+| 5 能抓到退步 | `docs/artifacts/ai-no-camera/mutation_check.py`：M1 無意圖、M2 錯誤方向、M3 只壞 Strafe 分支（三者 A30 都抓不到）。**已驗**：三個突變都能編譯（`--compile-only`；以刻意的語法錯誤確認 `dotnet build` 真的重編該檔），檔案以 SHA-256 還原為與 HEAD 相同。**Unity 實跑（2026-10-14）**：M1／M2／M3 皆 **CAUGHT**（各自命中預期斷言），還原後 **PASS**，`AIMovementSource.cs` 與 HEAD 位元相同 |
+| 6 原 EditMode 測試 | **移除**（`MovementIntentTests.cs` 留一段註解指向新測試）。覆蓋由 PlayMode 接手：同一個主張（交戰、沒有相機 ⇒ 非零水平單位方向），且多驗 Approach、真的註冊、真的交戰、真的前進、帶內各模式的方向。未改成純邏輯版本，也不再依賴 `NavMeshAgent.Warp` |
+| 7 範圍 | 只動：新 PlayMode 測試檔、`MovementIntentTests.cs`（刪一個測試＋一個不再使用的 `using`）、`test-map.json`（新類別歸入 `Core.Movement.Enemy`，耗時 4.7 s＝首次實跑）、本文件、`docs/artifacts/ai-no-camera/`。⛔ 沒有動 `AIMovementSource` 或導航架構 |
+
+**靜態檢查（不需 Unity）**：`dotnet build` `Project.Tests.PlayMode`（暫時把新檔加入 gitignored 的 `.csproj`，完成後還原）與 `Project.Tests.EditMode`：**0 錯誤**，新檔 0 警告（原有一個 `FindObjectsByType` 排序參數的過時警告已改用新多載）。`--check-map` OK。
+**依 §5，這是測試檔／測試基礎設施變更 ⇒ R3**（選擇器實際輸出 R3：E6＋無快照）。⛔ **在 Unity 中執行之前，不能宣告驗證通過。**
+
+**Unity 驗證（2026-10-14，Editor 於 09:47 恢復後；全部經安全入口）**：
+
+| 步驟 | 結果 | 紀錄 |
+|---|---|---|
+| `--check-only` | CHECK_OK | `Logs/safe-test/20261014T015223Z-nocam-check` |
+| 新測試單獨執行 | **PASS**（1／1，4.66 s）；Approach 5.00 → 3.54 m、方向對齊 1.000；交戰帶內 Strafe 24 帧（全部切線）、Approach 66、Retreat 0 | `20261014T015250Z-nocam-first`；數字取自 `Logs/Editor.log` 的 `[AI no-camera]` 行 |
+| `mutation_check.py`（M1／M2／M3＋還原） | 三者 **CAUGHT**、還原後 **PASS** | `…-nocam-m1`／`-m2`／`-m3`／`-clean` |
+| R3（EditMode＋PlayMode 全量） | 見 §14.8 | — |
+
+⚠️ **突變驗證工具本身第一次執行就有缺陷，已修正**：Windows 的 `CreateProcess` 會先找到 `System32ash.exe`（WSL）而不是 Git Bash ⇒ 安全入口根本沒有啟動，而工具把「exit 1」當成「測試失敗」⇒ 回報 `FAILED_OTHERWISE`（而非誤報 CAUGHT——預期斷言比對擋住了錯誤結論）。修正：明確使用 Git Bash 的路徑，並且**只採信安全入口自己印出的 `==== safe_unity_test: VERDICT (exit N) ====` 行**，沒有這一行一律 INCOMPLETE。
+
 ### 14.7 可信基準（快照）的推進規則與驗證
 
 **本輪發現並修正一個缺口**：原本的 `shadow_compare.py` 只要求「完整的全量」就推進快照——**含新增失敗的全量也會推進**。現在快照只有在以下**全部**成立時才推進，否則前一個快照位元組不變：

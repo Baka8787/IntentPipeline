@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using System.Reflection;
 using NUnit.Framework;
 using UnityEngine;
-using UnityEngine.AI;
 using Project.Core.Blackboard;
 using Project.Core.Actions;
 using Project.Core.Movement;
@@ -219,85 +218,11 @@ namespace Project.Tests.EditMode
                 "意圖是當幀真相，不帶記憶；記憶屬 LocomotionSpeedSmoother");
         }
 
-        [Test]
-        public void AIMovementSource_WithoutCamera_ProducesNonZeroWorldDirection()
-        {
-            NavMeshBuildSettings settings = NavMesh.GetSettingsByIndex(0);
-            var sources = new List<NavMeshBuildSource>
-            {
-                new NavMeshBuildSource
-                {
-                    shape = NavMeshBuildSourceShape.Box,
-                    size = new Vector3(20f, 0.2f, 20f),
-                    transform = Matrix4x4.TRS(new Vector3(0f, -0.1f, 0f), Quaternion.identity, Vector3.one),
-                    area = 0
-                }
-            };
-            NavMeshData navMeshData = NavMeshBuilder.BuildNavMeshData(
-                settings,
-                sources,
-                new Bounds(Vector3.zero, new Vector3(20f, 4f, 20f)),
-                Vector3.zero,
-                Quaternion.identity);
-            Assert.IsNotNull(navMeshData, "測試用平面 NavMesh 建置失敗");
-            _created.Add(navMeshData);
-
-            NavMeshDataInstance navMeshInstance = NavMesh.AddNavMeshData(navMeshData);
-            try
-            {
-                Assert.IsTrue(NavMesh.SamplePosition(Vector3.zero, out NavMeshHit origin, 2f, NavMesh.AllAreas));
-                Assert.IsTrue(NavMesh.SamplePosition(Vector3.forward * 1.5f, out NavMeshHit destination, 2f, NavMesh.AllAreas));
-
-                var agentObject = new GameObject("AI-Movement-Without-Camera");
-                _created.Add(agentObject);
-                agentObject.transform.position = origin.position;
-                NavMeshAgent agent = agentObject.AddComponent<NavMeshAgent>();
-                AIMovementSource source = agentObject.AddComponent<AIMovementSource>();
-
-                // ⚠️ **EditMode 無法保證 NavMeshAgent 真的被註冊到 NavMesh 上**：agent 的內部註冊
-                //    依賴 Play 的生命週期／模擬步進，`Warp` 在 EditMode 會不定期回傳 false。
-                //    這是**環境限制，不是 AIMovementSource 的缺陷** ⇒ 誠實跳過，不製造假紅燈。
-                // 📌 本測項驗的「行為面」；它主張的**架構不變量**（AI 不得依賴 CameraTransform）
-                //    已由 `ArchitectureRegressionTests.A30` 以靜態掃描守住，**不會因為這裡跳過而失守**。
-                if (!agent.Warp(origin.position))
-                {
-                    Assert.Ignore(
-                        "EditMode 無法把 NavMeshAgent 放上臨時 NavMesh（Warp 回傳 false）——環境限制。\n" +
-                        "架構面由 A30 守住；行為面若要確定驗證，應移到 PlayMode 測試層。");
-                }
-
-                var targetObject = new GameObject("AI-Movement-Target");
-                _created.Add(targetObject);
-                targetObject.transform.position = destination.position;
-
-                SetPrivateField(source, "_agent", agent);
-                SetPrivateField(source, "target", targetObject.transform);
-                source.ResolveEffectState();
-
-                // 🔄（2026-10-12，`docs/54` §3.3.2）交戰判斷已移到 AICombatContextSource（順序 2.4）；
-                //    AIMovementSource 只讀同帧黑板 ⇒ 這裡直接給一份「交戰中」的 CombatContext。
-                var data = new PlayerRuntimeData
-                {
-                    CombatContext = new CombatContextData
-                    {
-                        InCombat = true,
-                        HasTarget = true,
-                        TargetPosition = targetObject.transform.position,
-                    },
-                };
-                InputData input = default;
-                source.ProduceIntent(ref input, data);
-
-                Assert.Greater(data.MovementIntent.DesiredDirection.sqrMagnitude, 0f,
-                    "AI 的世界移動方向不得依賴玩家相機；CameraTransform 為 null 仍須產生方向");
-                Assert.AreEqual(0f, data.MovementIntent.DesiredDirection.y, Tolerance);
-                Assert.AreEqual(1f, data.MovementIntent.DesiredDirection.magnitude, Tolerance);
-            }
-            finally
-            {
-                if (navMeshInstance.valid) NavMesh.RemoveNavMeshData(navMeshInstance);
-            }
-        }
+        // 🔄（2026-10-14，`docs/57` §14.2）原 `AIMovementSource_WithoutCamera_ProducesNonZeroWorldDirection` 已移到
+        //    PlayMode：`AIMovementNoCameraPlayModeTests`。它在 EditMode 建臨時 NavMesh，但 NavMeshAgent 要 Play 生命週期
+        //    才會註冊，`Warp` 每次回 false ⇒ 留有紀錄的 8 次全量回歸全部 `Assert.Ignore`，交戰分支從未被驗證。
+        //    PlayMode 版在真的沒有相機的世界裡、以真 Y Bot＋真 NavMesh 驗 Approach 與交戰帶內（原情境 1.5 m＝Strafe）
+        //    的方向；前置條件失敗一律是紅燈，不跳過。它的對偶仍在上方：玩家沒有相機 ⇒ 方向為零。
 
         // =====================================================================
         // Walk 型態：hold vs toggle（由資產選擇，狀態存黑板）
