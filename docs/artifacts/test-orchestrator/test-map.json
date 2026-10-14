@@ -114,7 +114,7 @@
     {"name": "Core.Combat", "patterns": ["Assets/Scripts/Core/Combat/**"], "fixtures": ["EnemyNonCombatPlayModeTests", "EnemyChasePlayModeTests"]},
     {"name": "Core.Effects", "patterns": ["Assets/Scripts/Core/Effects/**"], "fixtures": ["SpellMovementLimitPlayModeTests", "EnemyChasePlayModeTests"]},
     {"name": "Core.Environment", "patterns": ["Assets/Scripts/Core/Environment/**"], "fixtures": ["TraversalProbePlayModeTests", "TraversalStatePlayModeTests", "TraversalExitValidityPlayModeTests", "TraversalAuthoredGeometryTests", "TraversalClimbPlayModeTests", "StairTraversalPlayModeTests"]},
-    {"name": "Core.Movement.Enemy", "patterns": ["Assets/Scripts/Core/Movement/Enemy*.cs"], "fixtures": ["EnemyChasePlayModeTests", "EnemyNonCombatPlayModeTests", "StairTraversalPlayModeTests", "AIMovementNoCameraPlayModeTests"]},
+    {"name": "Core.Movement.Enemy", "patterns": ["Assets/Scripts/Core/Movement/Enemy*.cs"], "fixtures": ["EnemyChasePlayModeTests", "EnemyNonCombatPlayModeTests", "StairTraversalPlayModeTests", "AIMovementNoCameraPlayModeTests", "EnemyNavigationProgressPlayModeTests"]},
     {"name": "Core.Movement.Player", "patterns": ["Assets/Scripts/Core/Movement/GaitProfileSO.cs", "Assets/Scripts/Core/Movement/LocomotionSpeedSmoother.cs"], "fixtures": ["LocomotionStopEntryPlayModeTests", "JumpLandingPlayModeTests", "SpellMovementLimitPlayModeTests", "TraversalClimbPlayModeTests", "StairTraversalPlayModeTests"]},
     {"name": "Core.Movement.Models.DirectionalSpeed", "patterns": ["Assets/Scripts/Core/Movement/Models/CombatDirectionalSpeedProfileSO.cs"], "fixtures": ["SpellMovementLimitPlayModeTests", "EnemyChasePlayModeTests", "EnemyNonCombatPlayModeTests"]},
     {"name": "Core.Movement.Models.Stop", "patterns": ["Assets/Scripts/Core/Movement/Models/LocomotionStop*.cs"], "fixtures": ["LocomotionStopEntryPlayModeTests", "StairTraversalPlayModeTests"]},
@@ -159,6 +159,7 @@
   "playModeFixtures": {
     "AICombatContextPlayModeTests": {"seconds": 2.6},
     "AIMovementNoCameraPlayModeTests": {"seconds": 4.7},
+    "EnemyNavigationProgressPlayModeTests": {"seconds": 37.7},
     "CapsuleOffsetPlayModeTests": {"seconds": 4.6},
     "EnemyChasePlayModeTests": {"seconds": 3.6},
     "EnemyNonCombatPlayModeTests": {"seconds": 78.7},
