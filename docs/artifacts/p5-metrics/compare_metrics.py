@@ -49,6 +49,9 @@ DIRECTION = {
     "retreatFrames": None,
     "retreatNoProgressFrames": False,
     "stuckAfterNonExecuted": False,
+    "slotFrames": None,
+    "slotHoldFrames": None,
+    "slotChanges": None,
 }
 NOT_A_VALUE = {"utc", "commit", "sources", "scenario", "variant"}
 
@@ -111,13 +114,18 @@ def group_of(row):
     return row.get("sources") or row["commit"]
 
 
-def compare(rows, before, after):
+def in_group(row, ids, variant):
+    """ids: group ids (sources hash or commit prefix). variant: None = any; otherwise the row's variant must match."""
+    return group_of(row)[:10] in ids and (variant is None or row.get("variant") == variant)
+
+
+def compare(rows, before, after, before_variant=None, after_variant=None):
     scenarios = sorted({r["scenario"] for r in rows})
     metrics = [m for m in DIRECTION]
     out = []
     for sc in scenarios:
-        b_rows = [r for r in rows if r["scenario"] == sc and group_of(r)[:10] in before]
-        a_rows = [r for r in rows if r["scenario"] == sc and group_of(r)[:10] in after]
+        b_rows = [r for r in rows if r["scenario"] == sc and in_group(r, before, before_variant)]
+        a_rows = [r for r in rows if r["scenario"] == sc and in_group(r, after, after_variant)]
         for m in metrics:
             bv = [v for v in (number(r.get(m, "")) for r in b_rows) if v is not None]
             av = [v for v in (number(r.get(m, "")) for r in a_rows) if v is not None]
@@ -147,12 +155,16 @@ def main(argv):
     ap.add_argument("--after", required=True)
     ap.add_argument("--metrics", default=os.path.join(repo, "Logs", "p5-metrics"))
     ap.add_argument("--markdown")
+    ap.add_argument("--before-variant", default=None, help="only rows with this variant label (same build A/B)")
+    ap.add_argument("--after-variant", default=None)
     a = ap.parse_args(argv)
     getattr(sys.stdout, "reconfigure", lambda **_: None)(encoding="utf-8")
     before = {c.strip()[:10] for c in a.before.split(",") if c.strip()}
     after = {c.strip()[:10] for c in a.after.split(",") if c.strip()}
     rows = read_rows(a.metrics)
-    md = to_markdown(compare(rows, before, after), before, after)
+    md = to_markdown(compare(rows, before, after, a.before_variant, a.after_variant), before, after)
+    if a.before_variant or a.after_variant:
+        md = md.replace("before = ", "variants %s → %s · before = " % (a.before_variant, a.after_variant), 1)
     if a.markdown:
         with open(a.markdown, "w", encoding="utf-8") as f:
             f.write(md)

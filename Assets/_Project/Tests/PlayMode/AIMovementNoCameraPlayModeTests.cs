@@ -113,6 +113,10 @@ namespace Project.Tests.PlayMode
             Assert.IsNotNull(agent, "前置失敗：Y Bot 沒有 NavMeshAgent");
             Assert.IsNotNull(runner, "前置失敗：Y Bot 沒有 CharacterPipelineRunner");
             movement.SetTargetForTests(target.transform);
+            // 🔄（2026-10-14，docs/56 §13）本測試專門驗 Strafe 分支（原 EditMode 測試的 1.5 m 情境）。P5b 之後交戰帶內預設走站位槽，
+            //    Strafe 只在「沒有有效槽」時才用——這裡關掉站位槽，讓那條分支仍被執行與驗證。站位槽本身在無相機世界的行為由
+            //    EnemyNavigationProgressPlayModeTests 的 P5b 案例覆蓋（同樣是執行期建的、沒有相機的場景）。
+            movement.SetSlotPositioningEnabledForTests(false);
             // Leash 放大：這裡驗的是方向，不是脫戰。
             var territory = enemy.GetComponent<EnemyTerritory>();
             Assert.IsNotNull(territory, "前置失敗：Y Bot 沒有 EnemyTerritory");

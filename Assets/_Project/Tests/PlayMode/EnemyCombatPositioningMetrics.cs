@@ -41,8 +41,10 @@ namespace Project.Tests.PlayMode
     public sealed class EnemyCombatPositioningMetrics
     {
         private const float FixedDelta = 1f / 60f;
-        private const float BandMin = 1.25f;          // AIMovementSource.minimumEngagementDistance（Y Bot）
-        private const float AttackRange = 2f;         // AIInputSource.attackRange（W10：＝ maximumEngagementDistance）
+        // 🔄（2026-10-14，docs/56 §13.3）交戰帶不再寫死：舊版用程式預設值 2.0 m，但 Y Bot prefab 實際是 [1.25, 1.6]——
+        //    attackValid／inBand 因此把 1.6–2.0 m（打不到）也算進去。現在每次從敵人實例讀。
+        private static readonly FieldInfo BandMinField = typeof(AIMovementSource).GetField("minimumEngagementDistance", BindingFlags.Instance | BindingFlags.NonPublic);
+        private static readonly FieldInfo AttackRangeField = typeof(AIInputSource).GetField("attackRange", BindingFlags.Instance | BindingFlags.NonPublic);
         private const int Seed = 1234;
 
         private static readonly FieldInfo EngagementField = typeof(AIMovementSource).GetField("_engagementMovement", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -68,9 +70,11 @@ namespace Project.Tests.PlayMode
         }
 
         [UnityTest, Explicit("P5-0 量測探針：只量不判，不進回歸套件")]
-        public IEnumerator Measure([Values] Scenario scenario)
+        public IEnumerator Measure([Values] Scenario scenario, [Values("p5a", "p5b")] string variant)
         {
-            yield return Run(scenario, "current");
+            // p5a ＝ 站位槽關閉（交戰帶內照舊 Strafe／Retreat）；p5b ＝ 站位槽開啟。同一個 build 內 A/B（docs/56 §13.3）。
+            bool slots = variant == "p5b";
+            yield return Run(scenario, variant, movement => movement.SetSlotPositioningEnabledForTests(slots));
         }
 
         // =====================================================================
@@ -189,13 +193,15 @@ namespace Project.Tests.PlayMode
             // Leash 放到很大：這裡量的是交戰中的站位，不是脫戰。
             enemy.GetComponent<EnemyTerritory>().ConfigureForTests(spawn, roam: 30f, soft: 40f, hard: 50f);
             configure?.Invoke(movement);
+            float BandMin = (float)BandMinField.GetValue(movement);
+            float AttackRange = (float)AttackRangeField.GetValue(enemy.GetComponent<AIInputSource>());
 
             var runner = enemy.GetComponent<CharacterPipelineRunner>();
             var health = enemy.GetComponent<CharacterHealth>();
             MotionDriver motor = enemy.GetComponentInChildren<MotionDriver>();
             PlayerRuntimeData data = runner.RuntimeData;
 
-            var m = new Metrics { Scenario = scenario.ToString(), Variant = variant };
+            var m = new Metrics { Scenario = scenario.ToString(), Variant = variant, BandMin = BandMin, AttackRange = AttackRange };
             int frames = Mathf.RoundToInt(setup.Seconds / FixedDelta);
             int nextDamageFrame = setup.DamageInterval > 0f ? Mathf.RoundToInt(1.5f / FixedDelta) : int.MaxValue;
 
@@ -283,6 +289,13 @@ namespace Project.Tests.PlayMode
                 previousEngagement = engagement;
                 previousMode = mode;
 
+                // P5b（docs/56 §13.2）：在站位槽的帧、其中待命（沒有移動意圖）的帧。
+                if (inCombat && movement.TacticalSituation == TacticalSituation.Slot)
+                {
+                    m.SlotFrames++;
+                    if (!data.MovementIntent.HasMovementRequest) m.SlotHoldFrames++;
+                }
+
                 var navigator = NavigatorField.GetValue(movement) as EnemyNavigator;
                 if (navigator != null && navigator.IsStuck)
                 {
@@ -302,6 +315,7 @@ namespace Project.Tests.PlayMode
 
             var finalNavigator = NavigatorField.GetValue(movement) as EnemyNavigator;
             m.PathRequests = finalNavigator != null ? finalNavigator.PathRequestCount : -1;
+            m.SlotChanges = movement.TacticalSlotChanges;
             m.Frames = frames;
 
             string line = m.Summary();
@@ -365,19 +379,21 @@ namespace Project.Tests.PlayMode
             public int StrafeFrames, RetreatFrames, RetreatNoProgressFrames;
             public int EngagementSwitches, StrafeFlips, PathRequests;
             public int StuckFrames, StuckDuringActionOrHurtFrames, StuckAfterNonExecutedFrame;
+            public int SlotFrames, SlotHoldFrames, SlotChanges;
             public int ActionFrames, MaxActionRun, HurtFrames, HurtEpisodes, MaxHurtRun;
-            public float Travelled, DistanceSum;
+            public float Travelled, DistanceSum, BandMin, AttackRange;
 
             private float Seconds(int f) => f * FixedDelta;
             public float AttackValidRatio => CombatFrames > 0 ? (float)AttackValidFrames / CombatFrames : 0f;
             public float MetersPerValidSecond => AttackValidFrames > 0 ? Travelled / Seconds(AttackValidFrames) : float.PositiveInfinity;
 
             public string Summary() =>
-                $"[P5 metrics] {Scenario}/{Variant} combat={Seconds(CombatFrames):F1}s attackValid={AttackValidRatio:P1} " +
+                $"[P5 metrics] {Scenario}/{Variant} band=[{BandMin:F2},{AttackRange:F2}] combat={Seconds(CombatFrames):F1}s attackValid={AttackValidRatio:P1} " +
                 $"inBand={Seconds(InBandFrames):F1}s inBandBlocked={Seconds(InBandReachBlockedFrames):F1}s firstValid={Seconds(FirstAttackValidFrame):F2}s " +
                 $"meanDist={(CombatFrames > 0 ? DistanceSum / CombatFrames : 0f):F2}m travelled={Travelled:F2}m m/validSec={MetersPerValidSecond:F2} " +
                 $"attacks={AttacksStarted} attacksNotValid={AttacksWhileNotValid} noProgress={NoProgressFrames}/{AllowedMoveFrames} " +
                 $"recover={RecoverFrames} strafe={StrafeFrames}f strafeBlocked={StrafeBlockedFrames} retreat={RetreatFrames}f retreatNoProgress={RetreatNoProgressFrames} modeSwitches={EngagementSwitches} strafeFlips={StrafeFlips} " +
+                $"slot={SlotFrames}f hold={SlotHoldFrames}f slotChanges={SlotChanges} " +
                 $"pathRequests={PathRequests} stuck={StuckFrames} stuckInActionHurt={StuckDuringActionOrHurtFrames} stuckAfterNonExecuted={StuckAfterNonExecutedFrame} " +
                 $"action={ActionFrames}f(max {MaxActionRun}) hurt={HurtFrames}f/{HurtEpisodes}ep(max {MaxHurtRun})";
 
@@ -385,7 +401,7 @@ namespace Project.Tests.PlayMode
                 "utc\tcommit\tsources\tscenario\tvariant\tframes\tcombatFrames\tattackValidRatio\tinBandFrames\tinBandBlockedFrames\tfirstValidFrame\t" +
                 "meanDistance\ttravelled\tmetersPerValidSecond\tattacks\tattacksNotValid\tnoProgressFrames\tallowedMoveFrames\t" +
                 "recoverFrames\tstrafeBlockedFrames\tmodeSwitches\tstrafeFlips\tpathRequests\tstuckFrames\tstuckInActionHurt\t" +
-                "actionFrames\tmaxActionRun\thurtFrames\thurtEpisodes\tmaxHurtRun\tstrafeFrames\tretreatFrames\tretreatNoProgressFrames\tstuckAfterNonExecuted";
+                "actionFrames\tmaxActionRun\thurtFrames\thurtEpisodes\tmaxHurtRun\tstrafeFrames\tretreatFrames\tretreatNoProgressFrames\tstuckAfterNonExecuted\tslotFrames\tslotHoldFrames\tslotChanges\tbandMin\tattackRange";
 
             public string Row(string utc, string commit, string sources) => string.Join("\t", new[]
             {
@@ -398,7 +414,8 @@ namespace Project.Tests.PlayMode
                 StuckDuringActionOrHurtFrames.ToString(), ActionFrames.ToString(), MaxActionRun.ToString(),
                 HurtFrames.ToString(), HurtEpisodes.ToString(), MaxHurtRun.ToString(),
                 StrafeFrames.ToString(), RetreatFrames.ToString(), RetreatNoProgressFrames.ToString(),
-                StuckAfterNonExecutedFrame.ToString(),
+                StuckAfterNonExecutedFrame.ToString(), SlotFrames.ToString(), SlotHoldFrames.ToString(), SlotChanges.ToString(),
+                BandMin.ToString("F2"), AttackRange.ToString("F2"),
             });
         }
 

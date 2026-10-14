@@ -32,7 +32,9 @@
 > - ✅ **P5a（`docs/56` §12；ADR-012 Trial）——Automated Verification Passed／⏳ Human Verification Pending**：D7-S1（`MotionDriver` 發布 `MotionExecution`，卡住＝被允許移動卻沒有進展）＋A1（目標不可達 ⇒ 停在最接近可達點待命）。A2 移到 P5b（歸因：A2 屬站位／攻擊合法性）。
 >   - 前後比較（5 輪 vs 5–8 輪，範圍不重疊才算）：Unreachable noProgress 804→**0**；8 個情境出拳／受擊中 stuck 25–156→**0**（帧對齊指標全 0）；CornerPinned 推牆真陽性保留；其餘全部在基線浮動內。R3：`VERIFIED_WITH_KNOWN_FAILURES`（K-1／K-2）。
 >   - ⏳ 人工 Play：玩家站在敵人到不了的地方 ⇒ 敵人走到最近處停下、不推牆；一般打鬥觀感不變。
-> - ⏭ **P5b 未開始**：站位槽＋承諾／遲滯、A2（隔牆）、Retreat 不推牆（T2）、牆角困境（T1）；⛔ 不改攻擊合法性（D5 未裁決）。驗收情境 CornerPinned／Pillar／ThinWall。
+> - ✅ **P5b（`docs/56` §13）——Automated Verification Passed／⏳ Human Verification Pending**：交戰帶附近承諾一個以目標為圓心的站位槽（半徑＝帶中點 1.425 m），只在失效（不可走、隔牆、貼牆、卡住）時換；到位待命；目標移動中暫停槽、交還距離帶行為。⛔ 攻擊判定未動。
+>   - 實作中修正：Y Bot 實際帶寬是 [1.25, 1.6]（先前文件與探針沿用預設 2.0，§11.2 已更正）；「到位」必須打得到（舊版受擊後停在 1.75 m、0 次出拳）；MovingSlow 退步 ⇒ 目標移動中暫停槽（§13.4）。
+>   - A/B（同 build、5 輪）：CornerPinned 攻擊有效 39%→84%、推牆 399→22；Pillar 被擋 60→0、隔柱出拳 1→0；靜態情境每有效秒移動 −80～90%；**ThinWall 小幅退步**（73.9% vs 75.1%、慢 0.39 s，§13.5 待 Play 後決定是否調）。R3 `VERIFIED_WITH_KNOWN_FAILURES`；第一個計入 Q5 的影子樣本。
 
 > # 🟥 2026-10-10（第四輪，優先於 Traversal 後續）：Unity Editor 記憶體／日誌暴增調查（`docs/53`，診斷輪，⛔ 未修正）
 >

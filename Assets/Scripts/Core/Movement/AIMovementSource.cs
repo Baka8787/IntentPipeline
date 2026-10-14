@@ -172,6 +172,19 @@ namespace Project.Core.Movement
         /// <summary>目前的戰術站位情境（診斷／測試用）。</summary>
         internal TacticalSituation TacticalSituation => _tactical != null ? _tactical.Situation : TacticalSituation.None;
 
+        /// <summary>
+        /// 測試／量測用：關閉站位槽（只留 A1）＝ P5a 的交戰行為。讓 P5b 能在同一個 build 內做 A/B（`docs/56` §13.3），
+        /// 也讓專門驗 Strafe 分支的測試（無相機）仍能走到那條分支。production 不呼叫。
+        /// </summary>
+        internal void SetSlotPositioningEnabledForTests(bool enabled)
+        {
+            if (_tactical == null) _tactical = new EnemyTacticalPositioning();
+            _tactical.SlotPositioningEnabled = enabled;
+        }
+
+        /// <summary>累計選槽次數（量測換位頻率；`docs/56` §13.2）。</summary>
+        internal int TacticalSlotChanges => _tactical != null ? _tactical.SlotChanges : 0;
+
         /// <summary>目前的非戰鬥模式（診斷／測試用；未啟用時為 None）。</summary>
         internal EnemyNonCombatMode NonCombatMode => _nonCombat != null ? _nonCombat.Mode : EnemyNonCombatMode.None;
 
@@ -280,18 +293,24 @@ namespace Project.Core.Movement
                 distanceHysteresis);
 
             // 🆕（2026-10-14，`docs/56` §12.3，P5a）**目標不可達 ⇒ 停在最接近的可達點待命，不推牆。**
+            // 🆕（§13，P5b）**交戰帶附近 ⇒ 承諾一個站位槽**：只在槽失效（不可走、隔牆、貼牆、卡住）時換；到位後待命。
             // 站位元件只回答「站在哪」；這裡照舊經導航與 steering 取得方向、仍是唯一的意圖寫入者。
-            // 進入判定只讀 agent 現有的路徑快照（一般打鬥沒有額外查詢）；`_engagementMovement` 照常推進，離開時無縫接回。
+            // 進入判定只讀 agent 現有的路徑快照；`_engagementMovement` 照常推進，站位不成立時無縫接回現行行為。
             if (_tactical == null) _tactical = new EnemyTacticalPositioning();
-            TacticalGoal tactical = _tactical.Tick(transform.position, targetPosition, maximumEngagementDistance, Time.time,
-                navigator.SnapshotPath(), navigator);
+            TacticalGoal tactical = _tactical.Tick(transform.position, targetPosition, minimumEngagementDistance,
+                maximumEngagementDistance, Time.time, navigator.SnapshotPath(), navigator, navigator.IsStuck);
             if (tactical.Active)
             {
                 _strafeBlocked = false;
                 if (tactical.Arrived) return;   // 待命：不發布移動意圖（朝向照舊由 CharacterFacingSource 面向目標）
 
-                navigator.RequestDestination(tactical.Point, Time.time);
-                if (!navigator.TryResolveSteeringPoint(transform.position, tactical.Point, out Vector3 holdSteering)) return;
+                Vector3 holdSteering = tactical.Point;
+                if (!tactical.DirectLine)
+                {
+                    // 直線會跨 NavMesh 邊界（柱子、牆）⇒ 沿路徑；直線可走時不請求路徑（一般站位沒有路徑成本）。
+                    navigator.RequestDestination(tactical.Point, Time.time);
+                    if (!navigator.TryResolveSteeringPoint(transform.position, tactical.Point, out holdSteering)) return;
+                }
                 if (!EnemySteering.TryResolveDirection(transform.position, holdSteering, out Vector3 holdDirection)) return;
                 data.MovementIntent.DesiredDirection = holdDirection;
                 data.MovementIntent.DesiredSpeedNormalized = ResolveDesiredSpeedNormalized(Time.time);

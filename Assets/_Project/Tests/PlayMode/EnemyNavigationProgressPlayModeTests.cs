@@ -15,11 +15,11 @@ using UnityEngine.TestTools;
 namespace Project.Tests.PlayMode
 {
     /// <summary>
-    /// 🆕（2026-10-14，`docs/56` §12，P5a；ADR-012 Trial）敵人導航進展的回歸測試——在真 NavMesh、真 Y Bot、真 Runner 上：
+    /// 🆕（2026-10-14，`docs/56` §12／§13，P5a／P5b；ADR-012 Trial）敵人導航進展與交戰站位的回歸測試——在真 NavMesh、真 Y Bot、真 Runner 上：
     /// <list type="number">
     /// <item><b>A1</b> 目標不可達 ⇒ 停在最接近的可達點待命，不推牆（P5-0 基線：被允許移動的帧 67% 沒有進展）</item>
     /// <item><b>ADR-012</b> 出拳／受擊中不回報卡住（基線 27–156 帧誤報）</item>
-    /// <item><b>ADR-012</b> 真的推牆時仍回報卡住（真陽性不能跟著消失）</item>
+    /// <item><b>ADR-012</b> 被 NavMesh 不知道的障礙擋住時仍回報卡住（真陽性不能跟著消失）</item>
     /// </list>
     /// 情境幾何與 <c>EnemyCombatPositioningMetrics</c> 的 Unreachable／AttackAndHurt／CornerPinned 相同。
     /// </summary>
@@ -140,29 +140,135 @@ namespace Project.Tests.PlayMode
         // =====================================================================
 
         [UnityTest]
-        public IEnumerator Stuck_IsStillReported_WhenRetreatPushesIntoTheCorner()
+        public IEnumerator Stuck_IsStillReported_WhenPushingAnObstacleTheNavMeshDoesNotKnow()
         {
-            var walls = new[]
+            // 🔄（2026-10-14，P5b）原本用「牆角裡 Retreat 推牆」當真陽性；P5b 讓敵人走出牆角之後那個情境不再推牆。
+            //    改用一個**沒有烘進 NavMesh** 的障礙（只有碰撞體）：路徑以為暢通、角色被擋住——被允許照意圖移動卻沒有進展。
+            Rig rig = Build("StuckOnHiddenObstacle", new (Vector3, Vector3)[0], Vector3.zero, new Vector3(0f, 0f, 7f));
+            GameObject hidden = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            _created.Add(hidden);
+            hidden.transform.position = new Vector3(0f, 1f, 2f);
+            hidden.transform.localScale = new Vector3(8f, 2f, 0.6f);   // 不在 NavMesh 來源裡
+            Physics.SyncTransforms();
+            int stuckFrames = 0;
+            for (int frame = 0; frame < 300; frame++)   // 5 s
             {
-                (new Vector3(5f, 1f, 8.3f), new Vector3(8f, 2f, 0.6f)), (new Vector3(8.3f, 1f, 5f), new Vector3(0.6f, 2f, 8f)),
-            };
+                yield return null;
+                if (Navigator(rig).IsStuck) stuckFrames++;
+            }
+            string summary = $"[ADR-012] hidden obstacle push: stuck {stuckFrames}/300, z={rig.Enemy.transform.position.z:F2}";
+            Debug.Log(summary);
+            TestContext.WriteLine(summary);
+            Assert.IsTrue(rig.Data.CombatContext.InCombat, "前提：交戰中（追擊）");
+            Assert.Less(rig.Enemy.transform.position.z, 2f, "前提：角色被障礙擋住");
+            Assert.Greater(stuckFrames, 60, "被允許照意圖移動、卻被擋住沒有進展 ⇒ 必須判定卡住（ADR-012 真陽性）");
+        }
+
+        // =====================================================================
+        // P5b（docs/56 §13）：交戰帶內的站位
+        // =====================================================================
+
+        private static readonly (Vector3, Vector3)[] CornerWalls =
+        {
+            (new Vector3(5f, 1f, 8.3f), new Vector3(8f, 2f, 0.6f)), (new Vector3(8.3f, 1f, 5f), new Vector3(0.6f, 2f, 8f)),
+        };
+
+        [UnityTest]
+        public IEnumerator P5b_PinnedInTheCorner_MovesOutToAValidSlot_InsteadOfPushingTheWall()
+        {
             Vector3 start = new Vector3(7.3f, 0f, 7.3f);
             float k(float d) => d / Mathf.Sqrt(2f);
-            Rig rig = Build("StuckInCorner", walls, start, new Vector3(start.x - k(1.6f), 0f, start.z - k(1.6f)));
-            int stuckFrames = 0, stuckWhilePressed = 0;
-            for (int frame = 0; frame < 600; frame++)   // 10 s：1 s 後把目標壓到離起點 0.5 m（背貼兩牆時仍 < 1.25 m ⇒ Retreat 推牆）
+            Rig rig = Build("P5bCorner", CornerWalls, start, new Vector3(start.x - k(1.6f), 0f, start.z - k(1.6f)));
+            int pushFrames = 0, pressedFrames = 0;
+            Vector3 previous = rig.Enemy.transform.position;
+            for (int frame = 0; frame < 600; frame++)   // 10 s：1 s 後把目標壓到離起點 0.5 m（CornerPinned 的 T2 情境）
             {
                 float d = frame < 60 ? 1.6f : 0.5f;
                 rig.Target.transform.position = new Vector3(start.x - k(d), 0f, start.z - k(d));
                 yield return null;
-                bool stuck = Navigator(rig).IsStuck;
-                if (stuck) stuckFrames++;
-                if (stuck && frame >= 120) stuckWhilePressed++;
+                if (frame >= 120)
+                {
+                    pressedFrames++;
+                    Vector3 step = rig.Enemy.transform.position - previous;
+                    step.y = 0f;
+                    if (rig.Data.MovementIntent.HasMovementRequest && step.magnitude < 0.002f && rig.Runner.CurrentState == StateType.Move)
+                        pushFrames++;
+                }
+                previous = rig.Enemy.transform.position;
             }
-            string summary = $"[ADR-012] corner push: stuck {stuckFrames} (while pressed {stuckWhilePressed})";
+            Vector3 end = rig.Enemy.transform.position;
+            Vector3 target = rig.Target.transform.position;
+            float distance = Horizontal(end - target);
+            bool reach = NavMesh.SamplePosition(end, out NavMeshHit e, 0.6f, NavMesh.AllAreas)
+                         && NavMesh.SamplePosition(target, out NavMeshHit t, 2.5f, NavMesh.AllAreas)
+                         && !NavMesh.Raycast(e.position, t.position, out _, NavMesh.AllAreas);
+            float edge = NavMesh.FindClosestEdge(end, out NavMeshHit edgeHit, NavMesh.AllAreas) ? edgeHit.distance : -1f;
+            string summary = $"[P5b corner] push {pushFrames}/{pressedFrames} end distance {distance:F2} reach {reach} edge {edge:F2} " +
+                             $"slotChanges {rig.Movement.TacticalSlotChanges} situation {rig.Movement.TacticalSituation}";
             Debug.Log(summary);
             TestContext.WriteLine(summary);
-            Assert.Greater(stuckWhilePressed, 60, "Retreat 朝牆角推、沒有進展 ⇒ 必須仍被判定卡住（真陽性不得消失）");
+            Assert.Less(pushFrames, pressedFrames / 10, "不得持續朝牆角推（T2）");
+            Assert.That(distance, Is.InRange(rig.BandMin, rig.Reach), "最後要站在交戰帶內（能出手的位置）");
+            Assert.IsTrue(reach, "最後的位置要有觸及線");
+            Assert.GreaterOrEqual(edge, 0.25f, "不得停在貼牆的位置（T1）");
+            Assert.LessOrEqual(rig.Movement.TacticalSlotChanges, 6, "換槽次數有上限（不在牆角來回振盪）");
+        }
+
+        [UnityTest]
+        public IEnumerator P5b_PillarBetween_EndsWithAReachLine_NotBehindThePillar()
+        {
+            var pillar = new[] { (new Vector3(0f, 1f, 2.5f), new Vector3(1.4f, 2f, 1.4f)) };
+            Vector3 targetPosition = new Vector3(0f, 0f, 4.5f);
+            Rig rig = Build("P5bPillar", pillar, Vector3.zero, targetPosition);
+            int blockedInBand = 0, attacksBlocked = 0;
+            StateType previousState = StateType.None;
+            for (int frame = 0; frame < 900; frame++)   // 15 s
+            {
+                yield return null;
+                Vector3 self = rig.Enemy.transform.position;
+                float d = Horizontal(self - targetPosition);
+                bool reach = NavMesh.SamplePosition(self, out NavMeshHit e, 0.6f, NavMesh.AllAreas)
+                             && NavMesh.SamplePosition(targetPosition, out NavMeshHit t, 2.5f, NavMesh.AllAreas)
+                             && !NavMesh.Raycast(e.position, t.position, out _, NavMesh.AllAreas);
+                if (d >= rig.BandMin && d <= rig.Reach && !reach) blockedInBand++;
+                StateType state = rig.Runner.CurrentState;
+                if (state == StateType.Action && previousState != StateType.Action && !reach) attacksBlocked++;
+                previousState = state;
+            }
+            string summary = $"[P5b pillar] in band but blocked {blockedInBand} frames, attacks across the pillar {attacksBlocked}";
+            Debug.Log(summary);
+            TestContext.WriteLine(summary);
+            Assert.LessOrEqual(blockedInBand, 30, "不得長時間待在攻擊距離內、卻被柱子擋住的位置（A2）");
+            Assert.AreEqual(0, attacksBlocked, "不得隔柱出拳（P5-0 基線曾出現 1 次）");
+        }
+
+        [UnityTest]
+        public IEnumerator P5b_OpenGround_HoldsAtTheSlot_InsteadOfStrafingForever()
+        {
+            Vector3 targetPosition = new Vector3(0f, 0f, 4f);
+            Rig rig = Build("P5bOpen", new (Vector3, Vector3)[0], Vector3.zero, targetPosition);
+            float travelledLate = 0f;
+            int lateFrames = 0, holdFrames = 0;
+            Vector3 previous = rig.Enemy.transform.position;
+            for (int frame = 0; frame < 900; frame++)   // 15 s；最後 10 s 當作穩態
+            {
+                yield return null;
+                Vector3 step = rig.Enemy.transform.position - previous;
+                step.y = 0f;
+                previous = rig.Enemy.transform.position;
+                if (frame < 300) continue;
+                lateFrames++;
+                travelledLate += step.magnitude;
+                if (rig.Movement.TacticalSituation == TacticalSituation.Slot && !rig.Data.MovementIntent.HasMovementRequest) holdFrames++;
+            }
+            float d = Horizontal(rig.Enemy.transform.position - targetPosition);
+            string summary = $"[P5b open] last 10 s travelled {travelledLate:F2} m, hold {holdFrames}/{lateFrames}, distance {d:F2}, slotChanges {rig.Movement.TacticalSlotChanges}";
+            Debug.Log(summary);
+            TestContext.WriteLine(summary);
+            Assert.Less(travelledLate, 2f, "目標不動、位置有效 ⇒ 不為了「看起來在動」而一直側移（D3；基線約 1.2 m／s）");
+            Assert.Greater(holdFrames, lateFrames / 2, "大部分時間在槽上待命");
+            Assert.That(d, Is.InRange(rig.BandMin, rig.Reach), "待命在交戰帶內（打得到的距離）");
+            Assert.LessOrEqual(rig.Movement.TacticalSlotChanges, 2, "開闊平地不換槽");
         }
 
         // =====================================================================
@@ -176,6 +282,8 @@ namespace Project.Tests.PlayMode
             public AIMovementSource Movement;
             public CharacterPipelineRunner Runner;
             public PlayerRuntimeData Data;
+            public float BandMin;   // prefab 的實際交戰帶（Y Bot：[1.25, 1.6]），不寫死
+            public float Reach;
         }
 
         private Rig Build(string name, (Vector3 center, Vector3 size)[] boxes, Vector3 enemyStart, Vector3 targetStart)
@@ -218,7 +326,10 @@ namespace Project.Tests.PlayMode
             movement.SetTargetForTests(target.transform);
             enemy.GetComponent<EnemyTerritory>().ConfigureForTests(spawn, roam: 30f, soft: 40f, hard: 50f);
             var runner = enemy.GetComponent<CharacterPipelineRunner>();
-            return new Rig { Enemy = enemy, Target = target, Movement = movement, Runner = runner, Data = runner.RuntimeData };
+            float bandMin = (float)typeof(AIMovementSource).GetField("minimumEngagementDistance", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(movement);
+            float reach = (float)typeof(AIInputSource).GetField("attackRange", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(enemy.GetComponent<AIInputSource>());
+            return new Rig { Enemy = enemy, Target = target, Movement = movement, Runner = runner, Data = runner.RuntimeData,
+                             BandMin = bandMin, Reach = reach };
         }
 
         private static NavMeshBuildSource Source(GameObject box) => new NavMeshBuildSource

@@ -232,6 +232,34 @@ namespace Project.Core.Movement
             return true;
         }
 
+        bool IEnemyPathQuery.TrySampleWalkable(Vector3 point, float radius, out Vector3 walkable)
+        {
+            if (NavMesh.SamplePosition(point, out NavMeshHit hit, Mathf.Max(0.01f, radius), NavMesh.AllAreas))
+            {
+                walkable = hit.position;
+                return true;
+            }
+            walkable = default;
+            return false;
+        }
+
+        bool IEnemyPathQuery.IsStraightLineClear(Vector3 from, Vector3 to) =>
+            !NavMesh.Raycast(from, to, out _, NavMesh.AllAreas);
+
+        float IEnemyPathQuery.DistanceToEdge(Vector3 walkable) =>
+            NavMesh.FindClosestEdge(walkable, out NavMeshHit edge, NavMesh.AllAreas) ? edge.distance : -1f;
+
+        bool IEnemyPathQuery.TryPathLength(Vector3 from, Vector3 to, out float length)
+        {
+            length = 0f;
+            if (!NavMesh.SamplePosition(from, out NavMeshHit start, 1f, NavMesh.AllAreas)) return false;
+            if (!NavMesh.CalculatePath(start.position, to, NavMesh.AllAreas, _queryPath)) return false;
+            if (_queryPath.status != NavMeshPathStatus.PathComplete) return false;
+            int count = Mathf.Min(_queryPath.GetCornersNonAlloc(_corners), _corners.Length);
+            for (int i = 1; i < count; i++) length += Vector3.Distance(_corners[i - 1], _corners[i]);
+            return count > 0;
+        }
+
         bool IEnemyNavigationQuery.IsPathComplete(Vector3 from, Vector3 to)
         {
             const float EndpointSampleRadius = 1f;
