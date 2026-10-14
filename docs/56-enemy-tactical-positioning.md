@@ -431,3 +431,70 @@
 ### 10.6 P5-0 量測方法
 
 見 §11（量測紀錄）。
+
+## 11. P5-0 基線量測紀錄（2026-10-14，現行行為，⛔ P5a／P5b 未開始）
+
+> **狀態**：量測完成，**兩輪**（不是單次）。數字描述的是 `056edca` 的**現行**交戰移動；它是 P5a／P5b 的 A/B 對照基準，不是驗收結論。
+
+### 11.1 方法與重跑
+
+| 項目 | 內容 |
+|---|---|
+| 工具 | `Assets/_Project/Tests/PlayMode/EnemyCombatPositioningMetrics.cs`（`[Category("Probe")]`＋`[Explicit]`，不進回歸套件；只量不判，唯一的斷言是前提：交戰帧過半、讀得到 `MotionDriver` max-speed） |
+| 情境 | 每個情境在執行期建獨立場景（60×60 m 地面＋方塊障礙＋執行期烘焙 NavMesh），放真 `Assets/Prefabs/Y Bot.prefab`；目標是測試逐帧移動的空 GameObject（無生命值、無碰撞——拳打不到任何東西）；Leash 放大到 30/40/50 m（只量交戰，不量脫戰）；`Random.InitState(1234)`；`Time.captureDeltaTime = 1/60` |
+| 指標來源 | 全部是外部可觀察量（§6.1）：位置、距離、NavMesh 觸及線、FSM 狀態；producer 內部欄位只用反射**讀**（模式、側移方向、`_strafeBlocked`、`IsStuck`、`PathRequestCount`），不參與判定站位好壞 |
+| 命令（安全入口） | `bash docs/artifacts/editor-memory/safe_unity_test.sh --mode PlayMode --include-explicit --filter EnemyCombatPositioningMetrics --label p5-0-baseline --timeout 1500` |
+| 輸出 | 每情境一行 `Logs/p5-metrics/metrics.tsv`（含 commit、變體標籤 `current`）；同一行也印在 `Logs/Editor.log` 的 `[P5 metrics]` |
+| 本次執行 | 環境：`unity status` ready（本 repo，6000.5.1f1）、`--check-only` CHECK_OK（`Logs/safe-test/20261014T021355Z-p5-0-check`）、唯讀探針確認 `SampleScene` 未 dirty、非 Play。第 1 輪 `20261014T021422Z-p5-0-baseline`：**PASS** 8/8（166.5 s）；第 2 輪 `20261014T021828Z-p5-0-baseline-r2`：**PASS** 8/8（165.9 s）。HEAD `056edca`；工作樹當時有使用者 WIP（`SampleScene`、`ProjectSettings/EditorSettings.asset`、ProBuilder 設定、音訊／材質資產、`StandingPostureSolverTests.cs`）——探針不載出貨場景，但 `ProjectSettings` WIP 仍是當時環境的一部分 |
+
+### 11.2 指標表（兩輪；不同時記為「第 1 輪 / 第 2 輪」）
+
+帶＝[1.25, 2.0] m（`minimumEngagementDistance`／`attackRange`，Y Bot）；有效＝在帶內**且** NavMesh 觸及線暢通；秒數＝帧 ÷ 60。
+
+| 情境 | attackValid | 帶內 s / 帶內但觸及線被擋 s | 首次有效 s | 平均距離 m | 移動距離 m | m／有效秒 | 攻擊 / 無效攻擊 |
+|---|---|---|---|---|---|---|---|
+| OpenStatic | 93.2% | 18.65 / 0.00 | 1.35 | 1.590 / 1.537 | 23.49 / 22.61 | 1.260 / 1.212 | 6 / 0 |
+| Corner | 85.4% | 17.08 / 0.00 | 2.92 | 1.923 | 24.23 | 1.418 | 5 / 0 |
+| Pillar | 77.2% | 16.92 / **1.47** | 4.55 | 1.773 / 1.709 | 22.57 / 22.52 | 1.461 / 1.458 | 5 / **1** |
+| ThinWall | 77.1% | 15.83 / **0.42** | 4.58 | 1.804 / 1.767 | 23.12 / 23.36 | 1.500 / 1.515 | 5 / 0 |
+| Unreachable | **0.0%** | 0.00 / 0.00 | —（從未有效） | 3.726 | 8.23 | ∞ | 0 / 0 |
+| MovingSlow（25 s） | 80.0% | 20.00 / 0.00 | 2.55 | 1.914 / 1.896 | 31.24 / 31.20 | 1.562 / 1.560 | 6 / 0 |
+| Kiting | 0.0% | 0.00 / 0.00 | — | 4.698 | 31.36 / 31.34 | ∞ | 0 / 0 |
+| AttackAndHurt | 93.2% | 18.65 / 0.00 | 1.35 | 1.506 | 14.89 | 0.799 | 5 / 0 |
+
+| 情境 | noProgress / allowedMove 帧 | recover | strafeBlocked | 模式切換 | strafe 翻面 | 路徑請求 | stuck / 其中出拳或受擊中 | Action 帧（最長段） | Hurt 帧 / 段（最長段） |
+|---|---|---|---|---|---|---|---|---|---|
+| OpenStatic | 0 / 934 / 898 | 0 | 0 | 9 / 5 | 7 | 1 | 52 / 78 · 34 / 42 | 263 / 294（49） | 0 |
+| Corner | 0 / 951 | 0 | 0 | 13 | 14 | 1 | 54 · 28 | 245（49） | 0 |
+| Pillar | 0 / 946 | 0 | 0 | 7 | 7 | 1 | 64 / 74 · 35 / 42 | 245（49） | 0 |
+| ThinWall | 0 / 957 / 969 | 0 | 0 | 7 | 6 | 1 | 41 / 51 · 27 / 29 | 240 / 228（49） | 0 |
+| Unreachable | **804 / 1195** | 0 | 0 | 0 | 0 | 1 | **709** · 0 | 0 | 0 |
+| MovingSlow | 0 / 1197 | 0 | 0 | 44 / 40 | 9 / 7 | 79 | 56 / 64 · 27 / 30 | 294（49） | 0 |
+| Kiting | 0 / 1181 | 0 | 0 | 0 | 0 | **94** | 0 · 0 | 0 | 0 |
+| AttackAndHurt | 0 / 579 | 0 | 0 | 3 | 7 | 1 | 153 · 89 | 197（49） | 417 / 9 段（**43**） |
+
+### 11.3 每個情境的觀察
+
+- **OpenStatic**：1.35 s 進帶，之後 93% 時間站在可打位置；每帧位移都有進展（noProgress 0）。這是 S1「不得多動」的對照：m／有效秒 ≈ 1.2–1.3。
+- **Corner**：85%，**沒有出現 T1／T2 失效**（strafeBlocked 0、recover 0、noProgress 0），但 strafe 翻面 14 次、模式切換 13 次是各情境最高。⚠️ ⇒ 這個幾何**沒有重現**「兩側不可走／推牆」——§6.2 S2 的「M3 降為 0」在此基線上已經是 0，**不能拿來證明 P5 修好了 T1／T2**；要當驗收情境，先把牆角收緊（目標更深入、敵人起點在牆內側）再量一次基線。
+- **Pillar**：帶內但觸及線被柱子擋 1.47 s，其中**出拳 1 次**（隔柱出拳）；首次有效晚到 4.55 s。這是 A2（隔牆）會介入的典型帧。
+- **ThinWall**：起點就在帶內但隔牆（距離 2.0 m）；被擋只持續 0.42 s，**沒有隔牆出拳**（無效攻擊 0）——敵人繞過牆（整段只請求 1 次路徑），4.58 s 抵達有效位置。即現行版本在這個幾何下不會「隔牆打」，代價是首次有效時間長。
+- **Unreachable**：**推牆**——被允許移動的帧有 **67%（804／1195）**沒有進展，`IsStuck` 為真 709 帧（11.8 s）；平均距離 3.73 m（> 2.0），20 s 內 0 次有效、0 次攻擊、只請求 1 次路徑（不重新規劃）。這是 P5a A1 的主要驗收對象（§6.2 S4）。
+- **MovingSlow**：80%；模式切換 44／40 次（約 1.7 次/s）、路徑請求 79——目標移動時現行版本頻繁在模式間切換。S5 的振盪門檻要以此為基準（A→B→A 次數本工具**未量**，見 §11.5）。
+- **Kiting**：追不上（平均 4.70 m、0% 有效）；路徑請求 94（約 4.7 次/s）、無卡住。S6「評估次數 ≈ 0」的成本對照是這個數字。
+- **AttackAndHurt**：受擊 10 次（每 2 s 一次，第 1 次在 1.5 s），9 段完整、最後一段被測試結束截斷（30 帧）⇒ 417 = 9 × 43 + 30。**出拳／受擊中的 `IsStuck` 誤報 89 帧**，其他情境也都有 27–42 帧——§1.4 的預測（`StuckWindowSeconds 0.75 s` < 出拳 0.80 s／受擊 0.70 s）在執行期成立。
+
+### 11.4 回答 §1.4 待確認項：Y Bot 實際受擊時長
+
+**Hurt 每段 43 帧 ≈ 0.717 s**（9／9 段相同、兩輪相同）⇒ 對應 `Bake_Fists_Hit_Right`（0.70 s，對齊到 60 fps 帧界多 1 帧），**不是** `Idle_Hit_Strong_*`（3.2–4.1 s）。出拳每段 49 帧 ≈ 0.817 s，對應 `Bake_Fists_Punch_R` 0.80 s。
+⚠️ 限制：探針用 `CharacterHealth.ApplyDamage(1f)`（不帶來源方向），只觸發到 Right；`_Left`（1.17 s）是否在帶方向的受擊中出現，本次**未量**。D7／E5 的窗若要覆蓋最長受擊，仍以 1.17 s 為上限保守設計。
+
+### 11.5 量測限制（不隱藏）
+
+- **帧對齊**：協程在 Update 後、LateUpdate（`MotionDriver` 位移）前恢復 ⇒ 第 N 次恢復看到的是第 N−1 帧的位移結果。「有沒有進展」用**上一帧記下的**意圖、速度與 FSM 狀態配對本帧觀察到的位移。
+- **noProgress 的判定讀 FSM 狀態**：只有上一帧狀態是 Idle／Move（`ExecuteBaseMovement` 會執行的狀態）、有移動請求、期望步長 > 0.3 × 1/60 m 時才計入 allowedMove；位移 < 期望 × 0.25 ⇒ noProgress。**測試端讀得到 FSM 狀態，runtime 的 producer 讀不到**——這正是 D7 提案（§10.4 S1：`MotionDriver` 發布執行事實）要給 runtime 的資訊。期望步長＝`MoveSpeed × MotionDriver.moveSpeed × Δt`，是近似值。
+- **觸及線**是 NavMesh Raycast（目標先投影到 NavMesh，半徑 2.5 m），不是物理視線；障礙在 NavMesh 上是挖空的，所以兩者在本情境一致。
+- **帶的邊界是常數**（1.25／2.0，取自 Y Bot prefab 當下的設定）；prefab 改了要同步改探針。
+- **目標沒有膠囊、沒有生命值**：敵人的拳不會命中、不會被玩家碰撞擋住；「無效攻擊」只看出拳開始那一帧的距離與觸及線。
+- **未量**：A→B→A 換位次數（M5 只量了模式切換與 strafe 翻面）、`CalculatePath` 次數與 GC bytes（M6 只量了路徑請求數）、帶方向的受擊。
+- **可重現性**：兩輪的**主要指標逐值相同**（attackValid、帶內／被擋時間、首次有效、攻擊與無效攻擊、noProgress（Unreachable 804／1195）、recover、strafeBlocked、路徑請求、Hurt／Action 最長段）；Corner、Unreachable、AttackAndHurt 三個情境整行相同。**次要指標有浮動**：移動距離 ≤ 4%、平均距離 ≤ 0.06 m、模式切換（OpenStatic 9／5、MovingSlow 44／40）、strafe 翻面（MovingSlow 9／7）、allowedMove 帧（OpenStatic 934／898、ThinWall 957／969）、stuck 帧（差 8–26 帧）。⇒ 固定種子＋固定 Δt 下**不是逐位元可重現**；A/B 比較時主要指標可直接比，次要指標要多輪取範圍，差距小於上表的浮動不得當成改善。

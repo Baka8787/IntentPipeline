@@ -21,9 +21,11 @@
 > # 🟨 2026-10-13：P5 戰鬥站位（`docs/56` §10；與測試調度器分開追蹤）
 >
 > - ✅ 裁決 D1–D8 已記錄；D5（攻擊有效性契約歸屬，建議 O2）與 D7（可靠的「被允許移動卻沒進展」訊號，建議 S1：`MotionDriver` 發布執行事實，需 ADR）是**提案、未裁決**。
-> - ⏸ **P5-0 基線被入口擋下**（`SAFETY_STOP` 15：`SampleScene` dirty，正確行為）。量測工具 `Assets/_Project/Tests/PlayMode/EnemyCombatPositioningMetrics.cs`（`[Explicit]` Probe，8 個情境，**未 commit**）。場景乾淨後：`bash docs/artifacts/editor-memory/safe_unity_test.sh --mode PlayMode --include-explicit --filter EnemyCombatPositioningMetrics --label p5-0-baseline`，數字寫進 `docs/56` §11。
-> - ⏸ 2026-10-14：Editor 無回應（`unity status` 無 instance；安全入口 `--check-only` ⇒ `PREFLIGHT_FAILED` 32）。依指示：不重啟、不存檔、不捨棄場景，等環境恢復再照原流程跑 P5-0。
-> - ⛔ P5a 在基線之後；P5b 在 P5a 驗證之後且需 D7 裁決。
+> - ✅ **P5-0 基線完成（2026-10-14，`docs/56` §11）**：環境重確認（Editor ready、`--check-only` CHECK_OK、`SampleScene` 未 dirty、非 Play）後經安全入口跑**兩輪**，皆 PASS 8/8（`Logs/safe-test/20261014T021422Z-p5-0-baseline`、`…021828Z-p5-0-baseline-r2`；HEAD `056edca`）。量測工具 `EnemyCombatPositioningMetrics.cs`（`[Explicit]` Probe）已 commit。
+>   - 重點：**Unreachable 推牆**（允許移動帧 67% 無進展、`IsStuck` 11.8 s、0 次攻擊）；**Pillar 隔柱出拳 1 次**（帶內被擋 1.47 s）；ThinWall 繞牆、未隔牆出拳；**Corner 未重現 T1／T2**（strafeBlocked／recover 0）⇒ 要當 S2 驗收情境得先收緊幾何；出拳／受擊中 `IsStuck` 誤報 27–89 帧（§1.4 預測成立）。
+>   - §1.4 待確認項已答：Y Bot 受擊 43 帧 ≈ 0.72 s ＝ `Bake_Fists_Hit_Right`（探針只觸發無方向受擊；`_Left` 1.17 s 未量）。
+>   - 可重現性：主要指標兩輪逐值相同；移動距離、模式切換、stuck 帧有小幅浮動（不是逐位元可重現）。
+> - ⛔ **P5a 未開始**（等你決定開工）；P5b 在 P5a 驗證之後且需 D7 裁決。
 
 > # 🟥 2026-10-10（第四輪，優先於 Traversal 後續）：Unity Editor 記憶體／日誌暴增調查（`docs/53`，診斷輪，⛔ 未修正）
 >
