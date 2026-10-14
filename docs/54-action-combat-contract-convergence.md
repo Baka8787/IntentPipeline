@@ -719,6 +719,13 @@ interaction = JustTookDamage ∨ (RequestedActionSlot ≠ None ∧ (hasTarget �
 
 **明確不在本輪**：攻擊者身分 seam、陣營／友軍傷害、通用仇恨系統、`ActionRequestTarget` 改名、近戰連段 release-once、場景孤兒 override 的清理（留給使用者存場景時）。
 
+**登記：`docs/51` 中本案未處理、仍開著的 finding**（2026-10-14 使用者裁決：登記於此，**不是**「接受現況」——兩項都是已確認的表示碎裂，只是目前沒有可達的後果；觸發條件成立時要處理，不得以本列為由略過）：
+
+| Finding | 現況（2026-10-14 重查） | 為什麼現在不修 | 觸發條件（成立即處理） | 最小修法（`docs/51`） |
+|---|---|---|---|---|
+| **F-06** `CombatContext.TargetPosition` 的參考點隨 producer 改變 | 仍成立：玩家＝目標 collider `bounds.center`（`PlayerCombatContextSource.ResolveTargetPosition`）；敵人＝`target.position`（玩家 root，腳底；WP-1b 後在 `AICombatContextSource` 第 84 行，語意未變）。另：選目標角錐（水平·3D）與 soft target（水平·水平）的 25° 意義不同 | 唯一含 pitch 的 consumer `HeadLookController` 只掛在 X Bot ⇒ 只消費玩家那一種，不可達 | 給敵人加 head look／任何讀 `TargetPosition` 高度分量的 consumer；或 WP-4 的 `CombatTarget` 承諾開始用到高度 | 在 `CombatContextData` 寫明「TargetPosition＝目標的瞄準中心」並讓 AI producer 對齊 |
+| **F-11** 無瞄準時三個 sink 三種 fallback；A29 與 `docs/14` T-D6 說法相反 | 仍成立：Throw 用 emitter `transform.rotation`、地面 AoE 用 `transform.root.forward`（A29 的 token 掃不到）、近戰不需方向 | X Bot 有 `AimResolver`、只在無相機時 `HasAim=false`；敵人沒有投射物／AoE ⇒ 不可達 | 敵人獲得投射物／AoE；或出現無相機的玩家情境（例：`AIMovementNoCamera` 類測試延伸到 Action） | 在 A29 或 `docs/14` 二選一寫清楚「無承諾時 sink 可不可以用 actor forward」，另一處同步 |
+
 ## 8. 與本案無關的既有失敗（獨立紀錄）
 
 | 測試 | 模式 | 失敗訊息 | 來源 | 與本案的關係 |
