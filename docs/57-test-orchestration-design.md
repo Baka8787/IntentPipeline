@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **狀態** | 🟢 **已裁決（2026-10-13，§12）——方案 B、命名 R0–R3**；Phase 1（已知失敗比對器）＋Phase 2（選擇器影子模式）**核准實作**；Phase 3 待影子期結果再議；Phase 4 暫不做。§1–§11 保留為設計原文，與 §12 衝突處以 §12 為準 |
+| **狀態** | 🟢 **已裁決（2026-10-13，§12）——方案 B、命名 R0–R3**；Phase 1＋2 已實作並驗收（§13），**影子期進行中**（§14，2026-10-14）；Phase 3 **未啟用、需另行裁決**；Phase 4 暫不做。§1–§11 保留為設計原文，與 §12 衝突處以 §12 為準 |
 | **輸入** | 使用者 2026-10-13：每次小修改都跑完整 EditMode／PlayMode 回歸，成本越來越高；評估專案專用 `unity-test-orchestrator` Skill。**目標是讓測試時機與範圍合理，不是減少覆蓋** |
 | **不可動搖的前提** | 所有 Unity 測試仍經 `safe_unity_test.sh`（`docs/53` §17）；dirty scene／Editor busy／recompile 異常 ⇒ fail-closed；⛔ 不自動存檔、捨棄場景變更或重啟 Editor。2026-10-13 P5-0 因 dirty scene 被 `SAFETY_STOP` 是**正確行為**，本設計不降低它 |
 | **閱讀方式** | §1 現況（全部有量測或檔案證據）→ §2 安全入口的篩選能力 → §3 能否推導受影響測試 → §4 L0–L3 → §5 強制升級 → §6 結果分類與已知失敗 → §7 方案比較 → §8 推薦設計與檔案結構 → §9 驗收 → §10 導入計畫 → §11 待裁決 |
@@ -377,6 +377,8 @@ PlayMode 組件不參照 `Project.Editor`，但 **PlayMode 測試是在 Editor �
 
 未裁決前，比對器會把它們報為 `NEW_FAILURE`——這是刻意的。
 
+> 🔄 2026-10-14：D-1 有條件批准；核對後已列入，見 §14.1。
+
 ---
 
 ## 13. 實作狀態：Phase 1＋Phase 2（2026-10-13）
@@ -431,3 +433,57 @@ PlayMode 組件不參照 `Project.Editor`，但 **PlayMode 測試是在 Editor �
 | D-1 | §12.5 的兩個已知失敗候選（K-1 場景 mask、K-2 `C0`）是否列入，症狀片段是否接受 | 由你決定；未列入前比對器持續報 FAILED |
 | D-2 | `test-map.json` 的模組 → 類別對照是否需要你先過目，或直接進影子期由 ESCAPE 修正 | 直接進影子期（漏的會被量到） |
 | D-3 | 何時開始累積影子樣本：等 P5-0 那次全量一起做，或另外安排 | 與下一次需要全量的工作一起做，不額外佔 Editor |
+
+---
+
+## 14. 影子驗證期（2026-10-14，使用者裁決）
+
+> **狀態**：Phase 1／2 驗收通過，**影子期開始**；**Phase 3 未啟用**，且影子期達標**不會**自動啟用（需另行裁決）。⛔ 仍不改 `safe_unity_test.sh`、Unity 測試、CI。
+
+### 14.1 D-1：已知失敗 K-1、K-2（有條件批准 → 已核對後列入）
+
+**核對方法（可重跑）**：`classify_results.py --verify-entries <records>`——條目只有在「至少一份基準紀錄中失敗且所有症狀片段都在」**且**「沒有任何紀錄以其他症狀失敗」時才是 `CONFIRMED`。對 `Logs/safe-test/` 全部 47 份有結果的紀錄執行：
+
+| 條目 | 完整名稱 | 症狀片段（全部必須出現） | 核對結果 | 追蹤來源 | 重新調查條件 |
+|---|---|---|---|---|---|
+| **K-1** | `Project.Tests.EditMode.StairAuthoringContractTests.Scene_InstanceMasks_MatchSemanticTable` | `scene/X Bot FootIKController.settings.GroundLayers=503`、`應為 -9` | **CONFIRMED**：8 份含此測試，8／8 Failed、訊息逐字相同（2026-10-12 `7c4c4e4` → 10-13 `a2841e1`） | `docs/54` AC-0.5、§726；`docs/44` 語意表 | 場景 WIP commit 或還原；出現其他值／角色；測試通過；2026-10-28 |
+| **K-2** | `Project.Tests.PlayMode.MotionDriverCommittedMovementPlayModeTests.C0_TraversalDoesNotReportGroundEdgesFromIncidentalContact` | `陽性對照失敗：非 traversal 的 false→true 邊沿本來就該回報落地`、`Expected: True`、`But was: False` | **CONFIRMED**：11 份，11／11 Failed、訊息逐字相同（2026-10-11 `4fd0962` → 10-13 `a2841e1`） | `docs/50` M-02（:41、:158、:390、:495） | `docs/50` G-1 裁決或 M-02 開工；edge 抑制／grace 邏輯變更；訊息改變；測試通過；2026-10-28（`docs/50`:473：紅燈不得長期以「既有」存在） |
+
+- 每筆條目帶 `approvedBy`／`approvedOn`／`approvalRef`（本節）／`source`／`reinvestigateWhen`；比對器現在把這五個欄位列為必填，缺任一欄位就拒絕整份清單。
+- **症狀變更＝`NEW_FAILURE`**：已知測試以不同症狀失敗時，報告直接標 `NEW_FAILURE`，並註明 `symptomChangedFrom: K-n`（不再使用另一個分類名稱）。例：`GroundLayers=511` 不會被 K-1 吸收。
+- 套用後，最近一次全量（EditMode `20261013T095531Z`、PlayMode `20261013T100953Z`）的分類由 `FAILED` 變為 **`VERIFIED_WITH_KNOWN_FAILURES`**（exit 10）。
+- 兩筆的 `reviewBy` 2026-10-28 是**我提出的期限**，可由你改。
+
+### 14.2 `AIMovementSource_WithoutCamera_ProducesNonZeroWorldDirection` 為何 Skipped（獨立調查，⛔ 不是通過、不是已知失敗）
+
+| 事實 | 證據 |
+|---|---|
+| 測試在 `agent.Warp(origin.position)` 回傳 false 時呼叫 `Assert.Ignore`（「EditMode 無法把 NavMeshAgent 放上臨時 NavMesh——環境限制」） | `MovementIntentTests.cs:262–267` |
+| 程式註解說 Warp「不定期」回傳 false；**實際上在所有留有紀錄的 8 次 EditMode 全量中 8／8 Skipped**（2026-10-12～13）——不是偶發，是每次 | `Logs/safe-test` |
+| 被跳過的是**交戰分支**的行為：在沒有相機的情況下，`InCombat` 的 `CombatContext` 要產生非零的水平單位方向 | `:276–297` |
+| 架構面「AI 不得依賴相機」由 `ArchitectureRegressionTests.A30` 靜態掃描守住 | 測試註解；A30 |
+| 行為面的覆蓋：非戰鬥分支在**沒有相機的執行期場景**中有 PlayMode 覆蓋（`EnemyNonCombatPlayModeTests.Navigation_WaypointBehindWall_IsReachedByGoingAround`）；**交戰分支「沒有相機」目前沒有任何會執行的回歸測試**（出貨場景有玩家相機；`EnemyCombatPositioningMetrics` 是 `[Explicit]` Probe，不算回歸） | 測試原始碼 |
+
+**結論**：這不是測試不穩定，而是一個**在 EditMode 永遠無法執行**的測試——它的覆蓋形同不存在，而報告裡長期只顯示「1 skipped」。比對器現在在報告標題列出「N 個選中但未執行的測試——未驗證」。
+**建議（需你裁決，本輪不改測試）**：①把它移到 PlayMode（Play 生命週期下 agent 會註冊，行為面才真的被驗）；或 ②刪除 EditMode 版本並在 PlayMode 新增對等案例；或 ③維持現狀但正式記錄「交戰分支無相機行為只有 A30 靜態守門」。我建議 ①。
+
+### 14.3 影子期規則（D-2、D-3、補充 1–5）
+
+| 規則 | 落地 |
+|---|---|
+| D-2：直接進影子期；**每個 ESCAPE 都要調查**是映射缺漏、規則不足或測試不穩定，⛔ 不得只為歸零而擴大規則 | `escape-investigations.json`（分類限 `mapping-gap`／`rule-gap`／`flaky-test`，`evidence` 與 `action` 必填）；`shadow_report.py` 列出未調查的 ESCAPE |
+| D-3：樣本隨正常完整回歸累積，不額外佔 Editor | 程序見 `docs/artifacts/test-orchestrator/README.md` |
+| 補充 1：每個樣本記錄 Change Set、Planned Scope、Selected Tests、Full Results、ESCAPE、Snapshot Validity、預估節省 | `shadow_compare.py` 寫 `Logs/test-orchestrator/shadow/<id>/sample.json`＋`sample.md`；節省分**預估**（計畫的成本模型）與**實測**（真實全量的逐案時間：被略過的測試時間＋少掉的呼叫開銷） |
+| 補充 2：有效樣本 ≥ 10 次真實改動，且合成案例覆蓋仍需滿足 | 報告的 Q5 進度只計「有效且計畫時快照可信」的樣本；合成案例由 `selftest.py` 守（50 個變更集） |
+| 補充 3：大多數樣本被升級 R3 時，要報告**實際效益** | 報告列出層級分布、R3 比例與原因、預估／實測節省、有節省的樣本數；R3 過半時明示「效益小」 |
+| 補充 4：Phase 3 需另行裁決 | 報告第一行固定聲明 |
+| 補充 5：不改入口、Unity 測試、CI | 本節所有變更都在 `docs/artifacts/test-orchestrator/` |
+
+### 14.4 驗證
+
+自測 **151／151**（新增：條目必填欄位四種、症狀變更 ⇒ `NEW_FAILURE`、正式清單的 K-1／K-2 與真實訊息相符、`GroundLayers=511` 不被吸收、`--verify-entries` 三種狀態、樣本紀錄七大欄位、實測與預估節省、無效樣本仍留紀錄、報告 Q5 計數／R3 比例／實測節省比例／未調查 ESCAPE／調查格式錯誤）；變異 **22／22**（新增：症狀變更被當成已知、實測節省忽略略過範圍、報告計入無快照樣本、報告不要求調查）；`--check-map` OK。
+
+### 14.5 目前狀態
+
+- 影子樣本：**0**。2026-10-14 01:23Z 安全入口 `--check-only` 回 `PREFLIGHT_FAILED`（32，`editor-not-ready-for-this-project`）——沒有可用的 Editor，未嘗試重啟、存檔或捨棄場景。
+- ⚠️ 預期的效益風險（尚未量到，先記下）：目前工作樹長期有 `ProjectSettings`、場景、音訊資產 WIP——只要它們在**下一個快照之後**又被改，計畫就會 R3。第一批樣本很可能以 R3 為主；報告會如實顯示。

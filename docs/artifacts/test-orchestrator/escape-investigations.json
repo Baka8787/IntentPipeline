@@ -1,0 +1,5 @@
+{
+  "schema": 1,
+  "_comment": "docs/57 §14 (D-2). One entry per ESCAPE found in a shadow sample. category: mapping-gap (test-map.json lacks a module->fixture link), rule-gap (a rule did not see the risk), flaky-test (the test fails without a related change; show the evidence). evidence and action are required. Widening rules only to make the count zero is not an investigation.",
+  "entries": []
+}

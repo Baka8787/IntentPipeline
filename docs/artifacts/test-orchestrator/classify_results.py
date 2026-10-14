@@ -5,6 +5,8 @@
 
 Read-only: never edits the known-failure list (Q6: adding, changing or removing entries is the user's decision).
 
+    python -I .../classify_results.py --verify-entries RECORD_DIR [...]   (D-1: check the list against baseline records)
+
 Overall verdict / exit code:
     VERIFIED 0 · VERIFIED_WITH_KNOWN_FAILURES 10 · FAILED 1 · BLOCKED 20 · INCOMPLETE 30 · usage / invalid list 2
 Precedence: any new failure -> FAILED (even when another record was blocked: a regression is never hidden);
@@ -21,7 +23,8 @@ import orchestrator_lib as lib  # noqa: E402
 EXIT = {"VERIFIED": 0, "VERIFIED_WITH_KNOWN_FAILURES": 10, "FAILED": 1, "BLOCKED": 20, "INCOMPLETE": 30}
 BLOCKED_CODES = set(range(10, 33)) | {99, 130}
 INCOMPLETE_CODES = {2, 3, 4, 5}
-REQUIRED = ("id", "mode", "fullName", "symptoms", "cause", "approvedBy", "approvedOn")
+REQUIRED = ("id", "mode", "fullName", "symptoms", "cause", "approvedBy", "approvedOn", "approvalRef", "source",
+            "reinvestigateWhen")
 
 
 class KnownListError(Exception):
@@ -48,8 +51,9 @@ def load_known(path):
             raise KnownListError("%s: mode must be EditMode or PlayMode" % where)
         if "." not in e["fullName"] or e["fullName"] != e["fullName"].strip():
             raise KnownListError("%s: fullName must be the complete test name" % where)
-        if not isinstance(e["symptoms"], list) or not all(isinstance(s, str) and lib.normalize_message(s) for s in e["symptoms"]):
-            raise KnownListError("%s: symptoms must be a non-empty list of non-empty strings" % where)
+        for k in ("symptoms", "source", "reinvestigateWhen"):
+            if not isinstance(e[k], list) or not all(isinstance(x, str) and lib.normalize_message(x) for x in e[k]):
+                raise KnownListError("%s: %s must be a non-empty list of non-empty strings" % (where, k))
         if e["id"] in seen_ids:
             raise KnownListError("%s: duplicate id %s" % (where, e["id"]))
         key = (e["mode"], e["fullName"])
@@ -114,13 +118,11 @@ def classify_record(record, known):
             continue
         if st == "Failed":
             e = known_by_name.get(r["FullName"])
-            if e is None:
-                kind = "NEW_FAILURE"
-            elif symptom_matches(e, r.get("Message")):
-                kind = "KNOWN_MATCH"
-            else:
-                kind = "KNOWN_NAME_NEW_SYMPTOM"
-            out["failures"].append({"fullName": r["FullName"], "kind": kind, "knownId": e["id"] if e else None,
+            # A known test failing with a DIFFERENT symptom is a new failure (D-1), not a variant of the known one.
+            matched = e is not None and symptom_matches(e, r.get("Message"))
+            out["failures"].append({"fullName": r["FullName"], "kind": "KNOWN_MATCH" if matched else "NEW_FAILURE",
+                                    "knownId": e["id"] if matched else None,
+                                    "symptomChangedFrom": e["id"] if (e is not None and not matched) else None,
                                     "message": lib.normalize_message(r.get("Message"))[:400]})
         else:  # Skipped / Ignored / Inconclusive: selected but not verified
             out["not_executed"].append({"fullName": r["FullName"], "status": st})
@@ -139,7 +141,7 @@ def classify_record(record, known):
     if outcome is None:
         if code == 1 and not out["failures"]:
             outcome, out["reason"] = "INCOMPLETE", "entry reported failures but the result list has none"
-        elif kinds & {"NEW_FAILURE", "KNOWN_NAME_NEW_SYMPTOM"}:
+        elif "NEW_FAILURE" in kinds:
             outcome = "FAILED"
         elif any(r["Status"] == "Inconclusive" for r in record.results):
             outcome = "INCOMPLETE"
@@ -147,7 +149,7 @@ def classify_record(record, known):
             outcome = "VERIFIED_WITH_KNOWN_FAILURES"
         else:
             outcome = "VERIFIED"
-    elif kinds & {"NEW_FAILURE", "KNOWN_NAME_NEW_SYMPTOM"}:
+    elif "NEW_FAILURE" in kinds:
         out["blocked_but_failed"] = True
     out["outcome"] = outcome
     return out
@@ -156,7 +158,7 @@ def classify_record(record, known):
 def overall(items, known):
     modes_run = {i["mode"] for i in items}
     not_run_modes = [e for e in known if e["mode"] not in modes_run]
-    if any(f["kind"] in ("NEW_FAILURE", "KNOWN_NAME_NEW_SYMPTOM") for i in items for f in i["failures"]):
+    if any(f["kind"] == "NEW_FAILURE" for i in items for f in i["failures"]):
         verdict = "FAILED"
     elif any(i["outcome"] == "BLOCKED" for i in items):
         verdict = "BLOCKED"
@@ -178,8 +180,35 @@ def classify(record_dirs, known_path):
             "records": items, "knownNotRunModes": extra}
 
 
+def verify_entries(record_dirs, known_path):
+    """D-1: before an entry is trusted, show it against real baseline records. An entry is CONFIRMED only when the
+    test failed in at least one record with every symptom present, and in no record failed with another symptom."""
+    known = load_known(known_path)
+    records = [lib.Record(d) for d in record_dirs]
+    out = []
+    for e in known:
+        rows = []
+        for rec in records:
+            if rec.mode != e["mode"] or rec.results is None:
+                continue
+            r = next((x for x in rec.results if x["FullName"] == e["fullName"]), None)
+            if r is not None:
+                rows.append({"record": rec.dir, "gitHead": rec.git_head, "status": r["Status"],
+                             "symptomsMatch": r["Status"] == "Failed" and symptom_matches(e, r.get("Message"))})
+        matched = sum(1 for x in rows if x["symptomsMatch"])
+        mismatched = sum(1 for x in rows if x["status"] == "Failed" and not x["symptomsMatch"])
+        passed = sum(1 for x in rows if x["status"] == "Passed")
+        state = "CONFIRMED" if matched and not mismatched else ("SYMPTOM_MISMATCH" if mismatched else "NOT_OBSERVED")
+        out.append({"id": e["id"], "fullName": e["fullName"], "state": state, "records": len(rows),
+                    "failedMatching": matched, "failedOtherSymptom": mismatched, "passed": passed, "rows": rows})
+    return out
+
+
 def to_markdown(report):
-    L = ["# Test result classification", "", "**Verdict: %s**" % report["verdict"], "",
+    not_exec = sum(len(i["not_executed"]) for i in report["records"])
+    L = ["# Test result classification", "", "**Verdict: %s**" % report["verdict"]
+         + ("  ·  ⚠ %d selected test(s) NOT executed (skipped / ignored / inconclusive) — not verified, listed below" % not_exec
+            if not_exec else ""), "",
          "Known-failure list: `%s` (sha256 %s…)" % (report["knownList"], report["knownListSha256"][:12]), ""]
     for i in report["records"]:
         L.append("## %s — %s" % (i["mode"], i["outcome"]))
@@ -189,7 +218,8 @@ def to_markdown(report):
         if i["counts"]:
             L.append("- results: " + ", ".join("%s %d" % kv for kv in sorted(i["counts"].items())))
         for f in i["failures"]:
-            L.append("- **%s** `%s`%s — %s" % (f["kind"], f["fullName"], " (%s)" % f["knownId"] if f["knownId"] else "", f["message"][:200]))
+            tag = " (%s)" % f["knownId"] if f["knownId"] else (" (symptom changed from %s)" % f["symptomChangedFrom"] if f["symptomChangedFrom"] else "")
+            L.append("- **%s** `%s`%s — %s" % (f["kind"], f["fullName"], tag, f["message"][:200]))
         for k in i["known_items"]:
             L.append("- %s `%s` (%s)" % (k["kind"], k["fullName"], k["id"]))
         for n in i["not_executed"]:
@@ -207,11 +237,24 @@ def main(argv):
     ap.add_argument("--known", default=os.path.join(here, "known-failures.json"))
     ap.add_argument("--json")
     ap.add_argument("--markdown")
+    ap.add_argument("--verify-entries", action="store_true",
+                    help="check every known entry against the given baseline records instead of classifying")
     a = ap.parse_args(argv)
     for d in a.records:
         if not os.path.isdir(d):
             print("usage: record dir not found: %s" % d, file=sys.stderr)
             return 2
+    if a.verify_entries:
+        try:
+            res = verify_entries(a.records, a.known)
+        except KnownListError as e:
+            print("KNOWN_LIST_INVALID: %s" % e, file=sys.stderr)
+            return 2
+        lib.utf8_stdout()
+        for v in res:
+            print("%s %s: %s — %d record(s) contain it, %d failed with the approved symptoms, %d failed otherwise, %d passed"
+                  % (v["id"], v["fullName"], v["state"], v["records"], v["failedMatching"], v["failedOtherSymptom"], v["passed"]))
+        return 0 if res and all(v["state"] == "CONFIRMED" for v in res) else 1
     try:
         report = classify(a.records, a.known)
     except KnownListError as e:

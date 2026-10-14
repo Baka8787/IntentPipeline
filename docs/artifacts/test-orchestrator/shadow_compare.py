@@ -1,8 +1,8 @@
-"""Phase 2 shadow mode (docs/57 §12, Q5): compare what the plan WOULD have skipped with a real full run.
+"""Phase 2 shadow mode (docs/57 §12, §14; Q5): compare what the plan WOULD have skipped with a real full run.
 
     python -I docs/artifacts/test-orchestrator/shadow_compare.py --plan PLAN.json --edit-record DIR --play-record DIR
-           [--known known-failures.json] [--log Logs/test-orchestrator/shadow.tsv] [--snapshot last-verified.json]
-           [--no-snapshot]
+           [--known known-failures.json] [--samples Logs/test-orchestrator/shadow] [--log .../shadow.tsv]
+           [--snapshot .../last-verified.json] [--no-snapshot]
 
 Shadow procedure (tests still run in FULL, through the safe entry, exactly as today):
   1. plan_tests.py  -> plan.json (records the work-tree state it planned against: preState)
@@ -11,8 +11,11 @@ Shadow procedure (tests still run in FULL, through the safe entry, exactly as to
      - the sample is valid only if both records are complete, unfiltered, of the planned HEAD, and the work tree is
        still byte-identical to preState (otherwise the plan and the run looked at different code);
      - ESCAPE = a failure in a test the plan would NOT have run, that was not already failing (same name AND same
-       normalised message) in the previous snapshot's full run. ESCAPE_SYMPTOM = same name, different message;
-     - appends one row to shadow.tsv; writes the new last-verified snapshot when the sample is valid.
+       normalised message) in the previous snapshot's full run. ESCAPE_SYMPTOM = same name, different message.
+       Every escape must later be investigated (escape-investigations.json): mapping gap / rule gap / flaky test;
+     - writes one sample record (sample.json + sample.md: change set, planned scope, selected tests, full results,
+       escapes, snapshot validity, estimated and measured savings), appends one row to shadow.tsv, and writes the new
+       last-verified snapshot when the sample is valid.
 Exit: 0 valid sample, no escape · 1 escape(s) · 3 invalid sample (nothing concluded) · 2 usage.
 """
 import argparse
@@ -26,9 +29,9 @@ import classify_results as classify  # noqa: E402
 import orchestrator_lib as lib  # noqa: E402
 import snapshot as snap_mod  # noqa: E402
 
-TSV_HEADER = ("utc\thead\tcountsTowardQ5\tsnapshotStatus\tplanTier\tplaySelection\tselectedFixtures\testimateSeconds\tfullEstimateSeconds\t"
-              "actualEditSeconds\tactualPlaySeconds\tvalid\tinvalidReason\tescapes\tescapeTests\tclassification\t"
-              "snapshotWritten\tplan")
+TSV_HEADER = ("utc\thead\tcountsTowardQ5\tsnapshotStatus\tplanTier\tplaySelection\tselectedFixtures\testimateSeconds\t"
+              "fullEstimateSeconds\testimatedSavedSeconds\tmeasuredSavedSeconds\tactualEditSeconds\tactualPlaySeconds\t"
+              "valid\tinvalidReason\tescapes\tescapeTests\tclassification\tsnapshotWritten\tsample")
 
 
 def fingerprint(mode, full_name, message):
@@ -77,8 +80,60 @@ def compare(plan, edit, play, previous_failures):
                 continue
             kind = "ESCAPE_SYMPTOM" if (rec.mode + "|" + r["FullName"]) in prev_names else "ESCAPE"
             escapes.append({"kind": kind, "mode": rec.mode, "fullName": r["FullName"],
-                            "message": lib.normalize_message(r.get("Message"))[:200]})
+                            "message": lib.normalize_message(r.get("Message"))[:200], "investigation": "PENDING"})
     return escapes, failing_now
+
+
+def savings(plan, play, overhead):
+    """Estimated (from the plan's cost model) and measured (from the real full run's per-test durations) PlayMode
+    time the plan would have saved. EditMode always runs in full (Q3), so it never contributes."""
+    pm = plan["playMode"]
+    full_est = pm.get("fullEstimateSeconds") or 0.0
+    est = {"plannedSeconds": pm.get("estimateSeconds", 0.0), "fullSeconds": full_est,
+           "savedSeconds": round(max(0.0, full_est - (pm.get("estimateSeconds") or 0.0)), 1)}
+    if play.results is None:
+        return est, None
+    full_measured = overhead + float(play.runner_duration or sum(float(r.get("Duration") or 0) for r in play.results))
+    play_invocations = [i for i in plan["invocations"] if i["mode"] == "PlayMode" and i["kind"] == "tier"]
+    if any(i["filter"] == "" for i in play_invocations):
+        planned = full_measured
+    else:
+        ran = sum(float(r.get("Duration") or 0) for r in play.results if would_have_run(plan, "PlayMode", r["FullName"]))
+        planned = overhead * len(play_invocations) + ran
+    measured = {"plannedSeconds": round(planned, 1), "fullSeconds": round(full_measured, 1),
+                "savedSeconds": round(full_measured - planned, 1)}
+    return est, measured
+
+
+def sample_markdown(s):
+    L = ["# Shadow sample %s" % s["id"], "",
+         "- **valid**: %s%s · counts toward Q5: **%s**" % (s["valid"], "" if s["valid"] else " — " + s["invalidReason"], s["countsTowardQ5"]),
+         "- snapshot at plan time: %s %s · new snapshot written: %s %s" % (
+             s["snapshot"]["atPlan"].get("status"), s["snapshot"]["atPlan"].get("reason") or "",
+             s["snapshot"]["written"], s["snapshot"]["notWrittenReason"] or ""),
+         "- planned scope: **%s** (PlayMode %s)" % (s["plannedScope"]["tier"], s["selectedTests"]["selection"]),
+         "- classification of the full run: **%s**" % s["fullResults"]["verdict"],
+         "- savings — estimated: %s s · measured: %s s" % (s["savings"]["estimated"]["savedSeconds"],
+                                                            (s["savings"]["measured"] or {}).get("savedSeconds", "n/a")),
+         "", "## Escapes"]
+    L += ["- %s %s `%s` — %s (investigation: %s)" % (e["kind"], e["mode"], e["fullName"], e["message"], e["investigation"])
+          for e in s["escapes"]] or ["- none"]
+    L += ["", "## Planned scope — why"] + ["- %s %s %s %s" % (r["tier"], r["rule"], r["path"], r["detail"])
+                                          for r in s["plannedScope"]["reasons"][:20]]
+    L += ["", "## Selected tests"] + ["- filter `%s`" % f for f in s["selectedTests"]["filters"]]
+    L += ["- fixture %s" % f for f in s["selectedTests"]["selectedFixtures"]]
+    L += ["", "## Not run by the plan"] + ["- %s — %s" % (n["fixture"], n["reason"]) for n in s["selectedTests"]["notRun"]]
+    L += ["", "## Full results"]
+    for r in s["fullResults"]["records"]:
+        L.append("- %s %s exit %s %s — %s" % (r["mode"], r["dir"], r["exit"], r["outcome"],
+                                               ", ".join("%s %d" % kv for kv in sorted(r["counts"].items()))))
+        L += ["  - %s `%s`" % (f["kind"], f["fullName"]) for f in r["failures"]]
+        L += ["  - NOT EXECUTED (%s) `%s`" % (n["status"], n["fullName"]) for n in r["not_executed"]]
+    L += ["", "## Change set (%d paths: %s)" % (len(s["changeSet"]["changes"]),
+                                                ", ".join("%s %d" % kv for kv in sorted(s["changeSet"]["byTier"].items())))]
+    L += ["- %s %s → %s %s" % (c["status"], c["path"], c["tier"], c["rule"])
+          for c in s["changeSet"]["changes"] if c["rule"] != "UNITY_INVISIBLE"][:200]
+    return "\n".join(L) + "\n"
 
 
 def main(argv):
@@ -89,6 +144,7 @@ def main(argv):
     ap.add_argument("--edit-record", required=True)
     ap.add_argument("--play-record", required=True)
     ap.add_argument("--known", default=os.path.join(here, "known-failures.json"))
+    ap.add_argument("--samples", default=os.path.join(repo, "Logs", "test-orchestrator", "shadow"))
     ap.add_argument("--log", default=os.path.join(repo, "Logs", "test-orchestrator", "shadow.tsv"))
     ap.add_argument("--snapshot", default=os.path.join(repo, "Logs", "test-orchestrator", "last-verified.json"))
     ap.add_argument("--map", default=os.path.join(here, "test-map.json"))
@@ -102,6 +158,7 @@ def main(argv):
         report = classify.classify([a.edit_record, a.play_record], a.known)
         current = snap_mod.worktree_state(a.repo)
         map_hash = lib.sha256_file(a.map)
+        overhead = float(lib.load_json(a.map)["costModel"]["invocationOverheadSeconds"])
     except (OSError, ValueError, KeyError, lib.GitError, classify.KnownListError) as e:
         print("usage: %s: %s" % (e.__class__.__name__, e), file=sys.stderr)
         return 2
@@ -117,25 +174,60 @@ def main(argv):
             previous = []
     escapes, failing_now = ([], []) if invalid else compare(plan, edit, play, previous)
 
-    written = False
-    if not invalid and not a.no_snapshot:
+    written, not_written = False, None
+    if invalid:
+        not_written = "invalid sample"
+    elif a.no_snapshot:
+        not_written = "--no-snapshot"
+    else:
         state = snap_mod.worktree_state(a.repo, write_text_blobs=True)
         if snap_mod.state_equal(state, plan["preState"]):
             snap_mod.write(a.repo, a.snapshot, state, map_hash, failing_now,
                            [lib.norm_path(os.path.relpath(d, a.repo)) for d in (a.edit_record, a.play_record)])
             written = True
+        else:
+            not_written = "work tree changed while writing"
 
-    row = [datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-           (plan.get("preState") or {}).get("head", "")[:12],
-           # Q5 counts only valid samples planned against a trustworthy snapshot: without one the plan is R3 by rule
-           # and cannot have skipped anything, so it proves nothing about the selector.
-           "yes" if (not invalid and (plan.get("snapshot") or {}).get("status") == "valid") else "no",
-           (plan.get("snapshot") or {}).get("status", "?"), plan["tier"], plan["playMode"]["selection"],
-           str(len(plan["playMode"]["selectedFixtures"])), str(plan["playMode"]["estimateSeconds"]),
-           str(plan["playMode"]["fullEstimateSeconds"]), str(edit.runner_duration), str(play.runner_duration),
+    now = datetime.datetime.now(datetime.timezone.utc)
+    snap_at_plan = plan.get("snapshot") or {}
+    counts = not invalid and snap_at_plan.get("status") == "valid"
+    est, measured = savings(plan, play, overhead)
+    by_tier = {}
+    for c in plan.get("changes", []):
+        by_tier[c["tier"]] = by_tier.get(c["tier"], 0) + 1
+    sample_id = now.strftime("%Y%m%dT%H%M%SZ") + "-" + os.path.basename(os.path.dirname(os.path.abspath(a.plan)))[:60]
+    sample = {
+        "schema": 1, "id": sample_id, "utc": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "head": (plan.get("preState") or {}).get("head"), "plan": lib.norm_path(os.path.relpath(os.path.abspath(a.plan), a.repo)),
+        "valid": not invalid, "invalidReason": invalid, "countsTowardQ5": bool(counts),
+        "snapshot": {"atPlan": snap_at_plan, "written": written, "notWrittenReason": not_written},
+        "changeSet": {"byTier": by_tier, "changes": plan.get("changes", [])},
+        "plannedScope": {"tier": plan["tier"], "context": plan.get("context"), "reasons": plan.get("reasons", []),
+                         "invocations": plan.get("invocations", [])},
+        "selectedTests": {"selection": plan["playMode"]["selection"], "filters": plan["playMode"].get("filters", []),
+                          "selectedFixtures": plan["playMode"].get("selectedFixtures", []),
+                          "matchedFixtures": plan["playMode"].get("matchedFixtures", []),
+                          "notRun": plan["playMode"].get("notRun", [])},
+        "fullResults": {"verdict": report["verdict"], "knownListSha256": report["knownListSha256"],
+                        "records": report["records"],
+                        "runnerSeconds": {"EditMode": edit.runner_duration, "PlayMode": play.runner_duration}},
+        "escapes": escapes,
+        "savings": {"estimated": est, "measured": measured},
+    }
+    sdir = os.path.join(a.samples, sample_id)
+    os.makedirs(sdir, exist_ok=True)
+    with open(os.path.join(sdir, "sample.json"), "w", encoding="utf-8") as f:
+        f.write(lib.dump_json(sample))
+    with open(os.path.join(sdir, "sample.md"), "w", encoding="utf-8") as f:
+        f.write(sample_markdown(sample))
+
+    row = [sample["utc"], (sample["head"] or "")[:12], "yes" if counts else "no", snap_at_plan.get("status", "?"),
+           plan["tier"], plan["playMode"]["selection"], str(len(plan["playMode"]["selectedFixtures"])),
+           str(est["plannedSeconds"]), str(est["fullSeconds"]), str(est["savedSeconds"]),
+           str((measured or {}).get("savedSeconds", "")), str(edit.runner_duration), str(play.runner_duration),
            "no" if invalid else "yes", (invalid or "").replace("\t", " "), str(len(escapes)),
            ";".join(e["fullName"] for e in escapes), report["verdict"], "yes" if written else "no",
-           lib.norm_path(os.path.relpath(os.path.abspath(a.plan), a.repo))]
+           lib.norm_path(os.path.relpath(sdir, a.repo))]
     os.makedirs(os.path.dirname(os.path.abspath(a.log)), exist_ok=True)
     new_log = not os.path.isfile(a.log)
     with open(a.log, "a", encoding="utf-8") as f:
@@ -143,9 +235,9 @@ def main(argv):
             f.write(TSV_HEADER + "\n")
         f.write("\t".join(row) + "\n")
 
-    print("shadow: %s · plan %s/%s · classification %s · escapes %d · snapshot %s"
+    print("shadow: %s · plan %s/%s · classification %s · escapes %d · snapshot %s · sample %s"
           % ("INVALID (" + invalid + ")" if invalid else "valid", plan["tier"], plan["playMode"]["selection"],
-             report["verdict"], len(escapes), "written" if written else "not written"))
+             report["verdict"], len(escapes), "written" if written else "not written", sdir))
     for e in escapes:
         print("  %s %s %s — %s" % (e["kind"], e["mode"], e["fullName"], e["message"]))
     if invalid:

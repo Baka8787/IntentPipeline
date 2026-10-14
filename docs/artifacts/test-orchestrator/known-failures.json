@@ -1,5 +1,57 @@
 {
   "schema": 1,
-  "_comment": "docs/57 §6.2 / §12.5. Adding, changing or removing an entry requires the user's decision (Q6). Each entry: id, mode (EditMode|PlayMode), fullName (complete test name), symptoms (stable message fragments, all must appear; whitespace-normalized), cause, ref, approvedBy, approvedOn, reviewBy. Candidates awaiting a decision are listed in docs/57 §12.5, NOT here.",
-  "entries": []
+  "_comment": "docs/57 §6.2 / §12.5 / §14.1. Adding, changing or removing an entry requires the user's decision (Q6). Required: id, mode, fullName (complete test name), symptoms (stable message fragments, ALL must appear; whitespace-normalized), cause, approvedBy, approvedOn, approvalRef, source (baseline evidence), reinvestigateWhen. A known test failing with any other symptom is reported as NEW_FAILURE. Verify against records with: classify_results.py --verify-entries <records>.",
+  "entries": [
+    {
+      "id": "K-1",
+      "mode": "EditMode",
+      "fullName": "Project.Tests.EditMode.StairAuthoringContractTests.Scene_InstanceMasks_MatchSemanticTable",
+      "symptoms": [
+        "scene/X Bot FootIKController.settings.GroundLayers=503",
+        "應為 -9"
+      ],
+      "cause": "使用者未 commit 的 Assets/Scenes/SampleScene.unity 新增 X Bot FootIKController.settings.GroundLayers.m_Bits=503 override（HEAD 沒有）；環境相依，不是程式缺陷",
+      "ref": "docs/54 AC-0.5 與 §726；docs/44（GroundLayers 語意表：X Bot 應為 -9）",
+      "approvedBy": "user（使用者裁決 D-1，有條件批准）",
+      "approvedOn": "2026-10-14",
+      "approvalRef": "docs/57 §14.1",
+      "source": [
+        "Logs/safe-test 2026-10-12～13 全部 8 次 EditMode 全量：8／8 Failed，訊息逐字相同（首見 20261012T082055Z-wp01-editmode @7c4c4e4，最近 20261013T095531Z-p13-editmode-final @a2841e1）"
+      ],
+      "reinvestigateWhen": [
+        "SampleScene.unity 的 WIP 被 commit 或還原（覆寫值消失或變成正式設定）",
+        "訊息出現其他 GroundLayers 值或其他角色（＝症狀變更，比對器報 NEW_FAILURE）",
+        "測試通過（KNOWN_NOT_OBSERVED）⇒ 提請移除",
+        "2026-10-28 仍存在 ⇒ 重新裁決"
+      ],
+      "reviewBy": "2026-10-28"
+    },
+    {
+      "id": "K-2",
+      "mode": "PlayMode",
+      "fullName": "Project.Tests.PlayMode.MotionDriverCommittedMovementPlayModeTests.C0_TraversalDoesNotReportGroundEdgesFromIncidentalContact",
+      "symptoms": [
+        "陽性對照失敗：非 traversal 的 false→true 邊沿本來就該回報落地",
+        "Expected: True",
+        "But was: False"
+      ],
+      "cause": "測試的陽性對照在 2026-09-23 加入 groundEdgeEventGrace 後不再成立（對照組需等 grace 才報邊沿）；traversal 期間抑制 edge 的契約因此沒有守門（docs/50 M-02）",
+      "ref": "docs/50 §M-02（:41、:158、:390、:495 G-1）",
+      "approvedBy": "user（使用者裁決 D-1，有條件批准）",
+      "approvedOn": "2026-10-14",
+      "approvalRef": "docs/57 §14.1",
+      "source": [
+        "Logs/safe-test 2026-10-11～13 共 11 次含此測試的紀錄：11／11 Failed，訊息逐字相同（首見 20261011T065018Z-live-play-c0 @4fd0962，最近 20261013T100953Z-p13-playmode-final3 @a2841e1）",
+        "docs/50：自 2026-09-23 起每輪回歸皆紅"
+      ],
+      "reinvestigateWhen": [
+        "docs/50 G-1（Failed 結局的 traversal 語意）裁決或 M-02 開工 ⇒ 依 docs/50:390 先修陽性對照",
+        "groundEdgeEventGrace 或 MotionDriver 的 edge 抑制邏輯變更",
+        "訊息改變（＝症狀變更，比對器報 NEW_FAILURE）",
+        "測試通過 ⇒ 提請移除",
+        "docs/50:473 的規則：紅燈不得以「既有失敗」長期存在 ⇒ 2026-10-28 重新裁決"
+      ],
+      "reviewBy": "2026-10-28"
+    }
+  ]
 }

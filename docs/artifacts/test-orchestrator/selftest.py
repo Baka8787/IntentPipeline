@@ -5,6 +5,7 @@
 Suites:  MAP  live rule table is complete (AC2)          PLAN  synthetic change sets (fixtures/planner-cases.json)
          DET  determinism (AC1)                          GIT   snapshot / change-set mechanics in throwaway repos
          CLS  known-failure classification (AC9)         SHD   shadow comparison (escapes, invalid samples)
+         RPT  shadow-period report (benefit, R3 share, pending escape investigations)
          MIR  .claude / .agents skill mirror (S6)
 Exit 0 = every case passed.
 """
@@ -26,6 +27,7 @@ import classify_results as classify  # noqa: E402
 import orchestrator_lib as lib  # noqa: E402
 import plan_tests as planner  # noqa: E402
 import shadow_compare as shadow  # noqa: E402
+import shadow_report as sreport  # noqa: E402
 import snapshot as snap_mod  # noqa: E402
 
 REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
@@ -79,7 +81,8 @@ def known_list(root, entries, name="known.json"):
 
 def entry(eid, mode, full, symptoms, **extra):
     e = {"id": eid, "mode": mode, "fullName": full, "symptoms": symptoms, "cause": "c", "ref": "r",
-         "approvedBy": "user", "approvedOn": "2026-10-13", "reviewBy": "x"}
+         "approvedBy": "user", "approvedOn": "2026-10-13", "approvalRef": "docs/57 §14.1", "source": ["record x"],
+         "reinvestigateWhen": ["when y"], "reviewBy": "x"}
     e.update(extra)
     return e
 
@@ -362,8 +365,10 @@ def suite_cls():
         check("CLS", "C03 whitespace-normalised symptom matches NUnit's double space ('But was:  False')", kinds[-1:] == ["KNOWN_MATCH"])
         k1b = known_list(root, [entry("K-1", "EditMode", K1_NAME, ["GroundLayers=511"])], "k1b.json")
         r = run([e_k1], k1b)
-        check("CLS", "C04 same test, different symptom -> KNOWN_NAME_NEW_SYMPTOM -> FAILED",
-              r["verdict"] == "FAILED" and r["records"][0]["failures"][0]["kind"] == "KNOWN_NAME_NEW_SYMPTOM", r["verdict"])
+        f0 = r["records"][0]["failures"][0]
+        check("CLS", "C04 same test, different symptom -> NEW_FAILURE (symptomChangedFrom K-1) -> FAILED",
+              r["verdict"] == "FAILED" and f0["kind"] == "NEW_FAILURE" and f0["symptomChangedFrom"] == "K-1"
+              and f0["knownId"] is None, "%s %s" % (r["verdict"], f0))
         r = run([e_k1, p_c0], empty)
         check("CLS", "C05 unlisted failures (current state: list empty) -> NEW_FAILURE -> FAILED",
               r["verdict"] == "FAILED" and all(f["kind"] == "NEW_FAILURE" for i in r["records"] for f in i["failures"]), r["verdict"])
@@ -420,7 +425,10 @@ def suite_cls():
         for label, bad in (("missing approvedBy", [dict(k1, approvedBy="")]), ("empty symptoms", [dict(k1, symptoms=[])]),
                            ("blank symptom", [dict(k1, symptoms=["  "])]), ("duplicate id", [k1, dict(c0, id="K-1")]),
                            ("duplicate test", [k1, dict(k1, id="K-9")]), ("bad mode", [dict(k1, mode="All")]),
-                           ("partial name", [dict(k1, fullName="Scene_InstanceMasks")])):
+                           ("partial name", [dict(k1, fullName="Scene_InstanceMasks")]),
+                           ("missing approvalRef", [dict(k1, approvalRef="")]), ("empty source", [dict(k1, source=[])]),
+                           ("no reinvestigation condition", [dict(k1, reinvestigateWhen=[])]),
+                           ("source not a list", [dict(k1, source="record")])):
             p = known_list(root, bad, "bad-%s.json" % label.replace(" ", "-"))
             try:
                 classify.load_known(p)
@@ -431,8 +439,21 @@ def suite_cls():
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             code = classify.main([e_k1, "--known", known_list(root, [dict(k1, approvedBy="")], "bad-cli.json")])
         check("CLS", "C22 CLI exits 2 on an invalid list", code == 2, str(code))
-        prod = classify.load_known(os.path.join(HERE, "known-failures.json"))
-        check("CLS", "C23 shipped known-failures.json is valid and empty until the user decides (Q6)", prod == [], str(prod))
+        prod = {e["id"]: e for e in classify.load_known(os.path.join(HERE, "known-failures.json"))}
+        check("CLS", "C23 shipped list holds exactly the approved K-1 and K-2 (D-1)", sorted(prod) == ["K-1", "K-2"], str(sorted(prod)))
+        check("CLS", "C23 K-1 name exact and symptoms match the real Unity message",
+              prod.get("K-1", {}).get("fullName") == K1_NAME and classify.symptom_matches(prod["K-1"], K1_MSG))
+        check("CLS", "C23 K-2 name exact and symptoms match the real Unity message",
+              prod.get("K-2", {}).get("fullName") == C0_NAME and classify.symptom_matches(prod["K-2"], C0_MSG))
+        check("CLS", "C23 a changed GroundLayers value is NOT matched by K-1",
+              not classify.symptom_matches(prod["K-1"], K1_MSG.replace("=503", "=511")))
+        v = {x["id"]: x["state"] for x in classify.verify_entries([e_k1, p_c0], known)}
+        check("CLS", "C24 --verify-entries: both confirmed by baseline records", v == {"K-1": "CONFIRMED", "K-2": "CONFIRMED"}, str(v))
+        v = {x["id"]: x["state"] for x in classify.verify_entries([e_k1, p_c0], k1b)}
+        check("CLS", "C24 --verify-entries: wrong symptom -> SYMPTOM_MISMATCH", v == {"K-1": "SYMPTOM_MISMATCH"}, str(v))
+        v = {x["id"]: x["state"] for x in classify.verify_entries([p_ok], known)}
+        check("CLS", "C24 --verify-entries: absent from the records -> NOT_OBSERVED",
+              v == {"K-1": "NOT_OBSERVED", "K-2": "NOT_OBSERVED"}, str(v))
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
@@ -450,8 +471,14 @@ def suite_shd():
         map_hash = lib.sha256_file(MAP)
 
         def plan(invocations, tier="R2"):
-            return {"tier": tier, "invocations": invocations, "preState": state, "mapSha256": map_hash,
+            return {"tier": tier, "invocations": invocations, "preState": state, "mapSha256": map_hash, "context": "dev",
+                    "snapshot": {"status": "invalid", "reason": "SNAPSHOT_MISSING"},
+                    "changes": [{"path": "Assets/Scripts/Core/Combat/EnemyLeash.cs", "status": "M", "tier": "R2",
+                                 "rule": "MODULE", "detail": "Core.Combat", "fixtures": ["EnemyChasePlayModeTests"]}],
+                    "reasons": [{"tier": "R2", "rule": "MODULE", "path": "x", "detail": "y"}],
                     "playMode": {"selection": "filters", "selectedFixtures": ["EnemyChasePlayModeTests"],
+                                 "filters": ["Project.Tests.PlayMode.EnemyChasePlayModeTests"], "matchedFixtures": [],
+                                 "notRun": [{"fixture": "StairTraversalPlayModeTests", "reason": "R2"}],
                                  "estimateSeconds": 62.0, "fullEstimateSeconds": 306.0}}
 
         r2 = plan([{"mode": "EditMode", "filter": "", "kind": "tier"},
@@ -470,8 +497,14 @@ def suite_shd():
             out = io.StringIO()
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
                 code = shadow.main(["--plan", pp, "--edit-record", edit, "--play-record", play, "--repo", repo,
-                                    "--snapshot", sp, "--log", logp, "--known", known_list(root, [], "empty-%s.json" % tag)])
+                                    "--snapshot", sp, "--log", logp, "--known", known_list(root, [], "empty-%s.json" % tag),
+                                    "--samples", os.path.join(root, "samples-%s" % tag)])
             return code, out.getvalue(), sp, logp
+
+        def sample_of(tag):
+            d = os.path.join(root, "samples-%s" % tag)
+            names = os.listdir(d) if os.path.isdir(d) else []
+            return lib.load_json(os.path.join(d, names[0], "sample.json")) if len(names) == 1 else None
 
         short = head[:7]
         e_ok = make_record(root, "e-ok", "EditMode", 0, [("Project.Tests.EditMode.A.B", "Passed", None)], head=short)
@@ -480,6 +513,18 @@ def suite_shd():
                                                               ("Project.Tests.PlayMode.EnemyChasePlayModeTests.Run", "Passed", None)], head=short)
         code, out, sp, logp = run(r2, e_ok, p_escape, tag="s1")
         check("SHD", "S1 new failure in an unselected fixture -> ESCAPE (exit 1)", code == 1 and "ESCAPE" in out, out)
+        smp = sample_of("s1")
+        required = ("changeSet", "plannedScope", "selectedTests", "fullResults", "escapes", "snapshot", "savings")
+        check("SHD", "S1 sample record: change set, planned scope, selected tests, full results, escapes, snapshot validity, savings",
+              smp is not None and all(k in smp for k in required) and smp["changeSet"]["changes"]
+              and smp["selectedTests"]["filters"] and smp["fullResults"]["records"] and smp["escapes"]
+              and smp["snapshot"]["written"] is True and smp["snapshot"]["atPlan"]["status"] == "invalid", str(smp)[:300])
+        check("SHD", "S1 escape is recorded as PENDING investigation", smp and smp["escapes"][0]["investigation"] == "PENDING")
+        meas = (smp or {}).get("savings", {}).get("measured") or {}
+        check("SHD", "S1 measured savings from real durations: full 60+1.0 s vs planned 60+0.1 s = 0.9 s",
+              meas.get("fullSeconds") == 61.0 and meas.get("plannedSeconds") == 60.1 and meas.get("savedSeconds") == 0.9, str(meas))
+        check("SHD", "S1 estimated savings from the plan's cost model = 306-62 = 244 s",
+              smp and smp["savings"]["estimated"]["savedSeconds"] == 244.0, str((smp or {}).get("savings")))
         check("SHD", "S1 valid sample writes the snapshot with the failure fingerprint",
               os.path.isfile(sp) and any(stair in f for f in lib.load_json(sp)["failures"]), out)
         lines = open(logp, encoding="utf-8").read().splitlines() if os.path.isfile(logp) else []
@@ -501,6 +546,10 @@ def suite_shd():
         p_other_head = make_record(root, "p-head", "PlayMode", 0, [("Project.Tests.PlayMode.A.B", "Passed", None)], head="0000000")
         code, out, sp, _ = run(r2, e_ok, p_other_head, tag="s5")
         check("SHD", "S5 record from another HEAD -> invalid sample (exit 3), no snapshot", code == 3 and not os.path.isfile(sp), out)
+        smp = sample_of("s5")
+        check("SHD", "S5 invalid sample is still recorded, with its reason and snapshot not written",
+              smp is not None and not smp["valid"] and smp["invalidReason"] and not smp["snapshot"]["written"]
+              and not smp["countsTowardQ5"], str(smp)[:300])
         p_filtered = make_record(root, "p-filt", "PlayMode", 0, [("Project.Tests.PlayMode.A.B", "Passed", None)], head=short, filt="A")
         code, out, _, _ = run(r2, e_ok, p_filtered, tag="s6")
         check("SHD", "S6 filtered record -> invalid sample", code == 3, out)
@@ -516,6 +565,68 @@ def suite_shd():
         check("SHD", "S9 work tree changed after planning -> invalid sample, no snapshot", code == 3 and not os.path.isfile(sp), out)
     finally:
         shutil.rmtree(repo, ignore_errors=True)
+        shutil.rmtree(root, ignore_errors=True)
+
+
+# =====================================================================================================================
+# RPT: shadow report
+# =====================================================================================================================
+
+def suite_rpt():
+    root = tempfile.mkdtemp(prefix="orch-rpt-")
+    try:
+        def sample(sid, valid=True, counts=True, tier="R2", saved_est=200.0, saved_meas=150.0, escapes=(), r3_rule="E2"):
+            d = os.path.join(root, "samples", sid)
+            os.makedirs(d)
+            s = {"id": sid, "valid": valid, "invalidReason": None if valid else "work tree changed", "countsTowardQ5": counts,
+                 "plannedScope": {"tier": tier, "reasons": [{"tier": tier, "rule": r3_rule if tier == "R3" else "MODULE",
+                                                             "path": "p", "detail": "d"}]},
+                 "savings": {"estimated": {"savedSeconds": saved_est},
+                             "measured": {"savedSeconds": saved_meas, "fullSeconds": 300.0}},
+                 "escapes": [dict(e) for e in escapes]}
+            with open(os.path.join(d, "sample.json"), "w", encoding="utf-8") as f:
+                json.dump(s, f)
+        esc = {"kind": "ESCAPE", "mode": "PlayMode", "fullName": "Project.Tests.PlayMode.X.Y", "message": "m"}
+        sample("01-first", counts=False, tier="R3", saved_est=0.0, saved_meas=0.0)
+        sample("02-r3", tier="R3", saved_est=0.0, saved_meas=0.0, r3_rule="E7")
+        sample("03-r3", tier="R3", saved_est=0.0, saved_meas=0.0, r3_rule="E7")
+        sample("04-r2", escapes=[esc])
+        sample("05-bad", valid=False, counts=False)
+        inv_path = os.path.join(root, "inv.json")
+        with open(inv_path, "w", encoding="utf-8") as f:
+            json.dump({"schema": 1, "entries": []}, f)
+        r = sreport.build(sreport.load_samples(os.path.join(root, "samples")), sreport.load_investigations(inv_path))
+        check("RPT", "R1 counts only valid samples with a trustworthy snapshot", r["counting"] == 3 and r["valid"] == 4, str(r))
+        check("RPT", "R2 R3 share and reasons reported (benefit, not just escapes)",
+              abs(r["r3Share"] - 2 / 3) < 1e-9 and r["r3Rules"] == {"E7": 2}, str(r))
+        check("RPT", "R3 measured savings and share of full PlayMode time",
+              r["measuredSaved"]["total"] == 150.0 and r["measuredSaved"]["shareOfFullPlayTime"] == round(150 / 900, 3), str(r))
+        check("RPT", "R4 uninvestigated escape listed as pending", len(r["pendingInvestigations"]) == 1, str(r))
+        md = sreport.to_markdown(r)
+        check("RPT", "R5 report says Phase 3 is not enabled and flags mostly-R3",
+              "NOT enabled" in md and "most samples were forced to R3" in md, md)
+        with open(inv_path, "w", encoding="utf-8") as f:
+            json.dump({"schema": 1, "entries": [{"sample": "04-r2", "mode": "PlayMode", "fullName": "Project.Tests.PlayMode.X.Y",
+                                                 "category": "mapping-gap", "evidence": "fixture X exercises module Z",
+                                                 "action": "add X to module Z", "decidedOn": "2026-10-14"}]}, f)
+        r = sreport.build(sreport.load_samples(os.path.join(root, "samples")), sreport.load_investigations(inv_path))
+        check("RPT", "R6 investigated escape is no longer pending",
+              not r["pendingInvestigations"] and r["escapes"][0]["investigation"] == "mapping-gap")
+        for label, bad in (("unknown category", {"category": "widened-rule"}), ("no evidence", {"evidence": ""})):
+            e = {"sample": "04-r2", "mode": "PlayMode", "fullName": "X", "category": "flaky-test", "evidence": "e",
+                 "action": "a", "decidedOn": "d"}
+            e.update(bad)
+            with open(inv_path, "w", encoding="utf-8") as f:
+                json.dump({"schema": 1, "entries": [e]}, f)
+            try:
+                sreport.load_investigations(inv_path)
+                ok = False
+            except sreport.InvestigationError:
+                ok = True
+            check("RPT", "R7 invalid investigation (%s) is refused" % label, ok)
+        check("RPT", "R8 shipped escape-investigations.json is valid",
+              sreport.load_investigations(os.path.join(HERE, "escape-investigations.json")) == [])
+    finally:
         shutil.rmtree(root, ignore_errors=True)
 
 
@@ -546,7 +657,7 @@ def suite_mir():
 
 def main():
     lib.utf8_stdout()
-    for suite in (suite_map, suite_plan, suite_det, suite_git, suite_cls, suite_shd, suite_mir):
+    for suite in (suite_map, suite_plan, suite_det, suite_git, suite_cls, suite_shd, suite_rpt, suite_mir):
         try:
             suite()
         except Exception as e:  # a crashing suite is a failure, never a silent skip

@@ -7,12 +7,13 @@
 
 ## 🔖 交辦（下一會話 Handoff）
 
-> # 🟩 2026-10-13：測試調度器 Phase 1＋2（`docs/57` §12–§13；與 P5 分開追蹤）
+> # 🟩 2026-10-14：測試調度器——影子期進行中（`docs/57` §14；與 P5 分開追蹤）
 >
-> - ✅ 已裁決：方案 B、命名 **R0–R3**、EditMode 一律全量、Gate／合併／發布／重大架構／高風險 ⇒ R3（拆小 commit 不能規避：變更集基準是上次全量快照）。
-> - ✅ **Phase 1** 已知失敗比對器、**Phase 2** 選擇器（影子模式）、快照、影子比對、Skill 鏡像檢查：`docs/artifacts/test-orchestrator/`。自測 **127／127**、變異 **18／18**、`--check-map` OK。⛔ 沒動 `safe_unity_test.sh`、Unity 測試、CI。
-> - ⏳ **影子樣本 0／10**：需要一次完整 EditMode＋PlayMode，程序見該資料夾 README。第一個有效樣本只建立快照。
-> - ❓ 待裁決（`docs/57` §13.5）：D-1 已知失敗候選 K-1／K-2（清單目前為空 ⇒ 比對器報 FAILED）、D-2 對照表要不要先過目、D-3 何時累積樣本。Phase 3 等影子結果再議；Phase 4 暫不做。
+> - ✅ Phase 1＋2 驗收通過（2026-10-14）。**Phase 3 未啟用，需另行裁決**（影子期達標也不會自動啟用）。⛔ 不改 `safe_unity_test.sh`、Unity 測試、CI。
+> - ✅ D-1：K-1（場景 `GroundLayers=503`）、K-2（`C0`）以 `--verify-entries` 對 47 份紀錄核對皆 CONFIRMED 後列入，含核准紀錄、來源、重新調查條件（期限 2026-10-28）。症狀變更一律報 `NEW_FAILURE`。最近全量因此是 `VERIFIED_WITH_KNOWN_FAILURES`。
+> - 🔎 `MovementIntentTests.AIMovementSource_WithoutCamera_ProducesNonZeroWorldDirection`：EditMode 中 `NavMeshAgent.Warp` 恆回 false ⇒ 8／8 次全量都 Skipped（註解說「不定期」不符實況）；交戰分支「無相機」的行為沒有任何會執行的回歸測試。❓ 建議移到 PlayMode（需你裁決，未改測試）。
+> - ✅ 每個影子樣本有完整紀錄（變更集／計畫範圍／選中測試／全量結果／ESCAPE／快照有效性／預估與實測節省），`shadow_report.py` 報實際效益與 R3 比例；ESCAPE 調查記在 `escape-investigations.json`。自測 **151／151**、變異 **22／22**。
+> - ⏳ **影子樣本 0／10**：隨正常完整回歸累積（D-3）。2026-10-14 安全入口 `--check-only` ⇒ `PREFLIGHT_FAILED`（沒有可用的 Editor）。
 >
 > # 🟨 2026-10-13：P5 戰鬥站位（`docs/56` §10；與測試調度器分開追蹤）
 >
