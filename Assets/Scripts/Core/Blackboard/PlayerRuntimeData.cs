@@ -98,6 +98,13 @@ namespace Project.Core.Blackboard
         public Transform CameraTransform { get; set; }
 
         /// <summary>
+        /// 🆕（2026-10-14，ADR-012 Trial）最近一次基礎移動的執行結果（要求多少、實際走多少、哪一帧）。
+        /// 寫入者：MotionDriver.ExecuteBaseMovement（唯一，A5 守）。讀者：敵人導航的卡住判定（只回報）。
+        /// 語意與「如何判定這一帧有沒有被允許移動」見 <see cref="MotionExecutionData"/>。
+        /// </summary>
+        public MotionExecutionData MotionExecution;
+
+        /// <summary>
         /// 角色是否觸地。依專案規範採用公開欄位（field，非 property）。
         /// 寫入者：MotionDriver。由 SyncGroundedState() 統一寫入；重力與 committed 垂直曲線
         ///         兩條位移路徑共用同一個發布點。

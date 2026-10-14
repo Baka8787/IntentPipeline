@@ -75,6 +75,8 @@ namespace Project.Core.Movement
         private EnemyNavigator _navigator;
         // 🆕（docs/55 §11.2）非戰鬥行為（去哪）。領地資料由同物件的 EnemyTerritory 提供；缺席 ⇒ 未交戰時照舊站著。
         private EnemyNonCombatBehavior _nonCombat;
+        // 🆕（docs/56 §12，P5a）戰術站位（目前只處理目標不可達）。惰性建立（EditMode 不呼叫 Awake）。
+        private EnemyTacticalPositioning _tactical;
         private EnemyTerritory _territory;
         private bool _territoryResolved;
         private TemporaryGameplayEffectState _effectState;
@@ -167,6 +169,9 @@ namespace Project.Core.Movement
             return _territory;
         }
 
+        /// <summary>目前的戰術站位情境（診斷／測試用）。</summary>
+        internal TacticalSituation TacticalSituation => _tactical != null ? _tactical.Situation : TacticalSituation.None;
+
         /// <summary>目前的非戰鬥模式（診斷／測試用；未啟用時為 None）。</summary>
         internal EnemyNonCombatMode NonCombatMode => _nonCombat != null ? _nonCombat.Mode : EnemyNonCombatMode.None;
 
@@ -185,12 +190,12 @@ namespace Project.Core.Movement
         {
             if (data == null) return;
 
-            // 🆕（docs/55 P0.1／P0.4）每帧先讓導航跟上角色實際位置（**包含未交戰**），再回報上一帧
-            // 的意圖有沒有讓角色前進（卡住偵測只回報，不改行為）。上一帧的意圖就是黑板上還沒覆寫的值——
-            // 本元件是 MovementIntent 的唯一寫入者。
+            // 🆕（docs/55 P0.1）每帧先讓導航跟上角色實際位置（**包含未交戰**）。
+            // 🔄（2026-10-14，ADR-012）卡住偵測改讀 MotionDriver 發布的**執行事實**（上一帧 LateUpdate 寫入）：
+            //    只有「被允許照意圖移動卻沒有進展」才算卡住；攻擊、受擊、Traversal、停步期間不累積、不回報。仍然只回報。
             EnemyNavigator navigator = ResolveNavigator();
             navigator.Sync(transform.position);
-            navigator.ReportProgress(transform.position, data.MovementIntent.HasMovementRequest, Time.time);
+            navigator.ReportExecution(data.MotionExecution, Time.frameCount, Time.deltaTime);
 
             data.MovementIntent = default;
 
@@ -203,6 +208,7 @@ namespace Project.Core.Movement
             {
                 _engagementMovement = EngagementMovement.Hold;
                 _strafeBlocked = false;
+                _tactical?.Reset();
                 return;
             }
 
@@ -217,6 +223,7 @@ namespace Project.Core.Movement
             {
                 _engagementMovement = EngagementMovement.Hold;
                 _strafeBlocked = false;
+                _tactical?.Reset();   // D6：脫戰／目標死亡 ⇒ 清除站位承諾
                 // 🆕（docs/55 P1–P3）未交戰：交給非戰鬥行為選目的地；沒有 EnemyTerritory ⇒ 與舊版相同（站著）。
                 ProduceNonCombatIntent(data, navigator);
                 return;
@@ -271,6 +278,25 @@ namespace Project.Core.Movement
                 minimumEngagementDistance,
                 maximumEngagementDistance,
                 distanceHysteresis);
+
+            // 🆕（2026-10-14，`docs/56` §12.3，P5a）**目標不可達 ⇒ 停在最接近的可達點待命，不推牆。**
+            // 站位元件只回答「站在哪」；這裡照舊經導航與 steering 取得方向、仍是唯一的意圖寫入者。
+            // 進入判定只讀 agent 現有的路徑快照（一般打鬥沒有額外查詢）；`_engagementMovement` 照常推進，離開時無縫接回。
+            if (_tactical == null) _tactical = new EnemyTacticalPositioning();
+            TacticalGoal tactical = _tactical.Tick(transform.position, targetPosition, maximumEngagementDistance, Time.time,
+                navigator.SnapshotPath(), navigator);
+            if (tactical.Active)
+            {
+                _strafeBlocked = false;
+                if (tactical.Arrived) return;   // 待命：不發布移動意圖（朝向照舊由 CharacterFacingSource 面向目標）
+
+                navigator.RequestDestination(tactical.Point, Time.time);
+                if (!navigator.TryResolveSteeringPoint(transform.position, tactical.Point, out Vector3 holdSteering)) return;
+                if (!EnemySteering.TryResolveDirection(transform.position, holdSteering, out Vector3 holdDirection)) return;
+                data.MovementIntent.DesiredDirection = holdDirection;
+                data.MovementIntent.DesiredSpeedNormalized = ResolveDesiredSpeedNormalized(Time.time);
+                return;
+            }
 
             // Agent 只維護 path query 的內部位置（已在本帧開頭同步）；角色 Transform 只會被 MotionDriver 搬動。
             // 🔄（docs/55 P0.2）舊版每帧 SetDestination；改為節流——目的地移動夠多或路徑失效才重新請求。
@@ -539,7 +565,8 @@ namespace Project.Core.Movement
                 $"AI move: {_engagementMovement}{(_strafeBlocked ? "  ⚠ 兩側皆不可走 ⇒ 停步" : string.Empty)}\n" +
                 $"distance {distance:0.00}  band [{minimumEngagementDistance:0.00}, {maximumEngagementDistance:0.00}]\n" +
                 $"strafe {(_strafeDirectionSign > 0 ? "CW" : "CCW")}  onNavMesh {(_agent != null && _agent.isOnNavMesh ? "yes" : "NO")}" +
-                $"  nonCombat {NonCombatMode}{(_navigator != null && _navigator.IsStuck ? "  ⚠ stuck" : string.Empty)}");
+                $"  nonCombat {NonCombatMode}{(_navigator != null && _navigator.IsStuck ? "  ⚠ stuck" : string.Empty)}" +
+                $"  tactical {TacticalSituation}");
         }
 
         private static Color EngagementGizmoColor(EngagementMovement movement)

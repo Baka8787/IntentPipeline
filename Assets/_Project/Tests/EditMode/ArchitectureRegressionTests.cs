@@ -525,6 +525,9 @@ namespace Project.Tests.EditMode
             // MotionDriver 唯一寫入，狀態只經 ApplyJumpLaunch 注入，永不直接寫黑板欄位。
             new WriterRule { Member = "VerticalVelocity", AllowedFiles = new[] { "MotionDriver.cs" },
                              Owner = "MotionDriver.GetGravityThisFrame（貼地夾持前發布；唯一寫入者）" },
+            // 🆕（2026-10-14，ADR-012 Trial）移動執行結果的觀測契約：只有 MotionDriver 在 Move 之後寫入事實。
+            new WriterRule { Member = "MotionExecution", AllowedFiles = new[] { "MotionDriver.cs" },
+                             Owner = "MotionDriver.ExecuteBaseMovement（Move 之後發布執行事實；唯一寫入者，ADR-012 D2）" },
             new WriterRule { Member = "JustLanded", AllowedFiles = new[] { "MotionDriver.cs" },
                              Owner = "MotionDriver.GetGravityThisFrame（唯一觸發源）" },
             new WriterRule { Member = "JustLeftGround", AllowedFiles = new[] { "MotionDriver.cs" },
@@ -2049,6 +2052,26 @@ namespace Project.Tests.EditMode
                     StringAssert.DoesNotContain(token, body,
                         $"{method} 出現 '{token}'：限速的啟用權不得由 Presentation 播放狀態反推（`docs/54` §3.5.3）");
                 }
+            }
+        }
+
+        // =====================================================================
+        // A56 — 戰術站位只拿目標的「值」，不形成第二個 target／意圖權威（docs/56 §5.9、§12）
+        // =====================================================================
+
+        [Test]
+        public void A56_TacticalPositioning_TakesTargetAsValue_AndOwnsNoAuthority()
+        {
+            string code = StripStringLiterals(StripComments(File.ReadAllText(FindSingleScript("EnemyTacticalPositioning.cs"))));
+            foreach (string token in new[]
+                     {
+                         "Transform", ".Target", "GetComponent", "Project.Core.Combat", "PlayerRuntimeData",
+                         "MovementIntent", "NavMeshAgent", "UnityEngine.AI", "AIInputSource", "Camera",
+                     })
+            {
+                StringAssert.DoesNotContain(token, code,
+                    $"EnemyTacticalPositioning.cs 出現 '{token}'：站位只收目標位置的值、只回答「站在哪」——" +
+                    "不得持有 target、不得讀黑板或寫意圖、不得碰 agent 或攻擊判定（docs/56 §5.9、D2）");
             }
         }
     }

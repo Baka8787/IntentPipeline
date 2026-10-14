@@ -521,3 +521,79 @@
 | 攻擊／無效攻擊、recover、路徑請求 | 6/0、0、7（三輪相同） | — |
 
 ⇒ `CornerPinned` 是 **P5b**（T1／T2：站位與 Retreat）的驗收情境，**不是 P5a 的**——P5a 不改 Retreat。P5a 對它的預期只有「出拳／受擊中的 stuck 誤報歸零，推牆時的 stuck 仍被偵測到」（ADR-012）。
+
+---
+
+## 12. P5a 實作基線（2026-10-14，使用者裁決後）
+
+### 12.1 範圍（只動導航，不動站位與攻擊合法性）
+
+使用者要求：**避免導航、戰術站位、攻擊合法性同時修改，導致無法歸因**。據此 P5a 收窄為兩件導航層的事：
+
+| 項目 | 內容 | 依據 |
+|---|---|---|
+| **S1 卡住觀測** | `MotionDriver` 發布移動執行結果；`EnemyNavigator` 以「被允許移動卻沒有進展」判定卡住 | **ADR-012（Trial）**；`docs/56` §10.4 |
+| **A1 目標不可達** | 停在最接近目標的可達點，不再推牆 | §10.5 A1 |
+
+**移到 P5b**：A2（在攻擊距離內但隔牆）——它問的是「該站在哪、打不打得到」，屬站位與攻擊合法性（D5 未裁決），不屬導航。§10.5 的 A2 列以本節為準。
+**P5a 不做**：用卡住訊號觸發任何行為（ADR-012 D3）、改 Strafe／Retreat（T1／T2 屬 P5b）、改 `AIInputSource`（D5）。
+
+### 12.2 S1：卡住判定（Living Spec，ADR-012 §7 下放的數值）
+
+讀者：`EnemyNavigator`，每帧在 `AIMovementSource.ProduceIntent` 開頭讀 `data.MotionExecution`。
+
+| 規則 | 值 |
+|---|---|
+| 「上一帧被允許照意圖移動」 | `MotionExecution.Frame == Time.frameCount − 1` |
+| 可忽略的請求（不累積；若被允許移動則重置窗） | 每帧要求位移 < 1e-4 m |
+| 窗長（只累積被允許移動的時間） | `StuckWindowSeconds`（既有，0.75 s） |
+| 判定 | 窗滿時：累積要求 ≥ `StuckMinProgress`（既有欄位，0.15 m，改作「窗內最少要求量」）∧ 累積實際 < 0.25 × 累積要求 ⇒ 卡住；結論保持到下一個窗 |
+| 不被允許移動的帧 | 不累積、窗保留、**本帧回報不卡住** |
+
+### 12.3 A1：目標不可達
+
+| 規則 | 內容 |
+|---|---|
+| 進入 | agent 目前這條**通往目標**的路徑（不在計算中）是 `PathPartial`，且路徑終點到目標的水平距離 > `attackRange` ＋ 0.25 m |
+| 站位點 | 該部分路徑的終點（Unity 計算出的「最接近目標的可達點」） |
+| 移動 | 朝站位點走（沿路徑）；距站位點 ≤ 0.35 m 視為抵達、> 0.7 m 才離開抵達 ⇒ 抵達後**不發布移動意圖**（待命；朝向照舊由 Priority 2 面向目標） |
+| 重新評估 | 目標自選點後水平移動 > 1.5 m ⇒ 重算最接近點；新點離舊點 > 1.0 m 才換 |
+| 離開 | 每 0.5 s 最多一次以同步查詢重算「自己 → 目標」的路徑：完整，或終點已在 `attackRange` 內 ⇒ 離開，交還現行行為 |
+| 清除 | 脫戰、目標死亡、自己死亡；離網 `Recover` 期間凍結 |
+| 不做 | 目標本身完全不在 NavMesh 上（`PathInvalid`、沒有路徑）維持現行行為——另案 |
+
+### 12.4 驗收（同一組 P5-0 情境，多輪分布；`compare_metrics.py`）
+
+| 情境 | P5a 預期 | 判定方式 |
+|---|---|---|
+| Unreachable | noProgress 大幅下降（基線 804／1195）、stuck 下降、攻擊 0 不變、待命在最接近點 | 改動後範圍完全落在基線範圍外（BETTER） |
+| 全部情境 | 出拳／受擊中的 stuck ＝ 0（基線 27–156） | BETTER |
+| CornerPinned | Retreat 推牆時 stuck 仍被偵測（真陽性） | stuck > 0 |
+| 其他所有指標 | 不退步 | 主要指標 SAME 或 OVERLAP；任何 WORSE 都要解釋 |
+
+另有非 Explicit 的回歸測試（PlayMode：不可達目標 ⇒ 待命、不推牆；EditMode：A1 純邏輯、卡住窗純函數）、A5 新寫入規則、零 GC。
+
+### 12.5 實作狀態與前後比較（2026-10-14：Automated Verification Passed／Human Verification Pending）
+
+**程式**：`MotionExecutionData`（黑板，ADR-012）、`MotionDriver.ExecuteBaseMovement` 在 `Move` 之後寫入、`EnemyNavigator.ReportExecution`／`UpdateStuck`（被允許移動的時間窗）、`EnemyTacticalPositioning`（A1）、`AIMovementSource` 接線（死亡／脫戰清除）。A5 新增 `MotionExecution` 寫入規則、A56（站位只拿目標的值）。
+
+**自動化驗證**：EditMode 969（新增 A1 純邏輯 7 案、卡住窗 7 案、A56；只剩 K-1）；新 PlayMode 回歸 `EnemyNavigationProgressPlayModeTests` 3／3：A1 第 1 帧判定不可達、待命點離最接近點 0.10 m、最後 4 s 漂移 0.000 m、意圖 0／240、卡住 0、攻擊 0；開闊平地出拳 178＋受擊 301 帧、卡住 0；牆角 Retreat 推牆卡住 315 帧（真陽性保留）。**R3**：EditMode 969（K-1）、PlayMode 122（K-2）⇒ `VERIFIED_WITH_KNOWN_FAILURES`；影子樣本有效、建立第一個可信快照（不計入 Q5：計畫時沒有快照）。
+
+**前後比較**（`docs/artifacts/p5-metrics/p5a-comparison.md`，`compare_metrics.py`）：before＝改動前 5 輪（CornerPinned 6 輪），after＝P5a 5–8 輪。只有範圍**完全不重疊**才算改變：
+
+| 情境 | 指標 | before（min／med／max） | after | 判定 |
+|---|---|---|---|---|
+| Unreachable | noProgress（帧） | 804／804／804 | **0／0／0** | BETTER |
+| Unreachable | stuck（帧） | 709／709／709 | **0** | — |
+| Unreachable | 路徑請求 | 1 | 2 | WORSE（**預期**：多一次「通往待命點」的請求） |
+| 所有 8 個情境 | 出拳／受擊中的 stuck | 25–156 | **0**（CornerPinned 2，見下） | BETTER |
+| CornerPinned | stuck（推牆真陽性） | 474–511 | 368 | 保留（剩下的就是真的推牆） |
+| 其餘所有指標 | — | — | — | SAME 或 OVERLAP（16 項 OVERLAP：在基線浮動內，**不視為改變**） |
+
+**CornerPinned 的 2 帧不是違規**：`IsStuck` 在順序 2.5 依「上一帧的執行結果」計算，FSM 在順序 4 才切進 Action ⇒ 出拳的**第一帧**仍顯示上一帧（真的在推牆）的結論。為了驗證，探針新增帧對齊指標 `stuckAfterNonExecuted`（上一帧在攻擊／受擊中、本帧仍回報卡住）：CornerPinned 與 AttackAndHurt 各 3 輪 **全部 0**。
+
+**量測工具的修正**：P5a 第一輪「after」的列被標成改動前的 commit（改動尚未提交，探針只記 HEAD）——以時間切開後重新標記（`p5a-wip`）。探針現在每列記錄 `sources`（`Assets/Scripts/**/*.cs` 內容雜湊），比較工具以它分組，未提交的改動不會再混入基線。
+
+**沒有改變的事（刻意）**：Strafe／Retreat 行為、攻擊判定、牆角困境（CornerPinned 的 T1／T2 指標全部 OVERLAP）——這些屬於 P5b。
+
+**⏳ 人工 Play（一次）**：把玩家站到敵人走不到的高台／圍欄內——敵人應走到最近處停下面向你，不再原地推牆；正常打鬥（出拳、被打）看起來與改動前一樣。

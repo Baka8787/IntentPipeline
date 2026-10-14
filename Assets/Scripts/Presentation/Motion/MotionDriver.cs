@@ -560,9 +560,9 @@ namespace Project.Presentation.Motion
             }
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-            Vector3 posBeforeMove = transform.position;
             Vector3 requestedMovementThisFrame = finalMovement;
 #endif
+            Vector3 posBeforeMove = transform.position;
 
             // 總出口呼叫
             // 🔬 MEASUREMENT-ONLY（docs/43 §9）：接住 Move() 回傳的 CollisionFlags 只為了 Editor／
@@ -572,6 +572,17 @@ namespace Project.Presentation.Motion
 #else
             characterController.Move(finalMovement * Time.deltaTime);
 #endif
+
+            // 🆕（2026-10-14，ADR-012 Trial）發布本帧基礎移動的**執行事實**——Move 之後寫，只回報、不判斷。
+            // 只有這條路徑寫：其他位移路徑留下過期的 Frame，讀者自然視為「本帧未被允許照意圖移動」（ADR-012 D1）。
+            Vector3 achievedHorizontal = transform.position - posBeforeMove;
+            achievedHorizontal.y = 0f;
+            data.MotionExecution = new MotionExecutionData
+            {
+                Frame = Time.frameCount,
+                RequestedHorizontalDistance = horizontalVelocity.magnitude * Time.deltaTime,
+                AchievedHorizontalDistance = achievedHorizontal.magnitude,
+            };
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (enableStepDownAssist && logStepDownAssist)

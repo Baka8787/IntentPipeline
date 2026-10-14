@@ -28,7 +28,11 @@
 >   - 重點：**Unreachable 推牆**（允許移動帧 67% 無進展、`IsStuck` 11.8 s、0 次攻擊）；**Pillar 隔柱出拳 1 次**（帶內被擋 1.47 s）；ThinWall 繞牆、未隔牆出拳；**Corner 未重現 T1／T2**（strafeBlocked／recover 0）⇒ 要當 S2 驗收情境得先收緊幾何；出拳／受擊中 `IsStuck` 誤報 27–89 帧（§1.4 預測成立）。
 >   - §1.4 待確認項已答：Y Bot 受擊 43 帧 ≈ 0.72 s ＝ `Bake_Fists_Hit_Right`（探針只觸發無方向受擊；`_Left` 1.17 s 未量）。
 >   - 可重現性：主要指標兩輪逐值相同；移動距離、模式切換、stuck 帧有小幅浮動（不是逐位元可重現）。
-> - ⛔ **P5a 未開始**（等你決定開工）；P5b 在 P5a 驗證之後且需 D7 裁決。
+> - ✅ **CornerPinned（`docs/56` §11.6）**：原 Corner 重現不了牆角問題 ⇒ 新增敵人被困在牆角、目標壓近的情境；三輪基線 Retreat 推牆無進展 359–372 帧（T2 穩定）、兩側側移皆擋 175–463 帧（T1、浮動大）。
+> - ✅ **P5a（`docs/56` §12；ADR-012 Trial）——Automated Verification Passed／⏳ Human Verification Pending**：D7-S1（`MotionDriver` 發布 `MotionExecution`，卡住＝被允許移動卻沒有進展）＋A1（目標不可達 ⇒ 停在最接近可達點待命）。A2 移到 P5b（歸因：A2 屬站位／攻擊合法性）。
+>   - 前後比較（5 輪 vs 5–8 輪，範圍不重疊才算）：Unreachable noProgress 804→**0**；8 個情境出拳／受擊中 stuck 25–156→**0**（帧對齊指標全 0）；CornerPinned 推牆真陽性保留；其餘全部在基線浮動內。R3：`VERIFIED_WITH_KNOWN_FAILURES`（K-1／K-2）。
+>   - ⏳ 人工 Play：玩家站在敵人到不了的地方 ⇒ 敵人走到最近處停下、不推牆；一般打鬥觀感不變。
+> - ⏭ **P5b 未開始**：站位槽＋承諾／遲滯、A2（隔牆）、Retreat 不推牆（T2）、牆角困境（T1）；⛔ 不改攻擊合法性（D5 未裁決）。驗收情境 CornerPinned／Pillar／ThinWall。
 
 > # 🟥 2026-10-10（第四輪，優先於 Traversal 後續）：Unity Editor 記憶體／日誌暴增調查（`docs/53`，診斷輪，⛔ 未修正）
 >

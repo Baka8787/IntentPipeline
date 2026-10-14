@@ -86,31 +86,88 @@ namespace Project.Tests.EditMode
 
         // ── P0.4 卡住偵測（只回報） ───────────────────────────────────────
 
+        // 🔄（2026-10-14，ADR-012 AC2）卡住＝「有移動請求、實際被允許移動、但沒有有效進展」。
+        //    舊版只看「上一帧有沒有意圖」，出拳／受擊期間（意圖照發、但根本不執行）會被誤判卡住——P5-0 量到 27–156 帧。
+
+        private const float Dt = 1f / 60f;
+        private const float WalkStep = 1.64f * Dt;   // walk 一帧要求的水平位移
+
+        private static int FramesForWindow => Mathf.CeilToInt(Settings.StuckWindowSeconds / Dt) + 1;
+
         [Test]
-        public void P04_Stuck_OnlyWhenWantingToMoveWithoutProgress()
+        public void P04_AllowedToMove_NoProgress_IsStuck()
         {
-            bool hasAnchor = false;
-            Vector3 anchor = default;
-            float anchorTime = 0f;
-            Vector3 position = Vector3.zero;
+            var w = new StuckWindow();
+            bool stuck = false;
+            for (int i = 0; i < FramesForWindow; i++)
+                stuck = EnemyNavigator.UpdateStuck(ref w, true, WalkStep, 0f, Dt, Settings);
+            Assert.IsTrue(stuck, "被允許照意圖移動一整個窗、實際沒有前進 ⇒ 卡住");
+        }
 
-            Assert.IsFalse(Step(position, true, 0f), "第一帧只建立錨點");
-            Assert.IsFalse(Step(position, true, Settings.StuckWindowSeconds * 0.5f), "時間窗內不判定");
-            Assert.IsTrue(Step(position, true, Settings.StuckWindowSeconds + 0.01f), "想移動卻整個時間窗沒前進 ⇒ 卡住");
+        [Test]
+        public void P04_NotAllowedToMove_NeitherAccumulatesNorReports()
+        {
+            // 出拳 0.8 s、受擊 0.72 s：上一帧沒有執行基礎移動（報告過期）。
+            var w = new StuckWindow();
+            for (int i = 0; i < FramesForWindow * 3; i++)
+                Assert.IsFalse(EnemyNavigator.UpdateStuck(ref w, false, WalkStep, 0f, Dt, Settings),
+                    "攻擊／受擊／Traversal 期間不得回報卡住");
+            Assert.AreEqual(0f, w.ExecutedSeconds, "不被允許移動的帧不得累積");
+        }
 
-            Assert.IsFalse(Step(position, false, 2f), "不想移動 ⇒ 不是卡住（停下來不算）");
-            Assert.IsFalse(Step(position, true, 2.1f), "重新想移動 ⇒ 重新計時");
+        [Test]
+        public void P04_WindowSurvivesAnInterruption_AndContinuesAfterIt()
+        {
+            var w = new StuckWindow();
+            int half = FramesForWindow / 2;
+            for (int i = 0; i < half; i++) EnemyNavigator.UpdateStuck(ref w, true, WalkStep, 0f, Dt, Settings);
+            for (int i = 0; i < 48; i++) Assert.IsFalse(EnemyNavigator.UpdateStuck(ref w, false, WalkStep, 0f, Dt, Settings));
+            bool stuck = false;
+            for (int i = 0; i < FramesForWindow - half; i++) stuck = EnemyNavigator.UpdateStuck(ref w, true, WalkStep, 0f, Dt, Settings);
+            Assert.IsTrue(stuck, "推牆—出拳—繼續推牆：被允許移動的時間合計滿一個窗就判定（中斷不清空）");
+        }
 
-            float t = 2.1f;
-            for (int i = 0; i < 30; i++)
+        [Test]
+        public void P04_Progress_IsNeverStuck()
+        {
+            var w = new StuckWindow();
+            for (int i = 0; i < FramesForWindow * 4; i++)
+                Assert.IsFalse(EnemyNavigator.UpdateStuck(ref w, true, WalkStep, WalkStep * 0.9f, Dt, Settings), "有進展 ⇒ 永遠不卡住");
+        }
+
+        [Test]
+        public void P04_NegligibleRequest_ResetsTheWindow_StandingStillIsNotStuck()
+        {
+            var w = new StuckWindow();
+            for (int i = 0; i < FramesForWindow - 2; i++) EnemyNavigator.UpdateStuck(ref w, true, WalkStep, 0f, Dt, Settings);
+            Assert.IsFalse(EnemyNavigator.UpdateStuck(ref w, true, 0f, 0f, Dt, Settings), "被允許移動但沒有請求（停下來）");
+            Assert.AreEqual(0f, w.ExecutedSeconds, "停下來重置窗");
+            for (int i = 0; i < FramesForWindow * 2; i++)
+                Assert.IsFalse(EnemyNavigator.UpdateStuck(ref w, true, 0f, 0f, Dt, Settings), "一直站著不是卡住");
+        }
+
+        [Test]
+        public void P04_PartialProgress_UsesTheRatio()
+        {
+            var slow = new StuckWindow();
+            var fine = new StuckWindow();
+            bool slowStuck = false, fineStuck = false;
+            for (int i = 0; i < FramesForWindow; i++)
             {
-                t += 0.1f;
-                position += new Vector3(Settings.StuckMinProgress * 1.5f, 0f, 0f);
-                Assert.IsFalse(Step(position, true, t), "持續前進 ⇒ 永遠不卡住");
+                slowStuck = EnemyNavigator.UpdateStuck(ref slow, true, WalkStep, WalkStep * (EnemyNavigator.StuckProgressRatio * 0.5f), Dt, Settings);
+                fineStuck = EnemyNavigator.UpdateStuck(ref fine, true, WalkStep, WalkStep * (EnemyNavigator.StuckProgressRatio * 2f), Dt, Settings);
             }
+            Assert.IsTrue(slowStuck, "實際位移遠低於要求（被擋住只剩滑行）⇒ 卡住");
+            Assert.IsFalse(fineStuck, "實際位移達到要求的一定比例 ⇒ 不卡住");
+        }
 
-            bool Step(Vector3 p, bool wants, float now) =>
-                EnemyNavigator.UpdateStuck(ref hasAnchor, ref anchor, ref anchorTime, p, wants, now, Settings);
+        [Test]
+        public void P04_StaleReport_MeansNotExecuted()
+        {
+            var report = new Project.Core.Blackboard.MotionExecutionData
+                { Frame = 100, RequestedHorizontalDistance = WalkStep, AchievedHorizontalDistance = 0f };
+            Assert.IsTrue(report.DescribesFrame(100));
+            Assert.IsFalse(report.DescribesFrame(101), "沒有呼叫 ExecuteBaseMovement 的帧留下過期報告 ⇒ 視為未執行（ADR-012 D1）");
         }
 
         // ── 沒有 agent（EditMode／離網）時的安全退化 ─────────────────────

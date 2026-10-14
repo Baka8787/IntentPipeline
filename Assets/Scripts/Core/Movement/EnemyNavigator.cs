@@ -1,4 +1,5 @@
 using System;
+using Project.Core.Blackboard;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -20,10 +21,10 @@ namespace Project.Core.Movement
         [Tooltip("PathPartial（目的地不可完整抵達）時，離部分路徑終點小於這個距離就改為直接朝目的地。")]
         [Min(0f)] public float PartialPathArriveDistance;
 
-        [Tooltip("卡住判定的時間窗（秒）：想移動卻在這段時間內前進不到 StuckMinProgress。")]
+        [Tooltip("卡住判定的時間窗（秒）——只累積「被允許照意圖移動」的時間（ADR-012）；攻擊、受擊、Traversal、停步不累積。")]
         [Min(0f)] public float StuckWindowSeconds;
 
-        [Tooltip("卡住判定的最小前進距離（公尺）。")]
+        [Tooltip("一個窗內至少要求這麼多水平位移（公尺）才判定；要求太少（幾乎沒想動）不算卡住。")]
         [Min(0f)] public float StuckMinProgress;
 
         public static EnemyNavigationSettings Default => new EnemyNavigationSettings
@@ -61,20 +62,21 @@ namespace Project.Core.Movement
     /// 不決定目的地（行為元件的事）；不產生速度（producer 的事）。
     /// 位置唯一的出海口仍是 <c>MotionDriver</c>。
     /// </summary>
-    internal sealed class EnemyNavigator : IEnemyNavigationQuery
+    internal sealed class EnemyNavigator : IEnemyNavigationQuery, IEnemyPathQuery
     {
         private NavMeshAgent _agent;
         // 唯讀查詢用的路徑容器：建構時配置一次，之後重複使用（零 GC）。
         private readonly NavMeshPath _queryPath = new NavMeshPath();
+        // GetCornersNonAlloc 的固定緩衝（零 GC）；超過 32 個轉角時取到的「終點」是第 32 個——只用在不可達判定，偏保守。
+        private readonly Vector3[] _corners = new Vector3[32];
         private EnemyNavigationSettings _settings;
 
         private bool _hasRequest;
         private Vector3 _requestedDestination;
         private float _lastRequestTime;
 
-        private bool _hasProgressAnchor;
-        private Vector3 _progressAnchor;
-        private float _progressAnchorTime;
+        // 🔄（2026-10-14，ADR-012）卡住判定改讀 MotionDriver 發布的執行事實；只在「被允許照意圖移動」的帧累積。
+        private StuckWindow _stuckWindow;
 
         internal EnemyNavigator(EnemyNavigationSettings settings)
         {
@@ -87,7 +89,10 @@ namespace Project.Core.Movement
         /// <summary>同步後 agent 模擬位置與角色實際位置的水平差（診斷；agent 位置會被夾在 NavMesh 上）。</summary>
         internal float LastSyncDivergence { get; private set; }
 
-        /// <summary>最近一次 <see cref="ReportProgress"/> 判定為卡住（只回報，P0 不改任何行為）。</summary>
+        /// <summary>
+        /// 最近一次 <see cref="ReportExecution"/> 的判定：**有移動請求、實際被允許移動、但沒有有效進展**（ADR-012 D5）。
+        /// 只回報——任何「卡住之後做什麼」都屬於行為元件（ADR-012 D3）。
+        /// </summary>
         internal bool IsStuck { get; private set; }
 
         internal bool IsOnNavMesh => _agent != null && _agent.isActiveAndEnabled && _agent.isOnNavMesh;
@@ -171,12 +176,30 @@ namespace Project.Core.Movement
         }
 
         /// <summary>
-        /// （P0.4）卡住偵測，只回報。<paramref name="wantsToMove"/>＝上一帧是否發布了移動意圖。
+        /// 🔄（2026-10-14，ADR-012）卡住偵測，只回報。<paramref name="report"/>＝黑板上的 <c>MotionExecution</c>
+        /// （上一帧 LateUpdate 寫入）；<paramref name="currentFrame"/>＝本帧 <c>Time.frameCount</c>。
+        /// 報告不是上一帧的 ⇒ 上一帧沒有執行基礎移動（攻擊、受擊、Traversal、停步、時間凍結）⇒ 不累積、不回報卡住。
         /// </summary>
-        internal void ReportProgress(Vector3 position, bool wantsToMove, float now)
+        internal void ReportExecution(in MotionExecutionData report, int currentFrame, float deltaTime)
         {
-            IsStuck = UpdateStuck(ref _hasProgressAnchor, ref _progressAnchor, ref _progressAnchorTime,
-                position, wantsToMove, now, _settings);
+            bool executedLastFrame = report.DescribesFrame(currentFrame - 1);
+            IsStuck = UpdateStuck(ref _stuckWindow, executedLastFrame, report.RequestedHorizontalDistance,
+                report.AchievedHorizontalDistance, deltaTime, _settings);
+        }
+
+        /// <summary>
+        /// 🆕（P5a，`docs/56` §12.3）目前 agent 路徑的唯讀快照（不在計算中才有效）。站位元件用它判斷「通往目標的路徑是否只到得了一部分」。
+        /// </summary>
+        internal EnemyPathSnapshot SnapshotPath()
+        {
+            if (!IsOnNavMesh || !_hasRequest || _agent.pathPending || !_agent.hasPath) return default;
+            return new EnemyPathSnapshot
+            {
+                Valid = true,
+                Destination = _requestedDestination,
+                Partial = _agent.pathStatus == NavMeshPathStatus.PathPartial,
+                End = _agent.pathEndPosition,
+            };
         }
 
         // =====================================================================
@@ -192,6 +215,21 @@ namespace Project.Core.Movement
             }
             walkable = default;
             return false;
+        }
+
+        bool IEnemyPathQuery.TryCalculatePathEnd(Vector3 from, Vector3 to, float targetSampleRadius, out Vector3 end, out bool complete)
+        {
+            end = default;
+            complete = false;
+            if (!NavMesh.SamplePosition(from, out NavMeshHit start, 1f, NavMesh.AllAreas)) return false;
+            if (!NavMesh.SamplePosition(to, out NavMeshHit goal, Mathf.Max(0.01f, targetSampleRadius), NavMesh.AllAreas)) return false;
+            if (!NavMesh.CalculatePath(start.position, goal.position, NavMesh.AllAreas, _queryPath)) return false;
+            if (_queryPath.status == NavMeshPathStatus.PathInvalid) return false;
+            int count = _queryPath.GetCornersNonAlloc(_corners);
+            if (count <= 0) return false;
+            end = _corners[Mathf.Min(count, _corners.Length) - 1];
+            complete = _queryPath.status == NavMeshPathStatus.PathComplete;
+            return true;
         }
 
         bool IEnemyNavigationQuery.IsPathComplete(Vector3 from, Vector3 to)
@@ -249,38 +287,67 @@ namespace Project.Core.Movement
             return PathFollow.FollowCorner;
         }
 
+        /// <summary>每帧要求位移低於此值視為沒有請求（停下來、減速尾端）——被允許移動時重置窗，不算卡住。</summary>
+        internal const float NegligibleRequestPerFrame = 1e-4f;
+
+        /// <summary>窗內實際位移低於「要求 × 此比例」即為沒有有效進展。</summary>
+        internal const float StuckProgressRatio = 0.25f;
+
         /// <summary>
-        /// 卡住判定：想移動時，以一個錨點計時；前進超過門檻就換錨點；時間窗內沒前進夠 ⇒ 卡住。
-        /// 不想移動時清空（停下來不是卡住）。
+        /// 🔄（2026-10-14，ADR-012 D5）卡住判定（純函數）。「有移動請求、實際被允許移動、但沒有有效進展」：
+        /// <list type="bullet">
+        /// <item>上一帧沒有執行基礎移動 ⇒ 不累積、窗保留（攻擊／受擊結束後接著算）、本帧不回報卡住</item>
+        /// <item>被允許移動但要求可忽略 ⇒ 重置窗、不卡住（停下來不是卡住）</item>
+        /// <item>否則累積被允許移動的時間與要求／實際位移；窗滿時：要求 ≥ <c>StuckMinProgress</c> ∧ 實際 &lt; 要求 × <see cref="StuckProgressRatio"/> ⇒ 卡住；
+        ///       結論保持到下一個窗</item>
+        /// </list>
         /// </summary>
         internal static bool UpdateStuck(
-            ref bool hasAnchor,
-            ref Vector3 anchor,
-            ref float anchorTime,
-            Vector3 position,
-            bool wantsToMove,
-            float now,
+            ref StuckWindow window,
+            bool executedLastFrame,
+            float requested,
+            float achieved,
+            float deltaTime,
             EnemyNavigationSettings settings)
         {
-            if (!wantsToMove)
+            if (!executedLastFrame) return false;
+            if (requested < NegligibleRequestPerFrame)
             {
-                hasAnchor = false;
+                window = default;
                 return false;
             }
 
-            Vector3 moved = position - anchor;
-            moved.y = 0f;
-            float minimum = Mathf.Max(0f, settings.StuckMinProgress);
-            if (!hasAnchor || moved.sqrMagnitude >= minimum * minimum)
+            window.ExecutedSeconds += Mathf.Max(0f, deltaTime);
+            window.Requested += requested;
+            window.Achieved += Mathf.Max(0f, achieved);
+            if (window.ExecutedSeconds >= Mathf.Max(0f, settings.StuckWindowSeconds))
             {
-                hasAnchor = true;
-                anchor = position;
-                anchorTime = now;
-                return false;
+                window.Stuck = window.Requested >= Mathf.Max(0f, settings.StuckMinProgress)
+                               && window.Achieved < StuckProgressRatio * window.Requested;
+                window.ExecutedSeconds = 0f;
+                window.Requested = 0f;
+                window.Achieved = 0f;
             }
-
-            return now - anchorTime >= Mathf.Max(0f, settings.StuckWindowSeconds);
+            return window.Stuck;
         }
+    }
+
+    /// <summary>🆕（2026-10-14，ADR-012）卡住判定的累積窗（只累積被允許移動的帧）。</summary>
+    internal struct StuckWindow
+    {
+        public float ExecutedSeconds;
+        public float Requested;
+        public float Achieved;
+        public bool Stuck;
+    }
+
+    /// <summary>🆕（P5a）agent 目前路徑的唯讀快照。<see cref="Valid"/>＝false 表示沒有可讀的路徑（計算中、離網、沒請求過）。</summary>
+    internal struct EnemyPathSnapshot
+    {
+        public bool Valid;
+        public Vector3 Destination;
+        public bool Partial;
+        public Vector3 End;
     }
 
     /// <summary>

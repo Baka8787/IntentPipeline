@@ -288,6 +288,9 @@ namespace Project.Tests.PlayMode
                 {
                     m.StuckFrames++;
                     if (state == StateType.Action || state == StateType.Hurt) m.StuckDuringActionOrHurtFrames++;
+                    // 帧對齊版（docs/56 §12.5）：IsStuck 是順序 2.5 依「上一帧的執行結果」算的；上一帧在攻擊／受擊中
+                    // ＝上一帧沒有執行基礎移動。這才是 ADR-012「不被允許移動的帧不回報卡住」的直接量測。
+                    if (previousState == StateType.Action || previousState == StateType.Hurt) m.StuckAfterNonExecutedFrame++;
                 }
 
                 previous = position;
@@ -361,7 +364,7 @@ namespace Project.Tests.PlayMode
             public int AllowedMoveFrames, NoProgressFrames, RecoverFrames, StrafeBlockedFrames;
             public int StrafeFrames, RetreatFrames, RetreatNoProgressFrames;
             public int EngagementSwitches, StrafeFlips, PathRequests;
-            public int StuckFrames, StuckDuringActionOrHurtFrames;
+            public int StuckFrames, StuckDuringActionOrHurtFrames, StuckAfterNonExecutedFrame;
             public int ActionFrames, MaxActionRun, HurtFrames, HurtEpisodes, MaxHurtRun;
             public float Travelled, DistanceSum;
 
@@ -375,18 +378,18 @@ namespace Project.Tests.PlayMode
                 $"meanDist={(CombatFrames > 0 ? DistanceSum / CombatFrames : 0f):F2}m travelled={Travelled:F2}m m/validSec={MetersPerValidSecond:F2} " +
                 $"attacks={AttacksStarted} attacksNotValid={AttacksWhileNotValid} noProgress={NoProgressFrames}/{AllowedMoveFrames} " +
                 $"recover={RecoverFrames} strafe={StrafeFrames}f strafeBlocked={StrafeBlockedFrames} retreat={RetreatFrames}f retreatNoProgress={RetreatNoProgressFrames} modeSwitches={EngagementSwitches} strafeFlips={StrafeFlips} " +
-                $"pathRequests={PathRequests} stuck={StuckFrames} stuckInActionHurt={StuckDuringActionOrHurtFrames} " +
+                $"pathRequests={PathRequests} stuck={StuckFrames} stuckInActionHurt={StuckDuringActionOrHurtFrames} stuckAfterNonExecuted={StuckAfterNonExecutedFrame} " +
                 $"action={ActionFrames}f(max {MaxActionRun}) hurt={HurtFrames}f/{HurtEpisodes}ep(max {MaxHurtRun})";
 
             public static string Header =>
-                "utc\tcommit\tscenario\tvariant\tframes\tcombatFrames\tattackValidRatio\tinBandFrames\tinBandBlockedFrames\tfirstValidFrame\t" +
+                "utc\tcommit\tsources\tscenario\tvariant\tframes\tcombatFrames\tattackValidRatio\tinBandFrames\tinBandBlockedFrames\tfirstValidFrame\t" +
                 "meanDistance\ttravelled\tmetersPerValidSecond\tattacks\tattacksNotValid\tnoProgressFrames\tallowedMoveFrames\t" +
                 "recoverFrames\tstrafeBlockedFrames\tmodeSwitches\tstrafeFlips\tpathRequests\tstuckFrames\tstuckInActionHurt\t" +
-                "actionFrames\tmaxActionRun\thurtFrames\thurtEpisodes\tmaxHurtRun\tstrafeFrames\tretreatFrames\tretreatNoProgressFrames";
+                "actionFrames\tmaxActionRun\thurtFrames\thurtEpisodes\tmaxHurtRun\tstrafeFrames\tretreatFrames\tretreatNoProgressFrames\tstuckAfterNonExecuted";
 
-            public string Row(string utc, string commit) => string.Join("\t", new[]
+            public string Row(string utc, string commit, string sources) => string.Join("\t", new[]
             {
-                utc, commit, Scenario, Variant, Frames.ToString(), CombatFrames.ToString(), AttackValidRatio.ToString("F4"),
+                utc, commit, sources, Scenario, Variant, Frames.ToString(), CombatFrames.ToString(), AttackValidRatio.ToString("F4"),
                 InBandFrames.ToString(), InBandReachBlockedFrames.ToString(), FirstAttackValidFrame.ToString(),
                 (CombatFrames > 0 ? DistanceSum / CombatFrames : 0f).ToString("F3"), Travelled.ToString("F3"),
                 MetersPerValidSecond.ToString("F3"), AttacksStarted.ToString(), AttacksWhileNotValid.ToString(),
@@ -395,6 +398,7 @@ namespace Project.Tests.PlayMode
                 StuckDuringActionOrHurtFrames.ToString(), ActionFrames.ToString(), MaxActionRun.ToString(),
                 HurtFrames.ToString(), HurtEpisodes.ToString(), MaxHurtRun.ToString(),
                 StrafeFrames.ToString(), RetreatFrames.ToString(), RetreatNoProgressFrames.ToString(),
+                StuckAfterNonExecutedFrame.ToString(),
             });
         }
 
@@ -419,8 +423,39 @@ namespace Project.Tests.PlayMode
             using (var writer = new StreamWriter(path, append: true))
             {
                 if (!exists) writer.WriteLine(Metrics.Header);
-                writer.WriteLine(m.Row(System.DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"), ReadCommit()));
+                writer.WriteLine(m.Row(System.DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"), ReadCommit(), SourcesHash()));
             }
+        }
+
+        private static string _sourcesHash;
+
+        /// <summary>
+        /// 執行期程式碼（Assets/Scripts 下所有 .cs）內容雜湊的前 10 碼。`commit` 只是 HEAD——未提交的改動也會被量到，
+        /// 只看 commit 會把改動前後的列混在一起（docs/56 §12.5：P5a 第一輪就發生過）。
+        /// </summary>
+        private static string SourcesHash()
+        {
+            if (_sourcesHash != null) return _sourcesHash;
+            try
+            {
+                string root = Path.GetFullPath(Path.Combine(Application.dataPath, "Scripts"));
+                var files = new List<string>(Directory.GetFiles(root, "*.cs", SearchOption.AllDirectories));
+                files.Sort(System.StringComparer.Ordinal);
+                using (var sha = System.Security.Cryptography.SHA256.Create())
+                {
+                    foreach (string f in files)
+                    {
+                        byte[] name = System.Text.Encoding.UTF8.GetBytes(f.Substring(root.Length).Replace(Path.DirectorySeparatorChar, '/'));
+                        byte[] body = File.ReadAllBytes(f);
+                        sha.TransformBlock(name, 0, name.Length, null, 0);
+                        sha.TransformBlock(body, 0, body.Length, null, 0);
+                    }
+                    sha.TransformFinalBlock(new byte[0], 0, 0);
+                    _sourcesHash = System.BitConverter.ToString(sha.Hash).Replace("-", "").Substring(0, 10).ToLowerInvariant();
+                }
+            }
+            catch (System.Exception) { _sourcesHash = "unknown"; }
+            return _sourcesHash;
         }
 
         private static string ReadCommit()
